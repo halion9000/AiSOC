@@ -24,42 +24,12 @@ const QUICK_ACTIONS = [
   'Check Reputation',
 ] as const;
 
-const MOCK_RESPONSES: Record<string, string> = {
-  'investigate alert':
-    'Analyzing alert ALT-4092... Identified lateral movement from 10.0.3.17 to DC01. ' +
-    'The source host has 3 prior alerts in the last 48h. ATT&CK mapping: T1021.002 (SMB/Admin Shares). ' +
-    'Recommend isolating the host and resetting credentials for svc-backup.',
-  'summarize case':
-    'Case CS-2187 Summary:\n' +
-    '- 7 correlated alerts across 3 hosts\n' +
-    '- Timeline: initial access at 02:14 UTC, privilege escalation at 02:31 UTC, exfil attempt at 03:05 UTC\n' +
-    '- Affected users: j.harlow, svc-backup\n' +
-    '- Current status: containment in progress, 2 hosts isolated',
-  'find iocs':
-    'Found 3 related IOCs across 2 tenants:\n' +
-    '1. IP 198.51.100.47 — C2 callback (confidence: 92%)\n' +
-    '2. Hash e3b0c442...b855 — LockBit dropper (confidence: 95%)\n' +
-    '3. Domain secure-login.example-phish.com — credential harvesting (confidence: 88%)\n\n' +
-    'All three match STIX indicators published in the last 24h.',
-  'check reputation':
-    'Reputation check for 198.51.100.47:\n' +
-    '- VirusTotal: 14/87 engines flagged malicious\n' +
-    '- AbuseIPDB: reported 23 times, confidence 91%\n' +
-    '- First seen: 2025-04-12, Last seen: active\n' +
-    '- Associated campaigns: APT-42, Operation ShadowGate\n' +
-    '- Recommendation: block at perimeter immediately',
-};
-
-function getMockResponse(input: string): string {
-  const lower = input.toLowerCase();
-  for (const [key, response] of Object.entries(MOCK_RESPONSES)) {
-    if (lower.includes(key)) return response;
-  }
+/** Fallback when the LLM backend is unreachable. */
+function offlineFallback(input: string): string {
   return (
-    `Analyzing your query: "${input}"\n\n` +
-    'Found 3 related IOCs across 2 tenants. Cross-referencing with MITRE ATT&CK framework... ' +
-    'Identified techniques T1078.002, T1059.001, and T1071.001. ' +
-    'Risk assessment: HIGH. Recommend reviewing the correlated timeline in the case view.'
+    'The AI backend is currently unreachable. Check that the AiSOC stack ' +
+    'is running and that CORE\'s provider config is synced.\n\n' +
+    `Your query was: "${input}"`
   );
 }
 
@@ -114,16 +84,35 @@ export default function InvestigationChat({ runId }: Props) {
     setInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
+    (async () => {
+      let content: string;
+      try {
+        const res = await fetch('/api/v1/copilot/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: trimmed,
+            context: { caseId: CONTEXT.caseId, page: 'investigation' },
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          content = data.reply?.content || offlineFallback(trimmed);
+        } else {
+          content = offlineFallback(trimmed);
+        }
+      } catch {
+        content = offlineFallback(trimmed);
+      }
       const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: getMockResponse(trimmed),
+        content,
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
       setIsTyping(false);
-    }, 500);
+    })();
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

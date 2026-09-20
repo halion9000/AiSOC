@@ -25,20 +25,17 @@ const QUICK_PROMPTS = [
   'Which detection rules are noisiest this week?',
 ];
 
-function demoReply(prompt: string, page: string): CopilotMessage {
-  const content =
-    `**Demo reply** — the LLM backend is offline, so this is a stub.\n\n` +
-    `Page context: \`${page}\`\n\n` +
-    `> ${prompt}`;
+/** Fallback message when the LLM backend is unreachable. */
+function offlineReply(prompt: string): CopilotMessage {
   return {
-    id: `demo-${Date.now()}`,
+    id: `offline-${Date.now()}`,
     role: 'assistant',
-    content,
+    content:
+      'The AI backend is currently unreachable. Check that the AiSOC stack ' +
+      'is running and that CORE\'s provider config is synced (rebuild AISOC ' +
+      'from the HUD or run `syncAisocProviderConfig()`).',
     createdAt: new Date().toISOString(),
-    suggestions: [
-      'Open AI Copilot',
-      'Show me the top critical alerts.',
-    ],
+    suggestions: ['Retry', 'Open AISOC status'],
   };
 }
 
@@ -48,7 +45,7 @@ export function CopilotDock() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
-  const [demoMode, setDemoMode] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const pathname = usePathname() ?? '/';
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +82,23 @@ export function CopilotDock() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, sending, open]);
 
+  // Check real backend connectivity on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Lightweight probe: the health endpoint is always available and
+        // doesn't require auth. If it responds, the API (and by extension
+        // the copilot endpoint) is reachable.
+        const res = await fetch('/api/v1/health', { signal: AbortSignal.timeout(5000) });
+        if (!cancelled) setConnectionStatus(res.ok ? 'connected' : 'disconnected');
+      } catch {
+        if (!cancelled) setConnectionStatus('disconnected');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   if (onCopilotPage) return null;
 
   const send = async (prompt: string) => {
@@ -109,10 +123,10 @@ export function CopilotDock() {
       });
       setConversationId(res.conversationId);
       setMessages((prev) => [...prev, res.reply]);
-      setDemoMode(false);
+      setConnectionStatus('connected');
     } catch {
-      setMessages((prev) => [...prev, demoReply(trimmed, pathname)]);
-      setDemoMode(true);
+      setMessages((prev) => [...prev, offlineReply(trimmed)]);
+      setConnectionStatus('disconnected');
     } finally {
       setSending(false);
     }
@@ -170,7 +184,7 @@ export function CopilotDock() {
                 <div>
                   <p className="text-sm font-semibold text-white">AI Copilot</p>
                   <p className="text-[11px] text-slate-400">
-                    {demoMode ? 'Demo mode (offline)' : 'Connected'}
+                    {connectionStatus === 'checking' ? 'Connecting…' : connectionStatus === 'connected' ? 'Connected' : 'Offline (demo)'}
                   </p>
                 </div>
               </div>

@@ -371,10 +371,10 @@ function ContextualPanel({
           ) : null}
           {fallback ? (
             <span
-              title="Running without an LLM. Set OPENAI_API_KEY to enable real answers."
+              title="LLM backend unreachable. Rebuild AISOC or check CORE provider sync."
               className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-200"
             >
-              Demo mode
+              Offline
             </span>
           ) : null}
         </div>

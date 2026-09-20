@@ -149,19 +149,17 @@ function buildDemoReply(prompt: string): CopilotMessage {
   }
 
   return {
-    id: `demo-${Date.now()}`,
+    id: `offline-${Date.now()}`,
     role: 'assistant',
     createdAt: now,
     content: [
-      'Running in demo mode. The LLM backend is not reachable from this session, so this reply is a stub.',
+      'The AI backend is currently unreachable. Check that the AiSOC stack is running and that CORE\'s provider config is synced (rebuild AISOC from the HUD).',
       '',
-      'Real prompts will be forwarded to `POST /api/v1/copilot/chat` once the API service is reachable.',
-      '',
-      `> You said: ${prompt}`,
+      `Your query was: "${prompt}"`,
     ].join('\n'),
     suggestions: [
-      'Show me the top critical alerts.',
-      'What is our MTTR by severity?',
+      'Retry',
+      'Open AISOC status',
     ],
   };
 }
@@ -493,7 +491,7 @@ export function CopilotView() {
                 error ? 'bg-amber-400' : 'bg-emerald-400',
               )}
             />
-            {error ? 'Demo mode' : 'Connected'}
+            {error ? 'Offline' : 'Connected'}
           </div>
         </div>
 
