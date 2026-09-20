@@ -688,8 +688,28 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      # Hal, 2026-09-20: "still has the banner at the top" - traced to
+      # apps/web/Dockerfile's own ARG NEXT_PUBLIC_DEMO_MODE="true"
+      # default. NEXT_PUBLIC_* values are inlined into the compiled JS
+      # bundle at build time, not read at container startup, so the
+      # `environment:` block below can never override this - it's
+      # already baked into whatever image gets used before the
+      # container ever starts. And since pull_policy: missing (below)
+      # meant compose reused the exact same public
+      # ghcr.io/beenuar/aisoc-web:latest image the earlier demo stack
+      # already pulled - a real, published image built with this
+      # exact "true" default - runtime settings here never had a
+      # chance to matter regardless. The Dockerfile's own comment
+      # documents exactly this override for "customers" wanting to
+      # suppress the banner, auto-login, and read-only gating; empty
+      # string is what isDemoMode() (lib/demoMode.ts) treats as false.
+      args:
+        NEXT_PUBLIC_DEMO_MODE: ""
     image: ghcr.io/beenuar/aisoc-web:${AISOC_VERSION:-latest}
-    pull_policy: missing
+    # Forces a real local build using the args above rather than ever
+    # reusing the public image (which has demo mode baked in) purely
+    # because a tag matching `image:` already exists locally.
+    pull_policy: build
     container_name: aisoc-web
     depends_on:
       - api
