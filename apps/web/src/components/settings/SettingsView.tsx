@@ -26,6 +26,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
   ApiError,
+  apiKeysApi,
   connectorsApi,
   deploymentApi,
   type AirgapStatus,
@@ -118,93 +119,6 @@ const DEFAULT_PROFILE: ProfileData = {
 // Deterministic base — no Date.now() to avoid SSR hydration mismatches.
 const MOCK_BASE = new Date('2026-05-06T12:00:00Z').getTime();
 const ago = (mins: number) => new Date(MOCK_BASE - mins * 60 * 1000).toISOString();
-
-const DEMO_CONNECTORS: Connector[] = [
-  {
-    id: 'c-okta',
-    name: 'Okta — Identity Logs',
-    type: 'okta',
-    status: 'active',
-    enabled: true,
-    description: 'System log + risk events from the Okta admin tenant.',
-    lastSync: ago(2),
-    alertsIngested: 1842,
-    alertCount: 1842,
-    createdAt: ago(60 * 24 * 14),
-  },
-  {
-    id: 'c-aws',
-    name: 'AWS GuardDuty — prod-us-east-1',
-    type: 'aws_guardduty',
-    status: 'active',
-    enabled: true,
-    description: 'High/medium severity findings, replicated every 60s.',
-    lastSync: ago(1),
-    alertsIngested: 421,
-    alertCount: 421,
-    createdAt: ago(60 * 24 * 30),
-  },
-  {
-    id: 'c-crowd',
-    name: 'CrowdStrike Falcon EDR',
-    type: 'crowdstrike',
-    status: 'error',
-    enabled: true,
-    description: 'Streaming detections failed — auth token expired.',
-    lastSync: ago(45),
-    alertsIngested: 8754,
-    alertCount: 8754,
-    errorMessage: '401 Unauthorized — refresh OAuth credential.',
-    createdAt: ago(60 * 24 * 60),
-  },
-  {
-    id: 'c-zsc',
-    name: 'Zscaler — DNS / URL Logs',
-    type: 'zscaler',
-    status: 'configuring',
-    enabled: false,
-    description: 'Awaiting NSS feed approval from network team.',
-    createdAt: ago(60 * 6),
-  },
-  {
-    id: 'c-mde',
-    name: 'Microsoft Defender for Endpoint',
-    type: 'mde',
-    status: 'inactive',
-    enabled: false,
-    description: 'Disabled — replaced by CrowdStrike.',
-    lastSync: ago(60 * 24 * 21),
-    alertsIngested: 1244,
-    alertCount: 1244,
-    createdAt: ago(60 * 24 * 90),
-  },
-];
-
-const DEMO_API_KEYS: ApiKey[] = [
-  {
-    id: 'key-1',
-    name: 'CI / Detection-as-Code Pipeline',
-    prefix: 'aisoc_live_xLm9…',
-    scopes: ['detection:read', 'detection:write', 'cases:read'],
-    createdAt: ago(60 * 24 * 90),
-    lastUsedAt: ago(20),
-  },
-  {
-    id: 'key-2',
-    name: 'Splunk forwarder',
-    prefix: 'aisoc_live_aQ02…',
-    scopes: ['ingest:write'],
-    createdAt: ago(60 * 24 * 240),
-    lastUsedAt: ago(2),
-  },
-  {
-    id: 'key-3',
-    name: 'PagerDuty webhook',
-    prefix: 'aisoc_live_TT74…',
-    scopes: ['cases:write', 'cases:read'],
-    createdAt: ago(60 * 24 * 30),
-  },
-];
 
 const DEMO_AUDIT: AuditEntry[] = [
   {
@@ -717,8 +631,16 @@ function IntegrationsPanel() {
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
-  const useFallback = !!error;
-  const connectors = data?.connectors ?? (useFallback ? DEMO_CONNECTORS : []);
+  // Hal, 2026-09-20: full mock-data cleanup pass. This used to be
+  // `const useFallback = !!error; const connectors = data?.connectors ??
+  // (useFallback ? DEMO_CONNECTORS : []);` - which made the ErrorState
+  // branch below (`error && !useFallback`) permanently unreachable, since
+  // useFallback is always exactly !!error, so that condition simplifies to
+  // `error && !error` — always false. The already-correctly-built error UI
+  // (with its own working retry button) could never actually render; fake
+  // connectors (a made-up Okta integration, etc.) silently took over on
+  // every real failure instead of surfacing it.
+  const connectors = data?.connectors ?? [];
 
   const counts = useMemo(() => {
     const c = { active: 0, error: 0, inactive: 0, configuring: 0 };
@@ -729,10 +651,6 @@ function IntegrationsPanel() {
   }, [connectors]);
 
   const onTest = async (connector: Connector) => {
-    if (useFallback) {
-      toast.success(`Test sent to ${connector.name}`);
-      return;
-    }
     try {
       const result = await connectorsApi.test(connector.id);
       toast.success(
@@ -758,9 +676,7 @@ function IntegrationsPanel() {
       { revalidate: false },
     );
     try {
-      if (!useFallback) {
-        await connectorsApi.update(connector.id, { is_enabled: next });
-      }
+      await connectorsApi.update(connector.id, { is_enabled: next });
       toast.success(next ? 'Connector enabled' : 'Connector disabled');
       mutate();
     } catch {
@@ -799,7 +715,7 @@ function IntegrationsPanel() {
               <Skeleton key={i} className="h-20 w-full rounded-lg" />
             ))}
           </div>
-        ) : error && !useFallback ? (
+        ) : error ? (
           <ErrorState
             title="Could not load integrations"
             error={error}
@@ -929,36 +845,48 @@ function StatTile({
 // ─── Panel: API keys ──────────────────────────────────────────────────────────
 
 function ApiKeysPanel() {
-  const [keys, setKeys] = useState<ApiKey[]>(DEMO_API_KEYS);
+  // Hal, 2026-09-20: full mock-data cleanup pass. This used to fabricate a
+  // fake secret entirely client-side (crypto.getRandomValues, never sent
+  // anywhere) and revoke() never called the real backend at all - so a key
+  // "created" here would never actually authenticate against anything.
+  // The real backend endpoint (services/api/app/api/v1/endpoints/api_keys.py)
+  // already existed and its shape matches ApiKey closely; just needed the
+  // frontend actually wired to it.
+  const { data: keys, isLoading, mutate } = useSWR('settings:api-keys', () => apiKeysApi.list());
   const [draftName, setDraftName] = useState('');
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  const create = () => {
+  const create = async () => {
     if (!draftName.trim()) {
       toast.error('Give the key a name');
       return;
     }
-    const idBytes = crypto.getRandomValues(new Uint8Array(6));
-    const id = `key-${Array.from(idBytes).map(b => b.toString(16).padStart(2, '0')).join('')}`;
-    const secretBytes = crypto.getRandomValues(new Uint8Array(16));
-    const secretBody = Array.from(secretBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-    const secret = `aisoc_live_${secretBody}`;
-    const key: ApiKey = {
-      id,
-      name: draftName.trim(),
-      prefix: `${secret.slice(0, 16)}…`,
-      scopes: ['cases:read', 'detection:read'],
-      createdAt: new Date().toISOString(),
-    };
-    setKeys((curr) => [key, ...curr]);
-    setCreatedSecret(secret);
-    setDraftName('');
-    toast.success('API key created');
+    setCreating(true);
+    try {
+      const result = await apiKeysApi.create({
+        name: draftName.trim(),
+        scopes: ['cases:read', 'detection:read'],
+      });
+      setCreatedSecret(result.key);
+      setDraftName('');
+      toast.success('API key created');
+      mutate();
+    } catch {
+      toast.error('Could not create API key');
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const revoke = (id: string) => {
-    setKeys((curr) => curr.filter((k) => k.id !== id));
-    toast.success('Key revoked');
+  const revoke = async (id: string) => {
+    try {
+      await apiKeysApi.revoke(id);
+      toast.success('Key revoked');
+      mutate();
+    } catch {
+      toast.error('Could not revoke key');
+    }
   };
 
   const copy = (value: string) => {
@@ -987,10 +915,11 @@ function ApiKeysPanel() {
           </Field>
           <button
             type="button"
-            onClick={create}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+            onClick={() => void create()}
+            disabled={creating}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
           >
-            Generate key
+            {creating ? 'Generating…' : 'Generate key'}
           </button>
         </div>
 
@@ -1030,7 +959,13 @@ function ApiKeysPanel() {
         </AnimatePresence>
 
         {/* List */}
-        {keys.length === 0 ? (
+        {isLoading && !keys ? (
+          <div className="space-y-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : (keys ?? []).length === 0 ? (
           <EmptyState
             title="No API keys yet"
             description="Create your first key above to authenticate pipelines."
@@ -1049,7 +984,7 @@ function ApiKeysPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800 bg-gray-950/40">
-                {keys.map((k) => (
+                {(keys ?? []).map((k) => (
                   <tr key={k.id}>
                     <td className="px-4 py-3 font-medium text-gray-100">{k.name}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-400">
@@ -1080,7 +1015,7 @@ function ApiKeysPanel() {
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
-                        onClick={() => revoke(k.id)}
+                        onClick={() => void revoke(k.id)}
                         className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20"
                       >
                         Revoke

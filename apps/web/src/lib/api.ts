@@ -5254,6 +5254,31 @@ export const realtimeApi = {
     ),
 };
 
+export const apiKeysApi = {
+  list: () => request<ApiKey[]>('/api/v1/api-keys'),
+
+  create: (input: { name: string; scopes: string[]; expiresInDays?: number }) =>
+    request<{
+      id: string;
+      name: string;
+      key: string;
+      prefix: string;
+      scopes: string[];
+      expiresAt: string | null;
+      createdAt: string;
+    }>('/api/v1/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: input.name,
+        scopes: input.scopes,
+        expires_in_days: input.expiresInDays ?? null,
+      }),
+    }),
+
+  revoke: (id: string) =>
+    request<void>(`/api/v1/api-keys/${id}`, { method: 'DELETE' }),
+};
+
 export default {
   alerts: alertsApi,
   entityRisk: entityRiskApi,
@@ -5283,4 +5308,5 @@ export default {
   reports: reportsApi,
   costs: costsApi,
   savedViews: savedViewsApi,
+  apiKeys: apiKeysApi,
 };
