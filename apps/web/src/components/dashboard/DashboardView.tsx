@@ -114,6 +114,39 @@ class DashboardErrorBoundary extends Component<{ children: ReactNode }, { hasErr
   }
 }
 
+// ─── Empty-state defaults ───────────────────────────────────────────────────
+// Hal, 2026-09-21: restored after the mock-data-removal commit replaced this
+// with a bare `null` fallback, which broke every one of the ~16 other
+// `metrics.X` reads further down this same render (metrics.alerts.total,
+// metrics.sources.map, etc.) - none of them were updated to optional-chain,
+// so the dashboard would throw at runtime the moment hasRealAlerts is false,
+// i.e. for exactly the real-but-empty AiSOC instance this whole cleanup pass
+// was for. A non-null empty object keeps every existing read working
+// unchanged, with the same honest zero/empty values as before - not
+// fabricated data, just a safe default shape.
+
+const EMPTY_METRICS: DashboardMetrics = {
+  alerts: {
+    total: 0,
+    new: 0,
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    resolvedToday: 0,
+    mttr: 0,
+  },
+  cases: {
+    open: 0,
+    inProgress: 0,
+    resolvedThisWeek: 0,
+  },
+  sources: [],
+  topMitre: [],
+  alertsTrend: [],
+  threatsBySource: [],
+};
+
 // ─── Metric Card ──────────────────────────────────────────────────────────────
 
 interface MetricCardProps {
@@ -368,23 +401,9 @@ export function DashboardView() {
             ? apiData!.threatsBySource!
             : [],
       }
-    : null;
-        topMitre:
-          Array.isArray(apiData!.topMitre) && apiData!.topMitre!.length
-            ? apiData!.topMitre!
-            : [],
-        alertsTrend:
-          Array.isArray(apiData!.alertsTrend) && apiData!.alertsTrend!.length
-            ? apiData!.alertsTrend!
-            : [],
-        threatsBySource:
-          Array.isArray(apiData!.threatsBySource) && apiData!.threatsBySource!.length
-            ? apiData!.threatsBySource!
-            : [],
-      }
-    : null;
+    : EMPTY_METRICS;
 
-  const trendData = metrics?.alertsTrend?.map((d) => ({
+  const trendData = metrics.alertsTrend.map((d) => ({
     time: format(new Date(d.timestamp), 'HH:mm'),
     count: d.count,
   }));

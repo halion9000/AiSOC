@@ -1,8 +1,16 @@
 'use client';
 
 import { useState } from 'react';
+import useSWR from 'swr';
 import { clsx } from 'clsx';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+
+const fetcher = async (url: string) => {
+  const r = await fetch(url, { credentials: 'include' });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { throw new Error('Invalid JSON'); }
+};
 
 type RiskLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 type AssetType = 'domain' | 'ip' | 'cert' | 'subdomain' | 'service';
