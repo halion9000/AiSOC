@@ -65,7 +65,8 @@ RUN set -eux; \
             "strawberry-graphql[fastapi]>=0.236,<0.237" \
             "webauthn>=2.2,<3" \
             "weasyprint>=62,<63" \
-            "langchain-core>=0.3,<0.4" ; \
+            "langchain-core>=0.3,<0.4" \
+            "langchain-openai>=0.2,<0.3" ; \
     fi
 
 COPY . .
