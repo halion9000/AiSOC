@@ -717,6 +717,11 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
+      # Server-side API base — Docker-internal service name so SSR fetches
+      # inside the web container reach the api service (localhost here would
+      # refer to the web container itself, causing resolveServerApiBase() to
+      # fail and pages like /cases to flash MOCK_CASES on first paint).
+      API_URL: http://api:8000
       NEXT_PUBLIC_API_URL: http://localhost:8000
       NEXT_PUBLIC_WS_URL: ws://localhost:8086
       NODE_ENV: production
