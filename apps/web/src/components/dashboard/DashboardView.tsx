@@ -114,54 +114,37 @@ class DashboardErrorBoundary extends Component<{ children: ReactNode }, { hasErr
   }
 }
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
+// ─── Empty-state defaults ───────────────────────────────────────────────────
+// Hal, 2026-09-20: "chat still has demo data" / full mock-data cleanup pass.
+// This used to be MOCK_METRICS — plausible-looking fabricated numbers (1247
+// alerts, specific MITRE tactic counts, etc.) substituted any time the real
+// API returned an empty result, which its own comment admitted was always
+// true for several fields since those backend endpoints aren't fully built
+// yet. That's not a brief loading flash — it's fabricated data shown
+// indefinitely. Replaced with honest zero/empty values: a real, non-demo
+// deployment with genuinely no data yet should look like it has no data yet,
+// not like it has a specific set of impressive incidents that never happened.
 
-const MOCK_METRICS: DashboardMetrics = {
+const EMPTY_METRICS: DashboardMetrics = {
   alerts: {
-    total: 1247,
-    new: 89,
-    critical: 12,
-    high: 43,
-    medium: 156,
-    low: 289,
-    resolvedToday: 67,
-    mttr: 42,
+    total: 0,
+    new: 0,
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    resolvedToday: 0,
+    mttr: 0,
   },
   cases: {
-    open: 23,
-    inProgress: 15,
-    resolvedThisWeek: 34,
+    open: 0,
+    inProgress: 0,
+    resolvedThisWeek: 0,
   },
-  sources: [
-    { name: 'CrowdStrike EDR', count: 412, status: 'active' },
-    { name: 'Microsoft Sentinel', count: 287, status: 'active' },
-    { name: 'AWS CloudTrail', count: 198, status: 'active' },
-    { name: 'Okta Identity', count: 163, status: 'active' },
-    { name: 'Google Workspace', count: 107, status: 'active' },
-    { name: 'GitHub Audit', count: 84, status: 'active' },
-  ],
-  topMitre: [
-    { tactic: 'Execution', count: 89 },
-    { tactic: 'Defense Evasion', count: 67 },
-    { tactic: 'Command & Control', count: 54 },
-    { tactic: 'Credential Access', count: 43 },
-    { tactic: 'Lateral Movement', count: 38 },
-    { tactic: 'Exfiltration', count: 21 },
-  ],
-  // Deterministic timestamps — no Date.now()/Math.random() to avoid SSR hydration mismatches.
-  alertsTrend: Array.from({ length: 24 }, (_, i) => ({
-    timestamp: new Date(new Date('2026-05-06T12:00:00Z').getTime() - (23 - i) * 3600000).toISOString(),
-    count: ((i * 37 + 13) % 80) + 20,
-    severity: 'all',
-  })),
-  threatsBySource: [
-    { source: 'CrowdStrike EDR', count: 412 },
-    { source: 'Microsoft Sentinel', count: 287 },
-    { source: 'AWS CloudTrail', count: 198 },
-    { source: 'Okta Identity', count: 163 },
-    { source: 'Google Workspace', count: 107 },
-    { source: 'GitHub Audit', count: 84 },
-  ],
+  sources: [],
+  topMitre: [],
+  alertsTrend: [],
+  threatsBySource: [],
 };
 
 // ─── Metric Card ──────────────────────────────────────────────────────────────
@@ -373,11 +356,10 @@ function useDashboardLayout() {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export function DashboardView() {
-  const { data: rawMetrics, error: metricsError } = useSWR(
+  const { data: rawMetrics, error: metricsError, isLoading: metricsLoading } = useSWR(
     'dashboard-metrics',
     () => metricsApi.getDashboard(),
     {
-      fallbackData: MOCK_METRICS,
       refreshInterval: 60000,
       revalidateOnMount: true,
       revalidateOnFocus: false,
@@ -394,33 +376,32 @@ export function DashboardView() {
         ? String(metricsError)
         : null;
 
-  // Hybrid: prefer real API fields when present, fall back to mock for missing
-  // sections (e.g. /metrics/dashboard currently returns alertsTrend: [] and no
-  // threatsBySource yet, so the charts would render empty without this merge).
+  // Prefer real API fields when present; fall back to genuine empty values
+  // (never fabricated ones) for sections the API hasn't populated yet.
   const apiData = rawMetrics as Partial<DashboardMetrics> | undefined;
   const hasRealAlerts = !!apiData && typeof apiData.alerts?.total === 'number';
   const metrics: DashboardMetrics = hasRealAlerts
     ? {
         alerts: apiData!.alerts as DashboardMetrics['alerts'],
-        cases: apiData!.cases ?? MOCK_METRICS.cases,
+        cases: apiData!.cases ?? EMPTY_METRICS.cases,
         sources:
           Array.isArray(apiData!.sources) && apiData!.sources!.length
             ? apiData!.sources!
-            : MOCK_METRICS.sources,
+            : EMPTY_METRICS.sources,
         topMitre:
           Array.isArray(apiData!.topMitre) && apiData!.topMitre!.length
             ? apiData!.topMitre!
-            : MOCK_METRICS.topMitre,
+            : EMPTY_METRICS.topMitre,
         alertsTrend:
           Array.isArray(apiData!.alertsTrend) && apiData!.alertsTrend!.length
             ? apiData!.alertsTrend!
-            : MOCK_METRICS.alertsTrend,
+            : EMPTY_METRICS.alertsTrend,
         threatsBySource:
           Array.isArray(apiData!.threatsBySource) && apiData!.threatsBySource!.length
             ? apiData!.threatsBySource!
-            : MOCK_METRICS.threatsBySource,
+            : EMPTY_METRICS.threatsBySource,
       }
-    : MOCK_METRICS;
+    : EMPTY_METRICS;
 
   const trendData = metrics.alertsTrend.map((d) => ({
     time: format(new Date(d.timestamp), 'HH:mm'),
@@ -586,6 +567,11 @@ export function DashboardView() {
   return (
     <DashboardErrorBoundary>
       <div className="space-y-5">
+        {metricsLoading && !rawMetrics && (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
+            Loading dashboard metrics…
+          </div>
+        )}
         {metricsErrorMessage && (
           <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
             <p className="font-semibold">Dashboard metrics unavailable</p>
@@ -593,7 +579,7 @@ export function DashboardView() {
               {metricsErrorMessage}
             </p>
             <p className="mt-1 text-xs text-red-300/60">
-              Showing baseline mock data while SWR retries every 4s. Refresh the
+              Showing zero/empty values while SWR retries every 4s. Refresh the
               page if it persists.
             </p>
           </div>
