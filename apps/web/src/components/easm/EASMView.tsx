@@ -89,10 +89,10 @@ export function EASMView() {
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: 'Total Assets', value: SUMMARY.totalAssets, color: 'text-blue-400' },
-          { label: 'Exposed Services', value: SUMMARY.exposedServices, color: 'text-amber-400' },
-          { label: 'Certificate Issues', value: SUMMARY.certIssues, color: 'text-red-400' },
-          { label: 'Risk Score', value: `${SUMMARY.riskScore}/100`, color: SUMMARY.riskScore >= 70 ? 'text-amber-400' : 'text-green-400' },
+          { label: 'Total Assets', value: summary.totalAssets, color: 'text-blue-400' },
+          { label: 'Exposed Services', value: summary.exposedServices, color: 'text-amber-400' },
+          { label: 'Certificate Issues', value: summary.certIssues, color: 'text-red-400' },
+          { label: 'Risk Score', value: `${summary.riskScore}/100`, color: summary.riskScore >= 70 ? 'text-amber-400' : 'text-green-400' },
         ].map((card) => (
           <div key={card.label} className="bg-gray-900/60 border border-gray-800/60 rounded-xl p-4">
             <p className={clsx('text-2xl font-bold', card.color)}>{card.value}</p>
