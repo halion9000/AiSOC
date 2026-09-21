@@ -5,10 +5,15 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from typing import Annotated
 
-from app.api.v1.deps import AuthUser
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, select
+
+from app.api.v1.deps import AuthUser, TenantDBSession, require_permission
+from app.models.alert import Alert
+from app.models.case import Case
 
 router = APIRouter(prefix="/shifts", tags=["shifts"])
 
@@ -45,6 +50,90 @@ class ShiftCreate(BaseModel):
 class HandoffNotes(BaseModel):
     notes: str = Field(..., min_length=1)
     pending_items: list[str] = Field(default_factory=list)
+
+
+class HandoffItemOut(BaseModel):
+    """
+    Hal, 2026-09-21: "might as well build it out now" — the frontend's
+    ShiftsView.tsx had a HandoffItem list with no matching backend query at
+    all (flagged separately from this file's own pre-existing mock shift
+    data, below — that's a bigger, separate gap: an in-memory _MOCK_SHIFTS
+    list with no real shifts table at all). This endpoint is deliberately
+    independent of that mock shift system, since "what's still open and
+    worth flagging to the next shift" doesn't actually need a real shift
+    record to answer — it's just currently-open alerts and cases, which the
+    database already has for real.
+    """
+    id: str
+    priority: str
+    title: str
+    type: str
+    status: str
+    assigned_to: str
+    notes: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/handoff-items", response_model=list[HandoffItemOut])
+async def list_handoff_items(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: TenantDBSession,
+    priority: str | None = Query(default=None, description="Filter to one priority: critical/high/medium/low"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """
+    Real alerts and cases still open at query time - the actual candidates
+    for handoff to the next shift, not a canned demo list. An alert/case
+    counts as "still open" the same way the rest of the app already treats
+    it: not resolved, not a false positive, not closed.
+    """
+    alert_filters = [
+        Alert.tenant_id == current_user.tenant_id,
+        Alert.status.notin_(["resolved", "fp", "closed"]),
+    ]
+    case_filters = [
+        Case.tenant_id == current_user.tenant_id,
+        Case.status.notin_(["resolved", "closed"]),
+    ]
+    if priority:
+        alert_filters.append(Alert.severity == priority)
+        case_filters.append(Case.priority == priority)
+
+    alert_result = await db.execute(
+        select(Alert).where(and_(*alert_filters)).order_by(Alert.created_at.desc()).limit(limit)
+    )
+    case_result = await db.execute(
+        select(Case).where(and_(*case_filters)).order_by(Case.created_at.desc()).limit(limit)
+    )
+
+    items = [
+        HandoffItemOut(
+            id=str(a.id),
+            priority=a.severity,
+            title=a.title,
+            type="alert",
+            status=a.status,
+            assigned_to=str(a.assigned_to_id) if a.assigned_to_id else "unassigned",
+            notes=a.ai_summary,
+        )
+        for a in alert_result.scalars().all()
+    ] + [
+        HandoffItemOut(
+            id=str(c.id),
+            priority=c.priority,
+            title=c.title,
+            type="case",
+            status=c.status,
+            assigned_to=str(c.assigned_to_id) if c.assigned_to_id else "unassigned",
+            notes=c.description,
+        )
+        for c in case_result.scalars().all()
+    ]
+
+    priority_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    items.sort(key=lambda i: priority_rank.get(i.priority, 4))
+    return items[:limit]
 
 
 _MOCK_ANALYSTS = {

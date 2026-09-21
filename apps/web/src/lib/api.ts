@@ -5254,6 +5254,22 @@ export const realtimeApi = {
     ),
 };
 
+export const shiftsApi = {
+  handoffItems: (params: { priority?: string } = {}) => {
+    const query: Record<string, string> = {};
+    if (params.priority) query.priority = params.priority;
+    return request<Array<{
+      id: string;
+      priority: string;
+      title: string;
+      type: string;
+      status: string;
+      assigned_to: string;
+      notes: string | null;
+    }>>('/api/v1/shifts/handoff-items', { params: query });
+  },
+};
+
 export const apiKeysApi = {
   list: () => request<ApiKey[]>('/api/v1/api-keys'),
 
@@ -5309,4 +5325,5 @@ export default {
   costs: costsApi,
   savedViews: savedViewsApi,
   apiKeys: apiKeysApi,
+  shifts: shiftsApi,
 };

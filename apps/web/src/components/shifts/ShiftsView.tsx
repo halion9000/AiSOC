@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import useSWR from 'swr';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { shiftsApi } from '@/lib/api';
 
 const SHIFT_START = '2026-05-07T06:00:00Z';
 const SHIFT_END = '2026-05-07T18:00:00Z';
@@ -25,18 +27,12 @@ const PRIORITY_CONFIG = {
   low: { label: 'Low', className: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
 };
 
-// Hal, 2026-09-20: full mock-data cleanup pass. Unlike the other views in
-// this pass, there's no real backend endpoint to wire up here at all —
-// services/api/app/api/v1/endpoints/shifts.py's ShiftSummary is about an
-// entire shift's metadata (lead analyst, alerts-handled count, a single
-// handoff_notes string), not a queryable list of individual alert/case
-// handoff items like HandoffItem describes. Building that properly is real
-// backend work (a query for open alerts/cases worth flagging to the next
-// shift), not a frontend fix — flagged separately, not built here. In the
-// meantime, showing eight specific fabricated incidents (a fake ransomware
-// beacon, a fake phishing wave) permanently, with no real data behind any
-// of it, is worse than showing nothing until this is actually built.
-const NO_HANDOFF_ITEMS: HandoffItem[] = [];
+// Hal, 2026-09-21: "might as well build it out now" — real endpoint now
+// exists at GET /shifts/handoff-items (services/api/app/api/v1/endpoints/
+// shifts.py), querying actual open alerts/cases directly rather than
+// depending on that file's own separate, still-mocked shift-record system
+// (_MOCK_SHIFTS) — flagged as a distinct, bigger gap in that file's own
+// comments, not fixed here.
 
 const EMPTY_SHIFT_SUMMARY = {
   alertsTriaged: 0,
@@ -48,7 +44,19 @@ const EMPTY_SHIFT_SUMMARY = {
 type PriorityFilter = HandoffItem['priority'] | 'all';
 
 export function ShiftsView() {
-  const [items] = useState(NO_HANDOFF_ITEMS);
+  const { data: rawItems, isLoading: itemsLoading } = useSWR(
+    'shifts:handoff-items',
+    () => shiftsApi.handoffItems(),
+  );
+  const items: HandoffItem[] = (rawItems ?? []).map((r) => ({
+    id: r.id,
+    priority: (r.priority as HandoffItem['priority']) ?? 'low',
+    title: r.title,
+    type: r.type as HandoffItem['type'],
+    status: r.status,
+    assignedTo: r.assigned_to,
+    notes: r.notes ?? '',
+  }));
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
 
   const filteredItems = priorityFilter === 'all'
@@ -155,14 +163,20 @@ export function ShiftsView() {
               </tr>
             </thead>
             <tbody>
-              {filteredItems.length === 0 ? (
+              {itemsLoading && !rawItems ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-sm text-gray-500">
+                    Loading open items…
+                  </td>
+                </tr>
+              ) : filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-0">
                     {priorityFilter === 'all' ? (
                       <EmptyState
                         icon={EmptyStateIcons.shield}
-                        title="No handoff items yet"
-                        description="Nothing has been flagged for the next shift. This list will show alerts and cases marked for handoff as they come up."
+                        title="No open items"
+                        description="No open alerts or cases right now — nothing to hand off to the next shift."
                       />
                     ) : (
                       <EmptyState
