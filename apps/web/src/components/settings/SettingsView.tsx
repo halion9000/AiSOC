@@ -114,50 +114,6 @@ const DEFAULT_PROFILE: ProfileData = {
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
 };
 
-// ─── Demo fallbacks ───────────────────────────────────────────────────────────
-
-// Deterministic base — no Date.now() to avoid SSR hydration mismatches.
-const MOCK_BASE = new Date('2026-05-06T12:00:00Z').getTime();
-const ago = (mins: number) => new Date(MOCK_BASE - mins * 60 * 1000).toISOString();
-
-const DEMO_AUDIT: AuditEntry[] = [
-  {
-    id: 'a-1',
-    actor: 'sasha.lin@example.com',
-    action: 'enabled',
-    target: 'Detection rule “Impossible Travel — Same User”',
-    at: ago(12),
-  },
-  {
-    id: 'a-2',
-    actor: 'admin@example.com',
-    action: 'rotated',
-    target: 'API key “CI / Detection-as-Code Pipeline”',
-    at: ago(60 * 6),
-  },
-  {
-    id: 'a-3',
-    actor: 'system',
-    action: 'failed-sync',
-    target: 'Connector “CrowdStrike Falcon EDR”',
-    at: ago(45),
-  },
-  {
-    id: 'a-4',
-    actor: 'sasha.lin@example.com',
-    action: 'invited',
-    target: 'avi.sharma@example.com (analyst)',
-    at: ago(60 * 24 * 1),
-  },
-  {
-    id: 'a-5',
-    actor: 'admin@example.com',
-    action: 'changed',
-    target: 'Workspace timezone to America/Los_Angeles',
-    at: ago(60 * 24 * 5),
-  },
-];
-
 const STATUS_PILL: Record<ConnectorStatus, string> = {
   active: 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/40',
   inactive: 'bg-gray-500/10 text-gray-400 ring-gray-500/30',
@@ -631,15 +587,6 @@ function IntegrationsPanel() {
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
-  // Hal, 2026-09-20: full mock-data cleanup pass. This used to be
-  // `const useFallback = !!error; const connectors = data?.connectors ??
-  // (useFallback ? DEMO_CONNECTORS : []);` - which made the ErrorState
-  // branch below (`error && !useFallback`) permanently unreachable, since
-  // useFallback is always exactly !!error, so that condition simplifies to
-  // `error && !error` — always false. The already-correctly-built error UI
-  // (with its own working retry button) could never actually render; fake
-  // connectors (a made-up Okta integration, etc.) silently took over on
-  // every real failure instead of surfacing it.
   const connectors = data?.connectors ?? [];
 
   const counts = useMemo(() => {
@@ -845,7 +792,7 @@ function StatTile({
 // ─── Panel: API keys ──────────────────────────────────────────────────────────
 
 function ApiKeysPanel() {
-  // Hal, 2026-09-20: full mock-data cleanup pass. This used to fabricate a
+// Hal, 2026-09-20: full mock-data cleanup pass. This used to fabricate a
   // fake secret entirely client-side (crypto.getRandomValues, never sent
   // anywhere) and revoke() never called the real backend at all - so a key
   // "created" here would never actually authenticate against anything.
@@ -2093,39 +2040,60 @@ function StatusPill({
 // ─── Panel: Audit ─────────────────────────────────────────────────────────────
 
 function AuditPanel() {
+  const { data, isLoading, error } = useSWR<AuditEntry[]>(
+    '/api/v1/audit?page_size=5',
+    fetcher,
+    { refreshInterval: 60000 },
+  );
+
+  const entries = data ?? [];
+
   return (
     <div>
       <PanelHeader
         title="Audit log"
         description="Recent administrative events. Full searchable audit history is available via the API."
       />
-      <ol className="divide-y divide-gray-800">
-        {DEMO_AUDIT.map((a) => (
-          <li key={a.id} className="flex items-start gap-3 px-6 py-4">
-            <span
-              aria-hidden
-              className={clsx(
-                'mt-1 inline-block h-2 w-2 shrink-0 rounded-full',
-                a.action === 'failed-sync'
-                  ? 'bg-red-400'
-                  : a.action === 'rotated'
-                  ? 'bg-amber-400'
-                  : 'bg-emerald-400',
-              )}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-gray-100">
-                <span className="font-medium">{a.actor}</span>{' '}
-                <span className="text-gray-400">{a.action}</span>{' '}
-                <span>{a.target}</span>
-              </p>
-              <p className="text-xs text-gray-500" suppressHydrationWarning>
-                {formatDistanceToNow(new Date(a.at), { addSuffix: true })}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ol>
+      {isLoading && !data && (
+        <div className="px-6 py-8 text-center text-sm text-gray-500">Loading recent activity…</div>
+      )}
+      {error && !data && (
+        <div className="px-6 py-8 text-center text-sm text-red-400">
+          Unable to load audit log. Check that the API service is reachable.
+        </div>
+      )}
+      {!isLoading && !error && entries.length === 0 && (
+        <div className="px-6 py-8 text-center text-sm text-gray-500">No recent audit events.</div>
+      )}
+      {entries.length > 0 && (
+        <ol className="divide-y divide-gray-800">
+          {entries.map((a) => (
+            <li key={a.id} className="flex items-start gap-3 px-6 py-4">
+              <span
+                aria-hidden
+                className={clsx(
+                  'mt-1 inline-block h-2 w-2 shrink-0 rounded-full',
+                  a.action === 'failed-sync'
+                    ? 'bg-red-400'
+                    : a.action === 'rotated'
+                    ? 'bg-amber-400'
+                    : 'bg-emerald-400',
+                )}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-gray-100">
+                  <span className="font-medium">{a.actor}</span>{' '}
+                  <span className="text-gray-400">{a.action}</span>{' '}
+                  <span>{a.target}</span>
+                </p>
+                <p className="text-xs text-gray-500" suppressHydrationWarning>
+                  {formatDistanceToNow(new Date(a.at), { addSuffix: true })}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

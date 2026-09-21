@@ -61,80 +61,6 @@ const CONFIDENCE_CONFIG: Record<ConfidenceLabel, { label: string; badge: string;
   },
 };
 
-// Mock alert for development
-const MOCK_ALERT: Alert = {
-  id: 'alert-1',
-  title: 'Suspicious PowerShell execution detected',
-  description: 'A PowerShell script was executed with obfuscated content and attempted to download a payload from an external domain. The process was spawned by a user with administrative privileges outside of business hours.',
-  severity: 'critical',
-  status: 'new',
-  source: 'CrowdStrike',
-  sourceRef: 'CS-2024-789012',
-  tenantId: 'tenant-1',
-  riskScore: 95,
-  mitreAttack: [
-    { tactic: 'Execution', technique: 'PowerShell', techniqueId: 'T1059.001' },
-    { tactic: 'Defense Evasion', technique: 'Obfuscated Files or Information', techniqueId: 'T1027' },
-    { tactic: 'Command and Control', technique: 'Application Layer Protocol', techniqueId: 'T1071' },
-  ],
-  iocs: [
-    { type: 'ip', value: '185.220.101.45', malicious: true },
-    { type: 'domain', value: 'payload-c2.xyz', malicious: true },
-    { type: 'hash', value: 'a1b2c3d4e5f6789012345678901234567890abcd', malicious: true },
-  ],
-  tags: ['powershell', 'c2-beacon', 'high-priority'],
-  assignee: 'analyst@example.com',
-  createdAt: '2026-05-06T11:00:00Z',
-  updatedAt: '2026-05-06T11:30:00Z',
-  confidenceLabel: 'high',
-  confidenceScore: 0.86,
-  confidenceRationale: [
-    {
-      factor: 'severity',
-      label: 'Critical severity from source',
-      value: 1.0,
-      contribution: 0.20,
-      weight: 0.20,
-    },
-    {
-      factor: 'mitre_coverage',
-      label: '3 MITRE techniques mapped (T1059.001, T1027, T1071)',
-      value: 1.0,
-      contribution: 0.18,
-      weight: 0.18,
-    },
-    {
-      factor: 'threat_intel',
-      label: 'IOC matched against known C2 infrastructure',
-      value: 1.0,
-      contribution: 0.20,
-      weight: 0.20,
-    },
-    {
-      factor: 'ml_score',
-      label: 'Anomaly score 0.94 (UEBA baseline deviation)',
-      value: 0.94,
-      contribution: 0.14,
-      weight: 0.15,
-    },
-    {
-      factor: 'upstream_risk',
-      label: 'Affected user is in elevated-risk cohort',
-      value: 0.78,
-      contribution: 0.08,
-      weight: 0.10,
-    },
-    {
-      factor: 'ioc_density',
-      label: '3 distinct malicious IOCs in single event',
-      value: 0.85,
-      contribution: 0.06,
-      weight: 0.07,
-    },
-  ],
-  ledgerRunId: 'run-mock-c2-beacon-investigation',
-};
-
 // ─── Sections ─────────────────────────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -837,8 +763,7 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
   const { data: alert, isLoading, mutate } = useSWR(
     ['alert', alertId],
     () => alertsApi.get(alertId),
-    { fallbackData: { ...MOCK_ALERT, id: alertId, status } }
-  );
+      );
 
   const handleStatusChange = async (newStatus: Alert['status']) => {
     setStatus(newStatus);

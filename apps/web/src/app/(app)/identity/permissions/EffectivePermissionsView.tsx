@@ -113,77 +113,6 @@ const PROVIDER_LABEL: Record<SupportedProvider, string> = {
 const MAX_RENDERED_DECISIONS = 250;
 
 // ---------------------------------------------------------------------------
-// Demo fallback
-// ---------------------------------------------------------------------------
-
-const DEMO_RESULT: ResolverResult = {
-  provider: 'aws',
-  principal_id: 'arn:aws:iam::111122223333:user/alice',
-  coverage: 'full',
-  resolver_version: 'v1.0',
-  last_resolved: '2026-05-13T12:00:00Z',
-  decisions: [
-    {
-      principal_id: 'u-alice',
-      resource_id: 'res-bucket-reports',
-      resource_kind: 's3:object',
-      resource_arn: 'arn:aws:s3:::reports-prod/key.csv',
-      actions: ['s3:GetObject'],
-      deny_actions: [],
-      policy_chain: [
-        {
-          kind: 'policy',
-          id: 'p-readers-s3',
-          name: 'ReadersS3',
-          effect: 'allow',
-          via: 'g-data-readers',
-        },
-        {
-          kind: 'scp',
-          id: 'p-scp-allow-baseline',
-          name: 'SCPAllowBaseline',
-          effect: 'allow',
-          via: null,
-        },
-      ],
-    },
-    {
-      principal_id: 'u-alice',
-      resource_id: 'res-key-finance',
-      resource_kind: 'kms:key',
-      resource_arn: 'arn:aws:kms:us-east-1:111122223333:key/finance',
-      actions: ['kms:Decrypt', 'kms:DescribeKey', 'kms:Encrypt'],
-      deny_actions: [],
-      policy_chain: [
-        {
-          kind: 'policy',
-          id: 'p-alice-direct',
-          name: 'AliceDirectKMS',
-          effect: 'allow',
-          via: null,
-        },
-        {
-          kind: 'policy',
-          id: 'p-key-finance',
-          name: 'FinanceKeyPolicy',
-          effect: 'allow',
-          via: null,
-        },
-      ],
-    },
-  ],
-  notes: ['demo data — backend unreachable'],
-};
-
-const DEMO_PROVIDERS: ProviderInfo[] = [
-  { name: 'aws', coverage: 'full' },
-  { name: 'azure', coverage: 'scaffold' },
-  { name: 'gcp', coverage: 'scaffold' },
-  { name: 'gws', coverage: 'scaffold' },
-  { name: 'okta', coverage: 'scaffold' },
-];
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -332,7 +261,7 @@ export function EffectivePermissionsView() {
     return isSupportedProvider(p) ? p : 'aws';
   }, [searchParams]);
   const initialPrincipal = useMemo(
-    () => searchParams?.get('principal_id') ?? DEMO_RESULT.principal_id,
+    () => searchParams?.get('principal_id') ?? '',
     [searchParams],
   );
   const initialDenyOnly = useMemo(
@@ -351,9 +280,8 @@ export function EffectivePermissionsView() {
   const { data: providerInfo } = useSWR<{ providers: ProviderInfo[] }>(
     '/api/v1/identity/effective-permissions/providers',
     safeFetcher,
-    { fallbackData: { providers: DEMO_PROVIDERS } },
-  );
-  const providers = providerInfo?.providers ?? DEMO_PROVIDERS;
+      );
+  const providers = providerInfo?.providers ?? [];
   const selectedProviderInfo = providers.find((p) => p.name === provider);
   const isScaffoldProvider = selectedProviderInfo?.coverage === 'scaffold';
 
@@ -365,8 +293,7 @@ export function EffectivePermissionsView() {
     apiUrl,
     safeFetcher,
     {
-      fallbackData: provider === 'aws' && !isScaffoldProvider ? DEMO_RESULT : undefined,
-      shouldRetryOnError: false,
+            shouldRetryOnError: false,
     },
   );
 

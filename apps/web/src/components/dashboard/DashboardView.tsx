@@ -114,39 +114,6 @@ class DashboardErrorBoundary extends Component<{ children: ReactNode }, { hasErr
   }
 }
 
-// ─── Empty-state defaults ───────────────────────────────────────────────────
-// Hal, 2026-09-20: "chat still has demo data" / full mock-data cleanup pass.
-// This used to be MOCK_METRICS — plausible-looking fabricated numbers (1247
-// alerts, specific MITRE tactic counts, etc.) substituted any time the real
-// API returned an empty result, which its own comment admitted was always
-// true for several fields since those backend endpoints aren't fully built
-// yet. That's not a brief loading flash — it's fabricated data shown
-// indefinitely. Replaced with honest zero/empty values: a real, non-demo
-// deployment with genuinely no data yet should look like it has no data yet,
-// not like it has a specific set of impressive incidents that never happened.
-
-const EMPTY_METRICS: DashboardMetrics = {
-  alerts: {
-    total: 0,
-    new: 0,
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-    resolvedToday: 0,
-    mttr: 0,
-  },
-  cases: {
-    open: 0,
-    inProgress: 0,
-    resolvedThisWeek: 0,
-  },
-  sources: [],
-  topMitre: [],
-  alertsTrend: [],
-  threatsBySource: [],
-};
-
 // ─── Metric Card ──────────────────────────────────────────────────────────────
 
 interface MetricCardProps {
@@ -383,27 +350,41 @@ export function DashboardView() {
   const metrics: DashboardMetrics = hasRealAlerts
     ? {
         alerts: apiData!.alerts as DashboardMetrics['alerts'],
-        cases: apiData!.cases ?? EMPTY_METRICS.cases,
+        cases: apiData!.cases ?? [],
         sources:
           Array.isArray(apiData!.sources) && apiData!.sources!.length
             ? apiData!.sources!
-            : EMPTY_METRICS.sources,
+            : [],
         topMitre:
           Array.isArray(apiData!.topMitre) && apiData!.topMitre!.length
             ? apiData!.topMitre!
-            : EMPTY_METRICS.topMitre,
+            : [],
         alertsTrend:
           Array.isArray(apiData!.alertsTrend) && apiData!.alertsTrend!.length
             ? apiData!.alertsTrend!
-            : EMPTY_METRICS.alertsTrend,
+            : [],
         threatsBySource:
           Array.isArray(apiData!.threatsBySource) && apiData!.threatsBySource!.length
             ? apiData!.threatsBySource!
-            : EMPTY_METRICS.threatsBySource,
+            : [],
       }
-    : EMPTY_METRICS;
+    : null;
+        topMitre:
+          Array.isArray(apiData!.topMitre) && apiData!.topMitre!.length
+            ? apiData!.topMitre!
+            : [],
+        alertsTrend:
+          Array.isArray(apiData!.alertsTrend) && apiData!.alertsTrend!.length
+            ? apiData!.alertsTrend!
+            : [],
+        threatsBySource:
+          Array.isArray(apiData!.threatsBySource) && apiData!.threatsBySource!.length
+            ? apiData!.threatsBySource!
+            : [],
+      }
+    : null;
 
-  const trendData = metrics.alertsTrend.map((d) => ({
+  const trendData = metrics?.alertsTrend?.map((d) => ({
     time: format(new Date(d.timestamp), 'HH:mm'),
     count: d.count,
   }));

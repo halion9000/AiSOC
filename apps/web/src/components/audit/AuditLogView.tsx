@@ -71,7 +71,7 @@ export function AuditLogView() {
     { refreshInterval: 30_000, shouldRetryOnError: false, errorRetryCount: 0, revalidateOnFocus: false }
   );
   const isValid = raw && Array.isArray(raw.items) && typeof raw.total === 'number';
-  const data = isValid ? raw : undefined;
+const data = isValid ? raw : null;
 
   const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();

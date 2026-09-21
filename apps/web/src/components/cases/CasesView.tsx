@@ -129,9 +129,6 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
   const { data: casesData, isLoading } = useSWR(
     ['cases', statusFilter, severityFilter],
     () => casesApi.list({ status: statusFilter !== 'all' ? statusFilter : undefined }),
-    {
-      fallbackData: initialCases,
-    }
   );
 
   const cases = (casesData?.cases || []).filter((c) => {
