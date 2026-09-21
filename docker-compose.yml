@@ -192,7 +192,7 @@ services:
     # already running (pid:N)" crash after unclean shutdowns or OOM kills.
     # The official entrypoint is /startup/docker-entrypoint.sh; we wrap it
     # so the cleanup runs first, then hand off via exec.
-    entrypoint: ["/bin/bash", "-c", "rm -f /data/dbms/neostore.transaction.db.lock /data/dbms/store_lock && exec /startup/docker-entrypoint.sh \"$@\"", "--"]
+    entrypoint: ["/bin/bash", "-c", "rm -f /data/dbms/neostore.transaction.db.lock /data/dbms/store_lock /data/dbms/neostore.transaction.db.pid && exec /startup/docker-entrypoint.sh"]
     ports:
       - "127.0.0.1:7474:7474"   # HTTP browser
       - "127.0.0.1:7687:7687"   # Bolt
