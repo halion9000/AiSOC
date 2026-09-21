@@ -123,7 +123,7 @@ export function CopilotDock() {
       });
       setConversationId(res.conversationId);
       setMessages((prev) => [...prev, res.reply]);
-      setConnectionStatus('connected');
+      setConnectionStatus(res.degraded ? 'disconnected' : 'connected');
     } catch {
       setMessages((prev) => [...prev, offlineReply(trimmed)]);
       setConnectionStatus('disconnected');
