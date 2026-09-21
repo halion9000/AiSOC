@@ -15,7 +15,6 @@ once this endpoint is proven working end-to-end.
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from collections import OrderedDict
 from typing import Any
@@ -176,12 +175,14 @@ async def copilot_chat(
             "`syncAisocProviderConfig()` from the HUD)."
         )
 
-    # Store this turn in conversation history (both user and assistant).
-    # Trim to _MAX_HISTORY_PER_CONVERSATION to bound token usage.
-    history.append(HumanMessage(content=body.message))
-    history.append(AIMessage(content=content))
-    while len(history) > _MAX_HISTORY_PER_CONVERSATION:
-        history.pop(0)
+    # Store this turn in conversation history — but only if the LLM call
+    # actually succeeded. Storing fallback apologies as real assistant turns
+    # would poison future context when the gateway recovers.
+    if not degraded:
+        history.append(HumanMessage(content=body.message))
+        history.append(AIMessage(content=content))
+        while len(history) > _MAX_HISTORY_PER_CONVERSATION:
+            history.pop(0)
 
     reply = CopilotMessageOut(
         id=str(uuid.uuid4()),

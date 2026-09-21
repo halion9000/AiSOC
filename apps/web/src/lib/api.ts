@@ -3984,6 +3984,7 @@ export interface CopilotChatRequest {
 export interface CopilotChatResponse {
   conversationId: string;
   reply: CopilotMessage;
+  degraded?: boolean;
 }
 
 export const copilotApi = {
