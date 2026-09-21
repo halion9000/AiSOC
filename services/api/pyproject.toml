@@ -54,6 +54,10 @@ weasyprint = ">=62,<70"          # WS-G2: server-side PDF generation from print-
 # because croniter is API-stable and we only use the
 # `get_next` / `is_valid` surface.
 croniter = ">=2.0,<7.0"
+# Phase 4A — copilot.py imports langchain_core message types for the
+# contextual-actions streaming panel. Missing from the original deps;
+# added live 2026-09-21 when the api container crashed on import.
+langchain-core = ">=0.3,<0.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.2,<10.0"
