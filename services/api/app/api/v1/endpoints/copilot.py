@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections import OrderedDict
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -143,7 +143,7 @@ def _context_snippet(ctx: CopilotContext | None) -> str:
 )
 async def copilot_chat(
     body: CopilotChatRequest,
-    user: AuthUser = Depends(require_permission("copilot:use")),
+    user: Annotated[AuthUser, Depends(require_permission("copilot:use"))],
 ) -> CopilotChatResponse:
     """Route a copilot message through the LiteLLM gateway.
 
