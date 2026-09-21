@@ -35,25 +35,6 @@ const fetcher = async (url: string) => {
   try { return JSON.parse(text); } catch { throw new Error('Invalid JSON'); }
 };
 
-const MOCK_AUDIT: AuditListResponse = {
-  items: [
-    { id: '1', tenant_id: 't1', actor_id: 'u1', actor_email: 'admin@acme.io', actor_ip: '10.0.1.12', action: 'cases:create', resource: 'case', resource_id: 'c-0001abcd', changes: { title: 'Suspicious lateral movement' }, created_at: new Date(Date.now() - 300_000).toISOString() },
-    { id: '2', tenant_id: 't1', actor_id: 'u2', actor_email: 'analyst@acme.io', actor_ip: '10.0.1.15', action: 'alerts:update', resource: 'alert', resource_id: 'a-0042efgh', changes: { status: ['open', 'acknowledged'] }, created_at: new Date(Date.now() - 900_000).toISOString() },
-    { id: '3', tenant_id: 't1', actor_id: null, actor_email: null, actor_ip: null, action: 'playbooks:execute', resource: 'playbook', resource_id: 'pb-isolate', changes: { trigger: 'auto' }, created_at: new Date(Date.now() - 1_800_000).toISOString() },
-    { id: '4', tenant_id: 't1', actor_id: 'u1', actor_email: 'admin@acme.io', actor_ip: '10.0.1.12', action: 'detections:create', resource: 'detection_rule', resource_id: 'dr-00091234', changes: { name: 'Brute-force SSH' }, created_at: new Date(Date.now() - 3_600_000).toISOString() },
-    { id: '5', tenant_id: 't1', actor_id: 'u3', actor_email: 'soc-lead@acme.io', actor_ip: '10.0.2.5', action: 'connectors:update', resource: 'connector', resource_id: 'cn-sentinel', changes: { enabled: true }, created_at: new Date(Date.now() - 7_200_000).toISOString() },
-    { id: '6', tenant_id: 't1', actor_id: 'u1', actor_email: 'admin@acme.io', actor_ip: '10.0.1.12', action: 'roles:create', resource: 'role', resource_id: 'role-jr-analyst', changes: { name: 'Junior Analyst' }, created_at: new Date(Date.now() - 10_800_000).toISOString() },
-    { id: '7', tenant_id: 't1', actor_id: 'u2', actor_email: 'analyst@acme.io', actor_ip: '10.0.1.15', action: 'cases:update', resource: 'case', resource_id: 'c-0001abcd', changes: { status: ['open', 'in_progress'] }, created_at: new Date(Date.now() - 14_400_000).toISOString() },
-    { id: '8', tenant_id: 't1', actor_id: 'u1', actor_email: 'admin@acme.io', actor_ip: '10.0.1.12', action: 'auth:api_key_create', resource: 'api_key', resource_id: 'ak-00abc', changes: null, created_at: new Date(Date.now() - 21_600_000).toISOString() },
-    { id: '9', tenant_id: 't1', actor_id: null, actor_email: null, actor_ip: null, action: 'alerts:create', resource: 'alert', resource_id: 'a-0099xyz', changes: { severity: 'critical' }, created_at: new Date(Date.now() - 28_800_000).toISOString() },
-    { id: '10', tenant_id: 't1', actor_id: 'u3', actor_email: 'soc-lead@acme.io', actor_ip: '10.0.2.5', action: 'cases:delete', resource: 'case', resource_id: 'c-test-0001', changes: null, created_at: new Date(Date.now() - 36_000_000).toISOString() },
-  ],
-  total: 10,
-  page: 1,
-  page_size: 50,
-  total_pages: 1,
-};
-
 const ACTION_COLORS: Record<string, string> = {
   create: 'bg-green-500/20 text-green-300',
   update: 'bg-blue-500/20 text-blue-300',
@@ -87,10 +68,10 @@ export function AuditLogView() {
   const { data: raw, error, isLoading } = useSWR<AuditListResponse>(
     `/api/v1/audit?${params}`,
     fetcher,
-    { refreshInterval: 30_000, fallbackData: MOCK_AUDIT, shouldRetryOnError: false, errorRetryCount: 0, revalidateOnFocus: false }
+    { refreshInterval: 30_000, shouldRetryOnError: false, errorRetryCount: 0, revalidateOnFocus: false }
   );
   const isValid = raw && Array.isArray(raw.items) && typeof raw.total === 'number';
-  const data = isValid ? raw : MOCK_AUDIT;
+  const data = isValid ? raw : undefined;
 
   const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();

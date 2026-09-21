@@ -25,28 +25,30 @@ const PRIORITY_CONFIG = {
   low: { label: 'Low', className: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
 };
 
-const MOCK_HANDOFF_ITEMS: HandoffItem[] = [
-  { id: 'ALR-4201', priority: 'critical', title: 'Ransomware beacon detected on FIN-WS-07', type: 'alert', status: 'Investigating', assignedTo: 'alice', notes: 'Host isolated, awaiting forensic image' },
-  { id: 'CASE-1042', priority: 'high', title: 'Lateral movement — domain admin credentials', type: 'case', status: 'In Progress', assignedTo: 'bob', notes: 'Credential rotation started, 3 hosts remain' },
-  { id: 'ALR-4198', priority: 'high', title: 'Exfil over DNS to suspicious TLD', type: 'alert', status: 'Triaged', assignedTo: 'alice', notes: 'DNS sinkhole active, reviewing PCAP' },
-  { id: 'ALR-4205', priority: 'medium', title: 'Brute-force against VPN gateway', type: 'alert', status: 'Monitoring', assignedTo: 'carol', notes: 'Rate limiting applied, source geo: RU' },
-  { id: 'CASE-1039', priority: 'medium', title: 'Phishing wave targeting engineering', type: 'case', status: 'Pending Response', assignedTo: 'bob', notes: 'Awaiting HR confirmation on affected users' },
-  { id: 'ALR-4210', priority: 'medium', title: 'Anomalous S3 bucket access pattern', type: 'alert', status: 'Triaged', assignedTo: 'carol', notes: 'Likely automated scanner, needs second look' },
-  { id: 'ALR-4212', priority: 'low', title: 'Failed MFA attempts — service account', type: 'alert', status: 'Open', assignedTo: 'unassigned', notes: 'May be misconfigured CI pipeline' },
-  { id: 'ALR-4215', priority: 'low', title: 'Certificate expiry warning — api.corp.io', type: 'alert', status: 'Open', assignedTo: 'unassigned', notes: 'Expires in 7 days, renewal ticket created' },
-];
+// Hal, 2026-09-20: full mock-data cleanup pass. Unlike the other views in
+// this pass, there's no real backend endpoint to wire up here at all —
+// services/api/app/api/v1/endpoints/shifts.py's ShiftSummary is about an
+// entire shift's metadata (lead analyst, alerts-handled count, a single
+// handoff_notes string), not a queryable list of individual alert/case
+// handoff items like HandoffItem describes. Building that properly is real
+// backend work (a query for open alerts/cases worth flagging to the next
+// shift), not a frontend fix — flagged separately, not built here. In the
+// meantime, showing eight specific fabricated incidents (a fake ransomware
+// beacon, a fake phishing wave) permanently, with no real data behind any
+// of it, is worse than showing nothing until this is actually built.
+const NO_HANDOFF_ITEMS: HandoffItem[] = [];
 
-const SHIFT_SUMMARY = {
-  alertsTriaged: 34,
-  casesOpened: 3,
-  escalations: 2,
-  autoResolved: 18,
+const EMPTY_SHIFT_SUMMARY = {
+  alertsTriaged: 0,
+  casesOpened: 0,
+  escalations: 0,
+  autoResolved: 0,
 };
 
 type PriorityFilter = HandoffItem['priority'] | 'all';
 
 export function ShiftsView() {
-  const [items] = useState(MOCK_HANDOFF_ITEMS);
+  const [items] = useState(NO_HANDOFF_ITEMS);
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
 
   const filteredItems = priorityFilter === 'all'
@@ -105,10 +107,10 @@ export function ShiftsView() {
       {/* Shift Summary */}
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: 'Alerts Triaged', value: SHIFT_SUMMARY.alertsTriaged, color: 'text-blue-400' },
-          { label: 'Cases Opened', value: SHIFT_SUMMARY.casesOpened, color: 'text-orange-400' },
-          { label: 'Escalations', value: SHIFT_SUMMARY.escalations, color: 'text-red-400' },
-          { label: 'Auto-Resolved', value: SHIFT_SUMMARY.autoResolved, color: 'text-green-400' },
+          { label: 'Alerts Triaged', value: EMPTY_SHIFT_SUMMARY.alertsTriaged, color: 'text-blue-400' },
+          { label: 'Cases Opened', value: EMPTY_SHIFT_SUMMARY.casesOpened, color: 'text-orange-400' },
+          { label: 'Escalations', value: EMPTY_SHIFT_SUMMARY.escalations, color: 'text-red-400' },
+          { label: 'Auto-Resolved', value: EMPTY_SHIFT_SUMMARY.autoResolved, color: 'text-green-400' },
         ].map((stat) => (
           <div key={stat.label} className="bg-gray-900/60 border border-gray-800/60 rounded-xl p-4">
             <p className={clsx('text-2xl font-bold', stat.color)}>{stat.value}</p>
@@ -156,20 +158,28 @@ export function ShiftsView() {
               {filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-0">
-                    <EmptyState
-                      icon={EmptyStateIcons.search}
-                      title="No items match this priority"
-                      description="Try selecting a different priority level or view all open handoff items."
-                      action={
-                        <button
-                          type="button"
-                          onClick={() => setPriorityFilter('all')}
-                          className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors"
-                        >
-                          Show all items
-                        </button>
-                      }
-                    />
+                    {priorityFilter === 'all' ? (
+                      <EmptyState
+                        icon={EmptyStateIcons.shield}
+                        title="No handoff items yet"
+                        description="Nothing has been flagged for the next shift. This list will show alerts and cases marked for handoff as they come up."
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={EmptyStateIcons.search}
+                        title="No items match this priority"
+                        description="Try selecting a different priority level or view all open handoff items."
+                        action={
+                          <button
+                            type="button"
+                            onClick={() => setPriorityFilter('all')}
+                            className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+                          >
+                            Show all items
+                          </button>
+                        }
+                      />
+                    )}
                   </td>
                 </tr>
               ) : (
