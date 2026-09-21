@@ -188,6 +188,11 @@ services:
   neo4j:
     image: neo4j:5.15-community
     container_name: aisoc-neo4j
+    # Clean stale PID/lock files before starting — prevents the "Neo4j is
+    # already running (pid:N)" crash after unclean shutdowns or OOM kills.
+    # The official entrypoint is /startup/docker-entrypoint.sh; we wrap it
+    # so the cleanup runs first, then hand off via exec.
+    entrypoint: ["/bin/bash", "-c", "rm -f /data/dbms/neostore.transaction.db.lock /data/dbms/store_lock && exec /startup/docker-entrypoint.sh \"$@\"", "--"]
     ports:
       - "127.0.0.1:7474:7474"   # HTTP browser
       - "127.0.0.1:7687:7687"   # Bolt
@@ -195,8 +200,9 @@ services:
       NEO4J_AUTH: neo4j/neo4j_dev_secret
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
-      NEO4J_dbms_memory_heap_initial__size: 256m
-      NEO4J_dbms_memory_heap_max__size: 512m
+      # Use modern setting names (dbms.memory.* was deprecated in 5.x)
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
