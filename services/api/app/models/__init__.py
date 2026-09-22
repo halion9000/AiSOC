@@ -3,6 +3,7 @@
 from app.db.database import Base
 from app.models.alert import Alert
 from app.models.asset import AlertAssetCorrelation, Asset, AssetVulnerability
+from app.models.business_context_rule_set import BusinessContextRuleSet
 from app.models.case import Case, CaseTask, CaseTimeline
 from app.models.connector import Connector
 from app.models.detection_proposal import DetectionEvalBaseline, DetectionRuleProposal
@@ -38,8 +39,10 @@ from app.models.responder import (
     PasskeyChallenge,
     PasskeyCredential,
 )
+from app.models.outcome_suppression import OutcomeSuppression
 from app.models.saved_hunt import SavedHunt
 from app.models.saved_view import SavedView
+from app.models.shift import Shift
 from app.models.tenant import ApiKey, Tenant, User
 from app.models.threat_intel import ThreatActor, ThreatIntelFeed, ThreatIntelIOC
 

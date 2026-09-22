@@ -248,13 +248,33 @@ async def _propose_detection_from_hunt(db: AsyncSession, hunt: SavedHunt, hit_co
     query = hunt.translated_query if isinstance(hunt.translated_query, dict) else {}
     lang = str(getattr(hunt, "language", "esql") or "esql")
     q_text = str(query.get(lang) or query.get("esql") or query.get("spl") or query.get("kql") or "").strip()
+    # Structured Sigma scaffold: gives the analyst a real starting point
+    # rather than a bare comment block. The YAML skeleton follows the
+    # Sigma specification so it can be loaded directly into a rules repo
+    # after the analyst fills in the detection logic and fixtures.
+    sigma_id = str(uuid.uuid4())
     scaffold = (
-        f"# Draft detection proposed from scheduled hunt {hunt.name!r}.\n"
-        f"# It returned {hit_count} hit(s) on its scheduled run.\n"
-        f"# TODO(analyst): convert the hunt query below into Sigma detection logic\n"
-        f"#   and attach positive/negative fixtures before promotion.\n"
-        f"# Original question: {hunt.nl_query}\n"
-        f"# {lang} query: {q_text or '(none captured)'}\n"
+        f"title: Hunt Finding - {hunt.name[:100]}\n"
+        f"id: {sigma_id}\n"
+        f"status: experimental\n"
+        f"description: |\n"
+        f"  Auto-proposed from scheduled hunt '{hunt.name}' ({hit_count} hit(s)).\n"
+        f"  Original NL query: {hunt.nl_query or '(none)'}\n"
+        f"  Source language: {lang}\n"
+        f"author: AiSOC Hunt Scheduler\n"
+        f"date: {datetime.now(UTC).strftime('%Y/%m/%d')}\n"
+        f"tags:\n"
+        f"  - attack.hunt-finding\n"
+        f"logsource:\n"
+        f"  category: process_creation  # TODO(analyst): adjust to match data source\n"
+        f"detection:\n"
+        f"  # TODO(analyst): convert the {lang} query below into Sigma selection criteria\n"
+        f"  # Original query:\n"
+        f"  # {q_text or '(none captured)'}\n"
+        f"  condition: selection\n"
+        f"level: medium\n"
+        f"falsepositives:\n"
+        f"  - Unknown  # TODO(analyst): document expected false positives\n"
     )
     await db.execute(
         text(

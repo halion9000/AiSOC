@@ -284,12 +284,13 @@ async def _case_sparkline(
     return buckets
 
 
-# TODO(T2.4-followup): ``aisoc_run_costs`` is populated by the agents
-# service's cost telemetry path (Track 2 / T2.4). When that table hasn't
-# been deployed yet — e.g. fresh demos, or services/api running
-# disconnected from the agents DSN — the query below raises a
-# ``UndefinedTable`` we swallow into ``(0.0, 0)``. Once T2.4 ships in
-# every environment, the swallow can be tightened to log-only.
+# T2.4 cost telemetry: ``aisoc_run_costs`` is created by the agents
+# service's CostTracker (app/core/cost_telemetry.py) on first use.
+# When the API service runs against a database where the agents service
+# hasn't yet written costs (fresh demo, separate DSN), the query below
+# may raise ``UndefinedTable`` — we swallow into ``(0.0, 0)`` so the
+# dashboard renders zeroes rather than 500s. The try/except also covers
+# RLS denials and transient connection errors.
 async def _llm_cost_aggregate(
     db,
     tenant_id: uuid.UUID,

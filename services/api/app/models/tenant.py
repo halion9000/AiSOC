@@ -23,6 +23,13 @@ class Tenant(Base):
     # MSSP hierarchy fields
     parent_tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True, index=True)
     mssp_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # T6.1 managed-instance provisioning (migration 043)
+    provisioned_from_waitlist_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    provisioned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
