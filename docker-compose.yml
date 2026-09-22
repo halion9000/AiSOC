@@ -242,9 +242,23 @@ services:
       SECRET_KEY: dev_secret_key_change_in_production
       ENVIRONMENT: development
       LOG_LEVEL: info
-      # Issue #478 — LiteLLM gateway. Route this service's live LLM endpoints
-      # (translation, hunts, KB, phishing, NL-detection) through the gateway by
-      # setting OPENAI_BASE_URL=http://litellm:4000/v1 + OPENAI_API_KEY=$LITELLM_MASTER_KEY.
+      # Hal, live, 2026-09-22: "I couldn't reach the LLM backend right now" -
+      # traced to the real Python exception in the api container's own logs:
+      # "The api_key client option must be set... or by setting the
+      # OPENAI_API_KEY environment variable." This comment (Issue #478)
+      # already correctly described what copilot.py's make_chat_model needs
+      # - OPENAI_BASE_URL pointing at the gateway, OPENAI_API_KEY set to the
+      # gateway's own master key - but only ever documented it here, never
+      # actually set it. LLM_GATEWAY_URL below is a different variable name
+      # that app/llm/factory.py's resolve_base_url() deliberately does NOT
+      # read (its own docstring: "We intentionally do not auto-adopt the
+      # compose-provided LLM_GATEWAY_URL here"), so it did nothing for any
+      # of this service's live LLM calls despite looking like configuration.
+      # ${LITELLM_MASTER_KEY:-sk-aisoc-local} matches the litellm service's
+      # own default exactly (see its own environment block below), so this
+      # stays correct automatically if that default is ever overridden.
+      OPENAI_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${LITELLM_MASTER_KEY:-sk-aisoc-local}
       LLM_GATEWAY_URL: http://litellm:4000/v1
     # Phase 2.6 — use /readyz, not /health, so the orchestrator
     # only routes traffic once the lifespan has finished wiring
