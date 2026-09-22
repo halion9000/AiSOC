@@ -7,9 +7,10 @@
  *   left  — recent conversations + suggested prompts
  *   right — active conversation thread + composer
  *
- * Talks to `copilotApi`. If the backend is unreachable the component falls
- * back to a deterministic local "demo" reply so the UX is still useful in
- * dev / no-LLM environments. Streaming is preferred when available.
+ * Talks to `copilotApi`. If the request genuinely fails (not the backend's
+ * own honest degraded-but-200 responses, which carry real content already)
+ * this shows a plain, honest error - never fabricated analysis. Streaming
+ * is preferred when available.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -55,112 +56,33 @@ const SUGGESTED_PROMPTS: Array<{ label: string; prompt: string }> = [
   },
 ];
 
-// ─── Demo fallback reply ─────────────────────────────────────────────────────
-
-function buildDemoReply(prompt: string): CopilotMessage {
-  const now = new Date().toISOString();
-  const lower = prompt.toLowerCase();
-
-  if (lower.includes('mttr')) {
-    return {
-      id: `demo-${Date.now()}`,
-      role: 'assistant',
-      createdAt: now,
-      content: [
-        'MTTR by severity (last 30 days)',
-        '',
-        '| Severity | MTTR | vs prev 30d |',
-        '|---|---|---|',
-        '| Critical | 22 min | -18% |',
-        '| High | 1h 14m | -9% |',
-        '| Medium | 4h 03m | +4% |',
-        '| Low | 9h 47m | flat |',
-        '',
-        'Critical and High are improving, driven by 3 new auto-containment playbooks. Medium is regressing because of a backlog in identity tickets; recommend re-triaging stale items over 6h.',
-      ].join('\n'),
-      suggestions: [
-        'Show me the stale Medium tickets > 6h.',
-        'Which playbooks contributed most to the Critical MTTR drop?',
-      ],
-    };
-  }
-
-  if (lower.includes('t1078') || lower.includes('valid accounts')) {
-    return {
-      id: `demo-${Date.now()}`,
-      role: 'assistant',
-      createdAt: now,
-      content: [
-        'T1078 — Valid Accounts',
-        '',
-        'Adversaries obtain credentials and use them to access systems through legitimate authentication flows. There are four sub-techniques:',
-        '- T1078.001 Default Accounts',
-        '- T1078.002 Domain Accounts',
-        '- T1078.003 Local Accounts',
-        '- T1078.004 Cloud Accounts',
-        '',
-        'How the demo data flags it',
-        '1. Impossible travel and geo-velocity (`auth.geo_velocity > 800kph`).',
-        '2. New ASN plus new device fingerprint within 24h of a sensitive role assignment.',
-        '3. MFA fatigue patterns: 3 or more push denies followed by an approval.',
-        '4. Service-account interactive logon outside its baselined hours.',
-        '',
-        'Coverage in the bundled rules: 74% across the 4 sub-techniques. Gap: limited Cloud Accounts coverage for non-AWS providers.',
-      ].join('\n'),
-      citations: [
-        { label: 'rule:auth-impossible-travel', kind: 'rule' },
-        { label: 'rule:mfa-fatigue', kind: 'rule' },
-      ],
-      suggestions: [
-        'Open the rule auth-impossible-travel.',
-        'Draft a rule for Azure AD MFA fatigue.',
-      ],
-    };
-  }
-
-  if (lower.includes('investigate')) {
-    return {
-      id: `demo-${Date.now()}`,
-      role: 'assistant',
-      createdAt: now,
-      content: [
-        'Investigation: WIN-FIN-DB01',
-        '',
-        '- Risk score 92 (top 1% of fleet).',
-        '- 3 open alerts: privilege escalation, suspicious PowerShell, outbound to rare ASN.',
-        '- Most likely user: `j.harlow@aisoc.example` (4 logon events in last 2h, all from a new device).',
-        '- Observed ATT&CK techniques: T1078.002, T1059.001, T1071.001.',
-        '',
-        'Recommended next steps',
-        '1. Isolate the host (EDR action).',
-        '2. Force credential reset for `j.harlow`.',
-        '3. Block egress to ASN `AS204796` at the perimeter.',
-      ].join('\n'),
-      citations: [
-        { label: 'alert:a-2031', kind: 'alert' },
-        { label: 'alert:a-2032', kind: 'alert' },
-        { label: 'asset:WIN-FIN-DB01', kind: 'asset' },
-      ],
-      suggestions: [
-        'Open a case from these alerts.',
-        'Run the host-isolate playbook on WIN-FIN-DB01.',
-      ],
-    };
-  }
-
+// ─── Offline fallback reply ──────────────────────────────────────────────────
+//
+// Hal, 2026-09-22, live: "the chat in aisoc still responds with random demo
+// data" - traced to this function (formerly buildDemoReply), which the
+// copilot.py rewrite and CopilotDock.tsx's own real-API wiring both missed
+// entirely, since neither commit's message mentioned this file. It returned
+// three keyword-matched, fully fabricated replies (a fake MTTR table, a fake
+// T1078 coverage report, a fake host investigation naming a nonexistent user
+// `j.harlow@aisoc.example`) - exactly the pattern removed everywhere else in
+// the app tonight, just missed here. It fired on ANY error from the real
+// copilotApi.chat() call, including one this component - unlike
+// CopilotDock.tsx - never even checked for: a real, successful 200 response
+// with `degraded: true` inside it (the backend's own honest "LLM unreachable"
+// path) still went through `try` successfully and was never miscategorized,
+// but a genuine failure (an auth error, a network drop) triggered fabricated
+// security analysis instead of a plain, honest error. Replaced with the same
+// pattern CopilotDock.tsx already uses: state what's actually true.
+function offlineReply(prompt: string): CopilotMessage {
   return {
     id: `offline-${Date.now()}`,
     role: 'assistant',
-    createdAt: now,
-    content: [
-      'The AI backend is currently unreachable. Check that the AiSOC stack is running and that CORE\'s provider config is synced (rebuild AISOC from the HUD).',
-      '',
-      `Your query was: "${prompt}"`,
-    ].join('\n'),
-    suggestions: [
-      'Retry',
-      'Open AISOC status',
-    ],
+    createdAt: new Date().toISOString(),
+    content:
+      'The AI backend is currently unreachable. Check that the AiSOC stack ' +
+      'is running and that CORE\'s provider config is synced (rebuild AISOC ' +
+      `from the HUD or run \`syncAisocProviderConfig()\`).\n\nYour query was: "${prompt}"`,
+    suggestions: ['Retry', 'Open AISOC status'],
   };
 }
 
@@ -382,10 +304,11 @@ export function CopilotView() {
       setConversationId(res.conversationId);
       setMessages((prev) => [...prev, res.reply]);
     } catch (err) {
-      // Backend not reachable / not implemented yet — fall back to a demo
-      // reply so the dock still feels alive in local dev.
-      const demo = buildDemoReply(trimmed);
-      setMessages((prev) => [...prev, demo]);
+      // Genuine failure only - the backend's own honest "LLM unreachable"
+      // path already returns 200 with degraded:true and real content, so
+      // this only fires for something actually wrong (auth, network).
+      const fallback = offlineReply(trimmed);
+      setMessages((prev) => [...prev, fallback]);
       setError(err);
     } finally {
       setSending(false);
