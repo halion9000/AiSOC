@@ -124,6 +124,7 @@ class CommunityPlaybookOut(BaseModel):
 async def publish_plugin(
     request: Request,
     current_user: AuthUser,
+    db: TenantDBSession,
 ) -> dict[str, Any]:
     """Submit a signed plugin tarball for community review."""
     sig_b64 = request.headers.get("X-Plugin-Signature")
@@ -147,7 +148,7 @@ async def publish_plugin(
 
     # Signature verification — allow submission without registered key (marks as unverified)
     verified = False
-    registered_pub_key = _get_registered_pub_key(str(current_user.user_id))
+    registered_pub_key = await _get_registered_pub_key(str(current_user.user_id), db)
     if registered_pub_key:
         try:
             verify_ed25519_signature(registered_pub_key, tarball, signature)
@@ -500,6 +501,18 @@ async def curate_community_playbook(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _get_registered_pub_key(user_id: str) -> bytes | None:
-    """Retrieve user's registered Ed25519 public key (stub — wire to DB)."""
+async def _get_registered_pub_key(user_id: str, db: Any) -> bytes | None:
+    """Retrieve user's registered Ed25519 public key from the responders table."""
+    from sqlalchemy import select, text
+    from app.models.responder import Responder
+
+    try:
+        result = await db.execute(
+            select(Responder.public_key).where(Responder.user_id == user_id)
+        )
+        key_b64 = result.scalar_one_or_none()
+        if key_b64:
+            return base64.b64decode(key_b64)
+    except Exception:
+        pass
     return None

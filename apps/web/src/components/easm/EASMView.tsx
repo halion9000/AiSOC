@@ -71,11 +71,22 @@ export function EASMView() {
     ? allAssets
     : allAssets.filter((a) => a.status === assetFilter);
 
+  // Synthetic risk score (0-100) derived from asset health + cert posture.
+  // Weights: critical assets 40pts each, warning 15pts, expired certs 20pts,
+  // expiring certs 8pts. Capped at 100 so the card never overflows.
+  const certList = certificates ?? [];
+  const rawRisk =
+    allAssets.filter((a) => a.status === 'critical').length * 40 +
+    allAssets.filter((a) => a.status === 'warning').length * 15 +
+    certList.filter((c) => c.status === 'expired').length * 20 +
+    certList.filter((c) => c.status === 'expiring').length * 8;
+  const riskScore = Math.min(100, rawRisk);
+
   const summary = {
     totalAssets: allAssets.length,
     exposedServices: allAssets.filter((a) => a.status === 'critical' || a.status === 'warning').length,
-    certIssues: (certificates ?? []).filter((c) => c.status !== 'valid').length,
-    riskScore: 0, // TODO: compute from real data when backend exposes it
+    certIssues: certList.filter((c) => c.status !== 'valid').length,
+    riskScore,
   };
 
   return (

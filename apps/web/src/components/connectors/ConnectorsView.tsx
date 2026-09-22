@@ -27,10 +27,12 @@ import {
 } from '@/lib/api';
 import { AddConnectorModal } from './AddConnectorModal';
 import { ConnectorInstanceList } from './ConnectorInstanceList';
+import { EditConnectorModal } from './EditConnectorModal';
 import { InboxTokensPanel } from './InboxTokensPanel';
 
 export function ConnectorsView() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingConnector, setEditingConnector] = useState<Connector | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, boolean | undefined>>({});
 
@@ -54,6 +56,15 @@ export function ConnectorsView() {
     },
     { revalidateOnFocus: false, refreshInterval: 60_000 },
   );
+
+  // Catalog is needed by EditConnectorModal to resolve field schemas for the
+  // connector being edited. Fetched once and shared across both modals.
+  const { data: catalogData } = useSWR(
+    'connectors:catalog',
+    () => connectorsApi.catalog(),
+    { revalidateOnFocus: false },
+  );
+  const catalog = useMemo(() => catalogData?.connectors ?? [], [catalogData]);
 
   const connectors: Connector[] = useMemo(() => data?.connectors ?? [], [data]);
 
@@ -131,13 +142,8 @@ export function ConnectorsView() {
     }
   };
 
-  const handleConfigure = (_connector: Connector) => {
-    // Inline edit dialog ships in a follow-up. For now, surface a hint so
-    // operators don't think the button is broken — the modal already covers
-    // create + test, which is the high-value path for v1.
-    toast('Connector editing UI is coming soon. Delete + re-add for now.', {
-      icon: '🔧',
-    });
+  const handleConfigure = (connector: Connector) => {
+    setEditingConnector(connector);
   };
 
   const handleCreated = () => {
@@ -255,6 +261,15 @@ export function ConnectorsView() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onCreated={handleCreated}
+      />
+
+      {/* Edit modal */}
+      <EditConnectorModal
+        open={editingConnector !== null}
+        connector={editingConnector}
+        catalogEntry={catalog?.find((e) => e.connector_id === editingConnector?.type)}
+        onClose={() => setEditingConnector(null)}
+        onUpdated={() => mutate()}
       />
     </div>
   );

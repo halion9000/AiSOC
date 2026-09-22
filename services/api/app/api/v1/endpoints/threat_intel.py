@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,6 +67,14 @@ class IOCOut(IOCCreate):
     created_at: str
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("first_seen", "last_seen", "created_at", mode="before")
+    @classmethod
+    def _serialize_datetime(cls, v: object) -> str:
+        """SQLAlchemy returns datetime objects; Pydantic needs ISO strings."""
+        if hasattr(v, "isoformat"):
+            return v.isoformat()  # type: ignore[union-attr]
+        return str(v)
 
 
 class ThreatActorCreate(BaseModel):
