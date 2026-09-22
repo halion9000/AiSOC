@@ -706,6 +706,31 @@ services:
       # string is what isDemoMode() (lib/demoMode.ts) treats as false.
       args:
         NEXT_PUBLIC_DEMO_MODE: ""
+        # Hal, live, 2026-09-22: the copilot chat kept answering with
+        # hardcoded, fabricated security analysis (an exact, word-for-word
+        # match to services/agents' own _SYNTHETIC_REPLIES list) no matter
+        # how many times the stack got rebuilt, --force-recreate'd, or
+        # even had its own copilot.py fixed and re-verified correct.
+        # Traced to the exact same bug class as the NEXT_PUBLIC_DEMO_MODE
+        # fix above, just never applied to these two variables: they sat
+        # only in the `environment:` block below, which - per that same
+        # fix's own comment - can never reach a NEXT_PUBLIC_* value, since
+        # those get inlined into the compiled JS bundle at build time, not
+        # read at container startup. apps/web/Dockerfile's own
+        # `ARG NEXT_PUBLIC_API_URL=""` default (empty) was therefore what
+        # actually got baked in, every single build, regardless of
+        # anything set below. With API_BASE compiled to an empty string,
+        # apps/web/src/lib/api.ts's request() built a bare relative path
+        # for every copilotApi.chat() call instead of an absolute URL -
+        # which the browser then sent to the Next.js server itself (this
+        # same web container, port 3000) rather than the api service
+        # directly. next.config.js has an explicit, unconditional rewrite
+        # routing '/api/v1/copilot/:path*' to AGENTS_HOST - so every one
+        # of those relative-path requests landed on the agents service's
+        # own, separate, hardcoded-reply copilot.py instead, no matter how
+        # correct the real one on the api service was.
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_WS_URL: ws://localhost:8086
     image: ghcr.io/beenuar/aisoc-web:${AISOC_VERSION:-latest}
     # Forces a real local build using the args above rather than ever
     # reusing the public image (which has demo mode baked in) purely
@@ -721,10 +746,12 @@ services:
       # Server-side API base — Docker-internal service name so SSR fetches
       # inside the web container reach the api service (localhost here would
       # refer to the web container itself, causing resolveServerApiBase() to
-      # fail and pages like /cases to flash MOCK_CASES on first paint).
+      # fail and pages like /cases to flash MOCK_CASES on first paint). This
+      # one's a plain server-side var, not NEXT_PUBLIC_*, so it genuinely is
+      # read at container startup — unlike NEXT_PUBLIC_API_URL and
+      # NEXT_PUBLIC_WS_URL, moved to the build args above (see that comment)
+      # since setting them here never did anything.
       API_URL: http://api:8000
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_WS_URL: ws://localhost:8086
       NODE_ENV: production
     networks:
       - aisoc
