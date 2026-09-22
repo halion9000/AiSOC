@@ -200,6 +200,98 @@ async def create_shift(
     return _row_to_summary(row)
 
 
+class HandoffItemOut(BaseModel):
+    """
+    Hal, 2026-09-22, review: this endpoint (and this model) existed before
+    the aisoc_shifts rewrite (migration 050) replaced the old in-memory
+    _MOCK_SHIFTS system - that rewrite fixed a real, separate gap (shift
+    tracking itself had no real table at all) but replaced this whole file
+    wholesale in the process, silently dropping this endpoint along with
+    the mock it was never part of. ShiftsView.tsx's frontend still calls
+    GET /shifts/handoff-items directly (shiftsApi.handoffItems() in
+    api.ts) - without this, that call 404s.
+
+    Deliberately independent of the aisoc_shifts table above: "what's
+    still open and worth flagging to the next shift" doesn't need a real
+    shift record to answer, it's just currently-open alerts and cases,
+    which the database already has for real.
+    """
+    id: str
+    priority: str
+    title: str
+    type: str
+    status: str
+    assigned_to: str
+    notes: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/handoff-items", response_model=list[HandoffItemOut])
+async def list_handoff_items(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: TenantDBSession,
+    priority: str | None = Query(default=None, description="Filter to one priority: critical/high/medium/low"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """
+    Real alerts and cases still open at query time - not resolved, not a
+    false positive, not closed - the actual candidates for handoff to the
+    next shift.
+    """
+    priority_clause = "AND severity = :priority" if priority else ""
+    alert_rows = (await db.execute(
+        text(f"""
+            SELECT id, title, severity AS priority, status, assigned_to_id, ai_summary AS notes
+            FROM alerts
+            WHERE status NOT IN ('resolved', 'fp', 'closed') {priority_clause}
+            ORDER BY created_at DESC
+            LIMIT :limit
+        """),
+        {"priority": priority, "limit": limit} if priority else {"limit": limit},
+    )).fetchall()
+
+    case_priority_clause = "AND priority = :priority" if priority else ""
+    case_rows = (await db.execute(
+        text(f"""
+            SELECT id, title, priority, status, assigned_to_id, description AS notes
+            FROM cases
+            WHERE status NOT IN ('resolved', 'closed') {case_priority_clause}
+            ORDER BY created_at DESC
+            LIMIT :limit
+        """),
+        {"priority": priority, "limit": limit} if priority else {"limit": limit},
+    )).fetchall()
+
+    items = [
+        HandoffItemOut(
+            id=str(r.id),
+            priority=r.priority,
+            title=r.title,
+            type="alert",
+            status=r.status,
+            assigned_to=str(r.assigned_to_id) if r.assigned_to_id else "unassigned",
+            notes=r.notes,
+        )
+        for r in alert_rows
+    ] + [
+        HandoffItemOut(
+            id=str(r.id),
+            priority=r.priority,
+            title=r.title,
+            type="case",
+            status=r.status,
+            assigned_to=str(r.assigned_to_id) if r.assigned_to_id else "unassigned",
+            notes=r.notes,
+        )
+        for r in case_rows
+    ]
+
+    priority_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    items.sort(key=lambda i: priority_rank.get(i.priority, 4))
+    return items[:limit]
+
+
 @router.put("/{shift_id}/handoff", response_model=ShiftSummary)
 async def add_handoff_notes(
     shift_id: str,
