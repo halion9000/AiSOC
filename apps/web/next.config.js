@@ -118,9 +118,11 @@ const nextConfig = {
         source: '/api/v1/realtime/healthz',
         destination: `${REALTIME_HOST}/healthz`,
       },
-      // Agents service owns contextual actions, playbooks, hunt search,
-      // and copilot chat. These must come before the `/api/v1/:path*`
-      // catch-all so they don't get sent to the core API.
+      // Agents service owns contextual actions, playbooks, and hunt
+      // search. These must come before the `/api/v1/:path*` catch-all so
+      // they don't get sent to the core API. Copilot chat is NOT in this
+      // list - see the comment further down, where its own rules used to
+      // be, for why.
       //
       // NOTE: `/api/v1/investigations*` is intentionally NOT routed here.
       // The agents service only exposes the *write* side (POST to start a
@@ -153,15 +155,34 @@ const nextConfig = {
         source: '/api/v1/hunt',
         destination: `${AGENTS_HOST}/api/v1/hunt`,
       },
-      // Copilot persistent chat conversations
-      {
-        source: '/api/v1/copilot/:path*',
-        destination: `${AGENTS_HOST}/api/v1/copilot/:path*`,
-      },
-      {
-        source: '/api/v1/copilot',
-        destination: `${AGENTS_HOST}/api/v1/copilot`,
-      },
+      // Hal, live, 2026-09-22: "the chat in aisoc still responds with
+      // random demo data" - traced through an entire night of otherwise
+      // correct fixes (a stale vendor payload, a missing --build, a
+      // missing --force-recreate, git pull silently failing on every
+      // single build, a webview that never reloaded) to find this,
+      // completely independent of all of them: these two rules,
+      // unchanged since before copilot chat had a real implementation at
+      // all. apps/web/src/lib/api.ts's safeBase() deliberately falls back
+      // to a same-origin relative path whenever NEXT_PUBLIC_API_URL's
+      // origin differs from the page's own - exactly the normal case
+      // here, since api (:8000) and web (:3000) are always different
+      // origins - so every copilot request was ALWAYS meant to go
+      // through this rewrite layer, by design, regardless of what
+      // NEXT_PUBLIC_API_URL was ever set to. These two rules just sent it
+      // to the wrong place once it got here: AGENTS_HOST, not API_HOST -
+      // exactly where copilot chat's real, working implementation
+      // (services/api/app/api/v1/endpoints/copilot.py) does NOT live.
+      // Every single message landed on the agents service's own,
+      // completely separate, hardcoded-reply endpoint instead - the
+      // browser's Network tab confirmed the actual request URL
+      // (localhost:3000/api/v1/copilot/chat, this rewrite layer) rather
+      // than a direct call to :8000, which is what finally pointed here.
+      // Removed entirely, matching the existing, established pattern for
+      // /api/v1/investigations* just above (a case where agents owns
+      // only part of a path prefix and the rest is deliberately let
+      // fall through to the API_HOST catch-all at the bottom of this
+      // list) - copilot chat has no agents-owned half left to preserve
+      // a rule for.
       // Hunt corpus management (plural /hunts)
       {
         source: '/api/v1/hunts/:path*',
