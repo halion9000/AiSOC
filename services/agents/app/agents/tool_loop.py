@@ -18,6 +18,7 @@ from typing import Any
 import structlog
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.llm.contract import safe_ainvoke
 from app.tools.registry import ToolRegistry
 
 logger = structlog.get_logger()
@@ -41,7 +42,19 @@ async def run_with_tools(
     trace: list[dict[str, Any]] = []
 
     for iteration in range(1, max_iters + 1):
-        response = await bound.ainvoke(messages)
+        # Hal, live review, 2026-09-22: was bound.ainvoke(messages) directly
+        # - flagged by this service's own test_llm_contract_no_bypass.py,
+        # which exists specifically to catch this. safe_ainvoke's contract
+        # validation, cost/token tracking (the dashboard's own comment:
+        # "the high-volume auto-triage path is finally visible in the cost
+        # dashboard"), and response caching all apply just as much to a
+        # tools-bound model as a plain one - confirmed directly that a
+        # real ChatOpenAI().bind_tools([]) still exposes .model via
+        # attribute delegation, which is what safe_ainvoke's own cost-
+        # tracking helper reads, so nothing about routing through it here
+        # needed a different code path. Every agent that calls into tools
+        # via this loop was invisible to cost tracking until this fix.
+        response = await safe_ainvoke(bound, messages)
         messages.append(response)
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
