@@ -456,6 +456,33 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       AZURE_API_KEY: ${AZURE_API_KEY:-}
       VERTEXAI_API_KEY: ${VERTEXAI_API_KEY:-}
+      # Hal, live, 2026-09-23, same review pass: four more of CORE's eight
+      # wizard providers (Hatz AI, Groq, GhostCLI, Local) all map to
+      # configProvider "custom" internally (setup/src/steps/model.ts) — for
+      # "custom", readCoreProviderConfig reads the key straight out of
+      # config.yaml itself and writes it to AISOC's .env under
+      # AISOC_UPSTREAM_API_KEY, which the generated litellm config then
+      # references as os.environ/AISOC_UPSTREAM_API_KEY. That name was
+      # missing here too, same gap, same silent-empty-auth failure mode.
+      # Google AI Studio (configProvider "gemini") isn't in
+      # aisoc-provider-bridge.ts's envKeyMap at all, so it falls through to
+      # a generic ${PROVIDER}_API_KEY guess — GEMINI_API_KEY — which was
+      # also never passed into this container. Between this line and the
+      # three above, every provider CORE's setup wizard currently offers
+      # now has its key actually reaching the gateway that's supposed to
+      # use it.
+      AISOC_UPSTREAM_API_KEY: ${AISOC_UPSTREAM_API_KEY:-}
+      # NOT GEMINI_API_KEY - setup/src/steps/model.ts's own Google AI
+      # Studio entry stores the key under envKey: "GOOGLE_API_KEY", and
+      # hud/src/aisoc-provider-bridge.ts's envKeyMap was fixed to match
+      # that exactly (same review pass) rather than the generic
+      # ${PROVIDER}_API_KEY guess GEMINI_API_KEY would have produced from
+      # configProvider "gemini". LiteLLM's gemini/ provider doesn't care
+      # what the env var is actually NAMED — the generated config.yaml's
+      # own api_key: os.environ/<name> line says which one to read, and
+      # that name is whatever apiKeyEnvVar resolves to, which is now
+      # GOOGLE_API_KEY throughout the whole chain.
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
     ports:
       - "127.0.0.1:4000:4000"
     healthcheck:
