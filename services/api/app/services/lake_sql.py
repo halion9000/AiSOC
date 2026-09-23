@@ -346,9 +346,33 @@ def _direct_tables(select: exp.Select) -> list[exp.Table]:
     """
     out: list[exp.Table] = []
 
-    # sqlglot stores the FROM clause under args["from"]. Using the args
-    # dict key is the canonical way to access it regardless of version.
-    from_expr = select.args.get("from")
+    # Hal, live review, 2026-09-22: sqlglot's internal args key for the
+    # FROM clause is "from" in some versions and "from_" in others
+    # within this project's own pinned range (>=23.0.0,<31.0.0) — a
+    # plain pip install of sqlglot 30.19.0 (itself inside that range)
+    # showed tree.args.keys() containing "from_", not "from". The
+    # obvious-looking fix, select.from_(), turned out to be a fluent
+    # BUILDER method for constructing a new Select (it raises
+    # TypeError if called with no arguments, since it expects the
+    # table expression to add) — not an accessor for the existing
+    # clause at all, the opposite of what the name suggests. Checking
+    # both dict keys directly is what's actually safe across the full
+    # pinned range without needing to pin down the exact version this
+    # changed in.
+    #
+    # This was a real, live, silent security bug, not a cosmetic one:
+    # with args.get("from") alone always returning None on a matching
+    # sqlglot version, _direct_tables always returned empty for every
+    # query regardless of its actual FROM clause, which made the
+    # caller treat every real query as "no FROM, skip" — meaning
+    # neither the tenant_id predicate injection NOR the table
+    # allowlist check (including the ClickHouse table-function block
+    # against url()/remote()/s3()/etc.) ever actually ran, for any
+    # query, silently, on affected installs. Confirmed via the actual
+    # rewritten SQL output in the failing test: the query passed
+    # through completely unfiltered rather than being rejected or
+    # predicate-injected.
+    from_expr = select.args.get("from_") or select.args.get("from")
     if from_expr is not None:
         _collect_direct_tables(from_expr, out)
 
