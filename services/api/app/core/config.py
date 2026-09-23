@@ -259,6 +259,47 @@ class Settings(BaseSettings):
     )
     HUNT_SCHEDULER_POLL_INTERVAL_SECONDS: int = 30
 
+    # ------------------------------------------------------------------
+    # Event-warehouse credentials — one block per provider in
+    # ``app.services.event_warehouse``. The scheduler above and the
+    # ``/lake``-adjacent ES|QL runner both read these via
+    # ``getattr(settings, "X", None)`` rather than a direct attribute
+    # access, on the assumption that an operator who hasn't configured a
+    # given warehouse just gets ``None`` back and a clean "not
+    # configured" skip.
+    #
+    # Hal, live review, 2026-09-22: that assumption was wrong before this
+    # block existed. With ``extra="ignore"`` above, ANY environment
+    # variable not declared as a real field here is silently dropped by
+    # pydantic-settings before it ever reaches the ``Settings`` instance
+    # — ``getattr`` returning ``None`` isn't "not configured", it's
+    # "not configured OR configured correctly but never actually wired
+    # in", and there was no way to tell the two apart from outside this
+    # file. None of these eight names were declared anywhere, for any of
+    # the three providers, including the one described elsewhere as
+    # having "a live execution path today" (Elasticsearch) — so setting
+    # ES_URL/ES_API_KEY in the environment, exactly as documented,
+    # would have done nothing at all; the scheduler would raise
+    # ESQLNotConfigured / HuntNotConfigured every single sweep
+    # regardless, silently, forever. Declaring them here is what
+    # actually makes HUNT_SCHEDULER_ENABLED=true mean something once an
+    # operator sets real credentials.
+    # ------------------------------------------------------------------
+    ES_URL: str = ""
+    ELASTICSEARCH_URL: str = ""
+    # app.services.esql_runner._validate_es_url falls back to this exact
+    # literal via getattr(settings, "OPENSEARCH_URL", "http://localhost:9200")
+    # — that default only ever applied when the attribute was entirely
+    # absent, so it has to be the real field default here too, not "",
+    # or declaring the field at all would silently swap a working
+    # fallback for an always-empty one.
+    OPENSEARCH_URL: str = "http://localhost:9200"
+    ES_API_KEY: str = ""
+    SPLUNK_URL: str = ""
+    SPLUNK_HMAC_TOKEN: str = ""
+    CHRONICLE_PROJECT_ID: str = ""
+    CHRONICLE_SERVICE_ACCOUNT_JSON: str = ""
+
     # Database
     # The default points at the bundled compose Postgres with its dev password.
     # In docker-compose.yml and .env.example the password is parameterised via
