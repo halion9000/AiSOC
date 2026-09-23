@@ -59,7 +59,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from cryptography.fernet import Fernet
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tenant import Tenant, User
@@ -363,15 +363,22 @@ async def provision_from_waitlist(
         "managed_offering": True,
     }
 
-    # TODO(T6.1): the ``provisioned_from_waitlist_id`` / ``provisioned_at``
-    # ORM columns are defined in migration 043 but not yet on the
-    # ``Tenant`` ORM model in ``app/models/tenant.py``. That file is
-    # owned by Subagent A's wave-2 stabilization push and we explicitly
-    # don't edit shared models from here. Until they map the columns,
-    # we (a) persist via raw SQL UPDATE below so direct DB queries
-    # like ``SELECT slug, provisioned_at FROM tenants`` work, and
-    # (b) mirror into the JSONB ``settings`` blob so the Python wire
-    # path keeps working without an ORM round-trip.
+    # T6.1: provisioned_from_waitlist_id / provisioned_at are real columns
+    # on the Tenant ORM model (migration 043) as of this review pass —
+    # this used to need a raw SQL UPDATE plus a JSONB mirror because the
+    # model hadn't caught up with the migration yet ("Subagent A's
+    # wave-2 stabilization push" hadn't landed when this function was
+    # first written). Confirmed the columns are there now
+    # (app/models/tenant.py, same T6.1/migration-043 comment) and that
+    # no test exercises the old raw-SQL/mock-session-fallback path
+    # directly, so setting the two ORM attributes here is a safe,
+    # equivalent simplification — no separate round-trip, no
+    # NotImplementedError-swallowing needed for unit tests' mock
+    # session. The JSONB mirror in tenant_settings above is left
+    # exactly as it was: other code may still read
+    # provisioned_from_waitlist_id / provisioned_at from there, and
+    # that's an orthogonal wire-contract concern this simplification
+    # doesn't touch either way.
     tenant = Tenant(
         name=entry.company,
         slug=slug,
@@ -379,19 +386,11 @@ async def provision_from_waitlist(
         is_active=True,
         settings=tenant_settings,
         limits=tenant_limits,
+        provisioned_from_waitlist_id=entry.id,
+        provisioned_at=provisioned_at,
     )
     db.add(tenant)
     await db.flush()  # populate tenant.id
-
-    # Persist the SQL-side provisioning columns. ``execute_or_skip``
-    # tolerates the mock-session shape used in unit tests, which
-    # speaks ORM SQL fluently but not the raw ``text(...)`` shim.
-    await _persist_provisioning_columns(
-        db,
-        tenant_id=tenant.id,
-        waitlist_entry_id=entry.id,
-        provisioned_at=provisioned_at,
-    )
 
     # First admin: mint a User row stitched to the waitlist email so
     # the invite link has somewhere meaningful to land. Password is
@@ -461,42 +460,6 @@ async def provision_from_waitlist(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
-
-
-async def _persist_provisioning_columns(
-    db: AsyncSession,
-    *,
-    tenant_id: uuid.UUID,
-    waitlist_entry_id: uuid.UUID,
-    provisioned_at: datetime,
-) -> None:
-    """Stamp the SQL-side provisioning columns on the tenant row.
-
-    We do this via raw SQL because the columns live in migration 043
-    but the ORM model in ``app/models/tenant.py`` does not declare
-    them yet (see TODO in :func:`provision_from_waitlist`). Test
-    harnesses that pass a mock session without raw-SQL support
-    survive: we swallow the ``NotImplementedError`` / ``AttributeError``
-    they raise and rely on the JSONB mirror inside ``settings``.
-    """
-    try:
-        await db.execute(
-            text("UPDATE tenants " "SET provisioned_from_waitlist_id = :wl_id, " "    provisioned_at = :pa " "WHERE id = :tid"),
-            {
-                "wl_id": waitlist_entry_id,
-                "pa": provisioned_at,
-                "tid": tenant_id,
-            },
-        )
-    except (NotImplementedError, AttributeError, RuntimeError) as exc:
-        # The mock session for unit tests refuses unknown SQL; that's
-        # fine — the JSONB mirror in tenant.settings keeps the wire
-        # contract intact and Postgres tests via the real session
-        # exercise this path.
-        logger.debug(
-            "skipping provisioning-column update: mock session or unsupported SQL: %s",
-            exc,
-        )
 
 
 async def _load_waitlist_entry(db: AsyncSession, entry_id: uuid.UUID) -> WaitlistEntry:
