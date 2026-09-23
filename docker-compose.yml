@@ -432,8 +432,30 @@ services:
       # Upstream provider keys the aliases resolve against (os.environ/... in the
       # config). Empty is fine — the gateway still boots, serves /health and
       # /metrics, and AiSOC falls back to its deterministic path.
+      #
+      # Hal, live, 2026-09-23: "Failed to authenticate request with Clerk" from
+      # OpenRouter, on a model that worked perfectly when called directly with
+      # the same key (curl against openrouter.ai, real completion came back).
+      # Root cause: this block only ever listed OPENAI_API_KEY and
+      # ANTHROPIC_API_KEY — three of the five providers
+      # hud/src/aisoc-provider-bridge.ts's readCoreProviderConfig actually
+      # supports (openrouter, azure, vertex_ai) were never passed into this
+      # container at all. syncAisocProviderConfig correctly writes
+      # OPENROUTER_API_KEY into AiSOC's own .env on disk, and the generated
+      # infra/litellm/config.yaml correctly references
+      # api_key: os.environ/OPENROUTER_API_KEY — but "os.environ/X" means the
+      # litellm PROCESS's own environment, and this container was simply
+      # never told to load that variable from anywhere. LiteLLM's
+      # substitution silently resolved to empty, sent OpenRouter a request
+      # with no real auth, and OpenRouter's generic auth layer reported the
+      # nearest thing it had tried (its own Clerk-cookie web-session path)
+      # instead of a plain "no API key" error — a confusing symptom for
+      # what was, underneath, a completely empty Authorization header.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      VERTEXAI_API_KEY: ${VERTEXAI_API_KEY:-}
     ports:
       - "127.0.0.1:4000:4000"
     healthcheck:
