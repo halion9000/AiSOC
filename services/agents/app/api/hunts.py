@@ -1,15 +1,32 @@
 """Hunt-as-code REST API (Wave 2 — w2-hac).
 
+Hal / review, 2026-09-22: renamed from /api/v1/hunts to /api/v1/hunt-corpus.
+services/api/app/api/v1/endpoints/hunts.py independently claims the exact
+same /api/v1/hunts path prefix for a completely different, unrelated
+feature (a hypothesis-driven, tenant-isolated hunt workbench — analyst-
+authored hypotheses with DB-backed CRUD, not this module's read-mostly
+YAML corpus runner). Both were real, both had overlapping sub-routes
+(/hunts, /hunts/{id}, /hunts/{id}/run), and apps/web/next.config.js's own
+rewrite sent every request to this module, leaving the api service's
+workbench completely unreachable — dormant only because neither currently
+has a frontend page built against it (confirmed: the one hunt-related
+page, HuntView.tsx, calls only huntApi's /api/v1/hunt/* — a third,
+genuinely separate search/saved-searches feature in hunt_search.py,
+untouched by this collision). Renamed this module rather than api's,
+since api's has migrations, a scheduler, and tests that would all need
+auditing for hardcoded-path references; this module's only other
+reference was a comment in main.py.
+
 Endpoints:
 
-* ``GET  /api/v1/hunts``                   — list YAML corpus
-* ``GET  /api/v1/hunts/{hunt_id}``         — single hunt definition
-* ``POST /api/v1/hunts/{hunt_id}/run``     — run a hunt on demand
-* ``GET  /api/v1/hunts/runs``              — recent runs (DB-backed)
-* ``GET  /api/v1/hunts/findings``          — recent findings (DB-backed,
+* ``GET  /api/v1/hunt-corpus``                   — list YAML corpus
+* ``GET  /api/v1/hunt-corpus/{hunt_id}``         — single hunt definition
+* ``POST /api/v1/hunt-corpus/{hunt_id}/run``     — run a hunt on demand
+* ``GET  /api/v1/hunt-corpus/runs``              — recent runs (DB-backed)
+* ``GET  /api/v1/hunt-corpus/findings``          — recent findings (DB-backed,
                                               filterable by ``hunt_id`` /
                                               ``status``)
-* ``POST /api/v1/hunts/reload``            — reload the corpus from disk
+* ``POST /api/v1/hunt-corpus/reload``            — reload the corpus from disk
                                               and re-sync the catalog table
 
 The corpus itself is the source of truth; the database tables exist so the
@@ -31,7 +48,7 @@ from app.hunt import scheduler as hunt_scheduler
 from app.hunt import store as hunt_store
 
 logger = logging.getLogger("aisoc.api.hunts")
-router = APIRouter(prefix="/api/v1/hunts", tags=["hunts"])
+router = APIRouter(prefix="/api/v1/hunt-corpus", tags=["hunt-corpus"])
 
 
 def _hunt_summary(h: Any) -> dict[str, Any]:

@@ -183,14 +183,29 @@ const nextConfig = {
       // fall through to the API_HOST catch-all at the bottom of this
       // list) - copilot chat has no agents-owned half left to preserve
       // a rule for.
-      // Hunt corpus management (plural /hunts)
+      // Hunt-as-code corpus management (renamed from /hunts to
+      // /hunt-corpus in services/agents/app/api/hunts.py — see that
+      // file's own docstring for the full explanation). This used to
+      // collide directly with services/api/app/api/v1/endpoints/hunts.py's
+      // own, completely unrelated /api/v1/hunts hypothesis-driven hunt
+      // workbench: same path prefix, overlapping sub-routes (/hunts,
+      // /hunts/{id}, /hunts/{id}/run), two real and independent
+      // features. Every request landed here regardless, leaving api's
+      // workbench entirely unreachable - dormant only because neither
+      // currently has a frontend page calling it (HuntView.tsx, the one
+      // hunt-related page that exists, calls only huntApi's /api/v1/hunt/*,
+      // a third, separate search/saved-searches feature untouched by
+      // this). With this rule now matching the corpus module's own,
+      // renamed prefix, api's /api/v1/hunts falls through to the generic
+      // API_HOST catch-all at the bottom of this list instead - both
+      // features are genuinely reachable now, at their own distinct paths.
       {
-        source: '/api/v1/hunts/:path*',
-        destination: `${AGENTS_HOST}/api/v1/hunts/:path*`,
+        source: '/api/v1/hunt-corpus/:path*',
+        destination: `${AGENTS_HOST}/api/v1/hunt-corpus/:path*`,
       },
       {
-        source: '/api/v1/hunts',
-        destination: `${AGENTS_HOST}/api/v1/hunts`,
+        source: '/api/v1/hunt-corpus',
+        destination: `${AGENTS_HOST}/api/v1/hunt-corpus`,
       },
       // osquery-TLS service: pack catalog, FIM events, distributed queries
       {

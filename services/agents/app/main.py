@@ -176,7 +176,7 @@ app.include_router(investigate_router)  # prefix already set in investigate.py
 app.include_router(triage_router)  # prefix: /api/v1  (POST /cases/{id}/triage — router topology, T2.2)
 app.include_router(playbook_router)  # prefix: /api/v1/playbooks
 app.include_router(contextual_router)  # prefix: /api/v1/contextual
-app.include_router(hunts_router)  # prefix: /api/v1/hunts
+app.include_router(hunts_router)  # prefix: /api/v1/hunt-corpus (renamed from /api/v1/hunts — see hunts.py's own docstring)
 app.include_router(hunt_search_router)  # prefix: /api/v1/hunt  (search + saved)
 app.include_router(copilot_router)  # prefix: /api/v1/copilot
 app.include_router(explain_router)  # prefix: /api/v1  (POST /explain — NDJSON stream)
