@@ -12,11 +12,13 @@ Endpoints
 * ``DELETE /saved-hunts/{id}``          — delete one.
 * ``POST   /saved-hunts/{id}/run``      — manually run a saved hunt now.
 
-Why a separate endpoint from ``/hunts`` (the hypothesis-driven hunt
-workbench)?
+Why a separate endpoint from ``/hunt-hypotheses`` (the hypothesis-driven
+hunt workbench — renamed from ``/hunts`` in review, 2026-09-22, after it
+turned out to collide with services/agents' own, unrelated /hunts feature
+at the exact same path)?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``/hunts`` (`endpoints/hunts.py`) is the heavyweight detection-engineering
+``/hunt-hypotheses`` (`endpoints/hunts.py`) is the heavyweight detection-engineering
 surface: each row has a hypothesis, MITRE mapping, status, multi-platform
 queries, findings rollup, and a separate ``hunt_runs`` log. It's been in
 the public API since Tier 2 and changing its wire shape would break the

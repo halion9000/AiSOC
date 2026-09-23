@@ -3,15 +3,30 @@
 SOC analysts author threat-hunting hypotheses, attach multi-platform queries,
 and track hunt runs and findings — all version-controlled via the DAC pipeline.
 
+Hal, live, 2026-09-22 review: mounted at /hunt-hypotheses, not /hunts. This
+service's own /hunts prefix (still shown in some older references) collided
+directly with services/agents' own, completely unrelated "Hunt-as-code" YAML
+corpus feature at the exact same /api/v1/hunts path — same prefix, same
+overlapping sub-paths (/hunts, /hunts/{id}, /hunts/{id}/run), two entirely
+different features. apps/web/next.config.js's rewrite routes all
+/api/v1/hunts/* to agents, so this feature was completely unreachable from
+the frontend the whole time — dormant only because nothing in the frontend
+(apps/web/src/lib/api.ts's huntApi) calls the plural /hunts path at all
+right now; it only ever calls the singular /api/v1/hunt/* (a third, also
+distinct feature: agents' hunt_search.py, ad-hoc telemetry search and saved
+searches). Renamed rather than removed either colliding feature, since both
+are real and complete — this one just needed a path of its own to actually
+be reachable when something eventually wires a frontend up to it.
+
 Endpoints
 ---------
-* ``GET  /hunts``                List hunts.
-* ``POST /hunts``                Create a hunt hypothesis.
-* ``GET  /hunts/{id}``           Get a hunt.
-* ``PATCH /hunts/{id}``          Update hypothesis / status / priority.
-* ``POST /hunts/{id}/run``       Execute a hunt query (ES|QL live; SPL/KQL templated).
-* ``GET  /hunts/{id}/runs``      List run history for a hunt.
-* ``POST /hunts/{id}/findings``  Append finding entries to a hunt.
+* ``GET  /hunt-hypotheses``                List hunts.
+* ``POST /hunt-hypotheses``                Create a hunt hypothesis.
+* ``GET  /hunt-hypotheses/{id}``           Get a hunt.
+* ``PATCH /hunt-hypotheses/{id}``          Update hypothesis / status / priority.
+* ``POST /hunt-hypotheses/{id}/run``       Execute a hunt query (ES|QL live; SPL/KQL templated).
+* ``GET  /hunt-hypotheses/{id}/runs``      List run history for a hunt.
+* ``POST /hunt-hypotheses/{id}/findings``  Append finding entries to a hunt.
 
 Tenant isolation
 ----------------
@@ -42,7 +57,7 @@ from app.services.model_aliases import resolve_model_alias
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/hunts", tags=["hunts"])
+router = APIRouter(prefix="/hunt-hypotheses", tags=["hunts"])
 
 # ────────────────────────────────────────────────────────────────────────────
 # Pydantic schemas
