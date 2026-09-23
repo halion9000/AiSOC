@@ -10,40 +10,22 @@
  * Accessibility: announced via role="status" so screen readers pick up the
  * "writes are disabled" message at page load. Not dismissible — visitors have
  * to know writes will 403, otherwise they'll think the app is broken.
+ *
+ * Hal, 2026-09-19: removed entirely for this self-hosted fork — the banner's
+ * own wording ("resets daily", "write actions are disabled") describes the
+ * public tryaisoc.com demo specifically and doesn't apply to a private
+ * self-host: AISOC_DEMO_MODE (the separate backend flag that middleware/
+ * demo_mode.py actually enforces writes with) defaults to false and was
+ * never set in infra/compose/docker-compose.demo.yml, and there's no reset
+ * job anywhere in this self-host compose setup either - so both claims were
+ * simply inaccurate here, not a real restriction being described.
+ * Unconditional `return null` rather than flipping NEXT_PUBLIC_DEMO_MODE
+ * itself off deliberately: that same flag is what DemoAutoLogin.tsx checks
+ * to silently log in as the seeded demo user - turning it off would kill
+ * that working login-free flow as a side effect of removing an unrelated
+ * banner.
  */
 
-import { isDemoMode, demoBannerMessage } from '@/lib/demoMode';
-import { docs } from '@/lib/docs';
-
 export function DemoBanner() {
-  if (!isDemoMode()) return null;
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="
-        fixed top-0 left-60 right-0 z-50
-        flex items-center justify-center gap-3
-        h-9 px-4
-        text-xs font-medium
-        bg-amber-500/15
-        text-amber-200
-        border-b border-amber-500/30
-      "
-    >
-      <span>{demoBannerMessage()}</span>
-      <span aria-hidden="true" className="text-amber-500/60">
-        |
-      </span>
-      <a
-        href={docs('quickstart')}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline underline-offset-2 hover:text-amber-100 transition-colors"
-      >
-        Self-host AiSOC
-      </a>
-    </div>
-  );
+  return null;
 }
