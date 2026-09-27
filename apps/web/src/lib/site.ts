@@ -1,22 +1,22 @@
 /**
  * Canonical public URL for SEO, Open Graph, and sitemap.
- * Set NEXT_PUBLIC_SITE_URL at build/deploy (e.g. https://tryaisoc.com for the live demo).
+ * Set NEXT_PUBLIC_SITE_URL at build/deploy (e.g. http://localhost:3000 for the live demo).
  */
 export function getPublicSiteUrl(): string {
   const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (raw) {
     return raw.replace(/\/$/, "");
   }
-  return "https://tryaisoc.com";
+  return "http://localhost:3000";
 }
 
-/** Meta keywords for cyber/SOC discovery (tryaisoc.com demo + self-host). */
+/** Meta keywords for cyber/SOC discovery (localhost demo + self-host). */
 export const DISCOVERY_KEYWORDS: readonly string[] = [
   // Brand
   "AiSOC",
   "AI SOC",
   "tryaisoc",
-  "tryaisoc.com",
+  "localhost",
   // Core value prop
   "open source SOC",
   "open-source security operations center",

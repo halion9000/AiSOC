@@ -14,16 +14,18 @@ once this endpoint is proven working end-to-end.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections import OrderedDict
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
+from app.copilot_tools import COPILOT_TOOL_SCHEMAS, execute_copilot_tool
 from app.llm.contract import safe_ainvoke
 from app.llm.factory import make_chat_model
 
@@ -167,10 +169,33 @@ async def copilot_chat(
     messages.append(HumanMessage(content=body.message))
 
     degraded = False
+    content = ""
     try:
         llm = make_chat_model("copilot", temperature=0.3, max_tokens=1024)
-        result = await safe_ainvoke(llm, messages)
-        content = getattr(result, "content", "") or ""
+        bound = llm.bind_tools(COPILOT_TOOL_SCHEMAS)
+        tenant_id = str(user.tenant_id)
+        max_tool_iters = 6
+        for _iteration in range(max_tool_iters):
+            result = await safe_ainvoke(bound, messages)
+            messages.append(result)
+            tool_calls = getattr(result, "tool_calls", None) or []
+            if not tool_calls:
+                content = getattr(result, "content", "") or ""
+                break
+            for call in tool_calls:
+                name = call.get("name", "")
+                args = call.get("args", {}) or {}
+                call_id = call.get("id", "") or ""
+                tool_result = await execute_copilot_tool(name, args, tenant_id)
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps(tool_result, default=str)[:4000],
+                        tool_call_id=call_id,
+                    )
+                )
+        else:
+            content = getattr(result, "content", "") or ""
+            logger.warning("copilot.tool_loop.truncated", iterations=max_tool_iters)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Copilot LLM call failed: %s", exc, exc_info=True)
         degraded = True

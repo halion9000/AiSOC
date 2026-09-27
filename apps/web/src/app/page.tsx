@@ -82,7 +82,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/' },
   openGraph: {
     title: 'AiSOC — open-source AI Security Operations Center',
-    description: `Four agents, ${CONNECTOR_COUNT} connectors, a public benchmark, and air-gap on a flag. Self-host the full stack under MIT, or join the managed waitlist at tryaisoc.com.`,
+    description: `Four agents, ${CONNECTOR_COUNT} connectors, a public benchmark, and air-gap on a flag. Self-host the full stack under MIT, or join the managed waitlist at localhost.`,
     url: siteUrl,
     siteName: 'AiSOC',
     type: 'website',

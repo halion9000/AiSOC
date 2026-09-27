@@ -1288,7 +1288,7 @@ function DeploymentAIPanel() {
               from this pod and mirror the egress gate exactly. To change them
               cluster-wide, update environment variables and redeploy. See{' '}
               <a
-                href="https://beenuar.github.io/AiSOC/docs/operations/airgap/"
+                href="/docs/operations/airgap"
                 target="_blank"
                 rel="noreferrer"
                 className="text-blue-400 hover:text-blue-300 hover:underline"

@@ -50,8 +50,8 @@ export function StartHero() {
     // landing page and explain how to seed. We do NOT redirect to /login
     // because the empty error state on a fresh self-host is more
     // informative than a generic password prompt.
-    const email = process.env.NEXT_PUBLIC_DEMO_AUTOLOGIN_EMAIL?.trim() || 'demo@tryaisoc.com';
-    const password = process.env.NEXT_PUBLIC_DEMO_AUTOLOGIN_PASSWORD?.trim() || 'aisoc-demo';
+    const email = process.env.NEXT_PUBLIC_DEMO_AUTOLOGIN_EMAIL?.trim() || '';
+    const password = process.env.NEXT_PUBLIC_UNUSED?.trim() || '';
 
     try {
       if (!authApi.isAuthenticated()) {

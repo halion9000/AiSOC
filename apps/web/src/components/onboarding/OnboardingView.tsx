@@ -298,13 +298,13 @@ export function OnboardingView() {
        *
        * The push-ingest docs live on the Docusaurus site (separate origin from
        * the Next.js app), so we link out to GH Pages rather than to a path
-       * under tryaisoc.com that would 404. The detections route is singular
+       * under localhost that would 404. The detections route is singular
        * (/detection) — earlier copy here said /detections and 404'd. */}
       <section className="mt-12 grid sm:grid-cols-2 gap-4">
         <NextStepCard
           title="Bring your own data"
           body="No connector for your tool? Push raw events into AiSOC over a tenant-scoped HTTPS endpoint."
-          href="https://beenuar.github.io/AiSOC/docs/operations/credentials/"
+          href="/docs/operations/credentials"
           cta="Push-ingest docs"
         />
         <NextStepCard

@@ -11,7 +11,7 @@ import { docs } from '@/lib/docs';
  * Before this page landed, Next.js shipped its default `not-found.tsx`
  * which is a bare white `404 | This page could not be found.` with no
  * navigation, no AiSOC branding, and no link home. On a dark-themed
- * marketing site it reads as "you have left tryaisoc.com" — exactly the
+ * marketing site it reads as "you have left localhost" — exactly the
  * wrong signal for someone who landed on a stale `/signup` link or
  * mistyped a route.
  *

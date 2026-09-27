@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * DemoBanner — top-of-page strip rendered on the hosted demo at tryaisoc.com.
+ * DemoBanner — top-of-page strip rendered on the hosted demo at localhost.
  *
  * Sits inside `AppShell` above the TopBar so it covers every authenticated
  * page. Renders nothing when `NEXT_PUBLIC_DEMO_MODE !== 'true'`, so self-hosted
@@ -13,7 +13,7 @@
  *
  * Hal, 2026-09-19: removed entirely for this self-hosted fork — the banner's
  * own wording ("resets daily", "write actions are disabled") describes the
- * public tryaisoc.com demo specifically and doesn't apply to a private
+ * public localhost demo specifically and doesn't apply to a private
  * self-host: AISOC_DEMO_MODE (the separate backend flag that middleware/
  * demo_mode.py actually enforces writes with) defaults to false and was
  * never set in infra/compose/docker-compose.demo.yml, and there's no reset

@@ -14,7 +14,7 @@
  *     `/api/v1/*`, `/api/v1/contextual/*`, `/ws/*` and `/sse` paths to the
  *     right downstream service. This makes the bundle host-agnostic — the
  *     same image works on `localhost:3000`, behind nginx, or behind a
- *     Cloudflare Tunnel pointed at `tryaisoc.com`.
+ *     Cloudflare Tunnel pointed at `localhost`.
  *   - `NEXT_PUBLIC_*_URL` env vars are still honoured if you want to bypass
  *     the proxy (e.g. point the bundle at a different API origin during
  *     local debugging).
@@ -26,7 +26,7 @@
  * we fall back to `''` (same-origin) so Next.js rewrites can proxy the request.
  *
  * This prevents a misconfigured NEXT_PUBLIC_*_URL (e.g. pointing directly at
- * api.tryaisoc.com) from bypassing the proxy and triggering CORS blocks.
+ * api.localhost) from bypassing the proxy and triggering CORS blocks.
  */
 function safeBase(url: string): string {
   if (!url) return '';
