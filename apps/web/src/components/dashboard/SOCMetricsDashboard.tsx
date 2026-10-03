@@ -134,9 +134,9 @@ export function SOCMetricsDashboard() {
     typeof data.kpis?.mttd_hours === "number" &&
     Array.isArray(data.attack_heatmap);
   const resolved = isValidSOC ? data : null;
-  const kpis = resolved.kpis;
-  const heatmap = resolved.attack_heatmap ?? [];
-  const calibration = resolved.calibration_curve ?? [];
+  const kpis = resolved?.kpis;
+  const heatmap = resolved?.attack_heatmap ?? [];
+  const calibration = resolved?.calibration_curve ?? [];
   // We surface the error inline rather than swapping the whole panel out for
   // a blocking error state — the mock fallback keeps the page legible while
   // the user retries.
@@ -299,8 +299,8 @@ function CostTelemetryPanel() {
     Array.isArray(data.by_model) &&
     typeof data.window_days === "number";
   const resolved = isValidCost ? data : null;
-  const totals = resolved.totals;
-  const byModel = resolved.by_model ?? [];
+  const totals = resolved?.totals;
+  const byModel = resolved?.by_model ?? [];
   const maxModelCost = Math.max(...byModel.map((m) => m.total_cost_usd), 0.0001);
   const errorMessage =
     error instanceof Error
