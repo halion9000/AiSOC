@@ -129,12 +129,14 @@ async def oidc_login(request: Request, redirect: str = "/") -> Response:
 
     safe_redirect = _safe_redirect(redirect)
     if not issuer or not client_id:
-        # Stub mode
-        logger.warning("OIDC not configured (OIDC_ISSUER / OIDC_CLIENT_ID missing) — issuing stub token")
-        token = _issue_jwt({"sub": "oidc-stub-user", "email": "oidc@stub.local", "provider": "oidc-stub"})
-        resp = RedirectResponse(url=safe_redirect, status_code=302)
-        resp.set_cookie("aisoc_token", token, httponly=True, samesite="lax")
-        return resp
+        # B1 fix: fail closed when OIDC is not configured. Previously this
+        # minted a stub JWT that granted access without any provider
+        # verification — an authentication bypass in any deployment that
+        # enables the OIDC login button without setting OIDC_ISSUER.
+        raise HTTPException(
+            status_code=501,
+            detail="OIDC is not configured. Set OIDC_ISSUER and OIDC_CLIENT_ID to enable SSO.",
+        )
 
     try:
         provider = await _discover(issuer)

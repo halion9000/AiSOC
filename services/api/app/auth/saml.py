@@ -141,10 +141,13 @@ async def saml_login(request: Request, redirect: str = "/") -> Response:
         login_url: str = auth.login(return_to=redirect)
         return RedirectResponse(url=login_url)
     except ImportError:
-        logger.warning("python3-saml not installed — SAML login stub active")
-        return HTMLResponse(
-            _stub_page("SAML Login (Stub)", "python3-saml is not installed. Configure SAML_IDP_SSO_URL and install python3-saml."),
-            status_code=200,
+        # B1 fix: fail closed when python3-saml is not installed.
+        # Previously this returned a 200 stub page that could be mistaken
+        # for a working login flow. Operators must install the dependency
+        # and configure SAML_IDP_SSO_URL before enabling SAML.
+        raise HTTPException(
+            status_code=501,
+            detail="SAML is not available. Install python3-saml and configure SAML_IDP_SSO_URL.",
         )
     except Exception as exc:
         logger.exception("SAML login error")
@@ -188,11 +191,13 @@ async def saml_acs(request: Request) -> Response:
         return response
 
     except ImportError:
-        logger.warning("python3-saml not installed — ACS stub active")
-        token = _issue_jwt({"sub": "stub-saml-user", "email": "saml@stub.local", "provider": "saml-stub"})
-        resp = RedirectResponse(url="/", status_code=302)
-        resp.set_cookie("aisoc_token", token, httponly=True, samesite="lax")
-        return resp
+        # B1 fix: fail closed when python3-saml is not installed.
+        # Previously this minted a stub JWT that granted access without
+        # any IdP verification — an authentication bypass.
+        raise HTTPException(
+            status_code=501,
+            detail="SAML is not available. Install python3-saml and configure SAML_IDP_SSO_URL.",
+        )
 
 
 @router.get("/metadata")

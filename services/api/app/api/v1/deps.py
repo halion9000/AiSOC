@@ -224,8 +224,19 @@ async def get_current_user(
             detail="Could not validate credentials",
         ) from e
 
+    # B2 fix: uuid.UUID() raises ValueError on malformed sub claims, which
+    # previously surfaced as a 500 instead of a clean 401. Catch it here so
+    # any token with a non-UUID subject is rejected as invalid credentials.
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, AttributeError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: malformed user id",
+        ) from e
+
     result = await db.execute(
-        select(User).where(User.id == uuid.UUID(user_id), User.is_active == True)  # noqa: E712
+        select(User).where(User.id == user_uuid, User.is_active == True)  # noqa: E712
     )
     user = result.scalar_one_or_none()
     if user is None:
