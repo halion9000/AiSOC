@@ -240,7 +240,9 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: neo4j_dev_secret
       SECRET_KEY: dev_secret_key_change_in_production
-      ENVIRONMENT: development
+      # B1 fix: default to production so unauthenticated requests are rejected.
+      # Set ENVIRONMENT=development in .env only when you want the demo-user shim.
+      ENVIRONMENT: production
       LOG_LEVEL: info
       # Hal, live, 2026-09-22: "I couldn't reach the LLM backend right now" -
       # traced to the real Python exception in the api container's own logs:
@@ -294,7 +296,8 @@ services:
       - "127.0.0.1:8081:8080"
       - "127.0.0.1:9090:9090"
     environment:
-      ENV: development
+      # B1 fix: default to production so unauthenticated requests are rejected.
+      ENV: production
       HTTP_PORT: 8080
       METRICS_PORT: 9090
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
