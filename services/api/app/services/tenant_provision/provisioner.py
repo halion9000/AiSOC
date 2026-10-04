@@ -349,11 +349,6 @@ async def provision_from_waitlist(
         "rbac_seed_roles": [r["name"] for r in bundle.rbac_roles],
         "starter_detections": [d["rule_id"] for d in bundle.detections],
         "starter_playbooks": [p["name"] for p in bundle.playbooks],
-        # Mirror the SQL-side provisioning columns into the JSONB so
-        # the Python ORM (which does *not* know about the new
-        # tenants columns yet — see TODO below) can still surface
-        # them. The migration adds the SQL columns for operator
-        # queries; the wire layer reads from this blob.
         "provisioned_from_waitlist_id": str(entry.id),
         "provisioned_at": provisioned_at.isoformat(),
     }
