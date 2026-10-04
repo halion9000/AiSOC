@@ -473,6 +473,100 @@ async def get_mitre_coverage_compat(
     )
 
 
+# ---------------------------------------------------------------------------
+# B6 fix: root overview endpoint
+# ---------------------------------------------------------------------------
+# The frontend's graphApi.getOverview() calls GET /api/v1/graph with optional
+# entity/depth query params.  Without this route the call 404s and the Attack
+# Graph view silently falls back to demo data, hiding the fact that the real
+# backend is reachable.  We aggregate lightweight counts from the relational
+# tables so the overview works even when Neo4j is offline; richer topology
+# lives on the sub-routes below.
+
+
+class GraphOverviewResponse(BaseModel):
+    node_count: int = 0
+    edge_count: int = 0
+    alert_count: int = 0
+    case_count: int = 0
+    host_count: int = 0
+    user_count: int = 0
+    ioc_count: int = 0
+    mitre_technique_count: int = 0
+    generated_at: str
+
+
+@router.get(
+    "",
+    response_model=GraphOverviewResponse,
+    summary="Attack graph overview (node/edge/entity counts)",
+)
+async def get_graph_overview(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+) -> GraphOverviewResponse:
+    """Return aggregate counts for the tenant's attack graph entities.
+
+    Works entirely from Postgres so the overview renders even when the Neo4j
+    knowledge-graph sidecar is offline.  Sub-routes (attack-path,
+    blast-radius, neighbors) still require the graph backend for traversal.
+    """
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    tid = str(current_user.tenant_id)
+
+    # Each count is a simple scalar subquery against the tenant-scoped table.
+    # These tables exist in every deployment (seeded by migrations); a missing
+    # table would be a migration failure surfaced elsewhere.
+    counts: dict[str, int] = {}
+    for label, sql in (
+        ("alert_count", "SELECT COUNT(*) FROM alerts WHERE tenant_id = :tid"),
+        ("case_count", "SELECT COUNT(*) FROM aisoc_cases WHERE tenant_id = :tid"),
+        ("host_count", "SELECT COUNT(*) FROM assets WHERE tenant_id = :tid AND asset_type = 'host'"),
+        ("user_count", "SELECT COUNT(*) FROM users WHERE tenant_id = :tid"),
+        ("ioc_count", "SELECT COUNT(*) FROM threat_intel_iocs WHERE tenant_id = :tid AND is_active = true"),
+    ):
+        try:
+            row = (await db.execute(text(sql).bindparams(tid=tid))).scalar()
+            counts[label] = int(row or 0)
+        except Exception:
+            counts[label] = 0
+
+    # MITRE technique count comes from distinct values across all tenant alerts
+    # rather than a dedicated table, since techniques are stored as JSONB arrays.
+    try:
+        mt_row = (
+            await db.execute(
+                text(
+                    "SELECT COUNT(DISTINCT elem) FROM alerts, "
+                    "jsonb_array_elements_text(mitre_techniques) AS elem "
+                    "WHERE tenant_id = :tid"
+                ).bindparams(tid=tid)
+            )
+        ).scalar()
+        counts["mitre_technique_count"] = int(mt_row or 0)
+    except Exception:
+        counts["mitre_technique_count"] = 0
+
+    # Node/edge totals: sum of entity counts gives a lower-bound node count.
+    # Edge count requires traversal and isn't cheap without Neo4j; report 0
+    # and let the UI show "connectivity available via sub-routes".
+    node_count = sum(counts.values())
+
+    return GraphOverviewResponse(
+        node_count=node_count,
+        edge_count=0,
+        alert_count=counts["alert_count"],
+        case_count=counts["case_count"],
+        host_count=counts["host_count"],
+        user_count=counts["user_count"],
+        ioc_count=counts["ioc_count"],
+        mitre_technique_count=counts["mitre_technique_count"],
+        generated_at=_dt.now(_UTC).isoformat(),
+    )
+
+
 # ─── Write Endpoints ──────────────────────────────────────────────────────────
 
 
