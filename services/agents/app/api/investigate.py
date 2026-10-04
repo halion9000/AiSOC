@@ -270,6 +270,19 @@ async def get_report_md(run_id: str):
     return run.get("report_md", "")
 
 
+# B5 fix: case-scoped alias so the frontend's fetch of
+# /api/v1/cases/{case_id}/investigations/{run_id}/report.md resolves here.
+# The canonical route above doesn't include case_id because runs are globally
+# unique by UUID; this alias accepts and ignores it for URL compatibility.
+@router.get(
+    "/cases/{case_id}/investigations/{run_id}/report.md",
+    response_class=PlainTextResponse,
+)
+async def get_report_md_case_scoped(case_id: str, run_id: str):
+    """Case-scoped alias for get_report_md (B5 frontend compat)."""
+    return await get_report_md(run_id)
+
+
 @router.get("/investigations/{run_id}/report.html", response_class=HTMLResponse)
 async def get_report_html(run_id: str):
     """Download the HTML incident report."""
