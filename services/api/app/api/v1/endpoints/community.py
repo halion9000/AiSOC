@@ -41,6 +41,7 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, CurrentUser, require_permission
+from app.db.rls import TenantDBSession
 from app.core.security import verify_ed25519_signature
 
 router = APIRouter(prefix="/community", tags=["community"])
