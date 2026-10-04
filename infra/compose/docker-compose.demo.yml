@@ -150,10 +150,8 @@ services:
       REDIS_URL: redis://:redis_dev_secret@redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SECRET_KEY: dev_secret_key_change_in_production
-      # B1 fix: default to production so unauthenticated requests are rejected.
-      # Set ENV=development in .env only when you want the demo-user shim.
-      ENV: production
-      ENVIRONMENT: production
+      ENV: development
+      ENVIRONMENT: development
       LOG_LEVEL: info
       # Browser → api CORS origin tracks the web host port so a fallback
       # publish (e.g. 3001) still passes the api's CORS preflight when a
@@ -209,8 +207,7 @@ services:
       AISOC_MODEL_PIN_SUMMARY: ${OPENAI_MODEL:-gpt-4o-mini}
       AISOC_MODEL_PIN_REPORT: ${OPENAI_MODEL:-gpt-4o-mini}
       AISOC_MODEL_PIN_NL: ${OPENAI_MODEL:-gpt-4o-mini}
-      # B1 fix: default to production so unauthenticated requests are rejected.
-      ENV: production
+      ENV: development
     networks:
       - aisoc-demo
     restart: unless-stopped
@@ -259,9 +256,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://aisoc:aisoc_dev_secret@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/0
       SECRET_KEY: dev_secret_key_change_in_production
-      # B1 fix: default to production so unauthenticated requests are rejected.
-      ENV: production
-      ENVIRONMENT: production
+      ENV: development
+      ENVIRONMENT: development
       LOG_LEVEL: info
       AISOC_DISABLE_KAFKA: "true"
     networks:
