@@ -595,7 +595,8 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8088:8003"
+      # Fix #1: connectors binds 8087 (serve.py default PORT), not 8003.
+      - "127.0.0.1:8088:8087"
     # Phase A3 — the connector runtime is part of the default stack now (was
     # profile-gated). It idles harmlessly with no configured instances; a cold
     # `up` therefore ships the full ingest→detect→respond spine out of the box.
@@ -612,10 +613,11 @@ services:
       # B13: credential vault key shared across api/agents/actions/connectors.
       AISOC_CREDENTIAL_KEY: ${AISOC_CREDENTIAL_KEY:-}
     # B15: proven healthcheck for Python-slim connectors service.
+    # Fix #1: probe 8087 (actual bind port), not 8003.
     healthcheck:
       test:
         - CMD-SHELL
-        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8003/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8087/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
       interval: 15s
       timeout: 5s
       retries: 5
