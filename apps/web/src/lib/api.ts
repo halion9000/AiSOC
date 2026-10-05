@@ -2672,11 +2672,18 @@ export const threatIntelApi = {
       body: JSON.stringify({ iocs }),
     }),
 
-  list: (filters: { type?: IndicatorType; tag?: string; q?: string } = {}) =>
-    request<{ indicators: ThreatIndicator[]; total: number }>(
-      '/api/v1/threat-intel/indicators',
-      { params: filters as Record<string, string> },
-    ),
+  list: async (filters: { type?: IndicatorType; tag?: string; q?: string } = {}) => {
+    // B4 fix: backend serves /iocs (flat IOCOut[]), not /indicators.
+    // Map to the { indicators, total } shape the IOC inbox expects.
+    const params: Record<string, string> = {};
+    if (filters.type) params.ioc_type = filters.type;
+    if (filters.tag) params.severity = filters.tag; // closest backend filter
+    const items = await request<ThreatIndicator[]>(
+      '/api/v1/threat-intel/iocs',
+      { params },
+    );
+    return { indicators: Array.isArray(items) ? items : [], total: Array.isArray(items) ? items.length : 0 };
+  },
 };
 
 // ─── AI Agents ────────────────────────────────────────────────────────────────
