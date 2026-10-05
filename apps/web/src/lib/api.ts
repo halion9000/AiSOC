@@ -1981,6 +1981,12 @@ export interface Connector {
   tenantId?: string;
   category?: string;
   config?: Record<string, unknown>;
+  /** Alias some UI code expects for backward compat. */
+  connectorConfig?: Record<string, unknown>;
+  /** Auth-specific config slice (OAuth tokens, API keys, etc.). */
+  authConfig?: Record<string, unknown>;
+  /** Free-form tags for filtering/grouping connectors. */
+  tags?: string[];
   lastSync?: string;
   /** Number of alerts ingested through this connector. */
   alertCount?: number;
@@ -5256,7 +5262,7 @@ export const shiftsApi = {
 };
 
 export const apiKeysApi = {
-  list: () => request<ApiKey[]>('/api/v1/api-keys'),
+  list: () => request<Array<{ id: string; name: string; prefix: string; scopes: string[]; expiresAt: string | null; createdAt: string; lastUsedAt?: string | null }>>('/api/v1/api-keys'),
 
   create: (input: { name: string; scopes: string[]; expiresInDays?: number }) =>
     request<{

@@ -299,9 +299,9 @@ function MitreHeatmap({ coverage }: { coverage: MitreCoverage }) {
 export function AttackGraphView() {
   const [selected, setSelected] = useState<GraphNode | null>(null);
 
-  const graphState = useSWR<AttackGraph>(
+  const graphState = useSWR<AttackGraph | null>(
     'attack-graph',
-    async () => {
+    async (): Promise<AttackGraph | null> => {
       try {
         return await graphApi.getOverview({ depth: 3 });
       } catch (err) {

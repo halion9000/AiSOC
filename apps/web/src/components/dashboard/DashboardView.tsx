@@ -383,7 +383,7 @@ export function DashboardView() {
   const metrics: DashboardMetrics = hasRealAlerts
     ? {
         alerts: apiData!.alerts as DashboardMetrics['alerts'],
-        cases: apiData!.cases ?? [],
+        cases: apiData!.cases ?? { open: 0, inProgress: 0, resolvedThisWeek: 0 },
         sources:
           Array.isArray(apiData!.sources) && apiData!.sources!.length
             ? apiData!.sources!

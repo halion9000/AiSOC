@@ -941,7 +941,7 @@ function ApiKeysPanel() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {k.scopes.map((s) => (
+                        {k.scopes.map((s: string) => (
                           <span
                             key={s}
                             className="rounded bg-gray-800 px-1.5 py-0.5 font-mono text-[11px] text-gray-300 ring-1 ring-gray-700"
@@ -2041,10 +2041,13 @@ function StatusPill({
 
 // ─── Panel: Audit ─────────────────────────────────────────────────────────────
 
+const _auditFetcher = (url: string) =>
+  fetch(url, { credentials: 'include' }).then((r) => r.json());
+
 function AuditPanel() {
   const { data, isLoading, error } = useSWR<AuditEntry[]>(
     '/api/v1/audit?page_size=5',
-    fetcher,
+    _auditFetcher,
     { refreshInterval: 60000 },
   );
 
@@ -2121,7 +2124,7 @@ function AboutPanel() {
           See the{' '}
           <a
             className="text-blue-400 hover:text-blue-300"
-            href="https://github.com/beenuar/AiSOC/blob/main/CONTRIBUTING.md"
+            href="https://github.com/halion9000/AiSOC/blob/main/CONTRIBUTING.md"
             target="_blank"
             rel="noreferrer"
           >
@@ -2140,7 +2143,7 @@ function AboutPanel() {
           </a>
           <a
             className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
-            href="https://github.com/beenuar/AiSOC/blob/main/CHANGELOG.md"
+            href="https://github.com/halion9000/AiSOC/blob/main/CHANGELOG.md"
             target="_blank"
             rel="noreferrer"
           >
@@ -2148,7 +2151,7 @@ function AboutPanel() {
           </a>
           <a
             className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
-            href="https://github.com/beenuar/AiSOC/blob/main/SECURITY.md"
+            href="https://github.com/halion9000/AiSOC/blob/main/SECURITY.md"
             target="_blank"
             rel="noreferrer"
           >
