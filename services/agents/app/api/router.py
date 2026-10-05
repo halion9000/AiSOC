@@ -79,7 +79,7 @@ async def start_investigation(
     )
 
 
-@router.get("/investigations/{run_id}")
+@router.get("/investigations/{run_id}", operation_id="get_investigation_run_status")
 async def get_investigation(run_id: str):
     """Get the status and results of an investigation run."""
     run = _runs.get(run_id)

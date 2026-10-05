@@ -118,6 +118,14 @@ const nextConfig = {
         source: '/api/v1/realtime/healthz',
         destination: `${REALTIME_HOST}/healthz`,
       },
+      // B3 fix: the frontend's agentsApi.investigate calls
+      // /api/v1/agents/investigate, which no backend serves. Route it to
+      // the agents service so the adapter endpoint added in item 5 can
+      // translate {alertId} → POST /api/v1/cases/{case_id}/investigate.
+      {
+        source: '/api/v1/agents/:path*',
+        destination: `${AGENTS_HOST}/api/v1/agents/:path*`,
+      },
       // Agents service owns contextual actions, playbooks, and hunt
       // search. These must come before the `/api/v1/:path*` catch-all so
       // they don't get sent to the core API. Copilot chat is NOT in this

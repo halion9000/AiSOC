@@ -384,3 +384,50 @@ async def stream_investigation(ws: WebSocket, run_id: str):
     except Exception as exc:  # noqa: BLE001
         logger.error("ws.error", run_id=run_id, error=str(exc))
         await ws.close(code=1011)
+
+
+# ---------------------------------------------------------------------------
+# B3 adapter: legacy /api/v1/agents/investigate → case-scoped investigate
+# ---------------------------------------------------------------------------
+# The frontend's agentsApi.investigate(alertId) posts {alertId} to this path.
+# No backend served it before; the real entry point is POST /cases/{case_id}/
+# investigate which expects {alert_summary, raw_alert, tenant_id}. This thin
+# adapter fetches the alert from the core API, derives a case_id (using the
+# alert's own caseId when present, otherwise falling back to the alert id),
+# and delegates to the existing launch_investigation handler so the frontend
+# contract keeps working without changes beyond the next.config.js rewrite.
+
+
+class _LegacyInvestigateRequest(BaseModel):
+    alertId: str
+
+
+@router.post("/agents/investigate")
+async def legacy_investigate(
+    body: _LegacyInvestigateRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Adapter for the frontend's agentsApi.investigate({alertId})."""
+    import httpx
+
+    api_url = os.environ.get("API_URL", "http://api:8000")
+    alert_id = body.alertId
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{api_url}/api/v1/alerts/{alert_id}")
+            resp.raise_for_status()
+            alert = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("legacy_investigate.alert_fetch_failed", alert_id=alert_id, error=str(exc))
+        alert = {"id": alert_id, "title": f"Alert {alert_id}", "description": ""}
+
+    case_id = str(alert.get("caseId") or alert.get("case_id") or alert_id)
+    tenant_id = str(alert.get("tenantId") or alert.get("tenant_id") or "default")
+    alert_summary = str(alert.get("title") or alert.get("description") or alert_id)
+
+    req = InvestigateRequest(
+        alert_summary=alert_summary,
+        raw_alert=alert,
+        tenant_id=tenant_id,
+    )
+    return await launch_investigation(case_id=case_id, body=req, background_tasks=background_tasks)
