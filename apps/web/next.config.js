@@ -118,13 +118,18 @@ const nextConfig = {
         source: '/api/v1/realtime/healthz',
         destination: `${REALTIME_HOST}/healthz`,
       },
-      // B3 fix: the frontend's agentsApi.investigate calls
-      // /api/v1/agents/investigate, which no backend serves. Route it to
-      // the agents service so the adapter endpoint added in item 5 can
-      // translate {alertId} → POST /api/v1/cases/{case_id}/investigate.
+      // B3 fix + item 5: route ONLY investigation-related agent paths to the
+      // agents service. The old catch-all /api/v1/agents/:path* shadowed
+      // the API's /api/v1/agents/tools endpoint. Narrowed to match only
+      // /agents/investigate and /agents/investigations/:id so tools falls
+      // through to the core API catch-all below.
       {
-        source: '/api/v1/agents/:path*',
-        destination: `${AGENTS_HOST}/api/v1/agents/:path*`,
+        source: '/api/v1/agents/investigate',
+        destination: `${AGENTS_HOST}/api/v1/agents/investigate`,
+      },
+      {
+        source: '/api/v1/agents/investigations/:path*',
+        destination: `${AGENTS_HOST}/api/v1/agents/investigations/:path*`,
       },
       // B5 fix: case-scoped investigation report downloads live on the
       // agents service (investigate.py alias), but the catch-all below
