@@ -20,7 +20,7 @@ boto3 = "^1.34.0"
 # Postgres so this microservice stays a stateless poller — no schema
 # ownership, no migrations.
 apscheduler = "^3.10.0"
-sqlalchemy = "^2.0.0"
+sqlalchemy = {version = "^2.0.0", extras = ["asyncio"]}
 asyncpg = "^0.29.0"
 # Cryptography is required to decrypt the auth_config blob written by the
 # API service's CredentialVault. We share AISOC_CREDENTIAL_KEY across both
