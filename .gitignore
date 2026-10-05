@@ -39,6 +39,7 @@ bin/
 # Python
 .venv/
 venv/
+.venv-verify/
 .eval-test-venv/
 .mypy_cache/
 .pytest_cache/
