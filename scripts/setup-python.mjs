@@ -31,31 +31,50 @@ const venvDir = path.join(root, ".venv-verify");
 const isWin = process.platform === "win32";
 
 const run = (cmd, args, opts = {}) => {
+  // On Windows, shell: true is needed for .cmd/.bat files (pnpm, npm) but
+  // BREAKS absolute-path executables like .venv\Scripts\python.exe because
+  // cmd.exe re-parses the path and fails with "system cannot find the file".
+  // Use shell only when the command is a bare name (no path separators).
+  const needsShell = isWin && !cmd.includes("/") && !cmd.includes("\\");
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd ?? root,
     encoding: "utf8",
-    shell: isWin,
+    shell: needsShell,
     stdio: opts.stdio ?? "inherit",
     env: { ...process.env, ...(opts.env ?? {}) },
   });
   return { code: r.status ?? (r.error ? 127 : 1), out: (r.stdout ?? "") + (r.stderr ?? "") };
 };
 
-// ── Locate a Python 3.12 interpreter ────────────────────────────────────────
+// ── Locate a Python 3 interpreter ───────────────────────────────────────────
+// Accept any Python 3.x (3.11, 3.12, 3.13, 3.14…) since all pinned deps
+// support 3.11+. On Windows, prefer py launcher versions first.
 const pyCandidates = isWin
-  ? [["py", "-3.12"], ["python3.12"], ["python"]]
-  : [["python3.12"], ["python3"], ["python"]];
+  ? [
+      ["py", "-3.12"],
+      ["py", "-3.11"],
+      ["py", "-3"],
+      ["python3.12"],
+      ["python3.11"],
+      ["python"],
+    ]
+  : [
+      ["python3.12"],
+      ["python3.11"],
+      ["python3"],
+      ["python"],
+    ];
 
 let pyCmd = null;
 for (const c of pyCandidates) {
   const r = run(c[0], [...c.slice(1), "--version"], { stdio: "pipe" });
-  if (r.code === 0 && /Python 3\.1[12]/.test(r.out)) {
+  if (r.code === 0 && /Python 3\.\d+/.test(r.out)) {
     pyCmd = c;
     break;
   }
 }
 if (!pyCmd) {
-  console.error("ERROR: Python 3.11 or 3.12 not found. Install it first.");
+  console.error("ERROR: No Python 3 interpreter found. Install Python 3.11+ first.");
   process.exit(1);
 }
 console.log(`Using Python: ${pyCmd.join(" ")}`);
@@ -68,20 +87,29 @@ if (recreate && fs.existsSync(venvDir)) {
 
 if (!fs.existsSync(venvDir)) {
   console.log("Creating .venv-verify…");
-  const r = run(pyCmd[0], [...pyCmd.slice(1), "-m", "venv", venvDir]);
+  // --without-pip avoids py launcher shell-resolution issues on Windows;
+  // pip is bootstrapped below via ensurepip using the venv python directly.
+  const r = run(pyCmd[0], [...pyCmd.slice(1), "-m", "venv", "--without-pip", venvDir]);
   if (r.code !== 0) {
     console.error("Failed to create venv.");
     process.exit(1);
   }
 }
 
-const pip = isWin
-  ? path.join(venvDir, "Scripts", "pip.exe")
-  : path.join(venvDir, "bin", "pip");
-
 const venvPy = isWin
   ? path.join(venvDir, "Scripts", "python.exe")
   : path.join(venvDir, "bin", "python");
+
+// Bootstrap pip if the venv was created without it (common with py launcher)
+const pipCheck = run(venvPy, ["-m", "pip", "--version"], { stdio: "pipe" });
+if (pipCheck.code !== 0) {
+  console.log("Bootstrapping pip via ensurepip…");
+  const ep = run(venvPy, ["-m", "ensurepip", "--upgrade"]);
+  if (ep.code !== 0) {
+    console.error("ensurepip failed; cannot install dependencies.");
+    process.exit(1);
+  }
+}
 
 // ── Dependency lists (mirrored from .github/workflows/ci.yml) ───────────────
 // Environment markers skip packages that don't build on Windows.
@@ -97,7 +125,7 @@ const API_DEPS = [
   ...OPENAPI_DEPS,
   "pydantic[email]",
   "sqlalchemy[asyncio]>=2.0,<3",
-  "asyncpg; sys_platform != 'win32'",
+  "asyncpg",
   "aiosqlite",
   "python-jose[cryptography]",
   "passlib[bcrypt]",
@@ -136,8 +164,8 @@ const ALL_DEPS = [...new Set([...API_DEPS, ...AGENTS_DEPS])];
 
 // ── Install ─────────────────────────────────────────────────────────────────
 console.log("Installing dependencies into .venv-verify…");
-const installArgs = ["install", "--quiet", ...ALL_DEPS];
-const r = run(pip, installArgs);
+const installArgs = ["-m", "pip", "install", "--quiet", ...ALL_DEPS];
+const r = run(venvPy, installArgs);
 if (r.code !== 0) {
   console.error("pip install failed. See output above.");
   process.exit(1);
