@@ -15,8 +15,10 @@ missing routes by injecting synthetic frontend calls that must fail.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -51,42 +53,50 @@ def _load_api_routes() -> set[str]:
 
 
 def _load_agents_routes() -> set[str]:
-    """Return all route paths from the agents FastAPI app."""
-    agents_main = SERVICES_ROOT / "agents" / "app" / "main.py"
+    """Return all route paths from the agents FastAPI app via subprocess.
+
+    Both services name their package ``app``, so importing agents' main.py
+    in-process after the API's app is already loaded causes every
+    ``from app.api...`` inside agents to resolve to the API's package and
+    fail. The old implementation swallowed that failure and returned an
+    empty set, making the test skip silently on every platform.
+
+    Running in a fresh interpreter with PYTHONPATH=services/agents avoids
+    the collision entirely. If the subprocess fails, the test MUST fail
+    (not skip) so the gate actually validates agents-routed paths.
+    """
+    # SERVICES_ROOT is services/api/tests/../../.. = repo root when __file__
+    # resolves correctly, but under pytest cwd=services/api the parents()
+    # chain can differ. Use REPO_ROOT (defined above) for unambiguous lookup.
+    agents_dir = REPO_ROOT / "services" / "agents"
+    agents_main = agents_dir / "app" / "main.py"
     if not agents_main.exists():
-        return set()
-    # The agents service imports from its own `app` package, so we must
-    # add its parent directory to sys.path temporarily. Without this the
-    # import fails silently and we get zero routes.
-    agents_root = str(SERVICES_ROOT / "agents")
-    added_to_path = False
-    if agents_root not in sys.path:
-        sys.path.insert(0, agents_root)
-        added_to_path = True
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("agents_main_b10", agents_main)
-    if not spec or not spec.loader:
-        return set()
-    mod = importlib.util.module_from_spec(spec)
+        pytest.fail(f"agents service app/main.py not found at {agents_main}")
+    script = (
+        "import json, os; "
+        "os.environ.setdefault('ENVIRONMENT', 'development'); "
+        "from app.main import app; "
+        "print(json.dumps(list(app.openapi().get('paths', {}).keys())))"
+    )
+    env = {**os.environ, "PYTHONPATH": str(agents_dir)}
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(agents_dir),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            f"Failed to load agents OpenAPI routes in subprocess:\n"
+            f"{result.stderr.strip()}"
+        )
     try:
-        os.environ.setdefault("ENVIRONMENT", "development")
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    except Exception as exc:
-        # Log but don't crash — some deps may be missing on Windows
-        print(f"B10: agents import failed: {exc}", file=sys.stderr)
-        return set()
-    finally:
-        if added_to_path:
-            sys.path.remove(agents_root)
-    agents_app = getattr(mod, "app", None)
-    if not agents_app:
-        return set()
-    # Use openapi() to flatten nested routers (same reason as api service)
-    try:
-        schema = agents_app.openapi()
-        return set(schema.get("paths", {}).keys())
-    except Exception:
-        return {r.path for r in agents_app.routes if hasattr(r, "path")}
+        paths = json.loads(result.stdout.strip())
+    except json.JSONDecodeError as exc:
+        pytest.fail(f"Invalid JSON from agents subprocess: {exc}\n{result.stdout}")
+    return set(paths)
 
 
 # ---------------------------------------------------------------------------
@@ -99,20 +109,28 @@ def _parse_rewrites() -> list[tuple[str, str]]:
     Returns a list of (regex_pattern, dest_var) tuples preserving the
     declaration order so we can apply first-match semantics like Next.js.
     dest_var is one of AGENTS_HOST, API_HOST, etc.
+
+    Destinations use JS template literals: `` `${AGENTS_HOST}/path/:id` ``.
+    The regex must match the backtick-delimited destination and capture
+    the host variable name inside ``${...}``.
     """
     if not NEXT_CONFIG.exists():
         return []
     content = NEXT_CONFIG.read_text(encoding="utf-8")
     rewrites: list[tuple[str, str]] = []
+    # Match source (single/double quoted) followed by destination (backtick
+    # template literal with ${HOST_VAR} prefix). re.DOTALL allows matching
+    # across newlines between source and destination lines.
     pattern = re.compile(
-        r"source:\s*['\"]([^'\"]+)['\"].*?destination:\s*`\$\{(\w+)\}",
+        r"source:\s*['\"]([^'\"]+)['\"].*?destination:\s*`\$\{(\w+)\}[^`]*`",
         re.DOTALL,
     )
     for m in pattern.finditer(content):
         source = m.group(1)
         dest_var = m.group(2)
-        # Convert Next.js :param patterns to regex wildcards
-        regex = re.sub(r":(\w+)", r"[^/]+", source)
+        # Convert Next.js :param and :path* patterns to regex wildcards
+        regex = re.sub(r":(\w+)\*", r".*", source)  # :path* → .*
+        regex = re.sub(r":(\w+)", r"[^/]+", regex)   # :id → [^/]+
         regex = f"^{regex}$"
         rewrites.append((regex, dest_var))
     return rewrites
@@ -231,14 +249,12 @@ def _resolve_service_for_path(
 # ---------------------------------------------------------------------------
 
 _EXCEPTIONS: dict[str, str] = {
-    # Generic health probe — every service serves its own /health internally;
-    # the frontend path is a convenience alias, not a real API route.
-    "/api/v1/health": "per-service internal health probe, not in OpenAPI",
+    # Frontend calls a route that does not exist on any service (known bug).
+    "/api/v1/health": "frontend calls a route that does not exist (known bug)",
     # WebSocket streaming — not representable in OpenAPI but served at runtime.
     "/api/v1/graph_ws/stream": "WebSocket endpoint, not in OpenAPI schema",
-    # Copilot conversations — dynamic REST + WS hybrid registered at runtime,
-    # not captured by static app.openapi().
-    "/api/v1/copilot/conversations": "dynamic copilot CRUD, not in static OpenAPI",
+    # Frontend calls a route that does not exist on any service (known bug).
+    "/api/v1/copilot/conversations": "frontend calls a route that does not exist (known bug)",
     # Bare contextual root — the agents service serves /contextual/actions etc.
     # but the bare /contextual prefix has no handler; frontend calls it for
     # discovery and tolerates 404.
@@ -251,24 +267,14 @@ _EXCEPTIONS: dict[str, str] = {
     # Enrichment service has its own host variable
     "/api/v1/enrichment/bulk": "routed to ENRICHMENT_HOST, separate service",
     "/api/v1/enrichment/lookup": "routed to ENRICHMENT_HOST, separate service",
-    # Fusion/hunt/osquery — conditional routers not loaded in dev-mode OpenAPI
+    # Fusion/osquery — conditional routers not loaded in dev-mode OpenAPI
     "/api/v1/fusion": "fusion ML endpoint, conditional registration",
-    "/api/v1/hunt/saved": "saved hunts, conditional router",
-    "/api/v1/hunt/search": "hunt search, conditional router",
     "/api/v1/osquery": "osquery TLS endpoint, conditional router",
-    # Playbooks list — served by agents service which can't be imported in api venv
-    "/api/v1/playbooks": "agents playbooks list, agents import skipped on Windows",
-    # B3 adapter and poll endpoint — served by agents via narrow rewrite
-    "/api/v1/agents/investigate": "B3 adapter on agents service via rewrite",
-    "/api/v1/agents/investigations/${id}": "B3 poll endpoint on agents via rewrite",
-    # Nested template literals — ${result.run_id} creates a path segment the
-    # backend's single {run_id} param can't match; these are B5 report rewrites
+    # Report.md paths are served by agents via specific rewrite, but the
+    # resolver's :caseId/:runId normalization doesn't match the frontend's
+    # ${caseId}/${runId} template literals against the rewrite regex.
     "/api/v1/cases/${caseId}/investigations/${result.run_id}/report.md": "nested template literal, B5 rewrite to agents",
     "/api/v1/cases/${caseId}/investigations/${runId}/report.md": "B5 rewrite to agents",
-    # Contextual actions — served by agents but catch-all resolves to API_HOST
-    "/api/v1/contextual/action": "contextual action execution, agents-routed",
-    "/api/v1/contextual/action/stream": "contextual action streaming, agents-routed",
-    "/api/v1/contextual/actions": "contextual actions list, agents-routed",
     # Copilot conversation by ID — dynamic CRUD not in static OpenAPI
     "/api/v1/copilot/conversations/${id}": "copilot conversation by ID, dynamic",
     # Query-string suffixed paths — scanner captures ${qs}/${suffix} as part
@@ -277,8 +283,7 @@ _EXCEPTIONS: dict[str, str] = {
     "/api/v1/inbox/tokens${qs}": "query-string suffix artifact from scanner",
     "/api/v1/waitlist/entries${qs}": "query-string suffix artifact from scanner",
     # Saved hunt by ID — conditional router not loaded in dev-mode OpenAPI
-    "/api/v1/hunt/saved/${id}": "saved hunt by ID, conditional router",
-}
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +397,15 @@ class TestBackendRouteCoverage:
             if "[" in sample or "*" in sample:
                 continue
             if not _route_matches(sample, routes):
-                bad.append(f"{pattern} → {dest_var} (no matching route)")
+                # The exact sample path may not exist, but the rewrite is
+                # still valid if the destination serves *any* route under
+                # this prefix (e.g. /api/v1/hunt → agents serves
+                # /hunt/search and /hunt/saved/{id}). Check for a prefix
+                # match before flagging as bad.
+                prefix = sample.rstrip("/") + "/"
+                has_subpath = any(r.startswith(prefix) for r in routes)
+                if not has_subpath:
+                    bad.append(f"{pattern} → {dest_var} (no matching route)")
         if bad:
             msg = (
                 "Rewrite destinations that don't serve the routed path:\n"
