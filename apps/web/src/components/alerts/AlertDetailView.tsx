@@ -266,59 +266,62 @@ function LedgerEvidenceChain({ runId }: { runId: string }) {
 function AIInvestigation({ alertId }: { alertId: string }) {
   const [investigation, setInvestigation] = useState<AgentInvestigation | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pollInvestigation = async (runId: string) => {
+    const maxAttempts = 60; // 5 minutes at 5s intervals
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const result = await agentsApi.getInvestigation(runId);
+        setInvestigation(result);
+        if (result.status === 'completed' || result.status === 'failed') {
+          setIsRunning(false);
+          return;
+        }
+      } catch (err) {
+        if (i === maxAttempts - 1) {
+          setError(err instanceof Error ? err.message : 'Polling failed');
+          setIsRunning(false);
+          return;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    setError('Investigation timed out after 5 minutes');
+    setIsRunning(false);
+  };
+
   const startInvestigation = async () => {
     setIsRunning(true);
+    setError(null);
     try {
       const result = await agentsApi.investigate(alertId);
       setInvestigation(result);
+      if (result.status === 'running' || result.status === 'pending') {
+        pollInvestigation(result.id);
+      } else {
+        setIsRunning(false);
+      }
     } catch (err) {
-      // Show mock investigation for demo
-      setInvestigation({
-        id: 'inv-1',
-        alertId,
-        status: 'completed',
-        findings: `## AI Investigation Summary
-
-**Threat Classification:** Advanced Persistent Threat (APT) - High Confidence
-
-### Executive Summary
-The PowerShell execution event represents a multi-stage attack with C2 communication. The attacker leveraged legitimate administrative credentials obtained via credential stuffing to execute an obfuscated downloader script.
-
-### Key Findings
-1. **Initial Access**: Credential abuse from IP 185.220.101.45 (known Tor exit node)
-2. **Execution**: Obfuscated PowerShell base64 encoded payload downloading secondary stage
-3. **C2 Communication**: Established encrypted channel to payload-c2.xyz (newly registered domain, 3 days old)
-4. **Lateral Movement Risk**: Current user has admin rights on 12 additional systems
-
-### MITRE ATT&CK Coverage
-- T1059.001 (PowerShell) → Active
-- T1027 (Obfuscation) → Active  
-- T1071 (Application Layer Protocol) → Active
-
-### Recommended Actions
-1. Isolate affected endpoint immediately
-2. Block IP 185.220.101.45 at perimeter firewall
-3. Block domain payload-c2.xyz at DNS level
-4. Reset credentials for affected user account
-5. Hunt for similar PowerShell patterns across fleet`,
-        recommendations: [
-          'Isolate endpoint DESKTOP-ABC123 from network immediately',
-          'Block IP 185.220.101.45 at firewall',
-          'Block domain payload-c2.xyz at DNS',
-          'Reset password for user john.doe@company.com',
-          'Review admin rights across all systems',
-        ],
-        actions: [
-          { type: 'isolate_endpoint', target: 'DESKTOP-ABC123', status: 'pending' },
-          { type: 'block_ip', target: '185.220.101.45', status: 'pending' },
-          { type: 'block_domain', target: 'payload-c2.xyz', status: 'pending' },
-        ],
-        startedAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
-      });
+      setError(err instanceof Error ? err.message : 'Failed to start investigation');
+      setIsRunning(false);
     }
-    setIsRunning(false);
   };
+
+  if (error && !investigation) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-sm text-red-400 mb-2">{error}</p>
+        <button
+          onClick={startInvestigation}
+          disabled={isRunning}
+          className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!investigation) {
     return (
