@@ -190,14 +190,17 @@ def _format_period_label(start: datetime, end: datetime) -> str:
     """Render a human-friendly span like "May 2 – May 9, 2026".
 
     Inclusive on the end side for readability; the actual query uses [start, end).
+    Uses ``f"{dt:%b} {dt.day}"`` instead of ``strftime('%-d')`` because
+    the ``%-d`` directive is a glibc extension that raises ``ValueError``
+    on Windows/msvcrt. The output is byte-identical on all platforms.
     """
     same_year = start.year == end.year
     same_month = same_year and start.month == end.month
     if same_month:
-        return f"{start.strftime('%b %-d')} – {end.strftime('%-d, %Y')}"
+        return f"{start:%b} {start.day} – {end.day}, {end.year}"
     if same_year:
-        return f"{start.strftime('%b %-d')} – {end.strftime('%b %-d, %Y')}"
-    return f"{start.strftime('%b %-d, %Y')} – {end.strftime('%b %-d, %Y')}"
+        return f"{start:%b} {start.day} – {end:%b} {end.day}, {end.year}"
+    return f"{start:%b} {start.day}, {start.year} – {end:%b} {end.day}, {end.year}"
 
 
 def _severity_split(rows: list[AlertRow]) -> SeveritySplit:
