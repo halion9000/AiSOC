@@ -72,13 +72,21 @@ def _load_agents_routes() -> set[str]:
     agents_main = agents_dir / "app" / "main.py"
     if not agents_main.exists():
         pytest.fail(f"agents service app/main.py not found at {agents_main}")
+    # Use a marked line so stray stdout from app imports (e.g. OTel
+    # warnings) doesn't corrupt the JSON payload. Set PYTHONIOENCODING
+    # to utf-8 so Windows console encoding doesn't mangle the output.
+    marker = "__B10_AGENTS_ROUTES__"
     script = (
         "import json, os; "
         "os.environ.setdefault('ENVIRONMENT', 'development'); "
         "from app.main import app; "
-        "print(json.dumps(list(app.openapi().get('paths', {}).keys())))"
+        f"print('{marker}' + json.dumps(list(app.openapi().get('paths', {{}}).keys())))"
     )
-    env = {**os.environ, "PYTHONPATH": str(agents_dir)}
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(agents_dir),
+        "PYTHONIOENCODING": "utf-8",
+    }
     result = subprocess.run(
         [sys.executable, "-c", script],
         cwd=str(agents_dir),
@@ -92,11 +100,18 @@ def _load_agents_routes() -> set[str]:
             f"Failed to load agents OpenAPI routes in subprocess:\n"
             f"{result.stderr.strip()}"
         )
-    try:
-        paths = json.loads(result.stdout.strip())
-    except json.JSONDecodeError as exc:
-        pytest.fail(f"Invalid JSON from agents subprocess: {exc}\n{result.stdout}")
-    return set(paths)
+    # Parse only the marked line; ignore any other stdout noise
+    for line in result.stdout.splitlines():
+        if line.startswith(marker):
+            try:
+                paths = json.loads(line[len(marker) :])
+                return set(paths)
+            except json.JSONDecodeError as exc:
+                pytest.fail(f"Invalid JSON from agents subprocess: {exc}\n{line}")
+    pytest.fail(
+        f"No marked JSON line found in agents subprocess output:\n"
+        f"{result.stdout[:500]}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -293,22 +308,18 @@ _EXCEPTIONS: dict[str, str] = {
 class TestBackendRouteCoverage:
     """B10 v2: Next.js-aware route coverage with per-service resolution."""
 
-    @classmethod
     @pytest.fixture(scope="class")
-    def api_routes(cls) -> set[str]:
+    def api_routes(self) -> set[str]:
         return _load_api_routes()
 
-    @classmethod
     @pytest.fixture(scope="class")
-    def agents_routes(cls) -> set[str]:
+    def agents_routes(self) -> set[str]:
         return _load_agents_routes()
 
-    @classmethod
     @pytest.fixture(scope="class")
-    def rewrites(cls) -> list[tuple[str, str]]:
+    def rewrites(self) -> list[tuple[str, str]]:
         return _parse_rewrites()
 
-    @classmethod
     @pytest.fixture(scope="class")
     def frontend_paths(self) -> set[str]:
         return _scan_frontend_paths()
