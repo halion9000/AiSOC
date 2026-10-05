@@ -366,6 +366,15 @@ services:
       CLICKHOUSE_DATABASE: aisoc
       CLICKHOUSE_USER: aisoc
       CLICKHOUSE_PASSWORD: clickhouse_dev_secret
+    # B15: proven healthcheck for Python-slim fusion service.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8003/health',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aisoc
     restart: unless-stopped
@@ -412,6 +421,16 @@ services:
       # B13: credential vault key shared across api/agents/actions/connectors.
       AISOC_CREDENTIAL_KEY: ${AISOC_CREDENTIAL_KEY:-}
       ATTCK_DATA_PATH: /app/data/enterprise-attack.json
+    # B15: proven healthcheck for Python-slim agents service.
+    # python:3.11-slim has no wget/curl; use stdlib urllib on /readyz.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8084/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aisoc
     restart: unless-stopped
@@ -550,6 +569,15 @@ services:
       CORE_API_URL: http://api:8000
       # B13: credential vault key shared across api/agents/actions/connectors.
       AISOC_CREDENTIAL_KEY: ${AISOC_CREDENTIAL_KEY:-}
+    # B15: proven healthcheck for Python-slim actions service.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8085/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aisoc
     restart: unless-stopped
@@ -583,6 +611,15 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       # B13: credential vault key shared across api/agents/actions/connectors.
       AISOC_CREDENTIAL_KEY: ${AISOC_CREDENTIAL_KEY:-}
+    # B15: proven healthcheck for Python-slim connectors service.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8003/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aisoc
     restart: unless-stopped
@@ -615,6 +652,15 @@ services:
       TAXII_URL: ${TAXII_URL:-}
       TAXII_USERNAME: ${TAXII_USERNAME:-}
       TAXII_PASSWORD: ${TAXII_PASSWORD:-}
+    # B15: proven healthcheck for Python-slim threatintel service.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8005/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aisoc
     restart: unless-stopped
@@ -641,6 +687,16 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       CLICKHOUSE_URL: http://aisoc:clickhouse_dev_secret@clickhouse:8123/aisoc
       CORE_API_URL: http://api:8000
+    # B15: proven healthcheck for Python-slim ueba service.
+    # Container listens on 8004 (host maps 8007:8004).
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8004/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aisoc
     restart: unless-stopped
@@ -720,6 +776,14 @@ services:
       REDIS_URL: redis://:redis_dev_secret@redis:6379
       REDIS_PASSWORD: redis_dev_secret
       PORT: 4000
+    # B15: proven healthcheck for the Node-based realtime service.
+    # Alpine has wget but not curl; /health returns 200 when ready.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - aisoc
     restart: unless-stopped
