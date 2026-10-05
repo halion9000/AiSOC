@@ -196,6 +196,24 @@ python3 scripts/upgrade_playbooks.py --dir playbooks/
 
 ### Step 6 — Pull and restart
 
+> **⚠️ Zookeeper volume migration (v4.1+)**
+>
+> Zookeeper now uses named volumes (`zookeeper_data`, `zookeeper_log`) to
+> persist its cluster ID across container recreations. If you are upgrading
+> from a version where zookeeper had no volume, the new empty zookeeper
+> volume starts a fresh cluster with a new ID, and kafka will refuse to
+> connect with `InconsistentClusterIdException`. **On the first build after
+> this change**, remove the stale kafka data volume once so kafka can
+> re-register with the new zookeeper cluster:
+>
+> ```bash
+> docker compose down
+> docker volume rm <project>_kafka_data   # e.g. aisoc_kafka_data
+> docker compose up -d --remove-orphans
+> ```
+>
+> This is a one-time operation. Subsequent restarts preserve both volumes.
+
 ```bash
 # Pull the latest images
 docker compose pull

@@ -22,6 +22,8 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  zookeeper_data:
+  zookeeper_log:
   kafka_data:
   clickhouse_data:
   opensearch_data:
@@ -75,6 +77,11 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    # Persist cluster ID and transaction log so kafka doesn't hit
+    # InconsistentClusterIdException when zookeeper is recreated.
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
     networks:
       - aisoc
     healthcheck:
