@@ -28,12 +28,16 @@ RUN set -eux; \
             "structlog>=24.1,<25" \
             "boto3>=1.34,<2" \
             "apscheduler>=3.10,<4" \
-            "sqlalchemy>=2.0,<3" \
+            "sqlalchemy[asyncio]>=2.0,<3" \
             "asyncpg>=0.29,<0.30" \
             "cryptography>=42,<43" ; \
     fi
 
 COPY app/ ./app/
+
+# Build-time import check: fail the image build if a dependency is missing
+# instead of crash-looping at runtime. Mirrors the agents Dockerfile pattern.
+RUN python -c "from app.main import app"
 
 EXPOSE 8087
 
