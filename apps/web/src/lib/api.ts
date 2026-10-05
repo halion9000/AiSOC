@@ -2668,16 +2668,64 @@ export const threatIntelApi = {
     }),
 
   list: async (filters: { type?: IndicatorType; tag?: string; q?: string } = {}) => {
-    // B4 fix: backend serves /iocs (flat IOCOut[]), not /indicators.
-    // Map to the { indicators, total } shape the IOC inbox expects.
+    // B4 fix: backend serves /iocs (flat IOCOut[]). Map fields to ThreatIndicator.
+    // Backend has no server-side tag/q filter, so we apply them client-side.
     const params: Record<string, string> = {};
     if (filters.type) params.ioc_type = filters.type;
-    if (filters.tag) params.severity = filters.tag; // closest backend filter
-    const items = await request<ThreatIndicator[]>(
-      '/api/v1/threat-intel/iocs',
-      { params },
-    );
-    return { indicators: Array.isArray(items) ? items : [], total: Array.isArray(items) ? items.length : 0 };
+    const rawItems = await request<Array<{
+      id: string;
+      ioc_type: string;
+      value: string;
+      confidence: number;
+      severity: string;
+      tlp: string;
+      threat_actor: string | null;
+      campaign: string | null;
+      malware_family: string | null;
+      tags: string[] | null;
+      source: string;
+      source_ref: string | null;
+      expires_at: string | null;
+      linked_alerts: string[] | null;
+      context: Record<string, unknown>;
+      tenant_id: string;
+      is_active: boolean;
+      false_positive: boolean;
+      first_seen: string;
+      last_seen: string;
+      created_at: string;
+    }>>('/api/v1/threat-intel/iocs', { params });
+
+    const mapped: ThreatIndicator[] = rawItems.map((ioc) => ({
+      id: ioc.id,
+      type: ioc.ioc_type as IndicatorType,
+      value: ioc.value,
+      confidence: ioc.confidence,
+      severity: ioc.severity as AlertSeverity,
+      malicious: ioc.severity !== 'info' && ioc.severity !== 'low',
+      tags: ioc.tags ?? undefined,
+      sources: [ioc.source],
+      firstSeen: ioc.first_seen,
+      lastSeen: ioc.last_seen,
+      description: ioc.context?.description as string | undefined,
+    }));
+
+    // Client-side filtering for tag and q since backend doesn't support them
+    let filtered = mapped;
+    if (filters.tag) {
+      filtered = filtered.filter((i) => i.tags?.includes(filters.tag!));
+    }
+    if (filters.q) {
+      const q = filters.q.toLowerCase();
+      filtered = filtered.filter(
+        (i) =>
+          i.value.toLowerCase().includes(q) ||
+          i.tags?.some((t) => t.toLowerCase().includes(q)) ||
+          i.description?.toLowerCase().includes(q),
+      );
+    }
+
+    return { indicators: filtered, total: filtered.length };
   },
 };
 
