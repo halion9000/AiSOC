@@ -184,18 +184,22 @@ def _route_matches(frontend_path: str, backend_routes: set[str]) -> bool:
     Handles parameterized routes like /cases/{case_id}/investigate
     matching /cases/abc-123/investigate, and template-literal paths
     like /api/v1/ghost-things/${id}/nothing.  Both ${var} and {param}
-    are treated as equivalent single-segment wildcards.
+    are treated as equivalent single-segment wildcards via _to_regex.
     """
     norm = _normalize(frontend_path)
-    # Strip query-string suffixes that got captured (e.g. /waitlist/entries${qs})
-    norm = re.sub(r"\$\{[^}]*\}$", "", norm)
+    # Build regex from the normalized frontend path; _to_regex converts
+    # both ${var} and {param} to [^/]+ wildcards so they match each other.
     fe_re = _to_regex(norm)
     for route in backend_routes:
         rnorm = _normalize(route)
+        # Direct equality after normalization catches exact matches
         if norm == rnorm:
             return True
         be_re = _to_regex(rnorm)
         try:
+            # Match backend regex against normalized frontend path, OR
+            # frontend regex against normalized backend route. This handles
+            # cases where param names differ (${id} vs {case_id}).
             if re.match(be_re, norm) or re.match(fe_re, rnorm):
                 return True
         except re.error:
@@ -227,111 +231,53 @@ def _resolve_service_for_path(
 # ---------------------------------------------------------------------------
 
 _EXCEPTIONS: dict[str, str] = {
-    # B3 adapter lives on agents, routed via /api/v1/agents/:path* rewrite
-    "/api/v1/agents/investigate": "B3 adapter on agents service via rewrite",
-    # B5 report downloads routed to agents via specific rewrites
-    "/api/v1/cases/{caseId}/investigations/{runId}/report.md": "B5 rewrite to agents",
-    "/api/v1/cases/{caseId}/investigations/{runId}/report.html": "B5 rewrite to agents",
-    "/api/v1/cases/{caseId}/investigations/{runId}/report.pdf": "B5 rewrite to agents",
-    # Health/readiness probes — served by every service internally
-    "/api/v1/health": "generic health probe, resolved per-service",
-    # WebSocket streaming endpoints — not in OpenAPI but served at runtime
+    # Generic health probe — every service serves its own /health internally;
+    # the frontend path is a convenience alias, not a real API route.
+    "/api/v1/health": "per-service internal health probe, not in OpenAPI",
+    # WebSocket streaming — not representable in OpenAPI but served at runtime.
     "/api/v1/graph_ws/stream": "WebSocket endpoint, not in OpenAPI schema",
-    # Copilot conversations — dynamic REST + WS hybrid, not in static OpenAPI
-    "/api/v1/copilot/conversations": "copilot conversation CRUD, dynamic routing",
-    # Realtime service has its own host variable, not API or agents
+    # Copilot conversations — dynamic REST + WS hybrid registered at runtime,
+    # not captured by static app.openapi().
+    "/api/v1/copilot/conversations": "dynamic copilot CRUD, not in static OpenAPI",
+    # Bare contextual root — the agents service serves /contextual/actions etc.
+    # but the bare /contextual prefix has no handler; frontend calls it for
+    # discovery and tolerates 404.
+    "/api/v1/contextual": "discovery-only prefix, no handler on any service",
+    # Graph overview — disabled in this build (B7); the endpoint exists in code
+    # but is not registered when the graph feature flag is off.
+    "/api/v1/graph": "graph overview disabled in this build (B7)",
+    # Realtime service has its own host variable
     "/api/v1/realtime/healthz": "routed to REALTIME_HOST, separate service",
-    "/api/v1/realtime/ticket": "routed to REALTIME_HOST, separate service",
-    # Passkeys/WebAuthn — browser-native auth flow, endpoints registered dynamically
-    "/api/v1/passkeys/authenticate/begin": "WebAuthn ceremony, dynamic registration",
-    "/api/v1/passkeys/authenticate/finish": "WebAuthn ceremony, dynamic registration",
-    "/api/v1/passkeys/credentials": "WebAuthn credential management, dynamic",
-    "/api/v1/passkeys/credentials/${id}": "WebAuthn credential by ID, dynamic",
-    "/api/v1/passkeys/register/begin": "WebAuthn registration ceremony, dynamic",
-    "/api/v1/passkeys/register/finish": "WebAuthn registration ceremony, dynamic",
-    # Playbooks — agents service routes loaded conditionally; parameterized
-    "/api/v1/playbooks": "agents playbooks list, conditional import",
-    "/api/v1/playbooks/${id}": "agents playbook by ID, parameterized",
-    "/api/v1/playbooks/${playbook.id}": "agents playbook template literal",
-    "/api/v1/playbooks/${playbook.id}/run": "agents playbook run, parameterized",
-    "/api/v1/playbooks/${playbookId}": "agents playbook template literal variant",
-    "/api/v1/playbooks/draft-from-nl": "agents NL-to-playbook draft endpoint",
-    # Push notifications — browser Push API, endpoints may be conditional
-    "/api/v1/push/public-key": "VAPID public key for push subscriptions",
-    "/api/v1/push/subscribe": "push subscription creation",
-    "/api/v1/push/test": "push notification test endpoint",
-    "/api/v1/push/unsubscribe": "push subscription removal",
-    # RBAC — role/permission management, parameterized routes
-    "/api/v1/rbac/permissions": "RBAC permissions list",
-    "/api/v1/rbac/roles": "RBAC roles list",
-    "/api/v1/rbac/roles/${initial.id}": "RBAC role template literal",
-    "/api/v1/rbac/roles/${role.id}": "RBAC role template literal variant",
-    # Reports — digest generation, may be async/job-based
-    "/api/v1/reports/digest/weekly": "weekly digest report generation",
-    # Rules backtest — parameterized, may use job queue
-    "/api/v1/rules/${id}/backtest": "rule backtest by ID, parameterized",
-    # Saved hunts/views — CRUD with parameterized IDs
-    "/api/v1/saved-hunts": "saved hunts list",
-    "/api/v1/saved-hunts/${id}": "saved hunt by ID, parameterized",
-    "/api/v1/saved-hunts/${id}/run": "saved hunt execution, parameterized",
-    "/api/v1/saved-views": "saved views list",
-    "/api/v1/saved-views/${id}": "saved view by ID, parameterized",
-    # Shifts — handoff items for shift change
-    "/api/v1/shifts/handoff-items": "shift handoff items list",
-    # SLA configuration — parameterized by severity
-    "/api/v1/sla/config": "SLA configuration list",
-    "/api/v1/sla/config/${config.severity}": "SLA config by severity, parameterized",
-    "/api/v1/sla/kpi-targets": "SLA KPI targets configuration",
-    # Tenants — current tenant identity and metadata
-    "/api/v1/tenants/me": "current tenant metadata",
-    "/api/v1/tenants/me/identity": "current tenant identity details",
-    # Threat intel IOCs — B4 fix repointed to /iocs but route matching
-    # fails because backend uses /threat-intel/iocs not /api/v1/threat-intel/iocs
-    "/api/v1/threat-intel/iocs": "B4 repointed IOC list, prefix mismatch in scan",
-    # Waitlist — signup and entry management, may include query strings
-    "/api/v1/waitlist/entries${qs}": "waitlist entries with query string suffix",
-    "/api/v1/waitlist/entries/${entryId}": "waitlist entry by ID, parameterized",
-    "/api/v1/waitlist/signup": "waitlist signup endpoint",
-    # --- Remaining genuine misses (not in api OpenAPI, not routed elsewhere) ---
-    # Agents investigation polling — B3 adapter returns run_id; UI polls this
-    "/api/v1/agents/investigations/${id}": "B3 poll endpoint, to be added in item 4",
-    # Parameterized alert/case/connector/etc. routes where frontend uses ${id}
-    # but backend uses specific names like {alert_id}, {case_id}, {connector_id}.
-    # These DO exist in OpenAPI and the regex matcher handles them; any still
-    # listed here failed due to nested template literals like ${result.run_id}.
-    "/api/v1/alerts/${alertId}": "matches /api/v1/alerts/{alert_id} via regex",
-    "/api/v1/alerts/${id}": "alternate param name, same backend route",
-    "/api/v1/api-keys/${id}": "matches /api/v1/api-keys/{key_id}",
-    "/api/v1/approvals/${id}": "matches /api/v1/approvals/{approval_id}",
-    "/api/v1/cases/${caseId}/investigations/${result.run_id}/report.md": "nested template literal, B5 rewrite to agents",
-    "/api/v1/cases/${caseId}/investigations/${runId}": "matches /api/v1/cases/{case_id}/investigations/{run_id}",
-    "/api/v1/cases/${caseId}/investigations/${runId}/report.md": "B5 rewrite to agents",
-    "/api/v1/cases/${caseId}/tasks/${taskId}": "matches /api/v1/cases/{case_id}/tasks/{task_id}",
-    "/api/v1/cases/${id}": "matches /api/v1/cases/{case_id}",
-    "/api/v1/community/detections/${rule.id}": "community detection by rule ID",
-    "/api/v1/connectors/${id}": "matches /api/v1/connectors/{connector_id}",
-    "/api/v1/copilot/conversations/${id}": "copilot conversation by ID, dynamic",
-    "/api/v1/detection-proposals/${id}": "matches /api/v1/detection-proposals/{proposal_id}",
-    "/api/v1/detection/rules/${id}": "matches /api/v1/detection/rules/{rule_id}",
     # Enrichment service has its own host variable
     "/api/v1/enrichment/bulk": "routed to ENRICHMENT_HOST, separate service",
     "/api/v1/enrichment/lookup": "routed to ENRICHMENT_HOST, separate service",
-    # Fusion/graph/hunt/osquery — endpoints registered conditionally or via
-    # included routers that don't appear in the dev-mode OpenAPI schema
+    # Fusion/hunt/osquery — conditional routers not loaded in dev-mode OpenAPI
     "/api/v1/fusion": "fusion ML endpoint, conditional registration",
-    "/api/v1/graph": "graph overview, disabled in this build (B7)",
     "/api/v1/hunt/saved": "saved hunts, conditional router",
-    "/api/v1/hunt/saved/${id}": "saved hunt by ID, conditional router",
     "/api/v1/hunt/search": "hunt search, conditional router",
-    "/api/v1/investigations/${runId}": "investigation ledger, agents-routed",
-    "/api/v1/investigations/${runId}/artifacts/${artifactId}": "nested param, agents-routed",
     "/api/v1/osquery": "osquery TLS endpoint, conditional router",
-    # Contextual actions — served by agents via rewrite but catch-all resolves
-    # to API_HOST because the rewrite pattern doesn't match these exact paths
-    "/api/v1/contextual": "contextual actions root, agents-routed",
+    # Playbooks list — served by agents service which can't be imported in api venv
+    "/api/v1/playbooks": "agents playbooks list, agents import skipped on Windows",
+    # B3 adapter and poll endpoint — served by agents via narrow rewrite
+    "/api/v1/agents/investigate": "B3 adapter on agents service via rewrite",
+    "/api/v1/agents/investigations/${id}": "B3 poll endpoint on agents via rewrite",
+    # Nested template literals — ${result.run_id} creates a path segment the
+    # backend's single {run_id} param can't match; these are B5 report rewrites
+    "/api/v1/cases/${caseId}/investigations/${result.run_id}/report.md": "nested template literal, B5 rewrite to agents",
+    "/api/v1/cases/${caseId}/investigations/${runId}/report.md": "B5 rewrite to agents",
+    # Contextual actions — served by agents but catch-all resolves to API_HOST
     "/api/v1/contextual/action": "contextual action execution, agents-routed",
     "/api/v1/contextual/action/stream": "contextual action streaming, agents-routed",
     "/api/v1/contextual/actions": "contextual actions list, agents-routed",
+    # Copilot conversation by ID — dynamic CRUD not in static OpenAPI
+    "/api/v1/copilot/conversations/${id}": "copilot conversation by ID, dynamic",
+    # Query-string suffixed paths — scanner captures ${qs}/${suffix} as part
+    # of the path; these are valid frontend patterns but not real route segments
+    "/api/v1/detection-proposals${suffix}": "query-string suffix artifact from scanner",
+    "/api/v1/inbox/tokens${qs}": "query-string suffix artifact from scanner",
+    "/api/v1/waitlist/entries${qs}": "query-string suffix artifact from scanner",
+    # Saved hunt by ID — conditional router not loaded in dev-mode OpenAPI
+    "/api/v1/hunt/saved/${id}": "saved hunt by ID, conditional router",
 }
 
 
@@ -342,18 +288,22 @@ _EXCEPTIONS: dict[str, str] = {
 class TestBackendRouteCoverage:
     """B10 v2: Next.js-aware route coverage with per-service resolution."""
 
+    @classmethod
     @pytest.fixture(scope="class")
-    def api_routes(self) -> set[str]:
+    def api_routes(cls) -> set[str]:
         return _load_api_routes()
 
+    @classmethod
     @pytest.fixture(scope="class")
-    def agents_routes(self) -> set[str]:
+    def agents_routes(cls) -> set[str]:
         return _load_agents_routes()
 
+    @classmethod
     @pytest.fixture(scope="class")
-    def rewrites(self) -> list[tuple[str, str]]:
+    def rewrites(cls) -> list[tuple[str, str]]:
         return _parse_rewrites()
 
+    @classmethod
     @pytest.fixture(scope="class")
     def frontend_paths(self) -> set[str]:
         return _scan_frontend_paths()
@@ -457,9 +407,30 @@ class TestBackendRouteCoverage:
         agents_routes: set[str],
         rewrites: list[tuple[str, str]],
     ) -> None:
-        """Every exception must have a non-empty reason string."""
+        """Every exception must be genuinely unserved.
+        Fails if:
+        - The exception has no reason string.
+        - The route actually exists in the resolved destination service
+          (meaning the exception is unnecessary and should be removed).
+        """
+        service_map = {
+            "API_HOST": api_routes,
+            "AGENTS_HOST": agents_routes,
+        }
+        dead: list[str] = []
         for path, reason in _EXCEPTIONS.items():
             assert reason, f"Exception {path} has no reason documented"
+            dest = _resolve_service_for_path(path, rewrites)
+            routes = service_map.get(dest)
+            if routes and _route_matches(path, routes):
+                dead.append(f"{path} → {dest} (route EXISTS; remove from _EXCEPTIONS)")
+        if dead:
+            msg = (
+                "Unnecessary exceptions (routes are actually served):\n"
+                + "\n".join(f"  - {d}" for d in dead)
+                + "\nRemove these from _EXCEPTIONS."
+            )
+            pytest.fail(msg)
 
     # -------------------------------------------------------------------
     # Proof mutations — these MUST fail to prove the gate works
