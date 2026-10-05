@@ -406,6 +406,51 @@ class TestBackendRouteCoverage:
             )
             pytest.fail(msg)
 
+    def test_rewrite_destinations_are_served(
+        self,
+        api_routes: set[str],
+        agents_routes: set[str],
+        rewrites: list[tuple[str, str]],
+    ) -> None:
+        """Every rewrite destination service must actually serve the path.
+
+        Catches regressions like routing report.pdf to AGENTS_HOST when
+        only the API serves it. For each rewrite, we substitute a sample
+        value for any :param segments and verify the resulting concrete
+        path exists in the destination service's OpenAPI schema.
+        """
+        service_map = {
+            "API_HOST": api_routes,
+            "AGENTS_HOST": agents_routes,
+        }
+        bad: list[str] = []
+        for pattern, dest_var in rewrites:
+            routes = service_map.get(dest_var)
+            if routes is None or not routes:
+                # Unknown host variable (ENRICHMENT_HOST, FUSION_HOST, etc.)
+                # or service couldn't be imported (agents in api venv on
+                # Windows). Skip silently; validated by their own smoke tests.
+                continue
+            # Skip catch-all patterns like ^/api/v1/[^/]+*$ — they match
+            # anything and can't be validated as a concrete path.
+            if "[^/]+" in pattern and pattern.endswith("*$"):
+                continue
+            # Convert regex back to a sample concrete path for matching
+            sample = re.sub(r"\[\^/\]\+", "sample-id", pattern)
+            sample = sample.lstrip("^").rstrip("$")
+            # Skip if the sample still contains regex artifacts
+            if "[" in sample or "*" in sample:
+                continue
+            if not _route_matches(sample, routes):
+                bad.append(f"{pattern} → {dest_var} (no matching route)")
+        if bad:
+            msg = (
+                "Rewrite destinations that don't serve the routed path:\n"
+                + "\n".join(f"  - {b}" for b in bad)
+                + "\nFix the rewrite or add the endpoint to that service."
+            )
+            pytest.fail(msg)
+
     def test_no_dead_exceptions(
         self,
         api_routes: set[str],

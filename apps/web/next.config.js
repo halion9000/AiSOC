@@ -137,17 +137,12 @@ const nextConfig = {
       // rule must come BEFORE the /api/v1/:path* catch-all and is scoped
       // narrowly so other /cases/* reads (ledger, timeline) still reach
       // the API as intended.
+      // Only report.md is served by agents (investigate.py). The API owns
+      // report.pdf and report.html (CaseWorkspace downloadReportPdf in
+      // api.ts:1529); those fall through to the API_HOST catch-all below.
       {
         source: '/api/v1/cases/:caseId/investigations/:runId/report.md',
         destination: `${AGENTS_HOST}/api/v1/cases/:caseId/investigations/:runId/report.md`,
-      },
-      {
-        source: '/api/v1/cases/:caseId/investigations/:runId/report.html',
-        destination: `${AGENTS_HOST}/api/v1/cases/:caseId/investigations/:runId/report.html`,
-      },
-      {
-        source: '/api/v1/cases/:caseId/investigations/:runId/report.pdf',
-        destination: `${AGENTS_HOST}/api/v1/cases/:caseId/investigations/:runId/report.pdf`,
       },
       // Agents service owns contextual actions, playbooks, and hunt
       // search. These must come before the `/api/v1/:path*` catch-all so
