@@ -402,13 +402,30 @@ class _LegacyInvestigateRequest(BaseModel):
     alertId: str
 
 
-@router.post("/agents/investigate")
+class _AgentInvestigationResponse(BaseModel):
+    """Shape expected by the frontend's AgentInvestigation interface."""
+    id: str
+    alertId: str
+    status: str
+    startedAt: str
+    findings: str | None = None
+    recommendations: list[str] | None = None
+    completedAt: str | None = None
+
+
+@router.post("/agents/investigate", response_model=_AgentInvestigationResponse)
 async def legacy_investigate(
     body: _LegacyInvestigateRequest,
     background_tasks: BackgroundTasks,
 ):
-    """Adapter for the frontend's agentsApi.investigate({alertId})."""
+    """Adapter for the frontend's agentsApi.investigate({alertId}).
+
+    Returns the AgentInvestigation shape the UI expects. If the alert
+    cannot be fetched from the core API, returns 502 instead of
+    fabricating a stub alert.
+    """
     import httpx
+    from fastapi import HTTPException as FastAPIHTTPException
 
     api_url = os.environ.get("API_URL", "http://api:8000")
     alert_id = body.alertId
@@ -418,8 +435,11 @@ async def legacy_investigate(
             resp.raise_for_status()
             alert = resp.json()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("legacy_investigate.alert_fetch_failed", alert_id=alert_id, error=str(exc))
-        alert = {"id": alert_id, "title": f"Alert {alert_id}", "description": ""}
+        logger.error("legacy_investigate.alert_fetch_failed", alert_id=alert_id, error=str(exc))
+        raise FastAPIHTTPException(
+            status_code=502,
+            detail=f"Could not fetch alert {alert_id} from core API: {exc}",
+        )
 
     case_id = str(alert.get("caseId") or alert.get("case_id") or alert_id)
     tenant_id = str(alert.get("tenantId") or alert.get("tenant_id") or "default")
@@ -430,4 +450,56 @@ async def legacy_investigate(
         raw_alert=alert,
         tenant_id=tenant_id,
     )
-    return await launch_investigation(case_id=case_id, body=req, background_tasks=background_tasks)
+    result = await launch_investigation(case_id=case_id, body=req, background_tasks=background_tasks)
+
+    # Store the alertId on the run so the poll endpoint can return it
+    _runs[result.run_id]["alert_id"] = alert_id
+
+    return _AgentInvestigationResponse(
+        id=result.run_id,
+        alertId=alert_id,
+        status=result.status,
+        startedAt=_runs[result.run_id].get("started_at", datetime.utcnow().isoformat()),
+    )
+
+
+@router.get("/agents/investigations/{run_id}", response_model=_AgentInvestigationResponse)
+async def get_agent_investigation(run_id: str):
+    """Poll endpoint returning AgentInvestigation shape for the UI.
+
+    Maps the internal _runs state to the frontend's expected shape,
+    populating findings when the investigation completes.
+    """
+    run = _runs.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Investigation run not found")
+
+    # Map internal status to frontend status values
+    status_map = {
+        "running": "running",
+        "completed": "completed",
+        "failed": "failed",
+        "pending": "pending",
+    }
+    fe_status = status_map.get(run.get("status", "pending"), "running")
+
+    # Extract findings from report_md if completed
+    findings = None
+    recommendations = None
+    completed_at = run.get("completed_at")
+    if fe_status == "completed":
+        findings = run.get("report_md") or run.get("summary")
+        # Try to extract recommendations from structured results
+        results = run.get("results")
+        if isinstance(results, dict):
+            recommendations = results.get("recommendations")
+
+    return _AgentInvestigationResponse(
+        id=run_id,
+        alertId=run.get("alert_id", ""),
+        status=fe_status,
+        startedAt=run.get("started_at", ""),
+        findings=findings,
+        recommendations=recommendations,
+        completedAt=completed_at,
+    )
