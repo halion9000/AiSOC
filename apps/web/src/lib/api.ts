@@ -769,17 +769,6 @@ export const alertsApi = {
       body: JSON.stringify({ ids, action, ...data }),
     }),
 
-  getTimeline: (id: string) =>
-    request<{
-      events: Array<{
-        id: string;
-        timestamp: string;
-        type: string;
-        title: string;
-        description: string;
-      }>;
-    }>(`/api/v1/alerts/${id}/timeline`),
-
   /**
    * Structured AI explanation for one alert (Stage 2 #6).
    *
@@ -3331,19 +3320,8 @@ export const graphApi = {
       params: filters as Record<string, string | number>,
     }),
 
-  getPaths: (entity: string, options: { maxHops?: number } = {}) =>
-    request<{ paths: AttackPath[] }>(`/api/v1/graph/paths`, {
-      params: { entity, ...options },
-    }),
-
   getMitreCoverage: () =>
     request<MitreCoverage>('/api/v1/graph/mitre/coverage'),
-
-  getBlastRadius: (entity: string) =>
-    request<{ radius: AttackGraph; affectedAssets: string[] }>(
-      `/api/v1/graph/blast-radius`,
-      { params: { entity } },
-    ),
 
   /**
    * Fetch the reconstructed attack-path graph for a single case.

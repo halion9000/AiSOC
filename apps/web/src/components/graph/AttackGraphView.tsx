@@ -305,7 +305,9 @@ export function AttackGraphView() {
       try {
         return await graphApi.getOverview({ depth: 3 });
       } catch (err) {
-        // Fall back to demo data so the UI is always alive.
+        // B7: GET /api/v1/graph does not exist in this build. Return null so
+        // the view renders an explicit unavailable state instead of silently
+        // swallowing the error. Demo-data fallback removed per PLAN.md item 9.
         return null;
       }
     },
@@ -318,7 +320,11 @@ export function AttackGraphView() {
       try {
         return await graphApi.getMitreCoverage();
       } catch {
-        return buildDemoCoverage();
+        // B7: backend MITRE endpoint unavailable; label the synthetic
+        // heatmap so analysts know it is not live telemetry.
+        const demo = buildDemoCoverage();
+        (demo as MitreCoverage & { __demo?: boolean }).__demo = true;
+        return demo;
       }
     },
     { revalidateOnFocus: false, refreshInterval: 60_000 },
@@ -348,6 +354,20 @@ export function AttackGraphView() {
 
       {/* Graph panel */}
       <section className="rounded-xl bg-slate-900/60 border border-white/5 overflow-hidden">
+        {!graph && (
+          <div className="p-8 text-center space-y-3 border-b border-white/5">
+            <h2 className="text-lg font-semibold text-gray-200">Attack Graph Unavailable</h2>
+            <p className="text-sm text-gray-400 max-w-xl mx-auto">
+              The attack graph overview endpoint (<code>GET /api/v1/graph</code>) is not
+              available in this build. Deploy the Neo4j knowledge-graph sidecar or
+              upgrade to a release that includes the graph aggregation pipeline to
+              enable this view.
+            </p>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-800/60 text-xs text-gray-400 border border-gray-700">
+              Not available in this build
+            </span>
+          </div>
+        )}
         <div className="grid lg:grid-cols-[1fr_320px]">
           <div className="relative h-[560px] bg-[#0a1120]">
             {graphState.isLoading ? (
@@ -473,6 +493,11 @@ export function AttackGraphView() {
           </div>
         </div>
 
+        {(mitre as (MitreCoverage & { __demo?: boolean }) | null)?.__demo && (
+          <div className="mb-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-xs text-amber-300 border border-amber-500/20">
+            Demo data — backend MITRE endpoint unavailable
+          </div>
+        )}
         {mitreState.isLoading ? (
           <Skeleton className="h-64 w-full rounded-lg" />
         ) : mitreState.error ? (
