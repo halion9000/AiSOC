@@ -126,6 +126,24 @@ const nextConfig = {
         source: '/api/v1/agents/:path*',
         destination: `${AGENTS_HOST}/api/v1/agents/:path*`,
       },
+      // B5 fix: case-scoped investigation report downloads live on the
+      // agents service (investigate.py alias), but the catch-all below
+      // would send them to the core API which has no such route. This
+      // rule must come BEFORE the /api/v1/:path* catch-all and is scoped
+      // narrowly so other /cases/* reads (ledger, timeline) still reach
+      // the API as intended.
+      {
+        source: '/api/v1/cases/:caseId/investigations/:runId/report.md',
+        destination: `${AGENTS_HOST}/api/v1/cases/:caseId/investigations/:runId/report.md`,
+      },
+      {
+        source: '/api/v1/cases/:caseId/investigations/:runId/report.html',
+        destination: `${AGENTS_HOST}/api/v1/cases/:caseId/investigations/:runId/report.html`,
+      },
+      {
+        source: '/api/v1/cases/:caseId/investigations/:runId/report.pdf',
+        destination: `${AGENTS_HOST}/api/v1/cases/:caseId/investigations/:runId/report.pdf`,
+      },
       // Agents service owns contextual actions, playbooks, and hunt
       // search. These must come before the `/api/v1/:path*` catch-all so
       // they don't get sent to the core API. Copilot chat is NOT in this
