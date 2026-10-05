@@ -2702,7 +2702,8 @@ export const threatIntelApi = {
       value: ioc.value,
       confidence: ioc.confidence,
       severity: ioc.severity as AlertSeverity,
-      malicious: ioc.severity !== 'info' && ioc.severity !== 'low',
+      // A false-positive IOC must never show as malicious, regardless of severity
+      malicious: !ioc.false_positive && ioc.severity !== 'info' && ioc.severity !== 'low',
       tags: ioc.tags ?? undefined,
       sources: [ioc.source],
       firstSeen: ioc.first_seen,

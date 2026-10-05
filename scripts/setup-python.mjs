@@ -117,6 +117,8 @@ const API_DEPS = [
   "PyJWT",
   "sqlglot>=23,<27",
   "croniter>=2.0,<7.0",
+  "apscheduler",
+  "markdown",
   "pytest>=7.4,<9",
   "pytest-asyncio>=0.23,<2",
 ];
@@ -175,9 +177,40 @@ for (const svc of ["api", "agents"]) {
   }
 }
 
-if (allOk) {
-  console.log("\n✅ .venv-verify is ready. Both api and agents OpenAPI imports succeed.");
-} else {
+if (!allOk) {
   console.error("\n❌ One or more smoke checks failed. See errors above.");
   process.exit(1);
 }
+
+// ── Final check: run api and agents pytest suites quietly ────────────────────
+console.log("\nRunning pytest suites as final verification…");
+const pytestServices = [
+  { name: "api", cwd: path.join(root, "services", "api") },
+  { name: "agents", cwd: path.join(root, "services", "agents") },
+];
+let pytestOk = true;
+for (const svc of pytestServices) {
+  console.log(`  ▸ ${svc.name} tests…`);
+  const r = run(venvPy, ["-m", "pytest", "-q", "--tb=no"], {
+    cwd: svc.cwd,
+    stdio: "pipe",
+  });
+  if (r.code !== 0) {
+    console.error(`❌ pytest (${svc.name}) FAILED (exit ${r.code})`);
+    // Print last few lines so the user can diagnose without re-running
+    const tail = r.out.trim().split("\n").slice(-5).join("\n");
+    console.error(tail);
+    pytestOk = false;
+  } else {
+    // Extract the summary line (e.g. "42 passed, 1 skipped")
+    const summary = r.out.trim().split("\n").pop() ?? "ok";
+    console.log(`  ✅ ${svc.name}: ${summary}`);
+  }
+}
+
+if (!pytestOk) {
+  console.error("\n❌ One or more pytest suites failed. Fix the failures before proceeding.");
+  process.exit(1);
+}
+
+console.log("\n✅ .venv-verify is fully verified: OpenAPI imports + pytest suites pass.");
