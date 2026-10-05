@@ -18,6 +18,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+
+import { docs } from '@/lib/docs';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
@@ -1288,7 +1290,7 @@ function DeploymentAIPanel() {
               from this pod and mirror the egress gate exactly. To change them
               cluster-wide, update environment variables and redeploy. See{' '}
               <a
-                href="/docs/operations/airgap"
+                href={docs('operations/airgap')}
                 target="_blank"
                 rel="noreferrer"
                 className="text-blue-400 hover:text-blue-300 hover:underline"

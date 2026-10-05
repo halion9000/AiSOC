@@ -211,12 +211,7 @@ function LedgerEvidenceChain({ runId }: { runId: string }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium text-gray-400">Investigation Ledger evidence chain</p>
-        <Link
-          href={`/investigations/${runId}`}
-          className="text-xs text-blue-400 hover:text-blue-300"
-        >
-          Open full ledger →
-        </Link>
+        {/* B8: /investigations/[id] route does not exist; removed dead link. */}
       </div>
 
       {isLoading && (

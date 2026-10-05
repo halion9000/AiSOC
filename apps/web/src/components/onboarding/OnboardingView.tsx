@@ -7,6 +7,8 @@ import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import useSWR from 'swr';
 
+import { docs } from '@/lib/docs';
+
 import {
   AddConnectorModal,
   CATEGORY_LABEL,
@@ -304,7 +306,7 @@ export function OnboardingView() {
         <NextStepCard
           title="Bring your own data"
           body="No connector for your tool? Push raw events into AiSOC over a tenant-scoped HTTPS endpoint."
-          href="/docs/operations/credentials"
+          href={docs('operations/credentials')}
           cta="Push-ingest docs"
         />
         <NextStepCard
