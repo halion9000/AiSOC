@@ -45,12 +45,12 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, delete, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.api.v1.deps import AuthUser
+from app.api.v1.deps import AuthUser, require_permission
 
 # Defer import of the NL translator helpers — `nl_query.py` already does the
 # vendored-tree resolution dance at import time and we want the same module
@@ -259,7 +259,7 @@ async def _load_owned_hunt(
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=list[SavedHuntModel])
+@router.get("", response_model=list[SavedHuntModel], dependencies=[Depends(require_permission("lake:query"))])
 async def list_saved_hunts(
     user: AuthUser,
     db: TenantDBSession,
@@ -281,6 +281,7 @@ async def list_saved_hunts(
     "",
     response_model=SavedHuntModel,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("lake:query"))],
 )
 async def create_saved_hunt(
     payload: CreateSavedHuntRequest,
@@ -340,7 +341,7 @@ async def create_saved_hunt(
     return SavedHuntModel.from_orm(row)
 
 
-@router.get("/{hunt_id}", response_model=SavedHuntModel)
+@router.get("/{hunt_id}", response_model=SavedHuntModel, dependencies=[Depends(require_permission("lake:query"))])
 async def get_saved_hunt(
     hunt_id: str,
     user: AuthUser,
@@ -355,6 +356,7 @@ async def get_saved_hunt(
     "/{hunt_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
+    dependencies=[Depends(require_permission("lake:query"))],
 )
 async def delete_saved_hunt(
     hunt_id: str,
@@ -387,6 +389,7 @@ async def delete_saved_hunt(
 @router.post(
     "/{hunt_id}/run",
     response_model=RunSavedHuntResponse,
+    dependencies=[Depends(require_permission("lake:query"))],
 )
 async def run_saved_hunt(
     hunt_id: str,

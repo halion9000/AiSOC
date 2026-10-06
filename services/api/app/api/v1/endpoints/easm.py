@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser, get_current_user, require_permission
 from app.core.config import get_settings
 from app.db.database import get_db
 from app.models.easm import ExternalAsset, ExternalAssetDrift, ExternalAssetType
@@ -54,7 +54,7 @@ async def _run_scan_job(
         logger.exception("EASM scan failed for tenant=%s", tenant_id)
 
 
-@router.post("/scan", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/scan", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_permission("settings:write"))])
 async def trigger_easm_scan(
     body: ScanRequest,
     background_tasks: BackgroundTasks,
@@ -99,7 +99,7 @@ async def trigger_easm_scan(
     }
 
 
-@router.get("/assets")
+@router.get("/assets", dependencies=[Depends(require_permission("alerts:read"))])
 async def list_external_assets(
     tenant_id: UUID | None = Query(None),
     asset_type: ExternalAssetType | None = Query(None),
@@ -139,7 +139,7 @@ async def list_external_assets(
     ]
 
 
-@router.get("/drift")
+@router.get("/drift", dependencies=[Depends(require_permission("alerts:read"))])
 async def list_external_asset_drift(
     tenant_id: UUID | None = Query(None),
     external_asset_id: UUID | None = Query(None),

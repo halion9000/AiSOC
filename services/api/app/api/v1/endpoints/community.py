@@ -232,7 +232,7 @@ async def get_community_plugin(plugin_id: str) -> CommunityPluginOut:
     return CommunityPluginOut(**{k: v for k, v in p.items() if k != "_tarball"})
 
 
-@router.post("/plugins/{plugin_id}/install")
+@router.post("/plugins/{plugin_id}/install", dependencies=[Depends(require_permission("settings:write"))])
 async def install_community_plugin(
     plugin_id: str,
     current_user: AuthUser,
@@ -292,7 +292,7 @@ async def review_community_plugin(
 # ── Detection endpoints ───────────────────────────────────────────────────────
 
 
-@router.post("/detections/publish", status_code=201)
+@router.post("/detections/publish", status_code=201, dependencies=[Depends(require_permission("rules:write"))])
 async def publish_detection(
     content: str = Body(..., media_type="text/plain"),
     current_user: AuthUser = None,  # type: ignore[assignment]
@@ -388,7 +388,7 @@ async def get_community_detection(detection_id: str) -> dict[str, Any]:
     return d
 
 
-@router.post("/detections/{detection_id}/install")
+@router.post("/detections/{detection_id}/install", dependencies=[Depends(require_permission("rules:write"))])
 async def install_community_detection(
     detection_id: str,
     current_user: AuthUser,
@@ -404,7 +404,7 @@ async def install_community_detection(
 # ── Playbook endpoints ────────────────────────────────────────────────────────
 
 
-@router.post("/playbooks/submit", status_code=201)
+@router.post("/playbooks/submit", status_code=201, dependencies=[Depends(require_permission("playbooks:write"))])
 async def submit_playbook(
     definition: dict[str, Any] = Body(...),
     current_user: AuthUser = None,  # type: ignore[assignment]
@@ -466,7 +466,7 @@ async def list_community_playbooks(
     }
 
 
-@router.post("/playbooks/{playbook_id}/install")
+@router.post("/playbooks/{playbook_id}/install", dependencies=[Depends(require_permission("playbooks:write"))])
 async def install_community_playbook(
     playbook_id: str,
     current_user: AuthUser,

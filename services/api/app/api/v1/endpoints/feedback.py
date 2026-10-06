@@ -22,11 +22,11 @@ import uuid
 from datetime import UTC, datetime
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select, update
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.models.alert import Alert
 from app.services.memory_poisoning import plan_redisposition
 from app.services.override_learning import (
@@ -96,7 +96,7 @@ class AlertOverrideResponse(BaseModel):
     redisposition_total_matched: int = 0
 
 
-@router.post("/alert-override", response_model=AlertOverrideResponse)
+@router.post("/alert-override", response_model=AlertOverrideResponse, dependencies=[Depends(require_permission("alerts:write"))])
 async def submit_alert_override(
     payload: AlertOverrideRequest,
     user: AuthUser,
@@ -201,7 +201,7 @@ class RedispositionApplyResponse(BaseModel):
     new_disposition: str
 
 
-@router.post("/redisposition/apply", response_model=RedispositionApplyResponse)
+@router.post("/redisposition/apply", response_model=RedispositionApplyResponse, dependencies=[Depends(require_permission("alerts:write"))])
 async def apply_redisposition_endpoint(
     payload: RedispositionApplyRequest,
     user: AuthUser,
@@ -243,7 +243,7 @@ class OverrideEntryModel(BaseModel):
     value: dict
 
 
-@router.get("/overrides", response_model=list[OverrideEntryModel])
+@router.get("/overrides", response_model=list[OverrideEntryModel], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_overrides_endpoint(
     user: AuthUser,
     db: DBSession,
@@ -265,7 +265,7 @@ class OverrideSummaryResponse(BaseModel):
     escalate_corrections: int
 
 
-@router.get("/summary", response_model=OverrideSummaryResponse)
+@router.get("/summary", response_model=OverrideSummaryResponse, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_override_summary(
     user: AuthUser,
     db: DBSession,

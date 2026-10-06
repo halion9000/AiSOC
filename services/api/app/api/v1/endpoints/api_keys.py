@@ -188,7 +188,7 @@ async def create_api_key(
     )
 
 
-@router.get("", response_model=list[ApiKeyOut])
+@router.get("", response_model=list[ApiKeyOut], dependencies=[Depends(require_permission("users:read"))])
 async def list_api_keys(
     db: DBSession,
     current_user: AuthUser,
@@ -198,7 +198,7 @@ async def list_api_keys(
     return [_api_key_to_out(ak) for ak in result.scalars().all()]
 
 
-@router.get("/{key_id}", response_model=ApiKeyOut)
+@router.get("/{key_id}", response_model=ApiKeyOut, dependencies=[Depends(require_permission("users:read"))])
 async def get_api_key(
     key_id: uuid.UUID,
     db: DBSession,

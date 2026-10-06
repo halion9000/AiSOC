@@ -56,6 +56,7 @@ from app.services.effective_permissions.service import (
     cache_result_into_neo4j,
     resolve_effective_permissions,
 )
+from app.api.v1.deps import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ async def _maybe_live_snapshot(db: AsyncSession, tenant_id: Any, provider: str, 
 @router.get(
     "/effective-permissions/providers",
     summary="List supported effective-permissions providers",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def list_providers(
     _user: User = Depends(get_current_user),
@@ -124,6 +126,7 @@ async def list_providers(
 @router.get(
     "/{principal_id}/effective-permissions",
     summary="Resolve effective permissions for a principal",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_effective_permissions(
     principal_id: str,

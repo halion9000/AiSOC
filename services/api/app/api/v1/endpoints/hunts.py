@@ -32,11 +32,11 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
 from app.services.model_aliases import resolve_model_alias
 
@@ -210,7 +210,7 @@ def _row_to_hunt(row: Any) -> HuntResponse:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-@router.get("", response_model=list[HuntResponse], summary="List hunt hypotheses")
+@router.get("", response_model=list[HuntResponse], summary="List hunt hypotheses", dependencies=[Depends(require_permission("lake:query"))])
 async def list_hunts(
     db: DBSession,
     user: AuthUser,
@@ -243,7 +243,7 @@ async def list_hunts(
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.post("", response_model=HuntResponse, status_code=status.HTTP_201_CREATED, summary="Create hunt hypothesis")
+@router.post("", response_model=HuntResponse, status_code=status.HTTP_201_CREATED, summary="Create hunt hypothesis", dependencies=[Depends(require_permission("lake:query"))])
 async def create_hunt(body: CreateHuntRequest, db: DBSession, user: AuthUser) -> HuntResponse:
     mitre = body.mitre_technique or body.mitre_tactic
     # In air-gapped mode the LLM call is refused (AirgapViolation); fall back to
@@ -291,7 +291,7 @@ async def create_hunt(body: CreateHuntRequest, db: DBSession, user: AuthUser) ->
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/{hunt_id}", response_model=HuntResponse, summary="Get hunt")
+@router.get("/{hunt_id}", response_model=HuntResponse, summary="Get hunt", dependencies=[Depends(require_permission("lake:query"))])
 async def get_hunt(hunt_id: uuid.UUID, db: DBSession, user: AuthUser) -> HuntResponse:
     row = (
         await db.execute(
@@ -303,7 +303,7 @@ async def get_hunt(hunt_id: uuid.UUID, db: DBSession, user: AuthUser) -> HuntRes
     return _row_to_hunt(row)
 
 
-@router.patch("/{hunt_id}", response_model=HuntResponse, summary="Update hunt")
+@router.patch("/{hunt_id}", response_model=HuntResponse, summary="Update hunt", dependencies=[Depends(require_permission("lake:query"))])
 async def update_hunt(hunt_id: uuid.UUID, body: UpdateHuntRequest, db: DBSession, user: AuthUser) -> HuntResponse:
     sets = ["updated_at = :now"]
     params: dict[str, Any] = {
@@ -363,7 +363,7 @@ async def update_hunt(hunt_id: uuid.UUID, body: UpdateHuntRequest, db: DBSession
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.post("/{hunt_id}/run", response_model=HuntRunResponse, status_code=status.HTTP_200_OK, summary="Execute hunt query")
+@router.post("/{hunt_id}/run", response_model=HuntRunResponse, status_code=status.HTTP_200_OK, summary="Execute hunt query", dependencies=[Depends(require_permission("lake:query"))])
 async def run_hunt(hunt_id: uuid.UUID, body: RunHuntRequest, db: DBSession, user: AuthUser) -> HuntRunResponse:
     hunt_row = (
         await db.execute(
@@ -450,7 +450,7 @@ async def run_hunt(hunt_id: uuid.UUID, body: RunHuntRequest, db: DBSession, user
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/{hunt_id}/runs", response_model=list[HuntRunResponse], summary="List hunt runs")
+@router.get("/{hunt_id}/runs", response_model=list[HuntRunResponse], summary="List hunt runs", dependencies=[Depends(require_permission("lake:query"))])
 async def list_runs(hunt_id: uuid.UUID, db: DBSession, user: AuthUser) -> list[HuntRunResponse]:
     # Authorize: ensure the parent hunt belongs to the caller's tenant before
     # listing runs (covers historical runs whose own tenant_id might be NULL).
@@ -485,7 +485,7 @@ async def list_runs(hunt_id: uuid.UUID, db: DBSession, user: AuthUser) -> list[H
     ]
 
 
-@router.post("/{hunt_id}/findings", response_model=HuntResponse, summary="Append findings")
+@router.post("/{hunt_id}/findings", response_model=HuntResponse, summary="Append findings", dependencies=[Depends(require_permission("lake:query"))])
 async def add_findings(hunt_id: uuid.UUID, body: AddFindingsRequest, db: DBSession, user: AuthUser) -> HuntResponse:
     existing = (
         await db.execute(

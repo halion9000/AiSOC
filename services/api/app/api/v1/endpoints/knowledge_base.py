@@ -22,11 +22,11 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
 from app.services.kb_chunking import chunk_text
 from app.services.model_aliases import resolve_model_alias
@@ -146,7 +146,8 @@ async def _synthesise(question: str, chunks: list[KBChunk]) -> str | None:
 
 
 @router.post(
-    "/ingest", response_model=list[KBDocResponse], status_code=status.HTTP_201_CREATED, summary="Ingest document into knowledge base"
+    "/ingest", response_model=list[KBDocResponse], status_code=status.HTTP_201_CREATED, summary="Ingest document into knowledge base",
+    dependencies=[Depends(require_permission("settings:write"))],
 )
 async def ingest(body: IngestRequest, db: DBSession, user: AuthUser) -> list[KBDocResponse]:
     chunks = chunk_text(body.content)
@@ -186,7 +187,7 @@ async def ingest(body: IngestRequest, db: DBSession, user: AuthUser) -> list[KBD
     return [_row_to_doc(r) for r in rows]
 
 
-@router.get("/documents", response_model=list[KBDocResponse], summary="List KB documents")
+@router.get("/documents", response_model=list[KBDocResponse], summary="List KB documents", dependencies=[Depends(require_permission("alerts:read"))])
 async def list_documents(db: DBSession, user: AuthUser) -> list[KBDocResponse]:
     try:
         rows = (
@@ -202,7 +203,7 @@ async def list_documents(db: DBSession, user: AuthUser) -> list[KBDocResponse]:
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/documents/{doc_id}", response_model=KBDocResponse, summary="Get KB document")
+@router.get("/documents/{doc_id}", response_model=KBDocResponse, summary="Get KB document", dependencies=[Depends(require_permission("alerts:read"))])
 async def get_document(doc_id: uuid.UUID, db: DBSession, user: AuthUser) -> KBDocResponse:
     row = (
         await db.execute(
@@ -216,7 +217,7 @@ async def get_document(doc_id: uuid.UUID, db: DBSession, user: AuthUser) -> KBDo
     return _row_to_doc(row)
 
 
-@router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, summary="Remove KB document")
+@router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, summary="Remove KB document", dependencies=[Depends(require_permission("settings:write"))])
 async def delete_document(doc_id: uuid.UUID, db: DBSession, user: AuthUser) -> None:
     existing = (
         await db.execute(
@@ -236,7 +237,7 @@ async def delete_document(doc_id: uuid.UUID, db: DBSession, user: AuthUser) -> N
     await db.commit()
 
 
-@router.post("/query", response_model=QueryResponse, summary="Search knowledge base + optional LLM synthesis")
+@router.post("/query", response_model=QueryResponse, summary="Search knowledge base + optional LLM synthesis", dependencies=[Depends(require_permission("alerts:read"))])
 async def query_kb(body: QueryRequest, db: DBSession, user: AuthUser) -> QueryResponse:
     wheres = ["to_tsvector('english', content) @@ plainto_tsquery('english', :q)", "tenant_id = :tenant_id"]
     params: dict[str, Any] = {"q": body.question, "tenant_id": user.tenant_id, "limit": body.top_k}

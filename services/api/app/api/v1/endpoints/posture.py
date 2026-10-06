@@ -22,6 +22,7 @@ from app.services.destinations import (
     build_opsgenie_payload,
     build_soar_handoff_payload,
 )
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/posture", tags=["posture"])
 
@@ -96,7 +97,7 @@ class PostureSummary(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/findings", response_model=list[FindingOut])
+@router.get("/findings", response_model=list[FindingOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_findings(
     cloud_provider: str | None = Query(None),
     severity: str | None = Query(None),
@@ -121,7 +122,7 @@ async def list_findings(
     return list(result.scalars().all())
 
 
-@router.post("/findings", response_model=FindingOut, status_code=status.HTTP_201_CREATED)
+@router.post("/findings", response_model=FindingOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def ingest_finding(
     body: FindingCreate,
     db: AsyncSession = Depends(get_db),
@@ -134,7 +135,7 @@ async def ingest_finding(
     return finding
 
 
-@router.get("/findings/{finding_id}", response_model=FindingOut)
+@router.get("/findings/{finding_id}", response_model=FindingOut, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_finding(
     finding_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -146,7 +147,7 @@ async def get_finding(
     return f
 
 
-@router.post("/findings/{finding_id}/suppress", response_model=FindingOut)
+@router.post("/findings/{finding_id}/suppress", response_model=FindingOut, dependencies=[Depends(require_permission("alerts:write"))])
 async def suppress_finding(
     finding_id: uuid.UUID,
     body: SuppressRequest,
@@ -165,7 +166,7 @@ async def suppress_finding(
     return f
 
 
-@router.post("/findings/{finding_id}/resolve", response_model=FindingOut)
+@router.post("/findings/{finding_id}/resolve", response_model=FindingOut, dependencies=[Depends(require_permission("alerts:write"))])
 async def resolve_finding(
     finding_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -181,7 +182,7 @@ async def resolve_finding(
     return f
 
 
-@router.get("/summary", response_model=PostureSummary)
+@router.get("/summary", response_model=PostureSummary, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_summary(
     cloud_provider: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -210,7 +211,7 @@ async def get_summary(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/scans", response_model=list[ScanRunOut])
+@router.get("/scans", response_model=list[ScanRunOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_scans(
     limit: int = Query(20, le=100),
     offset: int = Query(0, ge=0),
@@ -243,7 +244,7 @@ class CspmScanResponse(BaseModel):
     evidence: list[dict[str, Any]]
 
 
-@router.post("/scan", response_model=CspmScanResponse)
+@router.post("/scan", response_model=CspmScanResponse, dependencies=[Depends(require_permission("settings:write"))])
 async def cspm_scan(
     body: CspmScanRequest,
     current_user: User = Depends(get_current_user),
@@ -266,7 +267,7 @@ class DestinationPreviewRequest(BaseModel):
     recipients: list[str] = Field(default_factory=list)
 
 
-@router.post("/destinations/preview")
+@router.post("/destinations/preview", dependencies=[Depends(require_permission("settings:read"))])
 async def destination_preview(
     body: DestinationPreviewRequest,
     current_user: User = Depends(get_current_user),

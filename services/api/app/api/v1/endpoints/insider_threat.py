@@ -15,6 +15,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.models.insider_threat import InsiderIndicator, InsiderPeerGroup, UserRiskProfile
 from app.models.tenant import User
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/insider-threat", tags=["insider-threat"])
 
@@ -93,7 +94,7 @@ class PeerGroupOut(PeerGroupCreate):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/profiles", response_model=list[RiskProfileOut])
+@router.get("/profiles", response_model=list[RiskProfileOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_profiles(
     risk_tier: str | None = Query(None),
     watchlisted_only: bool = Query(False),
@@ -112,7 +113,7 @@ async def list_profiles(
     return list(result.scalars().all())
 
 
-@router.get("/profiles/{profile_id}", response_model=RiskProfileOut)
+@router.get("/profiles/{profile_id}", response_model=RiskProfileOut, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_profile(
     profile_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -124,7 +125,7 @@ async def get_profile(
     return profile
 
 
-@router.patch("/profiles/{profile_id}/watchlist", response_model=RiskProfileOut)
+@router.patch("/profiles/{profile_id}/watchlist", response_model=RiskProfileOut, dependencies=[Depends(require_permission("alerts:write"))])
 async def update_watchlist(
     profile_id: uuid.UUID,
     body: WatchlistUpdate,
@@ -149,7 +150,7 @@ async def update_watchlist(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/indicators", response_model=list[IndicatorOut])
+@router.get("/indicators", response_model=list[IndicatorOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_indicators(
     severity: str | None = Query(None),
     indicator_type: str | None = Query(None),
@@ -168,7 +169,7 @@ async def list_indicators(
     return list(result.scalars().all())
 
 
-@router.post("/indicators", response_model=IndicatorOut, status_code=status.HTTP_201_CREATED)
+@router.post("/indicators", response_model=IndicatorOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def create_indicator(
     body: IndicatorCreate,
     db: AsyncSession = Depends(get_db),
@@ -187,7 +188,7 @@ async def create_indicator(
     return indicator
 
 
-@router.post("/indicators/{indicator_id}/acknowledge", response_model=IndicatorOut)
+@router.post("/indicators/{indicator_id}/acknowledge", response_model=IndicatorOut, dependencies=[Depends(require_permission("alerts:write"))])
 async def acknowledge_indicator(
     indicator_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -208,7 +209,7 @@ async def acknowledge_indicator(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/peer-groups", response_model=list[PeerGroupOut])
+@router.get("/peer-groups", response_model=list[PeerGroupOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_peer_groups(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -219,7 +220,7 @@ async def list_peer_groups(
     return list(result.scalars().all())
 
 
-@router.post("/peer-groups", response_model=PeerGroupOut, status_code=status.HTTP_201_CREATED)
+@router.post("/peer-groups", response_model=PeerGroupOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def create_peer_group(
     body: PeerGroupCreate,
     db: AsyncSession = Depends(get_db),

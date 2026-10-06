@@ -15,6 +15,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.models.identity_graph import AlertIdentityLink, IdentityEdge, IdentityNode
 from app.models.tenant import User
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/identity-graph", tags=["identity-graph"])
 
@@ -83,7 +84,7 @@ class AlertLinkOut(AlertLinkCreate):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/nodes", response_model=list[NodeOut])
+@router.get("/nodes", response_model=list[NodeOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_nodes(
     node_type: str | None = Query(None),
     source_system: str | None = Query(None),
@@ -105,7 +106,7 @@ async def list_nodes(
     return list(result.scalars().all())
 
 
-@router.post("/nodes", response_model=NodeOut, status_code=status.HTTP_201_CREATED)
+@router.post("/nodes", response_model=NodeOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def create_node(
     body: NodeCreate,
     db: AsyncSession = Depends(get_db),
@@ -118,7 +119,7 @@ async def create_node(
     return node
 
 
-@router.get("/nodes/{node_id}", response_model=NodeOut)
+@router.get("/nodes/{node_id}", response_model=NodeOut, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_node(
     node_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -130,7 +131,7 @@ async def get_node(
     return node
 
 
-@router.get("/nodes/{node_id}/edges", response_model=list[EdgeOut])
+@router.get("/nodes/{node_id}/edges", response_model=list[EdgeOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def get_node_edges(
     node_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -153,7 +154,7 @@ async def get_node_edges(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/edges", response_model=list[EdgeOut])
+@router.get("/edges", response_model=list[EdgeOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_edges(
     edge_type: str | None = Query(None),
     limit: int = Query(100, le=1000),
@@ -169,7 +170,7 @@ async def list_edges(
     return list(result.scalars().all())
 
 
-@router.post("/edges", response_model=EdgeOut, status_code=status.HTTP_201_CREATED)
+@router.post("/edges", response_model=EdgeOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def create_edge(
     body: EdgeCreate,
     db: AsyncSession = Depends(get_db),
@@ -187,7 +188,7 @@ async def create_edge(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/alert-links", response_model=AlertLinkOut, status_code=status.HTTP_201_CREATED)
+@router.post("/alert-links", response_model=AlertLinkOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def link_alert_to_identity(
     body: AlertLinkCreate,
     db: AsyncSession = Depends(get_db),
@@ -200,7 +201,7 @@ async def link_alert_to_identity(
     return link
 
 
-@router.get("/alert-links/{alert_id}", response_model=list[AlertLinkOut])
+@router.get("/alert-links/{alert_id}", response_model=list[AlertLinkOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def get_alert_identity_links(
     alert_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

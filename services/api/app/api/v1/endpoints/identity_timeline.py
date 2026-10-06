@@ -18,11 +18,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 
 router = APIRouter(prefix="/identity-timeline", tags=["identity_timeline"])
 log = structlog.get_logger(__name__)
@@ -91,6 +91,7 @@ def _mitre_from_alert(raw: dict[str, Any]) -> str | None:
     response_model=IdentityTimeline,
     status_code=status.HTTP_200_OK,
     summary="Build identity-centric investigation timeline",
+    dependencies=[Depends(require_permission("alerts:write"))],
 )
 async def build_timeline(
     body: BuildTimelineRequest,
@@ -196,6 +197,7 @@ async def build_timeline(
     "",
     response_model=IdentityTimeline,
     summary="Quick timeline lookup for an identity",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_timeline(
     identity_kind: IdentityKind = Query(...),

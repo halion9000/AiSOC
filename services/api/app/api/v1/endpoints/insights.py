@@ -51,12 +51,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.models.alert import Alert
 from app.models.case import Case
 
@@ -385,6 +385,7 @@ async def _llm_cost_sparkline(
     "/soc",
     response_model=SOCInsightsResponse,
     summary="SOC Insights dashboard aggregate (T3.1)",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_soc_insights(
     user: AuthUser,

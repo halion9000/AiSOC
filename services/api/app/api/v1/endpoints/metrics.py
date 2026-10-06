@@ -23,11 +23,11 @@ v1.5 (SOC Console parity) adds:
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy import and_, func, select, text
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.config import settings
 from app.models.alert import Alert
 from app.models.case import Case
@@ -193,7 +193,7 @@ class PipelineHealth(BaseModel):
     generated_at: datetime
 
 
-@router.get("/dashboard", response_model=DashboardMetrics)
+@router.get("/dashboard", response_model=DashboardMetrics, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_dashboard_metrics(
     user: AuthUser,
     db: DBSession,
@@ -393,7 +393,7 @@ class SOCMetrics(BaseModel):
     calibration_curve: list[CalibrationBucket]
 
 
-@router.get("/soc", response_model=SOCMetrics)
+@router.get("/soc", response_model=SOCMetrics, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_soc_metrics(
     user: AuthUser,
     db: DBSession,
@@ -639,7 +639,7 @@ async def get_soc_metrics(
     )
 
 
-@router.get("/alerts/trend")
+@router.get("/alerts/trend", dependencies=[Depends(require_permission("alerts:read"))])
 async def get_alert_trend(
     user: AuthUser,
     db: DBSession,
@@ -979,7 +979,7 @@ async def _mitre_covered(db, tenant_id, start, end) -> int:
     return len(techniques)
 
 
-@router.get("/funnel", response_model=FunnelMetrics)
+@router.get("/funnel", response_model=FunnelMetrics, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_funnel_metrics(
     user: AuthUser,
     db: DBSession,

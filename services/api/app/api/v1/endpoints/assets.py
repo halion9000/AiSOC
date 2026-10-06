@@ -14,6 +14,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.models.asset import Asset, AssetVulnerability
 from app.models.tenant import User
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -97,7 +98,7 @@ class VulnerabilityOut(VulnerabilityCreate):
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=list[AssetOut])
+@router.get("", response_model=list[AssetOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_assets(
     asset_type: str | None = Query(None),
     criticality: str | None = Query(None),
@@ -116,7 +117,7 @@ async def list_assets(
     return list(result.scalars().all())
 
 
-@router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AssetOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def create_asset(
     body: AssetCreate,
     db: AsyncSession = Depends(get_db),
@@ -134,7 +135,7 @@ async def create_asset(
     return asset
 
 
-@router.get("/{asset_id}", response_model=AssetOut)
+@router.get("/{asset_id}", response_model=AssetOut, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_asset(
     asset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -146,7 +147,7 @@ async def get_asset(
     return asset
 
 
-@router.patch("/{asset_id}", response_model=AssetOut)
+@router.patch("/{asset_id}", response_model=AssetOut, dependencies=[Depends(require_permission("alerts:write"))])
 async def update_asset(
     asset_id: uuid.UUID,
     body: AssetUpdate,
@@ -166,7 +167,7 @@ async def update_asset(
     return asset
 
 
-@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("alerts:delete"))])
 async def delete_asset(
     asset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -184,7 +185,7 @@ async def delete_asset(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/vulnerabilities", response_model=list[VulnerabilityOut])
+@router.get("/vulnerabilities", response_model=list[VulnerabilityOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_vulnerabilities(
     severity: str | None = Query(None),
     is_exploited: bool | None = Query(None),
@@ -203,7 +204,7 @@ async def list_vulnerabilities(
     return list(result.scalars().all())
 
 
-@router.post("/vulnerabilities", response_model=VulnerabilityOut, status_code=status.HTTP_201_CREATED)
+@router.post("/vulnerabilities", response_model=VulnerabilityOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
 async def create_vulnerability(
     body: VulnerabilityCreate,
     db: AsyncSession = Depends(get_db),
@@ -225,7 +226,7 @@ async def create_vulnerability(
     return vuln
 
 
-@router.get("/{asset_id}/vulnerabilities", response_model=list[VulnerabilityOut])
+@router.get("/{asset_id}/vulnerabilities", response_model=list[VulnerabilityOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_asset_vulnerabilities(
     asset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

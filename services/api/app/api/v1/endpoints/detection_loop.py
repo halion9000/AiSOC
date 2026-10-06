@@ -25,11 +25,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.api.v1.deps import AuthUser
+from app.api.v1.deps import AuthUser, require_permission
 from app.core.config import settings
 from app.db.rls import TenantDBSession
 
@@ -172,6 +172,7 @@ _SUGGESTIONS: dict[uuid.UUID, dict[str, Any]] = {}
     response_model=SuggestionResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Draft Sigma improvement for a FP alert",
+    dependencies=[Depends(require_permission("alerts:write"))],
 )
 async def suggest_fp_fix(
     body: SuggestRequest,
@@ -278,6 +279,7 @@ async def suggest_fp_fix(
     "/suggestions",
     response_model=SuggestionListResponse,
     summary="List LLM-drafted Sigma suggestions",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def list_suggestions(user: AuthUser) -> SuggestionListResponse:
     """List suggestions drafted by *this* tenant only.
@@ -298,6 +300,7 @@ async def list_suggestions(user: AuthUser) -> SuggestionListResponse:
     "/suggestions/{suggestion_id}",
     response_model=SuggestionResponse,
     summary="Get one Sigma suggestion",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_suggestion(
     suggestion_id: uuid.UUID,

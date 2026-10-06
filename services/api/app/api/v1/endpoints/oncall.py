@@ -16,11 +16,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.api.v1.deps import AuthUser
+from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
 from app.models.responder import OnCallStatus
 from app.models.tenant import User
@@ -58,7 +58,7 @@ class OnCallUpdateRequest(BaseModel):
     schedule_ref: str | None = Field(default=None, max_length=200)
 
 
-@router.get("", response_model=OnCallListResponse)
+@router.get("", response_model=OnCallListResponse, dependencies=[Depends(require_permission("alerts:read"))])
 async def list_oncall(
     user: AuthUser,
     db: TenantDBSession,

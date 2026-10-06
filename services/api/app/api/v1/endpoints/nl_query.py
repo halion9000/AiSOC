@@ -29,10 +29,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, Depends
 from pydantic import BaseModel, Field
 
-from app.api.v1.deps import AuthUser
+from app.api.v1.deps import AuthUser, require_permission
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
 from app.core.config import settings
 from app.services.esql_runner import (
@@ -298,6 +298,7 @@ async def _execute_esql(esql: str, es_url: str, es_api_key: str, max_rows: int) 
     response_model=NLQueryTranslateResponse,
     status_code=status.HTTP_200_OK,
     summary="Translate a natural-language security question to ES|QL / SPL / KQL",
+    dependencies=[Depends(require_permission("lake:query"))],
 )
 async def translate_query(
     body: NLQueryTranslateRequest,
@@ -322,6 +323,7 @@ async def translate_query(
     response_model=NLQueryExecuteResponse,
     status_code=status.HTTP_200_OK,
     summary="Translate NL question and execute ES|QL against Elasticsearch",
+    dependencies=[Depends(require_permission("lake:query"))],
 )
 async def execute_query(
     body: NLQueryExecuteRequest,

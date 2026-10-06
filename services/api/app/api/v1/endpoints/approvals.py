@@ -90,7 +90,7 @@ class ApprovalDecisionRequest(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
 
 
-@router.get("", response_model=ApprovalListResponse)
+@router.get("", response_model=ApprovalListResponse, dependencies=[Depends(require_permission("alerts:read"))])
 async def list_approvals(
     user: AuthUser,
     db: TenantDBSession,
@@ -140,7 +140,7 @@ async def list_approvals(
     )
 
 
-@router.get("/{approval_id}", response_model=ApprovalResponse)
+@router.get("/{approval_id}", response_model=ApprovalResponse, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_approval(
     approval_id: uuid.UUID,
     user: AuthUser,

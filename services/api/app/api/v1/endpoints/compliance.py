@@ -243,7 +243,7 @@ async def trigger_evidence_collection(body: CollectJobRequest) -> CollectJobResp
     )
 
 
-@router.post("/evidence", response_model=EvidenceResponse, status_code=status.HTTP_201_CREATED, summary="Collect evidence item")
+@router.post("/evidence", response_model=EvidenceResponse, status_code=status.HTTP_201_CREATED, summary="Collect evidence item", dependencies=[Depends(require_permission("reports:write"))])
 async def collect_evidence(body: CollectEvidenceRequest, db: DBSession, user: AuthUser) -> EvidenceResponse:
     prev_hash = await _latest_hash(db, body.framework, user.tenant_id)
     new_hash = _compute_hash(prev_hash, body.summary, body.raw_payload)
@@ -284,7 +284,7 @@ async def collect_evidence(body: CollectEvidenceRequest, db: DBSession, user: Au
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/evidence", response_model=list[EvidenceResponse], summary="List evidence items")
+@router.get("/evidence", response_model=list[EvidenceResponse], summary="List evidence items", dependencies=[Depends(require_permission("reports:read"))])
 async def list_evidence(
     db: DBSession,
     user: AuthUser,
@@ -321,7 +321,7 @@ async def list_evidence(
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/evidence/{evidence_id}", response_model=EvidenceResponse, summary="Get evidence item")
+@router.get("/evidence/{evidence_id}", response_model=EvidenceResponse, summary="Get evidence item", dependencies=[Depends(require_permission("reports:read"))])
 async def get_evidence(evidence_id: uuid.UUID, db: DBSession, user: AuthUser) -> EvidenceResponse:
     row = (
         await db.execute(
@@ -335,7 +335,7 @@ async def get_evidence(evidence_id: uuid.UUID, db: DBSession, user: AuthUser) ->
     return _row_to_evidence(row)
 
 
-@router.post("/evidence/{evidence_id}/review", response_model=EvidenceResponse, summary="Accept or reject evidence")
+@router.post("/evidence/{evidence_id}/review", response_model=EvidenceResponse, summary="Accept or reject evidence", dependencies=[Depends(require_permission("reports:write"))])
 async def review_evidence(evidence_id: uuid.UUID, body: ReviewEvidenceRequest, db: DBSession, user: AuthUser) -> EvidenceResponse:
     now = datetime.now(UTC)
     q = text("""
@@ -357,7 +357,7 @@ async def review_evidence(evidence_id: uuid.UUID, body: ReviewEvidenceRequest, d
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/report", response_model=list[CompliancePosture], summary="Generate compliance posture report")
+@router.get("/report", response_model=list[CompliancePosture], summary="Generate compliance posture report", dependencies=[Depends(require_permission("reports:read"))])
 async def compliance_report(
     db: DBSession,
     user: AuthUser,

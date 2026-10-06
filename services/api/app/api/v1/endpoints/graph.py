@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.api.v1.deps import CurrentUser, DBSession, get_current_user
+from app.api.v1.deps import CurrentUser, DBSession, get_current_user, require_permission
 from app.services import graph_service
 
 logger = logging.getLogger(__name__)
@@ -240,6 +240,7 @@ async def _attack_path_from_relational(
     "/attack-path/{case_id}",
     response_model=AttackPathResponse,
     summary="Get attack path graph for a case",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_attack_path(
     case_id: str,
@@ -297,6 +298,7 @@ async def get_attack_path(
     "/blast-radius/{entity_type}/{entity_id}",
     response_model=BlastRadiusResponse,
     summary="Compute blast radius from an entity",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_blast_radius(
     entity_type: str,
@@ -335,6 +337,7 @@ async def get_blast_radius(
     "/neighbors/{entity_type}/{entity_id}",
     response_model=EntityNeighborsResponse,
     summary="Get immediate graph neighbors of an entity",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_entity_neighbors(
     entity_type: str,
@@ -361,6 +364,7 @@ async def get_entity_neighbors(
     "/mitre-coverage",
     response_model=list[MitreCoverageItem],
     summary="MITRE ATT&CK technique coverage for tenant",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_mitre_coverage(
     current_user: CurrentUser = Depends(get_current_user),
@@ -402,6 +406,7 @@ async def get_mitre_coverage(
     "/mitre/coverage",
     response_model=MitreCoverageResponse,
     summary="MITRE ATT&CK coverage (frontend shape)",
+    dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_mitre_coverage_compat(
     current_user: CurrentUser = Depends(get_current_user),
@@ -480,6 +485,7 @@ async def get_mitre_coverage_compat(
     "/entities/host",
     status_code=status.HTTP_201_CREATED,
     summary="Upsert a Host node in the graph",
+    dependencies=[Depends(require_permission("alerts:write"))],
 )
 async def upsert_host(
     payload: UpsertHostRequest,
@@ -501,6 +507,7 @@ async def upsert_host(
     "/entities/user",
     status_code=status.HTTP_201_CREATED,
     summary="Upsert a User node in the graph",
+    dependencies=[Depends(require_permission("alerts:write"))],
 )
 async def upsert_user(
     payload: UpsertUserRequest,
@@ -522,6 +529,7 @@ async def upsert_user(
     "/entities/alert",
     status_code=status.HTTP_201_CREATED,
     summary="Upsert an Alert node and its relationships in the graph",
+    dependencies=[Depends(require_permission("alerts:write"))],
 )
 async def upsert_alert_graph(
     payload: UpsertAlertGraphRequest,
@@ -548,6 +556,7 @@ async def upsert_alert_graph(
     "/entities/case",
     status_code=status.HTTP_201_CREATED,
     summary="Upsert a Case node and link to alerts in the graph",
+    dependencies=[Depends(require_permission("alerts:write"))],
 )
 async def upsert_case_graph(
     payload: UpsertCaseGraphRequest,
