@@ -92,6 +92,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/health", tags=["health"])
 
 
+@router.get("", summary="Reachability probe for the web UI (no auth, no DB)")
+async def api_reachability() -> dict:
+    """Cheap probe the web UI uses to show whether the API is reachable.
+
+    The Copilot dock calls GET /api/v1/health for its connected/disconnected
+    badge. It must live under /api/v1 because the Next.js rewrite only proxies
+    /api/v1/*; the root /health is not reachable from the browser. Before this
+    route existed the probe always 404'd, so the dock always said
+    "disconnected". Deliberately no auth and no database work.
+    """
+    return {"status": "healthy", "service": "aisoc-api"}
+
+
 # ───────────────────────────── Status helpers ────────────────────────────────
 
 

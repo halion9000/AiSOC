@@ -249,7 +249,11 @@ def _resolve_service_for_path(
     Returns 'API_HOST' if no rewrite matches (the catch-all default).
     """
     norm = _normalize(frontend_path)
-    norm = re.sub(r"\$\{[^}]*\}", "[^/]+", norm)
+    # Replace each ${...} with a concrete, slash-free segment. (It used to become
+    # the regex text "[^/]+", which itself contains "/", so a rewrite's ":param"
+    # segment could never match it and the path fell through to the catch-all.
+    # That misrouted e.g. the case-scoped report.md rewrite to API_HOST.)
+    norm = re.sub(r"\$\{[^}]*\}", "PARAM", norm)
     for pattern, dest_var in rewrites:
         try:
             if re.match(pattern, norm):
@@ -265,7 +269,6 @@ def _resolve_service_for_path(
 
 _EXCEPTIONS: dict[str, str] = {
     # Frontend calls a route that does not exist on any service (known bug).
-    "/api/v1/health": "frontend calls a route that does not exist (known bug)",
     # WebSocket streaming — not representable in OpenAPI but served at runtime.
     "/api/v1/graph_ws/stream": "WebSocket endpoint, not in OpenAPI schema",
     # Frontend calls a route that does not exist on any service (known bug).
@@ -288,10 +291,8 @@ _EXCEPTIONS: dict[str, str] = {
     # Report.md paths are served by agents via specific rewrite, but the
     # resolver's :caseId/:runId normalization doesn't match the frontend's
     # ${caseId}/${runId} template literals against the rewrite regex.
-    "/api/v1/cases/${caseId}/investigations/${result.run_id}/report.md": "nested template literal, B5 rewrite to agents",
-    "/api/v1/cases/${caseId}/investigations/${runId}/report.md": "B5 rewrite to agents",
     # Copilot conversation by ID — dynamic CRUD not in static OpenAPI
-    "/api/v1/copilot/conversations/${id}": "copilot conversation by ID, dynamic",
+    "/api/v1/copilot/conversations/${id}": "frontend calls a route that does not exist (known bug)",
     # Query-string suffixed paths — scanner captures ${qs}/${suffix} as part
     # of the path; these are valid frontend patterns but not real route segments
     "/api/v1/detection-proposals${suffix}": "query-string suffix artifact from scanner",
