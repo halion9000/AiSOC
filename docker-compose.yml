@@ -79,6 +79,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     # Persist cluster ID and transaction log so kafka doesn't hit
     # InconsistentClusterIdException when zookeeper is recreated.
+    restart: unless-stopped
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_log:/var/lib/zookeeper/log
@@ -120,6 +121,8 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 60s
+    restart: unless-stopped
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
