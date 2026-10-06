@@ -33,6 +33,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Playbook } from './types';
+import { authFetch } from '@/lib/auth-session';
 
 const SUGGESTIONS: { label: string; prompt: string }[] = [
   {
@@ -95,7 +96,7 @@ export function DraftFromPromptDialog({ open, onClose }: DraftFromPromptDialogPr
     setBusy(true);
     setError(null);
     try {
-      const resp = await fetch('/api/v1/playbooks/draft-from-nl', {
+      const resp = await authFetch('/api/v1/playbooks/draft-from-nl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: trimmed, allow_llm: true }),

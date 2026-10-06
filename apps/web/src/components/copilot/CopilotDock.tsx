@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { copilotApi, type CopilotMessage } from '@/lib/api';
+import { authFetch } from '@/lib/auth-session';
 
 const QUICK_PROMPTS = [
   'Summarize critical alerts in the last 24h.',
@@ -90,7 +91,7 @@ export function CopilotDock() {
         // Lightweight probe: the health endpoint is always available and
         // doesn't require auth. If it responds, the API (and by extension
         // the copilot endpoint) is reachable.
-        const res = await fetch('/api/v1/health', { signal: AbortSignal.timeout(5000) });
+        const res = await authFetch('/api/v1/health', { signal: AbortSignal.timeout(5000) });
         if (!cancelled) setConnectionStatus(res.ok ? 'connected' : 'disconnected');
       } catch {
         if (!cancelled) setConnectionStatus('disconnected');

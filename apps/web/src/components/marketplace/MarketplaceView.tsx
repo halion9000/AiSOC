@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import clsx from 'clsx';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
+import { authFetch } from '@/lib/auth-session';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -486,7 +487,7 @@ export function MarketplaceView() {
         return next;
       });
       try {
-        const res = await fetch('/api/v1/marketplace/install', {
+        const res = await authFetch('/api/v1/marketplace/install', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',

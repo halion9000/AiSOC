@@ -27,6 +27,7 @@ import { STEP_TYPE_META } from './stepColors';
 import { defaultParamsFor } from './stepSchemas';
 import { ContextualActions } from '@/components/copilot/ContextualActions';
 import { useHistoryState } from '@/hooks/useHistoryState';
+import { authFetch } from '@/lib/auth-session';
 
 const STEP_TYPES: StepType[] = [
   'enrich',
@@ -279,7 +280,7 @@ export function PlaybookEditor({ playbookId }: PlaybookEditorProps) {
     setRunning(true);
     setRunResult(null);
     try {
-      const res = await fetch(`/api/v1/playbooks/${playbook.id}/run`, {
+      const res = await authFetch(`/api/v1/playbooks/${playbook.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ context: {}, dry_run: true }),

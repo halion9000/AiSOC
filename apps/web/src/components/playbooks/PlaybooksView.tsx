@@ -22,6 +22,7 @@ import { PlaybooksGallery, type PlaybookGalleryFilters } from './PlaybooksGaller
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import { DraftFromPromptDialog } from './DraftFromPromptDialog';
+import { authFetch } from '@/lib/auth-session';
 
 /** Filter snapshot stored by the backend as a saved-view preset. */
 type PlaybookFilterSnapshot = PlaybookGalleryFilters;
@@ -142,7 +143,7 @@ function CommunityPlaybooksTab() {
     try {
       const params = new URLSearchParams({ page: String(p), page_size: String(PAGE_SIZE), sort_by: sort });
       if (q) params.set('search', q);
-      const res = await fetch(`/api/v1/community/playbooks?${params}`);
+      const res = await authFetch(`/api/v1/community/playbooks?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setItems(data.items ?? []);
@@ -167,7 +168,7 @@ function CommunityPlaybooksTab() {
         setSubmitResult('Invalid JSON. Please fix and retry.');
         return;
       }
-      const res = await fetch('/api/v1/community/playbooks/submit', {
+      const res = await authFetch('/api/v1/community/playbooks/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -340,7 +341,7 @@ function CommunityPlaybookCard({ playbook }: { playbook: CommunityPlaybook }) {
   const handleInstall = async () => {
     setInstalling(true);
     try {
-      await fetch(`/api/v1/community/playbooks/${playbook.id}/install`, { method: 'POST' });
+      await authFetch(`/api/v1/community/playbooks/${playbook.id}/install`, { method: 'POST' });
       setInstalled(true);
     } catch { /* ignore */ } finally {
       setInstalling(false);

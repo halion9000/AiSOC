@@ -44,7 +44,7 @@ function safeBase(url: string): string {
   return url;
 }
 
-const API_BASE = safeBase(process.env.NEXT_PUBLIC_API_URL || '');
+export const API_BASE = safeBase(process.env.NEXT_PUBLIC_API_URL || '');
 const AGENTS_BASE = safeBase(process.env.NEXT_PUBLIC_AGENTS_URL || '');
 const ACTIONS_BASE = safeBase(process.env.NEXT_PUBLIC_ACTIONS_URL || '');
 const FUSION_BASE = safeBase(process.env.NEXT_PUBLIC_FUSION_URL || '');
@@ -198,7 +198,7 @@ async function request<T>(path: string, options: FetchOptions = {}): Promise<T> 
 
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await authFetch(url, {
       ...fetchOptions,
       headers,
       cache: 'no-store',
@@ -228,9 +228,9 @@ async function request<T>(path: string, options: FetchOptions = {}): Promise<T> 
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
-export const AUTH_TOKEN_KEY = 'aisoc.responder.accessToken';
-export const AUTH_REFRESH_KEY = 'aisoc.responder.refreshToken';
-export const AUTH_USER_KEY = 'aisoc.responder.user';
+
+export { AUTH_TOKEN_KEY, AUTH_REFRESH_KEY, AUTH_USER_KEY } from './auth-session';
+import { AUTH_TOKEN_KEY, AUTH_REFRESH_KEY, AUTH_USER_KEY, authFetch, clearSession } from './auth-session';
 
 export interface AuthUser {
   id: string;
@@ -298,13 +298,7 @@ export const authApi = {
 
   logout(): void {
     if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.removeItem(AUTH_TOKEN_KEY);
-      window.localStorage.removeItem(AUTH_REFRESH_KEY);
-      window.localStorage.removeItem(AUTH_USER_KEY);
-    } catch {
-      /* ignore */
-    }
+    clearSession();
   },
 
   currentUser(): AuthUser | null {
@@ -333,7 +327,7 @@ export const authApi = {
       : null;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const response = await fetch(`${API_BASE}/api/v1/auth/me/preferences`, {
+    const response = await authFetch(`${API_BASE}/api/v1/auth/me/preferences`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify({ preferences }),
@@ -1526,7 +1520,7 @@ export const casesApi = {
 
   /** Trigger a browser download of the PDF report. */
   downloadReportPdf: async (caseId: string, runId: string): Promise<void> => {
-    const resp = await fetch(`${API_BASE}/api/v1/cases/${caseId}/investigations/${runId}/report.pdf`, {
+    const resp = await authFetch(`${API_BASE}/api/v1/cases/${caseId}/investigations/${runId}/report.pdf`, {
       headers: { 'X-Tenant-Id': TENANT_ID },
     });
     if (!resp.ok) {
@@ -1579,7 +1573,7 @@ export const casesApi = {
     }
 
     const url = `${API_BASE}/api/v1/cases/${caseId}/summary?format=html`;
-    const response = await fetch(url, { headers, cache: 'no-store' });
+    const response = await authFetch(url, { headers, cache: 'no-store' });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new ApiError(
@@ -2758,7 +2752,7 @@ export const agentsApi = {
    * raw `Response` so callers can pipe to a reader.
    */
   streamInvestigation: (alertId: string, signal?: AbortSignal) =>
-    fetch(`${AGENTS_BASE}/api/v1/agents/investigate/stream`, {
+    authFetch(`${AGENTS_BASE}/api/v1/agents/investigate/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2779,7 +2773,7 @@ export const agentsApi = {
     payload: { alert: Record<string, unknown>; alertId?: string },
     signal?: AbortSignal,
   ) =>
-    fetch(`${AGENTS_BASE}/api/v1/explain`, {
+    authFetch(`${AGENTS_BASE}/api/v1/explain`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4051,7 +4045,7 @@ export const copilotApi = {
    * Callers should consume via `Response.body.getReader()`.
    */
   streamChat: (req: CopilotChatRequest, signal?: AbortSignal) =>
-    fetch(`${API_BASE}/api/v1/copilot/chat/stream`, {
+    authFetch(`${API_BASE}/api/v1/copilot/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4163,7 +4157,7 @@ export const contextualApi = {
    * {@link ContextualStreamFrame} for the per-line shape.
    */
   stream: (req: ContextualActionRequest, signal?: AbortSignal) =>
-    fetch(`${AGENTS_BASE}/api/v1/contextual/action/stream`, {
+    authFetch(`${AGENTS_BASE}/api/v1/contextual/action/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4897,7 +4891,7 @@ export const reportsApi = {
     }
 
     const url = `${API_BASE}/api/v1/reports/digest/weekly?${search.toString()}`;
-    const response = await fetch(url, { headers, cache: 'no-store' });
+    const response = await authFetch(url, { headers, cache: 'no-store' });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new ApiError(
@@ -5081,7 +5075,7 @@ export const auditApi = {
    */
   exportCsv: async (filters: AuditExportFilters = {}): Promise<{ body: string; filename: string }> => {
     const url = `${API_BASE}/api/v1/audit/export?${buildAuditExportSearch(filters, 'csv').toString()}`;
-    const response = await fetch(url, {
+    const response = await authFetch(url, {
       headers: buildAuditExportHeaders('text/csv'),
       cache: 'no-store',
     });
@@ -5109,7 +5103,7 @@ export const auditApi = {
    */
   exportHtml: async (filters: AuditExportFilters = {}): Promise<{ html: string; filename: string }> => {
     const url = `${API_BASE}/api/v1/audit/export?${buildAuditExportSearch(filters, 'html').toString()}`;
-    const response = await fetch(url, {
+    const response = await authFetch(url, {
       headers: buildAuditExportHeaders('text/html'),
       cache: 'no-store',
     });

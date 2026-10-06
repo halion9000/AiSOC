@@ -1,3 +1,5 @@
+import { authFetch } from "@/lib/auth-session";
+import { API_BASE } from "@/lib/api";
 /**
  * Business Context settings — typed fetch client.
  *
@@ -18,7 +20,7 @@ const TENANT_ID =
  * Honour ``NEXT_PUBLIC_API_URL`` if set so this works in local debugging
  * configurations that bypass the proxy.
  */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+// Shared same-origin base (a cross-origin NEXT_PUBLIC_API_URL would bypass the Next.js proxy and the login token).
 
 // ---------------------------------------------------------------------------
 // Wire types — kept in sync with the FastAPI response_model classes.
@@ -111,7 +113,7 @@ async function asJson<T>(resp: Response): Promise<T> {
 
 /** ``GET /api/v1/business-context/rules`` — load the saved rule set. */
 export async function loadRules(): Promise<RulesEnvelope> {
-  const resp = await fetch(`${API_BASE}/api/v1/business-context/rules`, {
+  const resp = await authFetch(`${API_BASE}/api/v1/business-context/rules`, {
     method: "GET",
     headers: authHeaders(),
     credentials: "include",
@@ -121,7 +123,7 @@ export async function loadRules(): Promise<RulesEnvelope> {
 
 /** ``POST /api/v1/business-context/rules`` — replace the whole rule set. */
 export async function saveRules(yaml: string): Promise<RulesEnvelope> {
-  const resp = await fetch(`${API_BASE}/api/v1/business-context/rules`, {
+  const resp = await authFetch(`${API_BASE}/api/v1/business-context/rules`, {
     method: "POST",
     headers: authHeaders(),
     credentials: "include",
@@ -135,8 +137,7 @@ export async function previewRules(
   yaml: string,
   alerts: Record<string, unknown>[] = [],
 ): Promise<PreviewResponse> {
-  const resp = await fetch(
-    `${API_BASE}/api/v1/business-context/rules/preview`,
+  const resp = await authFetch(`${API_BASE}/api/v1/business-context/rules/preview`,
     {
       method: "POST",
       headers: authHeaders(),

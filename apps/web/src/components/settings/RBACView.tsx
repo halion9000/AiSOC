@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { authFetch } from '@/lib/auth-session';
 
 interface Permission {
   id: string;
@@ -222,7 +223,7 @@ export function RBACView() {
 
   const handleDelete = async (role: Role) => {
     if (!confirm(`Delete role "${role.name}"?`)) return;
-    await fetch(`/api/v1/rbac/roles/${role.id}`, { method: 'DELETE' });
+    await authFetch(`/api/v1/rbac/roles/${role.id}`, { method: 'DELETE' });
     mutate('/api/v1/rbac/roles');
   };
 

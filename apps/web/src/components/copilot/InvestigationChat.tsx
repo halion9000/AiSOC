@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { authFetch } from '@/lib/auth-session';
 
 type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -87,7 +88,7 @@ export default function InvestigationChat({ runId }: Props) {
     (async () => {
       let content: string;
       try {
-        const res = await fetch('/api/v1/copilot/chat', {
+        const res = await authFetch('/api/v1/copilot/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -129,7 +130,7 @@ export default function InvestigationChat({ runId }: Props) {
       let summaryMarkdown: string;
 
       if (runId) {
-        const res = await fetch(`/api/v1/investigations/${runId}/close`, {
+        const res = await authFetch(`/api/v1/investigations/${runId}/close`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ analyst_note: analystNote || null }),
@@ -192,7 +193,7 @@ export default function InvestigationChat({ runId }: Props) {
 
     try {
       if (runId) {
-        const res = await fetch(`/api/v1/investigations/${runId}/summary.pdf`);
+        const res = await authFetch(`/api/v1/investigations/${runId}/summary.pdf`);
         if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);

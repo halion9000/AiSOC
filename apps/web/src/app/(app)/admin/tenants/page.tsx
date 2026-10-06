@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { authFetch } from '@/lib/auth-session';
 
 // ---------------------------------------------------------------------------
 // Wire types — mirror services/api/app/api/v1/endpoints/tenant_provision.py
@@ -62,7 +63,7 @@ export default function AdminTenantsPage() {
       if (trimmed) params.set('q', trimmed);
       if (managedOnly) params.set('managed_only', 'true');
       const qs = params.toString();
-      const response = await fetch(
+      const response = await authFetch(
         `/api/v1/admin/tenants${qs ? `?${qs}` : ''}`,
         { method: 'GET', cache: 'no-store' },
       );

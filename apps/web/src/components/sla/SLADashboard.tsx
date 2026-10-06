@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import { authFetch } from '@/lib/auth-session';
 
 const fetcher = async (url: string) => {
   const r = await fetch(url);
@@ -129,7 +130,7 @@ function EditConfigModal({
 
   const save = async () => {
     setSaving(true);
-    await fetch(`/api/v1/sla/config/${config.severity}`, {
+    await authFetch(`/api/v1/sla/config/${config.severity}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mttd_target: mttd, mttr_target: mttr, mttc_target: mttc }),
@@ -201,7 +202,7 @@ function EditKpiBarModal({
     setErr(null);
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/sla/kpi-targets', {
+      const res = await authFetch('/api/v1/sla/kpi-targets', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
