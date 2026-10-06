@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # periodically.  Per-tenant secrets are looked up by the ``X-AiSOC-Tenant``
     # request header; this value is used as the fallback single-tenant secret.
     enroll_secret: str = "change-me-in-production"
+    # Bearer token for the INTERNAL API (queue a distributed query, read its results, manage tenant packs,
+    # read FIM events). Agents never use it (they have the enroll secret and their node key); the API
+    # service and the actions service do. The docstrings always said these routes were protected by
+    # AISOC_OSQUERY_TLS_API_TOKEN, but no such setting existed and the routes checked nothing.
+    api_token: str = ""
+    # Only "development", "dev", "local" and "test" may run without the token / with the placeholder enroll
+    # secret. Anything else (production, staging, a typo) must be configured, so a mistake fails closed.
+    environment: str = "development"
 
     # --- mTLS -----------------------------------------------------------
     # When True the service validates the client TLS certificate on every

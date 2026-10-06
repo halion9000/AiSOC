@@ -24,7 +24,6 @@ const AGENTS_HOST = process.env.AGENTS_URL || 'http://localhost:8001';
 // through to the core API catch-all, which exposes a graceful fusion
 // gateway (services/api/app/api/v1/endpoints/fusion.py).
 const FUSION_HOST = process.env.FUSION_URL || '';
-const OSQUERY_TLS_HOST = process.env.OSQUERY_TLS_URL || 'http://localhost:8090';
 
 const nextConfig = {
   reactStrictMode: true,
@@ -232,11 +231,8 @@ const nextConfig = {
         source: '/api/v1/hunt-corpus',
         destination: `${AGENTS_HOST}/api/v1/hunt-corpus`,
       },
-      // osquery-TLS service: pack catalog, FIM events, distributed queries
-      {
-        source: '/api/v1/osquery/:path*',
-        destination: `${OSQUERY_TLS_HOST}/api/v1/osquery/:path*`,
-      },
+      // /api/v1/osquery/* (FIM) is served by the API, which checks login + tenant and calls the osquery
+      // service itself. The browser must not reach that service: it has no user authentication.
       // /api/v1/enrichment/* is served by the API (authenticated gateway), not rewritten straight to the
       // enrichment service: that service has no authentication.
       // Fusion service exposes the Risk-Based Alerting (entity rollup) queue

@@ -22,7 +22,7 @@ interface Role {
 }
 
 const fetcher = (url: string) =>
-  fetch(url).then((r) => {
+  authFetch(url).then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   });
@@ -124,7 +124,7 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
     try {
       const url = initial ? `/api/v1/rbac/roles/${initial.id}` : '/api/v1/rbac/roles';
       const method = initial ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, description: description || null, permission_ids: Array.from(selectedIds) }),

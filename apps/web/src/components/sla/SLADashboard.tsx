@@ -5,7 +5,7 @@ import useSWR, { mutate } from 'swr';
 import { authFetch } from '@/lib/auth-session';
 
 const fetcher = async (url: string) => {
-  const r = await fetch(url);
+  const r = await authFetch(url);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const text = await r.text();
   try {

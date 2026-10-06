@@ -46,3 +46,38 @@ def test_production_secrets_are_never_hardcoded_literals():
     api = _env("api")
     for key in ("SECRET_KEY", "JWT_SECRET", "METRICS_TOKEN", "REALTIME_INTERNAL_TOKEN", "AISOC_REALTIME_JWT_SECRET", "AISOC_CREDENTIAL_KEY"):
         _source_var(api[key])
+
+
+def test_osquery_internal_token_is_shared_by_the_api_and_the_service():
+    """The API calls the osquery service with this token; the service enforces it. They must read the SAME variable."""
+    api, osq = _env("api"), _env("osquery-tls")
+    assert _source_var(api["AISOC_OSQUERY_TLS_API_TOKEN"]) == _source_var(osq["AISOC_OSQUERY_TLS_API_TOKEN"]) == "AISOC_OSQUERY_TLS_API_TOKEN"
+
+
+def test_osquery_follows_the_one_environment_switch():
+    """If this stayed at its own default, production would still treat the osquery service as development."""
+    assert _source_var(_env("osquery-tls")["AISOC_OSQUERY_TLS_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
+
+
+def _dockerfile_port(service_dir: str) -> int:
+    """The port the container REALLY listens on: the --port in the Dockerfile's CMD (no compose `command:` overrides it)."""
+    text = (COMPOSE.parent / "services" / service_dir / "Dockerfile").read_text(encoding="utf-8")
+    m = re.search(r'CMD\s*\[[^\]]*"--port",\s*"(\d+)"', text)
+    assert m, f"no --port in services/{service_dir}/Dockerfile CMD"
+    return int(m.group(1))
+
+
+def test_osquery_ports_match_what_the_container_really_listens_on():
+    """Compose forwarded host 8091 to container 8007 while the Dockerfile started the service on 9001: the
+    mapping reached nothing, so agents could not enroll through it and the API could not reach it."""
+    services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    assert "command" not in services["osquery-tls"] and "entrypoint" not in services["osquery-tls"], "an override would make the Dockerfile port irrelevant"
+    real = _dockerfile_port("osquery-tls")
+    mapped = [int(str(p).rsplit(":", 1)[1]) for p in services["osquery-tls"]["ports"]]
+    assert mapped == [real], f"compose forwards to container port(s) {mapped}, the service listens on {real}"
+    assert _env("api")["OSQUERY_TLS_URL"] == f"http://osquery-tls:{real}"
+    assert str(services["osquery-tls"]["ports"][0]).startswith("127.0.0.1:8091:"), "the host port agents are documented to use (8091) must not change"
+
+
+def test_the_enroll_secret_is_read_from_env_not_hardcoded():
+    _source_var(_env("osquery-tls")["AISOC_OSQUERY_TLS_ENROLL_SECRET"])

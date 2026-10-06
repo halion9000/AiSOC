@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 
+INTERNAL = {"Authorization": "Bearer test-api-token"}  # the internal API's token (tests/conftest.py)
+
+
 async def _enroll(client, host: str = "dist-host") -> tuple[str, str]:
     r = await client.post(
         "/api/v1/osquery/enroll",
@@ -40,6 +43,7 @@ async def test_distributed_enqueue_and_read(client):
             "tenant_id": "default",
             "query_text": "SELECT pid, name FROM processes;",
         },
+        headers=INTERNAL,
     )
     assert enq.status_code == 200
     query_id = enq.json()["query_id"]
@@ -64,6 +68,7 @@ async def test_distributed_write_and_status(client):
             "tenant_id": "default",
             "query_text": "SELECT * FROM users;",
         },
+        headers=INTERNAL,
     )
     query_id = enq.json()["query_id"]
 
@@ -81,7 +86,7 @@ async def test_distributed_write_and_status(client):
     assert write.json()["node_invalid"] is False
 
     # Internal status endpoint should show completed
-    status_resp = await client.get(f"/api/v1/osquery/distributed/{query_id}")
+    status_resp = await client.get(f"/api/v1/osquery/distributed/{query_id}", headers=INTERNAL)
     assert status_resp.status_code == 200
     sdata = status_resp.json()
     assert sdata["status"] == "completed"
@@ -97,11 +102,12 @@ async def test_distributed_enqueue_unknown_host(client):
             "tenant_id": "default",
             "query_text": "SELECT 1;",
         },
+        headers=INTERNAL,
     )
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_distributed_status_not_found(client):
-    resp = await client.get("/api/v1/osquery/distributed/no-such-id")
+    resp = await client.get("/api/v1/osquery/distributed/no-such-id", headers=INTERNAL)
     assert resp.status_code == 404

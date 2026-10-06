@@ -37,7 +37,7 @@ const DEFAULT_PLAYBOOK_FILTERS: PlaybookFilterSnapshot = {
 };
 
 const fetcher = (url: string) =>
-  fetch(url).then((r) => {
+  authFetch(url).then((r) => {
     if (!r.ok) throw new Error('Failed to fetch');
     return r.json();
   });

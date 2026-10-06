@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { auditApi, ApiError, type AuditExportFilters } from '@/lib/api';
+import { authFetch } from '@/lib/auth-session';
 
 interface AuditEvent {
   id: string;
@@ -29,7 +30,7 @@ interface AuditListResponse {
 }
 
 const fetcher = async (url: string) => {
-  const r = await fetch(url, { credentials: 'include' });
+  const r = await authFetch(url, { credentials: 'include' });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const text = await r.text();
   try { return JSON.parse(text); } catch { throw new Error('Invalid JSON'); }

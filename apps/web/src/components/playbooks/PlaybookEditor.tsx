@@ -60,7 +60,7 @@ function makeNewStep(type: StepType): PlaybookStep {
 }
 
 const fetcher = (url: string) =>
-  fetch(url).then((r) => {
+  authFetch(url).then((r) => {
     if (!r.ok) throw new Error('Failed to fetch');
     return r.json();
   });
@@ -249,7 +249,7 @@ export function PlaybookEditor({ playbookId }: PlaybookEditorProps) {
         : `/api/v1/playbooks/${playbook.id}`;
       const method = isNew ? 'POST' : 'PUT';
       const body = isNew ? playbook : { ...playbook };
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

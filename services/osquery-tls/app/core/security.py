@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.core.crypto import generate_node_key
 from app.db.session import get_db
 
-__all__ = ["generate_node_key", "verify_enroll_secret", "require_valid_node_key"]
+__all__ = ["generate_node_key", "verify_enroll_secret", "require_valid_node_key", "require_api_token", "enforce_secure_defaults"]
 
 
 def _tenant_from_header(x_aisoc_tenant: str | None) -> str:
@@ -83,3 +83,50 @@ async def require_valid_node_key(
             )
 
     return node
+
+
+_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
+PLACEHOLDER_ENROLL_SECRET = "change-me-in-production"
+
+
+def is_development() -> bool:
+    return settings.environment.strip().lower() in _DEV_ENVIRONMENTS
+
+
+async def require_api_token(authorization: Annotated[str | None, Header()] = None) -> None:
+    """FastAPI dependency for the INTERNAL routes: ``Authorization: Bearer <AISOC_OSQUERY_TLS_API_TOKEN>``.
+
+    Fail closed: with no token configured, only a development environment is let through (so a local
+    stack keeps working); anywhere else the route answers 503 instead of running unauthenticated.
+    """
+    token = settings.api_token.strip()
+    if not token:
+        if is_development():
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="internal API token is not configured",
+        )
+    scheme, _, supplied = (authorization or "").partition(" ")
+    supplied = supplied.strip()
+    if scheme.lower() != "bearer" or not supplied or not secrets.compare_digest(supplied.encode(), token.encode()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid or missing API token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def enforce_secure_defaults() -> None:
+    """Refuse to start outside development with the published placeholder enroll secret.
+
+    The placeholder is public, so anyone could enroll a fake node and feed false FIM / log data into a
+    tenant. (A missing API token is handled per request by ``require_api_token``.)
+    """
+    if is_development():
+        return
+    if settings.enroll_secret.strip() in ("", PLACEHOLDER_ENROLL_SECRET):
+        raise RuntimeError(
+            "refusing to start: AISOC_OSQUERY_TLS_ENROLL_SECRET is unset or still the published placeholder "
+            f"while AISOC_OSQUERY_TLS_ENVIRONMENT={settings.environment!r}"
+        )

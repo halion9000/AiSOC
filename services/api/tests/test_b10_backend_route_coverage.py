@@ -309,7 +309,7 @@ _EXCEPTIONS: dict[str, str] = {
     # Enrichment service has its own host variable
     # Fusion/osquery — conditional routers not loaded in dev-mode OpenAPI
     "/api/v1/fusion": "fusion ML endpoint, conditional registration",
-    "/api/v1/osquery": "osquery TLS endpoint, conditional router",
+    "/api/v1/osquery": "the console builds its FIM URLs from this base path; the API serves only /api/v1/osquery/fim/events and /summary, never the bare base",
     # Report.md paths are served by agents via specific rewrite, but the
     # resolver's :caseId/:runId normalization doesn't match the frontend's
     # ${caseId}/${runId} template literals against the rewrite regex.

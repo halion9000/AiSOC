@@ -240,6 +240,10 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      # The API is the console's only route to the osquery service (FIM events): it checks login and tenant,
+      # then calls the service with the same internal token the service is configured with.
+      OSQUERY_TLS_URL: http://osquery-tls:9001
+      AISOC_OSQUERY_TLS_API_TOKEN: ${AISOC_OSQUERY_TLS_API_TOKEN:-}
       # The API is the console's only route to the enrichment service (which has no authentication).
       ENRICHMENT_URL: http://enrichment:8082
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
@@ -561,10 +565,15 @@ services:
     # Host port 8007 was previously colliding with the `ueba` service's
     # 127.0.0.1:8007 binding; remapped to 8091 here. UEBA still owns 8007.
     ports:
-      - "127.0.0.1:8091:8007"
+      - "127.0.0.1:8091:9001"
     profiles:
       - osquery
     environment:
+      # Internal API (queue a query on a host, read results, manage packs, read FIM events): bearer token.
+      # Outside development the service refuses to start on the placeholder enroll secret and answers 503
+      # on the internal routes when this token is empty, so a missing value fails closed.
+      AISOC_OSQUERY_TLS_API_TOKEN: ${AISOC_OSQUERY_TLS_API_TOKEN:-}
+      AISOC_OSQUERY_TLS_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       AISOC_OSQUERY_TLS_ENROLL_SECRET: ${AISOC_OSQUERY_TLS_ENROLL_SECRET:-change-me-in-production}
       # The ingest service is registered as `ingest-worker` in this compose

@@ -126,7 +126,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 const fetcher = async (url: string) => {
-  const r = await fetch(url);
+  const r = await authFetch(url);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const text = await r.text();
   try {
@@ -421,7 +421,7 @@ type TierFilter = 'all' | 'stable' | 'beta' | 'imported' | 'community';
 // Fetch the installed-set, but treat 401/404 as "not signed in / API offline"
 // so the marketplace stays usable in static demos and unauthenticated previews.
 async function fetchInstalled(url: string): Promise<InstalledResponse | null> {
-  const res = await fetch(url, { credentials: 'include' });
+  const res = await authFetch(url, { credentials: 'include' });
   if (res.status === 401 || res.status === 404) return null;
   if (!res.ok) throw new Error(`installed: HTTP ${res.status}`);
   return (await res.json()) as InstalledResponse;
@@ -530,7 +530,7 @@ export function MarketplaceView() {
         const url = `/api/v1/marketplace/install?type=${encodeURIComponent(
           item.type,
         )}&id=${encodeURIComponent(item.id)}`;
-        const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
+        const res = await authFetch(url, { method: 'DELETE', credentials: 'include' });
         if (!res.ok && res.status !== 401 && res.status !== 404) {
           throw new Error(`uninstall: HTTP ${res.status}`);
         }

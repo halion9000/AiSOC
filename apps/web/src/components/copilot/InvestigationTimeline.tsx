@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { authFetch } from "@/lib/auth-session";
 
 // ---------------------------------------------------------------------------
 // Types (mirror backend TimelineResponse / TimelineNode)
@@ -542,7 +543,7 @@ export default function InvestigationTimeline({
   const fetchTimeline = useCallback(async () => {
     if (!runId) return;
     try {
-      const res = await fetch(`${apiBase}/investigations/${runId}/timeline`, {
+      const res = await authFetch(`${apiBase}/investigations/${runId}/timeline`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

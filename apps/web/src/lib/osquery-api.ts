@@ -1,12 +1,14 @@
 /**
- * Typed HTTP client for the osquery-tls service.
+ * Typed HTTP client for FIM (file integrity monitoring) data.
  *
- * All requests are issued to `/api/v1/osquery/*` — Next.js proxies that
- * to OSQUERY_TLS_HOST via the rewrite in next.config.js.
+ * Requests go to the AiSOC API (`/api/v1/osquery/fim/*`), which checks your login and tenant and then
+ * asks the osquery service. The browser never talks to the osquery service directly: that service has
+ * no user authentication of its own.
  */
 
-const OSQUERY_BASE =
-  (process.env.NEXT_PUBLIC_OSQUERY_TLS_URL ?? '') + '/api/v1/osquery';
+import { authFetch } from '@/lib/auth-session';
+
+const OSQUERY_BASE = '/api/v1/osquery';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -75,7 +77,7 @@ async function get<T>(path: string, params?: Record<string, string | number | un
       if (v !== undefined) url.searchParams.set(k, String(v));
     }
   }
-  const res = await fetch(url.toString());
+  const res = await authFetch(url.toString());
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`osquery-api ${res.status}: ${text}`);

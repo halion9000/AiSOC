@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app._health import install_health_routes
 from app.api.v1 import router as v1_router
 from app.core.config import settings
+from app.core.security import enforce_secure_defaults
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
 
@@ -34,6 +35,7 @@ app.state.mark_not_ready = _mark_not_ready
 
 @app.on_event("startup")
 async def _osquery_tls_ready() -> None:
+    enforce_secure_defaults()  # raises (the service refuses to start) outside development with the placeholder secret
     app.state.mark_ready()
 
 

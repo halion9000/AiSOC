@@ -1,5 +1,6 @@
 'use client'
 
+import { authFetch } from '@/lib/auth-session';
 import { useState } from 'react'
 import useSWR from 'swr'
 
@@ -110,7 +111,7 @@ interface TabletopSession {
 const TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 const fetcher = (url: string) =>
-  fetch(url).then((r) => {
+  authFetch(url).then((r) => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     return r.json()
   })
@@ -185,7 +186,7 @@ function CoverageHeatmap() {
     setCapturing(true)
     setCaptureError(null)
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `${API}/api/v1/purple-team/drift/snapshot?tenant_id=${TENANT_ID}&trigger=manual`,
         { method: 'POST' }
       )
@@ -493,7 +494,7 @@ function TabletopPanel() {
   const [form, setForm] = useState({ name: '', scenario: '', technique_ids: '' })
 
   async function createSession() {
-    await fetch(`${API}/api/v1/purple-team/tabletop`, {
+    await authFetch(`${API}/api/v1/purple-team/tabletop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -509,21 +510,21 @@ function TabletopPanel() {
   }
 
   async function addFinding(sessionId: string) {
-    await fetch(`${API}/api/v1/purple-team/tabletop/${sessionId}/findings`, {
+    await authFetch(`${API}/api/v1/purple-team/tabletop/${sessionId}/findings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ finding: newFinding, severity: newFindingSeverity }),
     })
     setNewFinding('')
     mutate()
-    const res = await fetch(`${API}/api/v1/purple-team/tabletop/${sessionId}`)
+    const res = await authFetch(`${API}/api/v1/purple-team/tabletop/${sessionId}`)
     if (!res.ok) return
     const updated = await res.json()
     setSelectedSession(updated)
   }
 
   async function completeSession(sessionId: string) {
-    await fetch(`${API}/api/v1/purple-team/tabletop/${sessionId}/complete`, { method: 'PATCH' })
+    await authFetch(`${API}/api/v1/purple-team/tabletop/${sessionId}/complete`, { method: 'PATCH' })
     mutate()
   }
 
@@ -708,7 +709,7 @@ function ReportDetectionModal({
   const [latency, setLatency] = useState('')
 
   async function save() {
-    await fetch(`${API}/api/v1/purple-team/executions/${execution.id}/detection`, {
+    await authFetch(`${API}/api/v1/purple-team/executions/${execution.id}/detection`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

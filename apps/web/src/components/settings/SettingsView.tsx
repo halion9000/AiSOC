@@ -45,6 +45,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AutonomyPolicyPanel } from '@/components/settings/AutonomyPolicy';
 import { useTheme, type ThemePreference } from '@/components/theme/ThemeProvider';
+import { authFetch } from '@/lib/auth-session';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2042,7 +2043,7 @@ function StatusPill({
 // ─── Panel: Audit ─────────────────────────────────────────────────────────────
 
 const _auditFetcher = (url: string) =>
-  fetch(url, { credentials: 'include' }).then((r) => r.json());
+  authFetch(url, { credentials: 'include' }).then((r) => r.json());
 
 function AuditPanel() {
   const { data, isLoading, error } = useSWR<AuditEntry[]>(
