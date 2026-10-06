@@ -13,8 +13,9 @@ import re
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, Depends
 from app.core.internal_auth import internal_service_headers
+from app.api.v1.deps import require_permission
 
 _AGENTS_URL = os.getenv("AGENTS_SERVICE_URL") or os.getenv("AGENTS_API_URL", "http://agents:8084")
 
@@ -62,48 +63,48 @@ async def _proxy(method: str, path: str, **kwargs) -> Any:
 # ---------------------------------------------------------------------------
 
 
-@router.get("", summary="List playbooks")
+@router.get("", summary="List playbooks", dependencies=[Depends(require_permission("playbooks:read"))])
 async def list_playbooks(enabled_only: bool = False):
     return await _proxy("GET", "", params={"enabled_only": enabled_only})
 
 
-@router.post("", summary="Create playbook", status_code=201)
+@router.post("", summary="Create playbook", status_code=201, dependencies=[Depends(require_permission("playbooks:write"))])
 async def create_playbook(request: Request):
     body = await request.json()
     return await _proxy("POST", "", json=body)
 
 
-@router.get("/runs", summary="List playbook runs")
+@router.get("/runs", summary="List playbook runs", dependencies=[Depends(require_permission("playbooks:read"))])
 async def list_runs(limit: int = 50):
     return await _proxy("GET", "/runs", params={"limit": limit})
 
 
-@router.get("/runs/{run_id}", summary="Get a playbook run")
+@router.get("/runs/{run_id}", summary="Get a playbook run", dependencies=[Depends(require_permission("playbooks:read"))])
 async def get_run(run_id: str):
     safe_run_id = _validate_path_id(run_id, "run_id")
     return await _proxy("GET", f"/runs/{safe_run_id}")
 
 
-@router.get("/{playbook_id}", summary="Get a playbook")
+@router.get("/{playbook_id}", summary="Get a playbook", dependencies=[Depends(require_permission("playbooks:read"))])
 async def get_playbook(playbook_id: str):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     return await _proxy("GET", f"/{safe_id}")
 
 
-@router.put("/{playbook_id}", summary="Update a playbook")
+@router.put("/{playbook_id}", summary="Update a playbook", dependencies=[Depends(require_permission("playbooks:write"))])
 async def update_playbook(playbook_id: str, request: Request):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     body = await request.json()
     return await _proxy("PUT", f"/{safe_id}", json=body)
 
 
-@router.delete("/{playbook_id}", summary="Delete a playbook", status_code=204, response_model=None)
+@router.delete("/{playbook_id}", summary="Delete a playbook", status_code=204, response_model=None, dependencies=[Depends(require_permission("playbooks:write"))])
 async def delete_playbook(playbook_id: str):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     await _proxy("DELETE", f"/{safe_id}")
 
 
-@router.post("/{playbook_id}/run", summary="Execute a playbook", status_code=202)
+@router.post("/{playbook_id}/run", summary="Execute a playbook", status_code=202, dependencies=[Depends(require_permission("playbooks:execute"))])
 async def run_playbook(playbook_id: str, request: Request):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     body = await request.json()

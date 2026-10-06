@@ -24,11 +24,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,7 @@ def _row_to_evidence(row: Any) -> EvidenceResponse:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/frameworks", response_model=FrameworksResponse, summary="List frameworks and controls")
+@router.get("/frameworks", response_model=FrameworksResponse, summary="List frameworks and controls", dependencies=[Depends(require_permission("reports:read"))])
 async def list_frameworks() -> FrameworksResponse:
     return FrameworksResponse(frameworks=FRAMEWORKS)
 
@@ -212,6 +212,7 @@ async def list_frameworks() -> FrameworksResponse:
     "/frameworks/{framework_id}/controls",
     response_model=ControlsResponse,
     summary="List controls for a framework",
+    dependencies=[Depends(require_permission("reports:read"))],
 )
 async def list_framework_controls(framework_id: str) -> ControlsResponse:
     controls = FRAMEWORKS.get(framework_id)
@@ -228,6 +229,7 @@ async def list_framework_controls(framework_id: str) -> ControlsResponse:
     response_model=CollectJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Trigger evidence collection job",
+    dependencies=[Depends(require_permission("reports:write"))],
 )
 async def trigger_evidence_collection(body: CollectJobRequest) -> CollectJobResponse:
     if body.framework not in FRAMEWORKS:

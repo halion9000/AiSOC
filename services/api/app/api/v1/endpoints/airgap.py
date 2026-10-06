@@ -19,14 +19,15 @@ or shelling into the container. The endpoint is intentionally:
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.core.airgap import airgap_status
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/airgap", tags=["airgap"])
 
 
-@router.get("/status", summary="Current air-gap egress policy")
+@router.get("/status", summary="Current air-gap egress policy", dependencies=[Depends(require_permission("settings:read"))])
 async def get_airgap_status() -> dict[str, object]:
     """Return the live air-gap policy snapshot for this pod.
 

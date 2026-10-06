@@ -27,14 +27,16 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 
+from app.api.v1.deps import AuthUser, require_permission
 from app.core.logging import safe_log_value
+
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +100,7 @@ async def _proxy_get(path: str, params: dict[str, Any] | None = None) -> dict[st
 # ─── Health / metrics ──────────────────────────────────────────────────────
 
 
-@router.get("/health", summary="Fusion service health")
+@router.get("/health", summary="Fusion service health", dependencies=[Depends(require_permission("alerts:read"))])
 async def fusion_health() -> dict[str, Any]:
     upstream = await _proxy_get("/health")
     if upstream is not None:
@@ -110,7 +112,7 @@ async def fusion_health() -> dict[str, Any]:
     }
 
 
-@router.get("/metrics", summary="Fusion worker metrics")
+@router.get("/metrics", summary="Fusion worker metrics", dependencies=[Depends(require_permission("settings:read"))])
 async def fusion_metrics() -> dict[str, Any]:
     upstream = await _proxy_get("/metrics")
     if upstream is not None:
@@ -121,7 +123,7 @@ async def fusion_metrics() -> dict[str, Any]:
 # ─── ML status ─────────────────────────────────────────────────────────────
 
 
-@router.get("/ml/status", summary="Fusion ML model status")
+@router.get("/ml/status", summary="Fusion ML model status", dependencies=[Depends(require_permission("alerts:read"))])
 async def ml_status() -> dict[str, Any]:
     upstream = await _proxy_get("/ml/status")
     if upstream is not None:
@@ -142,12 +144,25 @@ async def ml_status() -> dict[str, Any]:
 _DEFAULT_THRESHOLD = 100.0
 
 
+
+def _require_own_tenant(tenant_id: UUID, user: "AuthUser") -> None:
+    """The fusion service trusts the tenant_id it is sent, so the check lives here.
+
+    A caller may only ask about their own tenant (taken from their verified login,
+    never from the request). Platform admins operate across tenants.
+    """
+    if user.role != "platform_admin" and str(tenant_id) != str(user.tenant_id):
+        raise HTTPException(status_code=403, detail="tenant_id does not match your tenant")
+
+
 @router.get("/entity-risk/queue", summary="Top entities by risk score")
 async def entity_risk_queue(
     tenant_id: UUID,
+    user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
     limit: int = Query(default=25, ge=1, le=200),
     promoted_only: bool = False,
 ) -> dict[str, Any]:
+    _require_own_tenant(tenant_id, user)
     upstream = await _proxy_get(
         "/entity-risk/queue",
         params={
@@ -166,7 +181,11 @@ async def entity_risk_queue(
 
 
 @router.get("/entity-risk/stats", summary="Entity-risk queue stats")
-async def entity_risk_stats(tenant_id: UUID) -> dict[str, Any]:
+async def entity_risk_stats(
+    tenant_id: UUID,
+    user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+) -> dict[str, Any]:
+    _require_own_tenant(tenant_id, user)
     upstream = await _proxy_get(
         "/entity-risk/stats",
         params={"tenant_id": str(tenant_id)},
@@ -191,7 +210,9 @@ async def entity_risk_detail(
     entity_type: str,
     entity_value: str,
     tenant_id: UUID,
+    user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
 ) -> dict[str, Any]:
+    _require_own_tenant(tenant_id, user)
     if entity_type == "ip":
         entity_type = "src_ip"
     # URL-encode user-controlled path segments so they cannot inject `/`,

@@ -57,7 +57,7 @@ import os
 import uuid
 from urllib.parse import urlparse
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +65,7 @@ from app.core.airgap import is_host_allowed_for_airgap
 from app.core.config import settings
 from app.models.llm_credential import TenantLlmCredential
 from app.security.credential_vault import CredentialVaultError, get_vault
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/llm", tags=["llm"])
 
@@ -380,7 +381,7 @@ async def tenant_llm_status(
     )
 
 
-@router.get("/status", summary="Current LLM provider configuration")
+@router.get("/status", summary="Current LLM provider configuration", dependencies=[Depends(require_permission("settings:read"))])
 async def get_llm_status() -> dict[str, object]:
     """Return the env-only LLM provider snapshot for this pod.
 

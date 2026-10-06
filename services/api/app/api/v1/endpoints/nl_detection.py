@@ -193,7 +193,7 @@ def _template_fallback(request: NLDetectionRequest) -> dict[str, str | None]:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/translate", response_model=NLDetectionResponse)
+@router.post("/translate", response_model=NLDetectionResponse, dependencies=[Depends(require_permission("rules:write"))])
 async def translate_detection(payload: NLDetectionRequest) -> NLDetectionResponse:
     """Convert a plain-English threat description into multi-platform detection rules."""
     if not payload.description.strip():

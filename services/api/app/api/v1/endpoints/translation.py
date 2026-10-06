@@ -18,11 +18,12 @@ import os
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
 from app.services.model_aliases import resolve_model_alias
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/translation", tags=["translation"])
 
@@ -233,6 +234,7 @@ def _fallback_templates(req: TranslateRequest) -> dict[str, Any]:
     response_model=TranslateResponse,
     status_code=status.HTTP_200_OK,
     summary="Translate a detection rule across formats",
+    dependencies=[Depends(require_permission("rules:read"))],
 )
 async def translate_rule(body: TranslateRequest) -> TranslateResponse:
     if not body.target_formats:
@@ -274,6 +276,7 @@ async def translate_rule(body: TranslateRequest) -> TranslateResponse:
     "/formats",
     response_model=FormatsResponse,
     summary="List supported detection rule formats",
+    dependencies=[Depends(require_permission("rules:read"))],
 )
 async def list_formats() -> FormatsResponse:
     return FormatsResponse(formats=_FORMAT_LABELS)  # type: ignore[arg-type]

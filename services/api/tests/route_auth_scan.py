@@ -41,7 +41,8 @@ def unguarded_routes() -> list[str]:
                 route = dec.args[0].value if dec.args and isinstance(dec.args[0], ast.Constant) else ""
                 header = ast.get_source_segment(src, fn) or ""
                 header = header.partition(":\n")[0]
-                declared = bool(re.search(r'require_permission\(\s*["\']', header))
+                decorator = ast.get_source_segment(src, dec) or ""   # dependencies=[Depends(require_permission(...))] lives here
+                declared = bool(re.search(r'require_permission\(\s*["\']', header)) or bool(re.search(r'require_permission\(\s*["\']', decorator))
                 body = fn.body[1:] if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(getattr(fn.body[0], "value", None), ast.Constant) else fn.body
                 inline = bool(GUARD.search("\n".join(ast.unparse(b) for b in body)))
                 if not declared and not inline:

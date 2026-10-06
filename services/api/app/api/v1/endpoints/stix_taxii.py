@@ -13,7 +13,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel, Field
 
 from app.core.airgap import AirgapViolation
@@ -25,6 +25,7 @@ from app.services.misp_push import (
     stix_bundle_to_misp_event,
     stix_indicator_to_misp_event,
 )
+from app.api.v1.deps import require_permission
 
 logger = logging.getLogger("aisoc.stix_taxii")
 
@@ -255,7 +256,7 @@ DEMO_TAXII_COLLECTIONS: list[TAXIICollection] = [
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
-@router.get("/indicators", response_model=IndicatorListResponse)
+@router.get("/indicators", response_model=IndicatorListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
 async def list_indicators(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=200),
@@ -342,6 +343,7 @@ async def _push_bundle_or_swallow(bundle: STIXBundle) -> MispPushResult | None:
     "/indicators",
     response_model=STIXIndicatorWithPush,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("threat_intel:write"))],
 )
 async def create_indicator(
     body: STIXIndicatorCreate,
@@ -375,7 +377,7 @@ async def create_indicator(
     return STIXIndicatorWithPush(**indicator.model_dump(), misp=push_result)
 
 
-@router.get("/bundles", response_model=BundleListResponse)
+@router.get("/bundles", response_model=BundleListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
 async def list_bundles() -> BundleListResponse:
     """List STIX 2.1 bundles."""
     return BundleListResponse(items=DEMO_BUNDLES, total=len(DEMO_BUNDLES))
@@ -385,6 +387,7 @@ async def list_bundles() -> BundleListResponse:
     "/bundles",
     response_model=STIXBundleWithPush,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("threat_intel:write"))],
 )
 async def create_bundle(
     body: STIXBundleCreate,
@@ -417,7 +420,7 @@ async def create_bundle(
     return STIXBundleWithPush(**bundle.model_dump(), misp=push_result)
 
 
-@router.get("/taxii/collections", response_model=TAXIICollectionListResponse)
+@router.get("/taxii/collections", response_model=TAXIICollectionListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
 async def list_taxii_collections() -> TAXIICollectionListResponse:
     """List TAXII 2.1 collections for server compatibility."""
     return TAXIICollectionListResponse(
@@ -429,7 +432,7 @@ async def list_taxii_collections() -> TAXIICollectionListResponse:
 # ── MISP push admin endpoints ───────────────────────────────────────────────
 
 
-@router.get("/misp/health", response_model=MispPushHealth, tags=["MISP push"])
+@router.get("/misp/health", response_model=MispPushHealth, tags=["MISP push"], dependencies=[Depends(require_permission("threat_intel:read"))])
 async def misp_push_health() -> MispPushHealth:
     """Check whether MISP push is configured and reachable.
 
@@ -462,7 +465,7 @@ async def misp_push_health() -> MispPushHealth:
     return base
 
 
-@router.post("/misp/dry-run", response_model=MispDryRunResponse, tags=["MISP push"])
+@router.post("/misp/dry-run", response_model=MispDryRunResponse, tags=["MISP push"], dependencies=[Depends(require_permission("threat_intel:write"))])
 async def misp_push_dry_run(body: MispDryRunRequest) -> MispDryRunResponse:
     """Show the MISP event payload that *would* be pushed, without sending it.
 
