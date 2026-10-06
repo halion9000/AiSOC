@@ -753,16 +753,6 @@ export const alertsApi = {
     return normalizeAlert(raw);
   },
 
-  bulkAction: (
-    ids: string[],
-    action: string,
-    data?: Record<string, unknown>,
-  ) =>
-    request<{ updated: number }>('/api/v1/alerts/bulk', {
-      method: 'POST',
-      body: JSON.stringify({ ids, action, ...data }),
-    }),
-
   /**
    * Structured AI explanation for one alert (Stage 2 #6).
    *
