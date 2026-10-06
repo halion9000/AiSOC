@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import structlog
-from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
@@ -417,6 +417,7 @@ class _AgentInvestigationResponse(BaseModel):
 async def legacy_investigate(
     body: _LegacyInvestigateRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
 ):
     """Adapter for the frontend's agentsApi.investigate({alertId}).
 
@@ -431,7 +432,14 @@ async def legacy_investigate(
     alert_id = body.alertId
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{api_url}/api/v1/alerts/{alert_id}")
+            # Forward the caller's own credentials: in production the API
+            # refuses anonymous requests, and this alert belongs to whoever
+            # clicked Investigate.
+            auth = request.headers.get("authorization")
+            resp = await client.get(
+                f"{api_url}/api/v1/alerts/{alert_id}",
+                headers={"Authorization": auth} if auth else {},
+            )
             resp.raise_for_status()
             alert = resp.json()
     except Exception as exc:  # noqa: BLE001

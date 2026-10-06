@@ -48,6 +48,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.api.v1.deps import AuthUser, DBSession
+from app.core.internal_auth import internal_service_headers
 from app.core.logging import safe_log_value
 from app.services.case_fanout import (
     FanoutResult,
@@ -1080,9 +1081,10 @@ async def _agents_proxy(method: str, path: str, **kwargs: Any) -> httpx.Response
     safe_path = _validate_agents_path(path)
     url = f"{_AGENTS_URL}{safe_path}"
     timeout = kwargs.pop("timeout", 30.0)
+    headers = {**internal_service_headers(), **(kwargs.pop("headers", None) or {})}
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            return await client.request(method, url, **kwargs)
+            return await client.request(method, url, headers=headers, **kwargs)
     except httpx.HTTPError as exc:
         logger.exception(
             "agents_proxy.request_failed",

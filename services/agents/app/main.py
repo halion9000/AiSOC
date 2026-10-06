@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app._health import install_health_routes
+from app.core.service_auth import ServiceAuthMiddleware
 from app.api.contextual import router as contextual_router
 from app.api.copilot import router as copilot_router
 from app.api.explain import router as explain_router
@@ -163,6 +164,9 @@ app.state.mark_not_ready = _mark_not_ready
 # CSRF to prod.
 from app.core.cors import build_cors_kwargs  # noqa: E402
 
+# Production-only authentication (see app/core/service_auth.py). Registered before
+# CORS so CORS stays the outermost layer and answers preflights first.
+app.add_middleware(ServiceAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     **build_cors_kwargs(service_name="agents", allow_credentials=True),

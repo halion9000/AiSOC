@@ -40,6 +40,7 @@ from app.models.alert import Alert
 from app.models.case import Case
 from app.models.connector import Connector
 from app.models.detection_rule import DetectionRule
+from app.core.internal_auth import internal_service_headers
 
 _AGENTS_URL = os.getenv("AGENTS_SERVICE_URL") or os.getenv("AGENTS_API_URL", "http://agents:8084")
 
@@ -175,7 +176,7 @@ async def _proxy_get(path: str, params: dict | None = None):  # noqa: ANN201
     """Call the agents service and return JSON, or raise on failure."""
     url = f"{_AGENTS_URL}/api/v1/playbooks{path}"
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get(url, params=params or {})
+        r = await client.get(url, params=params or {}, headers=internal_service_headers())
     r.raise_for_status()
     return r.json()
 

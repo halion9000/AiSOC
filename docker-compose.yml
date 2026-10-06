@@ -413,6 +413,10 @@ services:
     ports:
       - "127.0.0.1:8001:8084"
     environment:
+      # Production auth for this service (app/core/service_auth.py): one switch for
+      # all services, and the internal token shared with the API and realtime.
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/4
       CORE_API_URL: http://api:8000

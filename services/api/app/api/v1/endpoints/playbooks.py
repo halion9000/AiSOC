@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
+from app.core.internal_auth import internal_service_headers
 
 _AGENTS_URL = os.getenv("AGENTS_SERVICE_URL") or os.getenv("AGENTS_API_URL", "http://agents:8084")
 
@@ -44,8 +45,9 @@ async def _proxy(method: str, path: str, **kwargs) -> Any:
     """Forward a request to the agents service and return the JSON body."""
     url = f"{_AGENTS_URL}/api/v1/playbooks{path}"
     try:
+        headers = {**internal_service_headers(), **(kwargs.pop("headers", None) or {})}
         async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.request(method, url, **kwargs)
+            r = await client.request(method, url, headers=headers, **kwargs)
         if r.status_code >= 400:
             raise HTTPException(status_code=r.status_code, detail="Upstream service error")
         if r.status_code == 204:

@@ -28,14 +28,16 @@ def _source_var(value: str) -> str:
 
 
 def test_paired_secrets_read_the_same_env_var():
-    api, ingest, rt = _env("api"), _env("ingest-worker"), _env("realtime")
+    api, ingest, rt, agents = _env("api"), _env("ingest-worker"), _env("realtime"), _env("agents")
     assert _source_var(api["SECRET_KEY"]) == _source_var(ingest["JWT_SECRET"]) == "SECRET_KEY"
     assert _source_var(api["REALTIME_INTERNAL_TOKEN"]) == _source_var(rt["INTERNAL_TOKEN"]) == "REALTIME_INTERNAL_TOKEN"
+    # agents: accepts the API's proxied calls and posts to realtime with this token
+    assert _source_var(agents["INTERNAL_TOKEN"]) == "REALTIME_INTERNAL_TOKEN"
     assert _source_var(api["AISOC_REALTIME_JWT_SECRET"]) == _source_var(rt["AISOC_REALTIME_JWT_SECRET"]) == "AISOC_REALTIME_JWT_SECRET"
 
 
 def test_environment_is_one_switch_for_all_three():
-    for svc, key in (("api", "ENVIRONMENT"), ("ingest-worker", "ENV"), ("realtime", "ENVIRONMENT")):
+    for svc, key in (("api", "ENVIRONMENT"), ("ingest-worker", "ENV"), ("realtime", "ENVIRONMENT"), ("agents", "ENVIRONMENT")):
         assert _source_var(_env(svc)[key]) == "AISOC_ENVIRONMENT", f"{svc} {key} must follow AISOC_ENVIRONMENT"
 
 
