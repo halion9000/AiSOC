@@ -178,6 +178,12 @@ def _is_test_source(fpath) -> bool:
     )
 
 
+def _strip_query_suffix(raw: str) -> str:
+    """`/api/v1/x${qs}` -> `/api/v1/x`. A `${...}` glued to the end of a segment is a query string; one
+    that is its own segment (`/api/v1/cases/${id}`) is a real path parameter and is kept."""
+    return re.sub(r"(?<!/)\$\{[^}]*\}$", "", raw)
+
+
 def _scan_frontend_paths(extra_sources: list[str] | None = None) -> set[str]:
     """Find all /api/v1/... string literals in frontend source.
 
@@ -199,11 +205,11 @@ def _scan_frontend_paths(extra_sources: list[str] | None = None) -> set[str]:
                     # Strip template-literal interpolation tails:
                     # /api/v1/ghost-things/${id}/nothing → keep as-is for
                     # pattern matching but normalise the ${} segment.
-                    paths.add(raw)
+                    paths.add(_strip_query_suffix(raw))
     if extra_sources:
         for src in extra_sources:
             for m in _FRONTEND_API_RE.finditer(src):
-                paths.add(m.group(1))
+                paths.add(_strip_query_suffix(m.group(1)))
     return paths
 
 
@@ -309,11 +315,6 @@ _EXCEPTIONS: dict[str, str] = {
     # ${caseId}/${runId} template literals against the rewrite regex.
     # Copilot conversation by ID — dynamic CRUD not in static OpenAPI
     "/api/v1/copilot/conversations/${id}": "frontend calls a route that does not exist (known bug)",
-    # Query-string suffixed paths — scanner captures ${qs}/${suffix} as part
-    # of the path; these are valid frontend patterns but not real route segments
-    "/api/v1/detection-proposals${suffix}": "query-string suffix artifact from scanner",
-    "/api/v1/inbox/tokens${qs}": "query-string suffix artifact from scanner",
-    "/api/v1/waitlist/entries${qs}": "query-string suffix artifact from scanner",
     # Saved hunt by ID — conditional router not loaded in dev-mode OpenAPI
     }
 
@@ -565,3 +566,20 @@ def test_test_files_are_not_scanned_but_shipped_files_are(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "WEB_SRC", tmp_path)
     found = mod._scan_frontend_paths()
     assert found == {"/api/v1/only-in-shipped-code"}, found
+
+
+def test_a_query_string_suffix_is_not_part_of_the_path_but_a_path_parameter_is():
+    found = _scan_frontend_paths(extra_sources=[
+        "request(`/api/v1/ghost-list${qs}`)",
+        "request(`/api/v1/ghost-things/${id}/nothing`)",
+        "request(`/api/v1/ghost-things/${id}`)",
+    ])
+    assert "/api/v1/ghost-list" in found and "/api/v1/ghost-list${qs}" not in found
+    assert "/api/v1/ghost-things/${id}/nothing" in found and "/api/v1/ghost-things/${id}" in found
+
+
+def test_a_console_call_to_an_unserved_path_with_a_query_suffix_is_still_caught():
+    """Stripping the suffix must not let a genuinely missing route slip through."""
+    missing = _scan_frontend_paths(extra_sources=["request(`/api/v1/definitely-not-served${qs}`)"]) - set(_scan_frontend_paths())
+    assert missing == {"/api/v1/definitely-not-served"}
+    assert not _route_matches("/api/v1/definitely-not-served", _load_api_routes())

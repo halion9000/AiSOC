@@ -258,6 +258,63 @@ function renderRichText(content: string): React.ReactNode {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+/**
+ * The "Recent" list in the Copilot sidebar.
+ *
+ * When the history request fails it says so. It used to fall through to "Past conversations will
+ * appear here", which promised history this build cannot provide: the API serves no
+ * /api/v1/copilot/conversations (a known gap), so that sentence was never going to come true.
+ */
+export function RecentConversations({
+  isLoading,
+  failed,
+  conversations,
+  selectedId,
+  onSelect,
+}: {
+  isLoading: boolean;
+  failed: boolean;
+  conversations: CopilotConversation[];
+  selectedId?: string;
+  onSelect: (id: string) => void;
+}) {
+  if (isLoading) {
+    return (
+      <div className="space-y-2 px-1">
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+        <Skeleton className="h-8" />
+      </div>
+    );
+  }
+  // Data already on screen always wins: a failed REFRESH keeps SWR's old data, and must not hide it.
+  if (conversations.length === 0) {
+    return failed ? (
+      <p className="px-2 text-xs text-slate-500">Conversation history isn&apos;t available in this build.</p>
+    ) : (
+      <p className="px-2 text-xs text-slate-500">Past conversations will appear here.</p>
+    );
+  }
+  return (
+    <ul className="space-y-1">
+      {conversations.slice(0, 8).map((c) => (
+        <li key={c.id}>
+          <button
+            className={clsx(
+              'block w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+              c.id === selectedId ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800/60',
+            )}
+            onClick={() => onSelect(c.id)}
+            title={c.title}
+          >
+            {c.title}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function CopilotView() {
   const [messages, setMessages] = useState<CopilotMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -363,36 +420,13 @@ export function CopilotView() {
           <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             Recent
           </h3>
-          {conversationsState.isLoading ? (
-            <div className="space-y-2 px-1">
-              <Skeleton className="h-8" />
-              <Skeleton className="h-8" />
-              <Skeleton className="h-8" />
-            </div>
-          ) : conversations.length === 0 ? (
-            <p className="px-2 text-xs text-slate-500">
-              Past conversations will appear here.
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {conversations.slice(0, 8).map((c) => (
-                <li key={c.id}>
-                  <button
-                    className={clsx(
-                      'block w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                      c.id === conversationId
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-300 hover:bg-slate-800/60',
-                    )}
-                    onClick={() => setConversationId(c.id)}
-                    title={c.title}
-                  >
-                    {c.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <RecentConversations
+            isLoading={conversationsState.isLoading}
+            failed={Boolean(conversationsState.error)}
+            conversations={conversations}
+            selectedId={conversationId}
+            onSelect={setConversationId}
+          />
         </div>
       </aside>
 
