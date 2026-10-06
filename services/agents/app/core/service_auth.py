@@ -26,6 +26,7 @@ import httpx
 from starlette.responses import JSONResponse
 
 from app.core.cors import _is_production_environment
+from app.core.route_permissions import required_permission
 
 OPEN_PATHS = frozenset({"/livez", "/readyz", "/healthz", "/health", "/metrics"})
 CACHE_TTL_SECONDS = 30.0
@@ -45,42 +46,56 @@ def clear_cache() -> None:
     _verified.clear()
 
 
-async def bearer_is_valid(authorization: str) -> bool | None:
-    """True if the API accepts this credential, False if it rejects it, None if unreachable."""
-    key = hashlib.sha256(authorization.encode()).hexdigest()
+async def check_with_api(authorization: str, permission: str | None) -> str:
+    """Ask the API about this credential: "ok", "unauthenticated", "forbidden" or "unavailable".
+
+    With a permission: POST /api/v1/auth/authorize (the API owns the role table, so
+    there is one source of truth). Without one: GET /api/v1/auth/me (login only).
+    Positive answers are cached briefly, per credential AND permission.
+    """
+    key = hashlib.sha256(f"{permission or ''}\n{authorization}".encode()).hexdigest()
     now = time.monotonic()
     if _verified.get(key, 0.0) > now:
-        return True
+        return "ok"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{_api_url()}/api/v1/auth/me", headers={"Authorization": authorization})
+            if permission is None:
+                resp = await client.get(f"{_api_url()}/api/v1/auth/me", headers={"Authorization": authorization})
+            else:
+                resp = await client.post(
+                    f"{_api_url()}/api/v1/auth/authorize", json={"permission": permission}, headers={"Authorization": authorization}
+                )
     except httpx.HTTPError:
-        return None
+        return "unavailable"
     if resp.status_code == 200:
         if len(_verified) >= _CACHE_MAX:
             _verified.clear()
         _verified[key] = now + CACHE_TTL_SECONDS
-        return True
-    if resp.status_code in (401, 403):
-        return False
-    return None  # 5xx or anything unexpected: treat as unavailable, fail closed
+        return "ok"
+    if resp.status_code == 401:
+        return "unauthenticated"
+    if resp.status_code == 403:
+        return "forbidden"
+    return "unavailable"  # 5xx, 422 (we asked about a permission the API does not know) or anything unexpected: fail closed
 
 
-async def authorize(headers: dict[str, str]) -> tuple[int, str]:
+async def authorize(headers: dict[str, str], method: str = "GET", path: str = "") -> tuple[int, str]:
     """Return (0, "") to allow, or (status, reason) to deny. Headers lower-cased."""
     internal = _internal_token()
     sent = headers.get("x-internal-token", "")
     if internal and sent and hmac.compare_digest(sent, internal):
-        return 0, ""
+        return 0, ""  # the API already authenticated AND authorized this user before calling us
     authorization = headers.get("authorization", "")
     if not authorization.lower().startswith("bearer ") or len(authorization) < 8:
         return 401, "Not authenticated"
-    valid = await bearer_is_valid(authorization)
-    if valid is None:
-        return 503, "Authentication service unavailable"
-    if not valid:
+    outcome = await check_with_api(authorization, required_permission(method, path))
+    if outcome == "ok":
+        return 0, ""
+    if outcome == "unauthenticated":
         return 401, "Invalid or expired credentials"
-    return 0, ""
+    if outcome == "forbidden":
+        return 403, "You do not have permission to do this"
+    return 503, "Authentication service unavailable"
 
 
 class ServiceAuthMiddleware:
@@ -95,10 +110,12 @@ class ServiceAuthMiddleware:
         if scope.get("path", "") in OPEN_PATHS or scope.get("method") == "OPTIONS":
             return await self.app(scope, receive, send)
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
-        status, reason = await authorize(headers)
+        # WebSocket upgrades are GET requests as far as permissions go
+        method = "GET" if scope["type"] == "websocket" else scope.get("method", "GET")
+        status, reason = await authorize(headers, method, scope.get("path", ""))
         if status == 0:
             return await self.app(scope, receive, send)
         if scope["type"] == "websocket":
-            await send({"type": "websocket.close", "code": 4401 if status == 401 else 1013, "reason": reason})
+            await send({"type": "websocket.close", "code": {401: 4401, 403: 4403}.get(status, 1013), "reason": reason})
             return None
         return await JSONResponse({"detail": reason}, status_code=status)(scope, receive, send)

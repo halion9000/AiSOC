@@ -243,6 +243,17 @@ def verify_ed25519_signature(public_key_bytes: bytes, message: bytes, signature:
         raise ValueError("Invalid signature") from exc
 
 
+# Names that are enforced somewhere in the code but are not (yet) granted to any role
+# beyond the "*" wildcard holders. They are valid permission names.
+_UNGRANTED_PERMISSIONS = frozenset({"sla:write"})
+
+
+def known_permissions() -> frozenset[str]:
+    """Every permission name the API recognises (the "*" wildcard is not a permission)."""
+    granted = {p for perms in ROLE_PERMISSIONS.values() for p in perms if p != "*"}
+    return frozenset(granted | _UNGRANTED_PERMISSIONS)
+
+
 def has_permission(role: str, permission: str) -> bool:
     """Check if a role has a specific permission."""
     perms = ROLE_PERMISSIONS.get(role, [])

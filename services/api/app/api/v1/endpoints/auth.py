@@ -12,6 +12,7 @@ from app.api.v1.deps import AuthUser, DBSession, get_current_user
 
 __all__ = ["router", "get_current_user"]
 from app.core.config import settings
+from app.core.security import known_permissions
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -114,6 +115,31 @@ async def refresh_token(request: RefreshRequest, db: DBSession) -> TokenResponse
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
     )
+
+
+class AuthorizeRequest(BaseModel):
+    permission: str
+
+
+class AuthorizeResponse(BaseModel):
+    allowed: bool
+    permission: str
+
+
+@router.post("/authorize", response_model=AuthorizeResponse)
+async def authorize(body: AuthorizeRequest, current_user: AuthUser) -> AuthorizeResponse:
+    """May the caller (user login or API key) do `permission`?
+
+    Other services (the agents service, which the web console talks to directly)
+    ask the API instead of keeping their own copy of the role table, so there is
+    one source of truth. 401 for bad credentials, 403 when the caller lacks the
+    permission, 422 for a name the API does not recognise (a typo must not
+    silently pass for an admin, who holds every permission).
+    """
+    if body.permission not in known_permissions():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unknown permission: {body.permission}")
+    current_user.require_permission(body.permission)
+    return AuthorizeResponse(allowed=True, permission=body.permission)
 
 
 @router.get("/me", response_model=UserMeResponse)
