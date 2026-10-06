@@ -130,6 +130,9 @@ class TestResolvedRule:
 # ---------------------------------------------------------------------------
 
 
+PARENT_ID = uuid.uuid4()  # what the parent lookup returns in these mocks
+
+
 def _mock_session(execute_results: list):
     """Build a mock AsyncSession that yields *execute_results* in order."""
     db = AsyncMock()
@@ -146,6 +149,7 @@ def _mock_session(execute_results: list):
         scalars_mock = MagicMock()
         scalars_mock.all.return_value = data
         result.scalars.return_value = scalars_mock
+        result.scalar_one_or_none.return_value = PARENT_ID
         result.all.return_value = data
         return result
 
@@ -208,6 +212,7 @@ class TestResolveEffectiveRules:
         db = _mock_session(
             [
                 [r1],  # direct rules
+                [],  # the tenant's real parent (scalar_one_or_none -> PARENT_ID)
                 [assignment],  # pack assignments
                 [(pack_id, pr1)],  # pack rule join results
                 [],  # overrides
@@ -230,16 +235,17 @@ class TestResolveEffectiveRules:
         db = _mock_session(
             [
                 [r1, r2],  # direct rules
+                [],  # the tenant's real parent
                 [],  # overrides
             ]
         )
-        # Manually wire override into the third call
+        # Manually wire the override into the third call (1 direct rules, 2 parent lookup, 3 overrides)
         call_counter = {"n": 0}
         original_execute = db.execute
 
         async def patched_execute(stmt):
             call_counter["n"] += 1
-            if call_counter["n"] == 2:
+            if call_counter["n"] == 3:
                 result = MagicMock()
                 scalars_mock = MagicMock()
                 scalars_mock.all.return_value = [override]
@@ -273,11 +279,12 @@ class TestResolveEffectiveRules:
             scalars_mock = MagicMock()
             if call_counter["n"] == 1:
                 scalars_mock.all.return_value = [r1]
-            elif call_counter["n"] == 2:
+            elif call_counter["n"] == 3:  # 1 direct rules, 2 parent lookup, 3 overrides
                 scalars_mock.all.return_value = [override]
             else:
                 scalars_mock.all.return_value = []
             result.scalars.return_value = scalars_mock
+            result.scalar_one_or_none.return_value = PARENT_ID
             result.all.return_value = scalars_mock.all.return_value
             return result
 

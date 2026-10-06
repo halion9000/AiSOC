@@ -32,9 +32,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.detection_rule import DetectionRule
 from app.models.mssp import (
     MSSPRuleOverride,
+    MSSPRulePack,
     MSSPRulePackAssignment,
     MSSPRulePackRule,
 )
+from app.models.tenant import Tenant
 
 # ---------------------------------------------------------------------------
 # Public dataclass
@@ -85,6 +87,18 @@ class ResolvedRule:
 # ---------------------------------------------------------------------------
 # Resolver
 # ---------------------------------------------------------------------------
+
+
+async def _actual_parent_id(db: AsyncSession, tenant_id: uuid.UUID) -> uuid.UUID | None:
+    """The tenant's REAL MSSP parent, or None.
+
+    MSSP overrides and pack assignments are only honoured when they come from
+    this parent. Rows name a child tenant but are written by whoever called the
+    API; before this, an override filed by ANY tenant naming a victim as the
+    child (action "exclude") silently disabled that detection rule for the
+    victim. Checking at read time also neutralises rows already in a database.
+    """
+    return (await db.execute(select(Tenant.parent_tenant_id).where(Tenant.id == tenant_id))).scalar_one_or_none()
 
 
 async def resolve_effective_rules(
@@ -158,10 +172,12 @@ async def resolve_effective_rules(
 
     # 2. Pack-sourced rules: walk the assignments → pack contents → rules.
     pack_assignment_by_rule: dict[uuid.UUID, list[tuple[uuid.UUID, dict[str, Any]]]] = {}
-    if include_packs:
+    parent_id = await _actual_parent_id(db, tenant_id)
+    if include_packs and parent_id is not None:
         assignments_q = select(MSSPRulePackAssignment).where(
             MSSPRulePackAssignment.child_tenant_id == tenant_id,
             MSSPRulePackAssignment.enabled.is_(True),
+            MSSPRulePackAssignment.pack_id.in_(select(MSSPRulePack.id).where(MSSPRulePack.parent_tenant_id == parent_id)),
         )
         assignments = (await db.execute(assignments_q)).scalars().all()
 
@@ -218,11 +234,14 @@ async def resolve_effective_rules(
         return []
 
     # 3. Apply per-tenant overrides (exclude / customize).
-    overrides_q = select(MSSPRuleOverride).where(
-        MSSPRuleOverride.child_tenant_id == tenant_id,
-        MSSPRuleOverride.rule_id.in_(list(resolved.keys())),
-    )
-    overrides = (await db.execute(overrides_q)).scalars().all()
+    overrides = []
+    if parent_id is not None:
+        overrides_q = select(MSSPRuleOverride).where(
+            MSSPRuleOverride.child_tenant_id == tenant_id,
+            MSSPRuleOverride.parent_tenant_id == parent_id,
+            MSSPRuleOverride.rule_id.in_(list(resolved.keys())),
+        )
+        overrides = (await db.execute(overrides_q)).scalars().all()
 
     for ov in overrides:
         rr = resolved.get(ov.rule_id)
@@ -265,11 +284,15 @@ async def count_effective_rules(
         only_active=False,
     )
 
-    excluded_q = select(MSSPRuleOverride).where(
-        MSSPRuleOverride.child_tenant_id == tenant_id,
-        MSSPRuleOverride.action == "exclude",
-    )
-    excluded_count = len((await db.execute(excluded_q)).scalars().all())
+    parent_id = await _actual_parent_id(db, tenant_id)
+    excluded_count = 0
+    if parent_id is not None:
+        excluded_q = select(MSSPRuleOverride).where(
+            MSSPRuleOverride.child_tenant_id == tenant_id,
+            MSSPRuleOverride.parent_tenant_id == parent_id,
+            MSSPRuleOverride.action == "exclude",
+        )
+        excluded_count = len((await db.execute(excluded_q)).scalars().all())
 
     counts = {"total": len(rules), "tenant": 0, "builtin": 0, "pack": 0, "excluded": excluded_count}
     for r in rules:

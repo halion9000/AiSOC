@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from app.core.security import ROLE_PERMISSIONS
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -14,6 +15,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.models.mssp import MSSPDelegation, MSSPTenantMetrics, MSSPTenantNote
 from app.models.tenant import Tenant, User
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/mssp", tags=["mssp"])
 
@@ -81,7 +83,7 @@ class MetricsOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/children", response_model=list[ChildTenantOut])
+@router.get("/children", response_model=list[ChildTenantOut], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_child_tenants(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -91,7 +93,7 @@ async def list_child_tenants(
     return list(result.scalars().all())
 
 
-@router.post("/children/{child_id}/onboard", status_code=status.HTTP_200_OK)
+@router.post("/children/{child_id}/onboard", status_code=status.HTTP_200_OK, dependencies=[Depends(require_permission("mssp:onboard"))])
 async def onboard_child_tenant(
     child_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -117,7 +119,7 @@ async def onboard_child_tenant(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/notes", response_model=list[TenantNoteOut])
+@router.get("/notes", response_model=list[TenantNoteOut], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_notes(
     child_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -131,12 +133,13 @@ async def list_notes(
     return list(result.scalars().all())
 
 
-@router.post("/notes", response_model=TenantNoteOut, status_code=status.HTTP_201_CREATED)
+@router.post("/notes", response_model=TenantNoteOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
 async def create_note(
     body: TenantNoteCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MSSPTenantNote:
+    await _require_owned_child(db, current_user, body.child_id)
     note = MSSPTenantNote(
         parent_id=current_user.tenant_id,
         child_id=body.child_id,
@@ -154,7 +157,7 @@ async def create_note(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/delegations", response_model=list[DelegationOut])
+@router.get("/delegations", response_model=list[DelegationOut], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_delegations(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -170,12 +173,15 @@ async def list_delegations(
     return list(result.scalars().all())
 
 
-@router.post("/delegations", response_model=DelegationOut, status_code=status.HTTP_201_CREATED)
+@router.post("/delegations", response_model=DelegationOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
 async def create_delegation(
     body: DelegationCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MSSPDelegation:
+    await _require_owned_child(db, current_user, body.child_tenant_id)
+    if body.granted_role not in _DELEGABLE_ROLES:
+        raise HTTPException(status_code=422, detail=f"granted_role must be one of {sorted(_DELEGABLE_ROLES)}")
     delegation = MSSPDelegation(
         parent_tenant_id=current_user.tenant_id,
         child_tenant_id=body.child_tenant_id,
@@ -189,7 +195,7 @@ async def create_delegation(
     return delegation
 
 
-@router.delete("/delegations/{delegation_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/delegations/{delegation_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
 async def revoke_delegation(
     delegation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -207,7 +213,7 @@ async def revoke_delegation(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/metrics", response_model=list[MetricsOut])
+@router.get("/metrics", response_model=list[MetricsOut], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_metrics(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -350,12 +356,27 @@ class EffectiveRuleCountOut(BaseModel):
     excluded: int
 
 
+async def _require_owned_child(db: AsyncSession, current_user: User, child_id: uuid.UUID) -> None:
+    """404 unless `child_id` really is a child of the caller's tenant.
+
+    Writes used to accept any tenant id in the body. A rule override naming someone
+    else's tenant disabled that tenant's detections (the resolver now also ignores
+    such rows; this stops them being written).
+    """
+    child = await db.get(Tenant, child_id)
+    if not child or child.parent_tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=404, detail="Child tenant not found")
+
+
+_DELEGABLE_ROLES = frozenset(r for r, perms in ROLE_PERMISSIONS.items() if "*" not in perms)
+
+
 def _ensure_mssp_parent(current_user: User) -> None:
     """Lightweight guard — a parent tenant is one that has (or can have) children."""
     pass
 
 
-@router.get("/rule-packs", response_model=list[RulePackOut])
+@router.get("/rule-packs", response_model=list[RulePackOut], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_rule_packs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -368,7 +389,7 @@ async def list_rule_packs(
     return list(result.scalars().all())
 
 
-@router.post("/rule-packs", response_model=RulePackOut, status_code=status.HTTP_201_CREATED)
+@router.post("/rule-packs", response_model=RulePackOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
 async def create_rule_pack(
     body: RulePackCreate,
     db: AsyncSession = Depends(get_db),
@@ -390,7 +411,7 @@ async def create_rule_pack(
     return pack
 
 
-@router.get("/rule-packs/{pack_id}", response_model=RulePackOut)
+@router.get("/rule-packs/{pack_id}", response_model=RulePackOut, dependencies=[Depends(require_permission("mssp:read"))])
 async def get_rule_pack(
     pack_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -402,7 +423,7 @@ async def get_rule_pack(
     return pack
 
 
-@router.put("/rule-packs/{pack_id}", response_model=RulePackOut)
+@router.put("/rule-packs/{pack_id}", response_model=RulePackOut, dependencies=[Depends(require_permission("mssp:manage"))])
 async def update_rule_pack(
     pack_id: uuid.UUID,
     body: RulePackUpdate,
@@ -425,7 +446,7 @@ async def update_rule_pack(
     return pack
 
 
-@router.delete("/rule-packs/{pack_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/rule-packs/{pack_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
 async def delete_rule_pack(
     pack_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -438,7 +459,7 @@ async def delete_rule_pack(
     await db.commit()
 
 
-@router.post("/rule-packs/{pack_id}/rules", status_code=status.HTTP_201_CREATED)
+@router.post("/rule-packs/{pack_id}/rules", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
 async def add_rule_to_pack(
     pack_id: uuid.UUID,
     body: RulePackRuleAdd,
@@ -459,7 +480,7 @@ async def add_rule_to_pack(
     return {"status": "ok", "pack_id": str(pack_id), "rule_id": str(body.rule_id)}
 
 
-@router.delete("/rule-packs/{pack_id}/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/rule-packs/{pack_id}/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
 async def remove_rule_from_pack(
     pack_id: uuid.UUID,
     rule_id: uuid.UUID,
@@ -475,7 +496,7 @@ async def remove_rule_from_pack(
         await db.commit()
 
 
-@router.post("/rule-packs/{pack_id}/assign", response_model=PackAssignmentOut, status_code=status.HTTP_201_CREATED)
+@router.post("/rule-packs/{pack_id}/assign", response_model=PackAssignmentOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
 async def assign_pack_to_child(
     pack_id: uuid.UUID,
     body: PackAssignmentCreate,
@@ -498,7 +519,7 @@ async def assign_pack_to_child(
     return assignment
 
 
-@router.post("/overrides", response_model=RuleOverrideOut, status_code=status.HTTP_201_CREATED)
+@router.post("/overrides", response_model=RuleOverrideOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
 async def create_rule_override(
     body: RuleOverrideCreate,
     db: AsyncSession = Depends(get_db),
@@ -507,6 +528,7 @@ async def create_rule_override(
     _ensure_mssp_parent(current_user)
     if body.action not in ("exclude", "customize"):
         raise HTTPException(status_code=422, detail="action must be 'exclude' or 'customize'")
+    await _require_owned_child(db, current_user, body.child_tenant_id)
     override = MSSPRuleOverride(
         parent_tenant_id=current_user.tenant_id,
         child_tenant_id=body.child_tenant_id,
@@ -523,7 +545,7 @@ async def create_rule_override(
     return override
 
 
-@router.get("/overrides", response_model=list[RuleOverrideOut])
+@router.get("/overrides", response_model=list[RuleOverrideOut], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_overrides(
     child_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -538,7 +560,7 @@ async def list_overrides(
     return list(result.scalars().all())
 
 
-@router.delete("/overrides/{override_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/overrides/{override_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
 async def delete_override(
     override_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -559,7 +581,7 @@ async def delete_override(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/children/{child_id}/effective-rules", response_model=list[EffectiveRuleOut])
+@router.get("/children/{child_id}/effective-rules", response_model=list[EffectiveRuleOut], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_effective_rules_for_child(
     child_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -602,7 +624,7 @@ async def list_effective_rules_for_child(
     ]
 
 
-@router.get("/children/{child_id}/effective-rules/count", response_model=EffectiveRuleCountOut)
+@router.get("/children/{child_id}/effective-rules/count", response_model=EffectiveRuleCountOut, dependencies=[Depends(require_permission("mssp:read"))])
 async def count_effective_rules_for_child(
     child_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -762,7 +784,7 @@ _MSSP_INCIDENTS_MOCK = [
 ]
 
 
-@router.get("/overview", response_model=MSSPKpiOverview)
+@router.get("/overview", response_model=MSSPKpiOverview, dependencies=[Depends(require_permission("mssp:read"))])
 async def mssp_overview(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -781,7 +803,7 @@ async def mssp_overview(
     )
 
 
-@router.get("/tenants", response_model=list[ManagedTenantRow])
+@router.get("/tenants", response_model=list[ManagedTenantRow], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_managed_tenants(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -790,7 +812,7 @@ async def list_managed_tenants(
     return _MSSP_TENANTS_MOCK
 
 
-@router.get("/incidents", response_model=list[CrossTenantIncident])
+@router.get("/incidents", response_model=list[CrossTenantIncident], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_cross_tenant_incidents(
     severity: str | None = Query(None, description="Filter: high | medium | low"),
     db: AsyncSession = Depends(get_db),

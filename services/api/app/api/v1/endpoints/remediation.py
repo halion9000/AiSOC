@@ -15,6 +15,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.models.remediation import RemediationGateLog, RemediationMaturity, RemediationWhitelist
 from app.models.tenant import User
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/remediation", tags=["remediation"])
 
@@ -76,7 +77,7 @@ class WhitelistOut(WhitelistCreate):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/config", response_model=MaturityOut)
+@router.get("/config", response_model=MaturityOut, dependencies=[Depends(require_permission("remediation:read"))])
 async def get_maturity_config(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -94,7 +95,7 @@ async def get_maturity_config(
     return config
 
 
-@router.put("/config", response_model=MaturityOut)
+@router.put("/config", response_model=MaturityOut, dependencies=[Depends(require_permission("remediation:write"))])
 async def update_maturity_config(
     body: MaturityConfig,
     db: AsyncSession = Depends(get_db),
@@ -120,7 +121,7 @@ async def update_maturity_config(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/gate-log", response_model=list[GateLogOut])
+@router.get("/gate-log", response_model=list[GateLogOut], dependencies=[Depends(require_permission("remediation:read"))])
 async def list_gate_log(
     decision: str | None = Query(None),
     limit: int = Query(50, le=500),
@@ -141,7 +142,7 @@ async def list_gate_log(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/whitelist", response_model=list[WhitelistOut])
+@router.get("/whitelist", response_model=list[WhitelistOut], dependencies=[Depends(require_permission("remediation:read"))])
 async def list_whitelist(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -150,7 +151,7 @@ async def list_whitelist(
     return list(result.scalars().all())
 
 
-@router.post("/whitelist", response_model=WhitelistOut, status_code=status.HTTP_201_CREATED)
+@router.post("/whitelist", response_model=WhitelistOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("remediation:write"))])
 async def add_to_whitelist(
     body: WhitelistCreate,
     db: AsyncSession = Depends(get_db),
@@ -167,7 +168,7 @@ async def add_to_whitelist(
     return entry
 
 
-@router.delete("/whitelist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/whitelist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("remediation:write"))])
 async def remove_from_whitelist(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

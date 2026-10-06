@@ -30,10 +30,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
-from app.api.v1.deps import AuthUser
+from app.api.v1.deps import AuthUser, require_permission
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 
@@ -308,7 +308,7 @@ def _summarise(i: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.post("/install", response_model=InstallResponse)
+@router.post("/install", response_model=InstallResponse, dependencies=[Depends(require_permission("settings:write"))])
 async def install_marketplace_item(
     body: InstallRequest,
     current_user: AuthUser,
@@ -372,7 +372,7 @@ async def install_marketplace_item(
     )
 
 
-@router.delete("/install")
+@router.delete("/install", dependencies=[Depends(require_permission("settings:write"))])
 async def uninstall_marketplace_item(
     type: Literal["detection", "playbook", "plugin"],
     id: str,

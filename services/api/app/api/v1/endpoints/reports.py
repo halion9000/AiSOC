@@ -22,6 +22,7 @@ from app.models.tenant import User
 from app.services.digest_html import render_digest_html
 from app.services.digest_pdf import WeasyPrintUnavailableError, render_digest_pdf
 from app.services.executive_digest import ExecutiveDigest, build_weekly_digest
+from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -86,7 +87,7 @@ class GenerateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/templates", response_model=list[TemplateOut])
+@router.get("/templates", response_model=list[TemplateOut], dependencies=[Depends(require_permission("reports:read"))])
 async def list_templates(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -97,7 +98,7 @@ async def list_templates(
     return list(result.scalars().all())
 
 
-@router.post("/templates", response_model=TemplateOut, status_code=status.HTTP_201_CREATED)
+@router.post("/templates", response_model=TemplateOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("reports:write"))])
 async def create_template(
     body: TemplateCreate,
     db: AsyncSession = Depends(get_db),
@@ -114,7 +115,7 @@ async def create_template(
     return template
 
 
-@router.get("/templates/{template_id}", response_model=TemplateOut)
+@router.get("/templates/{template_id}", response_model=TemplateOut, dependencies=[Depends(require_permission("reports:read"))])
 async def get_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -126,7 +127,7 @@ async def get_template(
     return tmpl
 
 
-@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("reports:write"))])
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -144,7 +145,7 @@ async def delete_template(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/artefacts", response_model=list[ArtefactOut])
+@router.get("/artefacts", response_model=list[ArtefactOut], dependencies=[Depends(require_permission("reports:read"))])
 async def list_artefacts(
     report_type: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
@@ -163,7 +164,7 @@ async def list_artefacts(
     return list(result.scalars().all())
 
 
-@router.post("/generate", response_model=ArtefactOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/generate", response_model=ArtefactOut, status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_permission("reports:write"))])
 async def generate_report(
     body: GenerateRequest,
     db: AsyncSession = Depends(get_db),
@@ -187,7 +188,7 @@ async def generate_report(
     return artefact
 
 
-@router.get("/artefacts/{artefact_id}", response_model=ArtefactOut)
+@router.get("/artefacts/{artefact_id}", response_model=ArtefactOut, dependencies=[Depends(require_permission("reports:read"))])
 async def get_artefact(
     artefact_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -212,6 +213,7 @@ async def get_artefact(
     # a response_model from that union so we opt out and let each branch
     # serialise itself.
     response_model=None,
+    dependencies=[Depends(require_permission("reports:read"))],
 )
 async def weekly_digest(
     fmt: str = Query("json", alias="format", pattern="^(json|html|pdf)$"),

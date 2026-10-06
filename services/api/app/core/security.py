@@ -55,6 +55,14 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "threat_intel:write",
         "settings:read",
         "settings:write",
+        # MSSP console: tenant admins manage their delegations, rule packs and overrides.
+        # mssp:onboard (claiming another tenant as a child) is NOT granted here: only the
+        # platform wildcard holds it until a consent step exists (see mssp.py).
+        "mssp:read",
+        "mssp:manage",
+        # Auto-remediation maturity gate and whitelist.
+        "remediation:read",
+        "remediation:write",
         # Workstream 7: tenant lake API. Tenant admins get full access
         # to the warm-tier query surface (POST /api/v1/lake/sql) and
         # the schema discovery endpoint (GET /api/v1/lake/schema). The
@@ -77,6 +85,9 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "rules:write",
         "reports:read",
         "reports:write",
+        "mssp:read",
+        "remediation:read",
+        "remediation:write",
         "threat_intel:read",
         # SOC leads triage incidents and need to be able to add/expire
         # IOCs derived from investigations without waiting on the threat-
@@ -96,6 +107,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "connectors:read",
         "threat_intel:read",
         "reports:read",
+        "mssp:read",
+        "remediation:read",
         # Analysts need lake access to drill into raw events when
         # alerts don't tell the whole story. Schema is read-only and
         # the rate limiter caps abuse.
@@ -111,6 +124,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "rules:read",
         "rules:write",
         "reports:read",
+        "mssp:read",
+        "remediation:read",
         # Threat hunters live in the lake — this is their primary
         # workspace for hypothesis-driven investigation across raw
         # events, alert metrics, and IOC enrichments.
@@ -122,6 +137,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "cases:read",
         "reports:read",
         "threat_intel:read",
+        "mssp:read",
+        "remediation:read",
     ],
     "api_service": [
         "alerts:read",
@@ -245,7 +262,7 @@ def verify_ed25519_signature(public_key_bytes: bytes, message: bytes, signature:
 
 # Names that are enforced somewhere in the code but are not (yet) granted to any role
 # beyond the "*" wildcard holders. They are valid permission names.
-_UNGRANTED_PERMISSIONS = frozenset({"sla:write"})
+_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard"})
 
 
 def known_permissions() -> frozenset[str]:
