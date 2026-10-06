@@ -417,6 +417,9 @@ services:
       # all services, and the internal token shared with the API and realtime.
       ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
+      # This service's own read-only API key for background calls (issued by the
+      # production setup step; CORE writes it to .env).
+      AGENTS_API_TOKEN: ${AGENTS_API_TOKEN:-}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/4
       CORE_API_URL: http://api:8000

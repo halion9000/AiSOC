@@ -33,6 +33,7 @@ def test_paired_secrets_read_the_same_env_var():
     assert _source_var(api["REALTIME_INTERNAL_TOKEN"]) == _source_var(rt["INTERNAL_TOKEN"]) == "REALTIME_INTERNAL_TOKEN"
     # agents: accepts the API's proxied calls and posts to realtime with this token
     assert _source_var(agents["INTERNAL_TOKEN"]) == "REALTIME_INTERNAL_TOKEN"
+    assert _source_var(agents["AGENTS_API_TOKEN"]) == "AGENTS_API_TOKEN"
     assert _source_var(api["AISOC_REALTIME_JWT_SECRET"]) == _source_var(rt["AISOC_REALTIME_JWT_SECRET"]) == "AISOC_REALTIME_JWT_SECRET"
 
 

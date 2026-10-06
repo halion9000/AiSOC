@@ -58,3 +58,9 @@ def test_every_orm_table_is_created_by_a_sql_migration():
         created |= {m.lower() for m in re.findall(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?\"?(\w+)\"?", f.read_text(encoding="utf-8"), re.I)}
     missing = sorted(t for t in Base.metadata.tables if t.lower() not in created)
     assert not missing, f"ORM tables with no SQL migration (would not exist in production): {missing}"
+
+
+def test_agents_service_key_is_read_only_and_distinct():
+    assert bp.AGENTS_KEY_NAME != bp.CORE_KEY_NAME
+    assert set(bp.AGENTS_KEY_SCOPES) == {"alerts:read", "cases:read"}
+    assert not any(s.endswith((":write", ":delete", ":execute")) for s in bp.AGENTS_KEY_SCOPES)

@@ -18,6 +18,9 @@ What it does, in order (every step is safe to repeat):
   5. Issues CORE's integration API key ("core-hud") with only the scopes CORE
      uses. If an active one exists it is kept and no key is printed, unless
      --rotate-core-key is given (old key revoked, new key printed).
+  6. Issues the agents service's own read-only key ("agents-service") the same
+     way (--rotate-agents-key to replace it). CORE passes it to the agents
+     container as AGENTS_API_TOKEN.
 
 The last line of output is machine-readable:
     AISOC_BOOTSTRAP_RESULT {"ok": true, ...}
@@ -41,6 +44,11 @@ CORE_KEY_NAME = "core-hud"
 # investigations (cases:*), and connector listing/health. No delete rights,
 # no playbook execution, no connector changes.
 CORE_KEY_SCOPES = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read"]
+# The agents service's own key, for background calls it makes without a user
+# behind them (attack-path, blast-radius and neighbor graphs during an
+# investigation). Those endpoints need only an authenticated caller; read-only.
+AGENTS_KEY_NAME = "agents-service"
+AGENTS_KEY_SCOPES = ["alerts:read", "cases:read"]
 RESULT_MARKER = "AISOC_BOOTSTRAP_RESULT "
 MIN_PASSWORD_LENGTH = 12
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -101,7 +109,46 @@ async def _verify_orm_tables(session) -> None:
         raise BootstrapError(f"ORM tables missing after migrations: {', '.join(missing)}. Add a SQL migration for them.")
 
 
-async def run(email: str, password: str | None, rotate_core_key: bool) -> dict:
+async def _ensure_key(session, name: str, scopes: list[str], owner_id, rotate: bool) -> tuple[str | None, str]:
+    """Keep an active key named `name`, or issue one. Returns (raw key or None, status).
+
+    The raw key is returned ONLY when issued now (it is shown once; AiSOC stores
+    its hash). With rotate=True any active key of that name is revoked first.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.core.security import generate_api_key  # noqa: PLC0415
+    from app.models.tenant import ApiKey  # noqa: PLC0415
+
+    active = (
+        await session.execute(
+            select(ApiKey).where(ApiKey.name == name, ApiKey.tenant_id == DEFAULT_TENANT_ID, ApiKey.is_active.is_(True))
+        )
+    ).scalars().all()
+    if active and not rotate:
+        return None, "kept-existing"
+    for old in active:
+        old.is_active = False
+    raw_key, prefix, hashed_key = generate_api_key()
+    session.add(
+        ApiKey(
+            tenant_id=DEFAULT_TENANT_ID,
+            user_id=owner_id,
+            name=name,
+            key_prefix=prefix,
+            hashed_key=hashed_key,
+            scopes=list(scopes),
+            is_active=True,
+            expires_at=None,
+            created_at=datetime.now(UTC),
+        )
+    )
+    return raw_key, ("rotated" if active else "created")
+
+
+async def run(email: str, password: str | None, rotate_core_key: bool, rotate_agents_key: bool = False) -> dict:
     from datetime import UTC, datetime  # noqa: PLC0415
 
     from sqlalchemy import select, update  # noqa: PLC0415
@@ -150,34 +197,11 @@ async def run(email: str, password: str | None, rotate_core_key: bool) -> dict:
         else:
             result["admin_created"] = False
 
-        # 5. CORE's integration key.
-        active = (
-            await session.execute(
-                select(ApiKey).where(ApiKey.name == CORE_KEY_NAME, ApiKey.tenant_id == DEFAULT_TENANT_ID, ApiKey.is_active.is_(True))
-            )
-        ).scalars().all()
-        result["core_api_key"] = None
-        if active and not rotate_core_key:
-            result["core_key_status"] = "kept-existing"
-        else:
-            for old in active:
-                old.is_active = False
-            raw_key, prefix, hashed_key = generate_api_key()
-            session.add(
-                ApiKey(
-                    tenant_id=DEFAULT_TENANT_ID,
-                    user_id=admin.id,
-                    name=CORE_KEY_NAME,
-                    key_prefix=prefix,
-                    hashed_key=hashed_key,
-                    scopes=list(CORE_KEY_SCOPES),
-                    is_active=True,
-                    expires_at=None,
-                    created_at=datetime.now(UTC),
-                )
-            )
-            result["core_api_key"] = raw_key
-            result["core_key_status"] = "rotated" if active else "created"
+        # 5. CORE's integration key, 6. the agents service's own key.
+        key, status = await _ensure_key(session, CORE_KEY_NAME, CORE_KEY_SCOPES, admin.id, rotate_core_key)
+        result["core_api_key"], result["core_key_status"] = key, status
+        key, status = await _ensure_key(session, AGENTS_KEY_NAME, AGENTS_KEY_SCOPES, admin.id, rotate_agents_key)
+        result["agents_api_key"], result["agents_key_status"] = key, status
 
         await session.commit()
 
@@ -189,11 +213,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--admin-email", required=True)
     parser.add_argument("--rotate-core-key", action="store_true")
+    parser.add_argument("--rotate-agents-key", action="store_true")
     args = parser.parse_args(argv)
     password = os.environ.get("AISOC_BOOTSTRAP_ADMIN_PASSWORD") or None
     try:
         validate_inputs(args.admin_email, password)
-        result = asyncio.run(run(args.admin_email, password, args.rotate_core_key))
+        result = asyncio.run(run(args.admin_email, password, args.rotate_core_key, args.rotate_agents_key))
     except BootstrapError as exc:
         print(RESULT_MARKER + json.dumps({"ok": False, "error": str(exc)}))
         return 1

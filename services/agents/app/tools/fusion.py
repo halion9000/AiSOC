@@ -44,7 +44,12 @@ def _timeout() -> float:
 
 
 def _headers(api_token: str | None) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_token}"} if api_token else {}
+    # Prefer the caller's own token; otherwise use this service's own key for
+    # background calls (AGENTS_API_TOKEN, issued by AiSOC's production setup).
+    # In production the API refuses anonymous calls, and without this every
+    # graph lookup during an investigation quietly returned nothing.
+    token = api_token or os.getenv("AGENTS_API_TOKEN", "").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 async def process_alert(
