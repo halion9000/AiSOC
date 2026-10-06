@@ -17,6 +17,7 @@ from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import enrichment
 from app.core.security import ROLE_PERMISSIONS
+from app.services.explain_rate_limit import ExplainRateLimiter
 from app.main import app
 from route_introspect import required_permissions
 
@@ -38,18 +39,24 @@ RESULT = {
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     monkeypatch.setenv("ENRICHMENT_URL", BASE)
+    # a fresh, generous limiter per test (the real one is a process-wide singleton, so tokens would leak between tests)
+    monkeypatch.setattr(enrichment, "_limiter", ExplainRateLimiter(capacity=1000, refill_per_second=1000))
     yield
     app.dependency_overrides.clear()
 
 
-def _client(role="viewer", scopes=None, anonymous=False) -> TestClient:
+def _limit(monkeypatch, capacity, refill=0.0001):
+    monkeypatch.setattr(enrichment, "_limiter", ExplainRateLimiter(capacity=capacity, refill_per_second=refill))
+
+
+def _client(role="viewer", scopes=None, anonymous=False, tenant=TENANT) -> TestClient:
     async def fake_db():
         yield None
 
     app.dependency_overrides[deps.get_db] = fake_db
     if not anonymous:
         app.dependency_overrides[deps.get_current_user] = lambda: CurrentUser(
-            user_id=uuid.uuid4(), tenant_id=TENANT, role=role, email="t@example.com", scopes=scopes)
+            user_id=uuid.uuid4(), tenant_id=tenant, role=role, email="t@example.com", scopes=scopes)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -223,3 +230,78 @@ def test_anonymous_callers_in_production_never_reach_the_service(monkeypatch):
     assert c.get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}).status_code == 401
     assert c.post("/api/v1/enrichment/bulk", json={"iocs": ["8.8.8.8"]}).status_code == 401
     assert not route.called
+
+
+# ------------------------------------------------------------------ rate limiting ----
+@respx.mock
+def test_lookups_are_rate_limited_per_tenant_with_a_429_and_retry_after(monkeypatch):
+    _limit(monkeypatch, capacity=3)
+    route = respx.post(f"{BASE}/enrich").mock(return_value=httpx.Response(200, json=RESULT))
+    c = _client()
+    statuses = [c.get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}) for _ in range(4)]
+    assert [r.status_code for r in statuses] == [200, 200, 200, 429]
+    assert route.call_count == 3, "the refused request must not reach the provider (and spend quota)"
+    assert int(statuses[3].headers["Retry-After"]) >= 1
+    assert statuses[0].headers["X-RateLimit-Limit"] == "3" and statuses[0].headers["X-RateLimit-Remaining"] == "2"
+
+
+@respx.mock
+def test_one_tenant_cannot_use_up_another_tenants_allowance(monkeypatch):
+    _limit(monkeypatch, capacity=2)
+    respx.post(f"{BASE}/enrich").mock(return_value=httpx.Response(200, json=RESULT))
+    other = uuid.UUID("00000000-0000-0000-0000-0000000000bb")
+    a, b = _client(), None
+    for _ in range(2):
+        assert a.get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}).status_code == 200
+    assert a.get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}).status_code == 429
+    b = _client(tenant=other)
+    assert b.get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}).status_code == 200
+
+
+@respx.mock
+def test_bulk_is_charged_one_token_per_indicator_actually_sent_not_for_junk(monkeypatch):
+    _limit(monkeypatch, capacity=5)
+    respx.post(f"{BASE}/enrich/bulk").mock(return_value=httpx.Response(200, json={"results": []}))
+    c = _client()
+    first = c.post("/api/v1/enrichment/bulk", json={"iocs": ["1.1.1.1", "2.2.2.2", "3.3.3.3", "junk", "more junk"]})
+    assert first.status_code == 200 and first.headers["X-RateLimit-Remaining"] == "2", "3 valid indicators cost 3; the 2 junk ones are free"
+    assert c.post("/api/v1/enrichment/bulk", json={"iocs": ["4.4.4.4", "5.5.5.5", "6.6.6.6"]}).status_code == 429
+
+
+@respx.mock
+def test_requests_that_never_reach_a_provider_cost_nothing(monkeypatch):
+    _limit(monkeypatch, capacity=2)
+    respx.post(f"{BASE}/enrich").mock(return_value=httpx.Response(200, json=RESULT))
+    c = _client()
+    for _ in range(10):
+        assert c.get("/api/v1/enrichment/lookup", params={"ioc": "not an ioc"}).status_code == 422
+    assert _client("admin", scopes=["alerts:read"]).get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}).status_code == 403
+    c = _client()  # _client() installs a global override: go back to the ordinary user
+    monkeypatch.delenv("ENRICHMENT_URL")
+    assert c.get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}).status_code == 503
+    monkeypatch.setenv("ENRICHMENT_URL", BASE)
+    assert [c.get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}).status_code for _ in range(3)] == [200, 200, 429]
+
+
+@respx.mock
+def test_a_bulk_request_larger_than_the_configured_burst_is_a_clear_422_not_a_500(monkeypatch):
+    _limit(monkeypatch, capacity=10)
+    route = respx.post(f"{BASE}/enrich/bulk").mock(return_value=httpx.Response(200, json={"results": []}))
+    r = _client().post("/api/v1/enrichment/bulk", json={"iocs": [f"10.0.0.{i}" for i in range(11)]})
+    assert r.status_code == 422 and "rate limit" in r.json()["detail"]
+    assert not route.called
+
+
+def test_the_defaults_allow_a_full_bulk_request_and_refill_at_12_a_minute():
+    fresh = enrichment._env_float("AISOC_ENRICHMENT_RATE_CAPACITY__UNSET", 100.0)
+    assert fresh == 100.0 >= enrichment.MAX_BULK
+    assert enrichment._env_float("AISOC_ENRICHMENT_RATE_REFILL__UNSET", 0.2) * 60 == pytest.approx(12.0)
+
+
+def test_env_overrides_are_honoured_and_junk_is_ignored(monkeypatch):
+    monkeypatch.setenv("AISOC_ENRICHMENT_RATE_CAPACITY", "250")
+    monkeypatch.setenv("AISOC_ENRICHMENT_RATE_REFILL", "garbage")
+    assert enrichment._env_float("AISOC_ENRICHMENT_RATE_CAPACITY", 100.0) == 250.0
+    assert enrichment._env_float("AISOC_ENRICHMENT_RATE_REFILL", 0.2) == 0.2
+    monkeypatch.setenv("AISOC_ENRICHMENT_RATE_CAPACITY", "-5")
+    assert enrichment._env_float("AISOC_ENRICHMENT_RATE_CAPACITY", 100.0) == 100.0

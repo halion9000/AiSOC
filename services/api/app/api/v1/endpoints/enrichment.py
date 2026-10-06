@@ -11,17 +11,25 @@ Now the console talks to the API, which requires a login and `threat_intel:read`
 the indicator type, calls the service, and translates the answer to the console's
 ThreatIndicator shape. Failures are reported as failures; nothing is ever invented.
 The caller's credentials are NOT forwarded to the enrichment service (it has no use for them).
+
+Every indicator sent upstream spends the owner's threat-intel provider quota (VirusTotal, AbuseIPDB, ...)
+and every role may read threat intel, so lookups are rate limited PER TENANT with a token bucket (burst 100,
+refilling 12 a minute; override with AISOC_ENRICHMENT_RATE_CAPACITY / AISOC_ENRICHMENT_RATE_REFILL). One
+token per indicator actually sent. Requests refused before reaching a provider (no permission, junk input)
+cost nothing. Note the buckets are per tenant but the provider keys are shared by the whole install.
 """
 import ipaddress
 import os
 import re
 from typing import Any
+from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
-from app.api.v1.deps import require_permission
+from app.api.v1.deps import AuthUser, require_permission
+from app.services.explain_rate_limit import ExplainRateLimiter
 
 router = APIRouter(prefix="/enrichment", tags=["enrichment"])
 
@@ -114,6 +122,35 @@ def to_indicator(result: dict[str, Any]) -> IndicatorOut:
     )
 
 
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        value = float((os.getenv(name) or "").strip())
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+# Same machinery as the alert-explain limiter, with its own numbers and its own state.
+_limiter = ExplainRateLimiter(
+    capacity=_env_float("AISOC_ENRICHMENT_RATE_CAPACITY", 100.0),
+    refill_per_second=_env_float("AISOC_ENRICHMENT_RATE_REFILL", 0.2),
+)
+
+
+async def _charge(tenant_id: UUID, cost: float, response: Response) -> None:
+    """Spend `cost` tokens for this tenant or raise 429; always report where the caller stands."""
+    try:
+        decision = await _limiter.acquire(tenant_id, cost=cost)
+    except ValueError as exc:  # more indicators than the bucket can ever hold
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Too many indicators for the configured rate limit: {exc}") from exc
+    headers = decision.to_headers()
+    for name, value in headers.items():
+        response.headers[name] = value
+    if not decision.allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Enrichment rate limit exceeded", headers=headers)
+
+
 def _base_url() -> str:
     url = (os.getenv("ENRICHMENT_URL") or "").strip().rstrip("/")
     if not url:
@@ -142,11 +179,17 @@ async def _post(path: str, payload: dict[str, Any], timeout: float) -> dict[str,
 
 
 @router.get("/lookup", response_model=IndicatorOut, dependencies=[Depends(require_permission("threat_intel:read"))])
-async def lookup(ioc: str = Query(..., min_length=1, max_length=MAX_IOC_LENGTH, description="IP, domain, URL, hash or email")) -> IndicatorOut:
+async def lookup(
+    response: Response,
+    current_user: AuthUser,
+    ioc: str = Query(..., min_length=1, max_length=MAX_IOC_LENGTH, description="IP, domain, URL, hash or email"),
+) -> IndicatorOut:
     classified = classify_ioc(ioc)
     if classified is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Not a recognisable IP, domain, URL, hash or email")
     ioc_type, value = classified
+    _base_url()  # an unconfigured service must not cost the caller any quota
+    await _charge(current_user.tenant_id, 1.0, response)
     result = await _post("/enrich", {"ioc_type": ioc_type, "value": value, "force": False}, timeout=30.0)
     return to_indicator(result)
 
@@ -166,7 +209,7 @@ class BulkResponse(BaseModel):
 
 
 @router.post("/bulk", response_model=BulkResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
-async def bulk(body: BulkRequest) -> BulkResponse:
+async def bulk(body: BulkRequest, response: Response, current_user: AuthUser) -> BulkResponse:
     items: list[dict[str, Any]] = []
     errors: list[BulkError] = []
     for raw in body.iocs:
@@ -177,6 +220,8 @@ async def bulk(body: BulkRequest) -> BulkResponse:
         items.append({"ioc_type": classified[0], "value": classified[1], "force": False})
     if not items:
         return BulkResponse(results=[], errors=errors)
+    _base_url()
+    await _charge(current_user.tenant_id, float(len(items)), response)  # one token per indicator actually sent
     upstream = await _post("/enrich/bulk", {"items": items}, timeout=60.0)
     results = [to_indicator(r) for r in (upstream.get("results") or []) if isinstance(r, dict)]
     return BulkResponse(results=results, errors=errors)
