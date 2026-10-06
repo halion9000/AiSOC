@@ -28,6 +28,7 @@ from app.api.v1.endpoints import (
     detection_proposals,
     detection_rules,
     easm,
+    enrichment,
     effective_permissions,
     federated,
     feedback,
@@ -231,6 +232,8 @@ api_router.include_router(report_builder.router)
 
 # Air-gap status snapshot for operators — Tier 3.1 (air-gapped certification)
 api_router.include_router(airgap.router)
+# Authenticated gateway to the enrichment service (the console used to reach it directly, unauthenticated).
+api_router.include_router(enrichment.router)
 
 # LLM provider visibility for the "Deployment & AI" Settings panel.
 # Mirrors /airgap/status: read-only env-var snapshot, never returns the

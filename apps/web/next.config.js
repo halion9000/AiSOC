@@ -24,7 +24,6 @@ const AGENTS_HOST = process.env.AGENTS_URL || 'http://localhost:8001';
 // through to the core API catch-all, which exposes a graceful fusion
 // gateway (services/api/app/api/v1/endpoints/fusion.py).
 const FUSION_HOST = process.env.FUSION_URL || '';
-const ENRICHMENT_HOST = process.env.ENRICHMENT_URL || 'http://localhost:8083';
 const OSQUERY_TLS_HOST = process.env.OSQUERY_TLS_URL || 'http://localhost:8090';
 
 const nextConfig = {
@@ -238,15 +237,8 @@ const nextConfig = {
         source: '/api/v1/osquery/:path*',
         destination: `${OSQUERY_TLS_HOST}/api/v1/osquery/:path*`,
       },
-      // Enrichment service (Go service; paths differ from /api/v1 prefix)
-      {
-        source: '/api/v1/enrichment/lookup',
-        destination: `${ENRICHMENT_HOST}/enrich`,
-      },
-      {
-        source: '/api/v1/enrichment/bulk',
-        destination: `${ENRICHMENT_HOST}/enrich/bulk`,
-      },
+      // /api/v1/enrichment/* is served by the API (authenticated gateway), not rewritten straight to the
+      // enrichment service: that service has no authentication.
       // Fusion service exposes the Risk-Based Alerting (entity rollup) queue
       // and ML scoring endpoints at its own root (no /api/v1 prefix on the
       // service side). Proxy /api/v1/fusion/:path* → fusion's /:path* so the

@@ -240,6 +240,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      # The API is the console's only route to the enrichment service (which has no authentication).
+      ENRICHMENT_URL: http://enrichment:8082
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092

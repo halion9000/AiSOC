@@ -301,8 +301,6 @@ _EXCEPTIONS: dict[str, str] = {
     # Realtime service has its own host variable
     "/api/v1/realtime/healthz": "routed to REALTIME_HOST, separate service",
     # Enrichment service has its own host variable
-    "/api/v1/enrichment/bulk": "routed to ENRICHMENT_HOST, separate service",
-    "/api/v1/enrichment/lookup": "routed to ENRICHMENT_HOST, separate service",
     # Fusion/osquery — conditional routers not loaded in dev-mode OpenAPI
     "/api/v1/fusion": "fusion ML endpoint, conditional registration",
     "/api/v1/osquery": "osquery TLS endpoint, conditional router",
