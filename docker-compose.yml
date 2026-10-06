@@ -249,8 +249,14 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: neo4j_dev_secret
-      SECRET_KEY: dev_secret_key_change_in_production
-      ENVIRONMENT: development
+      # Production: CORE writes these to .env (generated once, never overwritten).
+      # Defaults below are the development values, so an unconfigured stack is unchanged.
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      JWT_SECRET: ${JWT_SECRET:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      REALTIME_INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
+      AISOC_REALTIME_JWT_SECRET: ${AISOC_REALTIME_JWT_SECRET:-}
       LOG_LEVEL: info
       # Hal, live, 2026-09-22: "I couldn't reach the LLM backend right now" -
       # traced to the real Python exception in the api container's own logs:
@@ -306,13 +312,14 @@ services:
       - "127.0.0.1:8081:8080"
       - "127.0.0.1:9090:9090"
     environment:
-      ENV: development
+      ENV: ${AISOC_ENVIRONMENT:-development}
       HTTP_PORT: 8080
       METRICS_PORT: 9090
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/1
       LOG_LEVEL: info
-      JWT_SECRET: dev_secret_key_change_in_production
+      # Must equal the API's SECRET_KEY (the key that signs user JWTs).
+      JWT_SECRET: ${SECRET_KEY:-dev_secret_key_change_in_production}
       ATTCK_DATA_PATH: /app/data/enterprise-attack.json
       # Phase A3 — graph-at-ingest is ON by default so a cold `up` builds the
       # entity graph out of the box. Soft-fails (writer disabled) if Neo4j is
@@ -784,6 +791,10 @@ services:
     ports:
       - "127.0.0.1:8086:4000"
     environment:
+      # Paired with the API: INTERNAL_TOKEN == api REALTIME_INTERNAL_TOKEN, ticket secret shared.
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
+      AISOC_REALTIME_JWT_SECRET: ${AISOC_REALTIME_JWT_SECRET:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379
       REDIS_PASSWORD: redis_dev_secret
