@@ -162,6 +162,22 @@ _FRONTEND_API_RE = re.compile(
 )
 
 
+def _is_test_source(fpath) -> bool:
+    """Test files and fixtures are not shipped code. They invent paths on purpose
+    (e.g. /api/v1/things/1 to exercise error handling), which must not count as
+    the product calling a route that does not exist."""
+    try:
+        rel = fpath.relative_to(WEB_SRC).parts
+    except ValueError:
+        rel = fpath.parts
+    return (
+        ".test." in fpath.name
+        or ".spec." in fpath.name
+        or "__tests__" in rel
+        or (len(rel) > 1 and rel[0] == "test")  # apps/web/src/test/ holds shared test setup
+    )
+
+
 def _scan_frontend_paths(extra_sources: list[str] | None = None) -> set[str]:
     """Find all /api/v1/... string literals in frontend source.
 
@@ -172,6 +188,8 @@ def _scan_frontend_paths(extra_sources: list[str] | None = None) -> set[str]:
     if WEB_SRC.exists():
         for ext in ("*.ts", "*.tsx"):
             for fpath in WEB_SRC.rglob(ext):
+                if _is_test_source(fpath):
+                    continue
                 try:
                     text = fpath.read_text(encoding="utf-8")
                 except Exception:
@@ -533,3 +551,19 @@ class TestBackendRouteCoverage:
             "Gate did NOT catch /api/v1/ghost-things/${{id}}/nothing — "
             "template-literal scanning is broken"
         )
+
+
+def test_test_files_are_not_scanned_but_shipped_files_are(tmp_path, monkeypatch):
+    """A made-up path in a *.test.ts must be ignored; the same path in real code must be flagged."""
+    import sys
+
+    mod = sys.modules[__name__]
+    (tmp_path / "components").mkdir()
+    (tmp_path / "test").mkdir()
+    (tmp_path / "components" / "Real.tsx").write_text("fetch('/api/v1/only-in-shipped-code')")
+    (tmp_path / "components" / "Real.test.tsx").write_text("fetch('/api/v1/only-in-a-test-file')")
+    (tmp_path / "components" / "Real.spec.ts").write_text("fetch('/api/v1/only-in-a-spec-file')")
+    (tmp_path / "test" / "helpers.ts").write_text("fetch('/api/v1/only-in-test-helpers')")
+    monkeypatch.setattr(mod, "WEB_SRC", tmp_path)
+    found = mod._scan_frontend_paths()
+    assert found == {"/api/v1/only-in-shipped-code"}, found

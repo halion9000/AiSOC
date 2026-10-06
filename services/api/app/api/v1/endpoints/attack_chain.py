@@ -19,12 +19,12 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy import select, text
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.models.alert import Alert
 from app.models.case import Case
 from app.services.attack_chain import (
@@ -54,7 +54,7 @@ _WINDOW_TO_TIMEDELTA: dict[str, timedelta] = {
 async def get_attack_chain(
     case_id: uuid.UUID,
     db: DBSession,
-    user: AuthUser,
+    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
     window: WindowLiteral = Query(default="24h"),
 ) -> dict[str, Any]:
     """Return the ranked attack-chain timeline for the case's seed alert.
