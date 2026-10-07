@@ -90,7 +90,6 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     # The live-actions routes need the service bearer token (they execute vendor actions); authenticate like a
     # real caller. test_service_auth_coverage.py pins that anonymous calls are refused.
     monkeypatch.setenv("AISOC_ACTIONS_SERVICE_TOKEN", _TOKEN)
-    monkeypatch.delenv("AISOC_DEV_MODE", raising=False)
     get_settings.cache_clear()
     reset_for_tests()
     register_executor(_StubIsolateHost(), source="builtin")

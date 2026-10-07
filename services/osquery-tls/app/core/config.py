@@ -39,9 +39,6 @@ class Settings(BaseSettings):
     # service and the actions service do. The docstrings always said these routes were protected by
     # AISOC_OSQUERY_TLS_API_TOKEN, but no such setting existed and the routes checked nothing.
     api_token: str = ""
-    # Only "development", "dev", "local" and "test" may run without the token / with the placeholder enroll
-    # secret. Anything else (production, staging, a typo) must be configured, so a mistake fails closed.
-    environment: str = "development"
 
     # --- mTLS -----------------------------------------------------------
     # When True the service validates the client TLS certificate on every

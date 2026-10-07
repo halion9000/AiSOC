@@ -78,15 +78,11 @@ class ActionsSettings(BaseSettings):
     )
 
     # Wave 4 (W4.3) — bearer token that callers of the mutating action routes
-    # must present. When unset the routes are open only in dev mode; in
-    # production a missing token fails closed (503).
+    # must present. There is no development mode: a missing token fails
+    # closed (503), and CORE generates the token on every build.
     AISOC_ACTIONS_SERVICE_TOKEN: str = Field(
         default="",
         description="Shared bearer token required on POST /actions + approve/reject. Mounted as a secret in production.",
-    )
-    AISOC_DEV_MODE: bool = Field(
-        default=False,
-        description="Canonical dev-mode flag. When true, unauthenticated action routes are permitted (never set in production).",
     )
     # Wave 4 (W4.2) — when true, every action MUST carry an authenticated
     # principal (system-initiated principal-less calls are rejected).

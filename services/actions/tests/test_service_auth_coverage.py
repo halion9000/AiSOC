@@ -33,13 +33,14 @@ def _reset_settings():
     get_settings.cache_clear()
 
 
-def _configure(monkeypatch, *, token: str | None, dev: bool | None = None):
+def _configure(monkeypatch, *, token: str | None, legacy_dev_flag: str | None = None):
+    """`legacy_dev_flag` sets AISOC_DEV_MODE, which used to open every route when no token was configured. It no longer exists."""
     for key in ("AISOC_ACTIONS_SERVICE_TOKEN", "AISOC_DEV_MODE"):
         monkeypatch.delenv(key, raising=False)
     if token is not None:
         monkeypatch.setenv("AISOC_ACTIONS_SERVICE_TOKEN", token)
-    if dev is not None:
-        monkeypatch.setenv("AISOC_DEV_MODE", "true" if dev else "false")
+    if legacy_dev_flag is not None:
+        monkeypatch.setenv("AISOC_DEV_MODE", legacy_dev_flag)
     get_settings.cache_clear()
     return TestClient(app, raise_server_exceptions=False)
 
@@ -83,18 +84,12 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
 
 
 @pytest.mark.parametrize("method,path", _routes())
-@pytest.mark.parametrize("dev", [None, False])
-def test_unconfigured_outside_dev_fails_closed(monkeypatch, method, path, dev):
-    client = _configure(monkeypatch, token=None, dev=dev)
+@pytest.mark.parametrize("legacy_dev_flag", [None, "false", "true", "1", "yes", ""])
+def test_unconfigured_fails_closed_and_the_old_dev_flag_opens_nothing(monkeypatch, method, path, legacy_dev_flag):
+    client = _configure(monkeypatch, token=None, legacy_dev_flag=legacy_dev_flag)
     for headers in (None, GOOD):
         r = _call(client, method, path, headers)
-        assert r.status_code == 503, f"{method} {path} answered {r.status_code} with no token configured"
-
-
-@pytest.mark.parametrize("method,path", _routes())
-def test_dev_mode_without_a_token_stays_open_for_local_development(monkeypatch, method, path):
-    client = _configure(monkeypatch, token=None, dev=True)
-    assert _past_the_guard(_call(client, method, path))
+        assert r.status_code == 503, f"{method} {path} answered {r.status_code} with no token configured (AISOC_DEV_MODE={legacy_dev_flag!r})"
 
 
 @pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"bearer {TOKEN}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", "", f"Bearer  {TOKEN}"])
@@ -103,8 +98,8 @@ def test_only_the_exact_token_is_accepted(monkeypatch, header):
     assert client.post("/api/v1/live-actions/dispatch", json={}, headers={"Authorization": header}).status_code == 401, header
 
 
-def test_a_configured_token_is_enforced_even_in_dev_mode(monkeypatch):
-    client = _configure(monkeypatch, token=TOKEN, dev=True)
+def test_a_configured_token_is_enforced_whatever_the_old_dev_flag_says(monkeypatch):
+    client = _configure(monkeypatch, token=TOKEN, legacy_dev_flag="true")
     assert client.post("/api/v1/live-actions/dispatch", json={}).status_code == 401
     assert _past_the_guard(client.post("/api/v1/live-actions/dispatch", json={}, headers=GOOD))
 

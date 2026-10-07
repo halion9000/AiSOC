@@ -31,12 +31,12 @@ def token(monkeypatch: pytest.MonkeyPatch):
     return "s3cret-token"
 
 
-def test_unconfigured_allows_unauthenticated(monkeypatch: pytest.MonkeyPatch):
-    """With no token set, the endpoints keep their internal-only open behaviour."""
+def test_unconfigured_is_refused_not_open(monkeypatch: pytest.MonkeyPatch):
+    """There is no open mode: with no token configured every route answers 503, with or without credentials."""
     monkeypatch.setattr(settings, "AISOC_THREATINTEL_SERVICE_TOKEN", "")
-    resp = _client().get("/api/v1/actors/profiles")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    client = _client()
+    assert client.get("/api/v1/actors/profiles").status_code == 503
+    assert client.get("/api/v1/actors/profiles", headers={"Authorization": "Bearer anything"}).status_code == 503
 
 
 def test_configured_rejects_missing_token(token):

@@ -85,24 +85,17 @@ async def require_valid_node_key(
     return node
 
 
-_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
 PLACEHOLDER_ENROLL_SECRET = "change-me-in-production"
-
-
-def is_development() -> bool:
-    return settings.environment.strip().lower() in _DEV_ENVIRONMENTS
 
 
 async def require_api_token(authorization: Annotated[str | None, Header()] = None) -> None:
     """FastAPI dependency for the INTERNAL routes: ``Authorization: Bearer <AISOC_OSQUERY_TLS_API_TOKEN>``.
 
-    Fail closed: with no token configured, only a development environment is let through (so a local
-    stack keeps working); anywhere else the route answers 503 instead of running unauthenticated.
+    There is no development mode: with no token configured the route answers 503 instead of running
+    unauthenticated, and CORE generates the token on every build, so a properly set up stack always has one.
     """
     token = settings.api_token.strip()
     if not token:
-        if is_development():
-            return
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="internal API token is not configured",
@@ -118,15 +111,10 @@ async def require_api_token(authorization: Annotated[str | None, Header()] = Non
 
 
 def enforce_secure_defaults() -> None:
-    """Refuse to start outside development with the published placeholder enroll secret.
+    """Refuse to start with the published placeholder enroll secret (or none).
 
     The placeholder is public, so anyone could enroll a fake node and feed false FIM / log data into a
     tenant. (A missing API token is handled per request by ``require_api_token``.)
     """
-    if is_development():
-        return
     if settings.enroll_secret.strip() in ("", PLACEHOLDER_ENROLL_SECRET):
-        raise RuntimeError(
-            "refusing to start: AISOC_OSQUERY_TLS_ENROLL_SECRET is unset or still the published placeholder "
-            f"while AISOC_OSQUERY_TLS_ENVIRONMENT={settings.environment!r}"
-        )
+        raise RuntimeError("refusing to start: AISOC_OSQUERY_TLS_ENROLL_SECRET is unset or still the published placeholder")

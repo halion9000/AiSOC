@@ -70,19 +70,13 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
     assert _past(_call(_configure(monkeypatch, token=TOKEN, environment="production"), method, path, GOOD))
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", ""])
+@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None])
 @pytest.mark.parametrize("method,path", _routes())
-def test_without_a_token_anything_but_development_fails_closed(monkeypatch, environment, method, path):
+def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(monkeypatch, environment, method, path):
     c = _configure(monkeypatch, token=None, environment=environment)
     for headers in (None, GOOD):
         r = _call(c, method, path, headers)
         assert r.status_code == 503 and "auth is not configured" in r.text, f"{environment!r} {method} {path} -> {r.status_code}"
-
-
-@pytest.mark.parametrize("environment", ["development", "dev", "local", "test", None])
-def test_development_without_a_token_stays_open(monkeypatch, environment):
-    c = _configure(monkeypatch, token=None, environment=environment)
-    assert all(_past(_call(c, m, p)) for m, p in _routes())
 
 
 @pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", ""])

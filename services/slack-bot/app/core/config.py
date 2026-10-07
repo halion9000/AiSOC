@@ -40,8 +40,8 @@ class SlackBotSettings(BaseSettings):
         default="",
         description=(
             "Slack signing secret used by Bolt to verify request signatures. "
-            "Required in production; an empty value disables signature checks "
-            "and is only acceptable for local pytest runs."
+            "Required: the bot refuses to start without it, so Bolt always verifies "
+            "request signatures."
         ),
     )
 
@@ -95,23 +95,12 @@ class SlackBotSettings(BaseSettings):
     @property
     def signature_verification_enabled(self) -> bool:
         """
-        Bolt's signature verification is mandatory in production. Tests run
-        without a signing secret, so we let them opt out explicitly.
+        True when a signing secret is set. The bot refuses to start without one, so Bolt always verifies Slack's signature.
         """
-        return bool(self.SLACK_SIGNING_SECRET)
+        # Stripped: a secret of only spaces is not a secret (the key would be guessable), so it must not count.
+        return bool(self.SLACK_SIGNING_SECRET.strip())
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> SlackBotSettings:
     return SlackBotSettings()
-
-
-_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
-
-
-def is_development() -> bool:
-    """True for a plain local run. Unset means development; set-but-empty or unrecognised is NOT (a mistake must fail closed)."""
-    import os
-
-    raw = os.getenv("AISOC_SLACK_BOT_ENVIRONMENT")
-    return ("development" if raw is None else raw).strip().lower() in _DEV_ENVIRONMENTS

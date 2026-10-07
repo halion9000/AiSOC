@@ -70,19 +70,13 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
     assert _past_the_guard(_call(client, method, path, GOOD)), f"{method} {path} refused the correct token"
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "Production ", "prodution", ""])
+@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None])
 @pytest.mark.parametrize("method,path", _routes())
-def test_without_a_token_anything_but_development_fails_closed(monkeypatch, environment, method, path):
+def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(monkeypatch, environment, method, path):
     client = _configure(monkeypatch, token=None, environment=environment)
     for headers in (None, GOOD):
         r = _call(client, method, path, headers)
         assert r.status_code == 503 and "auth is not configured" in r.text, f"{environment!r}: {method} {path} -> {r.status_code}"
-
-
-@pytest.mark.parametrize("environment", ["development", "dev", "local", "test", "Development", None])
-def test_a_development_stack_without_a_token_keeps_working(monkeypatch, environment):
-    client = _configure(monkeypatch, token=None, environment=environment)
-    assert client.get("/api/v1/connectors").status_code == 200
 
 
 @pytest.mark.parametrize("environment", ["development", "production"])

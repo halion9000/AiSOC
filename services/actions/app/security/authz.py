@@ -103,12 +103,10 @@ def authorize_approver(
 
 async def require_service_auth(authorization: str | None = Header(default=None)) -> None:
     """FastAPI dependency: verify the service bearer token on mutating routes
-    (W4.3). Fails closed in production when no token is configured."""
+    (W4.3). Fails closed (503) when no token is configured: there is no mode that opens it."""
     settings = get_settings()
     token = settings.AISOC_ACTIONS_SERVICE_TOKEN.strip()
     if not token:
-        if settings.AISOC_DEV_MODE:
-            return
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="actions service auth is not configured",

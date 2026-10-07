@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+from app.core.service_auth import require_service_token
 from app.api import router as router_mod
 from app.api.router import router, set_worker
 from app.models.alert import (
@@ -132,6 +133,9 @@ def client_factory():
 
     def _factory(worker: Any | None) -> AsyncClient:
         app = _make_app(worker)
+        # These tests are about what /process DOES. Authentication (the service token, fail-closed, every route) is covered by
+        # test_service_auth_coverage.py; this stands in for it here, explicitly, and only in the tests: the service has no such bypass.
+        app.dependency_overrides[require_service_token] = lambda: None
         transport = ASGITransport(app=app)
         return AsyncClient(transport=transport, base_url="http://fusion")
 

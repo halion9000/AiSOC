@@ -1,10 +1,8 @@
 """Bearer-token guard for the honeytokens service's API.
 
 Every route except the canary callback answered anonymous requests, several for ANY tenant named in the request.
-Callers send ``Authorization: Bearer <AISOC_HONEYTOKENS_SERVICE_TOKEN>``. Fail closed: with no token configured only a development
-environment runs open; anything else answers 503. ``AISOC_HONEYTOKENS_ENVIRONMENT`` follows the stack-wide AISOC_ENVIRONMENT switch in
-docker-compose.yml. Unset means a plain local run (development); set-but-empty is NOT development (a mistake must fail closed).
-Read at call time so tests and redeploys can change it.
+Callers send ``Authorization: Bearer <AISOC_HONEYTOKENS_SERVICE_TOKEN>``. There is no development mode: with no token configured every route answers 503, and CORE generates the token on every build, so a properly set
+up stack always has one. Read at call time so tests and redeploys can change it.
 """
 from __future__ import annotations
 
@@ -14,19 +12,10 @@ from typing import Annotated
 
 from fastapi import Header, HTTPException, status
 
-_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
-
-
-def is_development() -> bool:
-    raw = os.getenv("AISOC_HONEYTOKENS_ENVIRONMENT")
-    return ("development" if raw is None else raw).strip().lower() in _DEV_ENVIRONMENTS
-
 
 async def require_service_token(authorization: Annotated[str | None, Header()] = None) -> None:
     token = (os.getenv("AISOC_HONEYTOKENS_SERVICE_TOKEN") or "").strip()
     if not token:
-        if is_development():
-            return
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="honeytokens service auth is not configured")
     scheme, _, supplied = (authorization or "").partition(" ")
     supplied = supplied.strip()

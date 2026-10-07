@@ -6,7 +6,8 @@ import test from 'node:test';
 
 import express from 'express';
 
-import { checkInternalToken, internalAuth, isDevelopmentEnv, presentedInternalToken } from '../src/internal-auth';
+import * as internalAuthModule from '../src/internal-auth';
+import { checkInternalToken, internalAuth, presentedInternalToken } from '../src/internal-auth';
 
 const TOKEN = 'realtime-internal-token-123';
 
@@ -26,7 +27,7 @@ async function withApp(options: Parameters<typeof internalAuth>[0], fn: (call: (
   }
 }
 
-const prod = { token: () => TOKEN, development: () => false };
+const prod = { token: () => TOKEN };
 
 test('no credentials is a 401 and the handler is never reached', async () => {
   await withApp(prod, async (call) => {
@@ -52,45 +53,58 @@ test('only the exact token is accepted: longer, shorter, prefix, empty, and wron
   });
 });
 
-test('with no token configured, anything but development answers 503 even if a token is presented (fail closed)', async () => {
-  await withApp({ token: () => '', development: () => false }, async (call) => {
-    for (const headers of [{}, { 'x-internal-token': TOKEN }, { 'x-internal-token': '' }]) {
+test('with no token configured every request answers 503, even one that presents a token', async () => {
+  await withApp({ token: () => '' }, async (call) => {
+    for (const headers of [{}, { 'x-internal-token': TOKEN }, { 'X-AiSOC-Internal-Token': TOKEN }, { 'x-internal-token': '' }]) {
       const r = await call(headers);
       assert.equal(r.status, 503);
       assert.match(r.body.error, /not configured/);
+      assert.equal(r.body.reached, undefined);
     }
   });
 });
 
+test('no environment variable, however it is set, opens an unconfigured service (there is no development mode)', async () => {
+  const names = ['AISOC_ENV', 'ENVIRONMENT', 'APP_ENV', 'NODE_ENV'] as const;
+  const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  try {
+    for (const value of [undefined, 'development', 'dev', 'local', 'test', 'Development', '', 'production']) {
+      for (const n of names) {
+        if (value === undefined) delete process.env[n];
+        else process.env[n] = value;
+      }
+      await withApp({ token: () => '' }, async (call) => assert.equal((await call()).status, 503, `env=${JSON.stringify(value)}`));
+    }
+  } finally {
+    for (const n of names) {
+      if (saved[n] === undefined) delete process.env[n];
+      else process.env[n] = saved[n] as string;
+    }
+  }
+});
+
 test('a whitespace-only token counts as not configured', async () => {
-  await withApp({ token: () => '   ', development: () => false }, async (call) => assert.equal((await call()).status, 503));
+  await withApp({ token: () => '   ' }, async (call) => assert.equal((await call()).status, 503));
 });
 
-test('with no token configured, a development environment stays open so a local stack keeps working', async () => {
-  await withApp({ token: () => '', development: () => true }, async (call) => assert.equal((await call()).status, 200));
-});
-
-test('a configured token is enforced in development too', async () => {
-  await withApp({ token: () => TOKEN, development: () => true }, async (call) => {
+test('a configured token is always enforced', async () => {
+  await withApp({ token: () => TOKEN }, async (call) => {
     assert.equal((await call()).status, 401);
     assert.equal((await call({ 'x-internal-token': TOKEN })).status, 200);
   });
 });
 
 test('checkInternalToken decisions', () => {
-  assert.equal(checkInternalToken(TOKEN, TOKEN, false), 'ok');
-  assert.equal(checkInternalToken(TOKEN, '', false), 'unauthorized');
-  assert.equal(checkInternalToken(TOKEN, 'nope', true), 'unauthorized');
-  assert.equal(checkInternalToken('', 'anything', false), 'unconfigured');
-  assert.equal(checkInternalToken('', '', true), 'ok');
+  assert.equal(checkInternalToken(TOKEN, TOKEN), 'ok');
+  assert.equal(checkInternalToken(TOKEN, ''), 'unauthorized');
+  assert.equal(checkInternalToken(TOKEN, 'nope'), 'unauthorized');
+  assert.equal(checkInternalToken('', 'anything'), 'unconfigured');
+  assert.equal(checkInternalToken('', ''), 'unconfigured');
+  assert.equal(checkInternalToken('   ', ''), 'unconfigured');
 });
 
-test('isDevelopmentEnv: unset is a local run; set-but-empty or unrecognised is NOT development', () => {
-  assert.equal(isDevelopmentEnv({}), true);
-  for (const v of ['development', 'dev', 'local', 'test', 'Development', ' DEV ']) assert.equal(isDevelopmentEnv({ ENVIRONMENT: v }), true, v);
-  for (const v of ['production', 'prod', 'staging', 'prodution', '', '   ']) assert.equal(isDevelopmentEnv({ ENVIRONMENT: v }), false, JSON.stringify(v));
-  assert.equal(isDevelopmentEnv({ AISOC_ENV: 'production', ENVIRONMENT: 'development' }), false, 'AISOC_ENV takes precedence');
-  assert.equal(isDevelopmentEnv({ AISOC_ENV: '', ENVIRONMENT: 'development' }), false, 'an empty AISOC_ENV must not fall through to development');
+test('the helper that used to excuse a local run is gone', () => {
+  assert.equal('isDevelopmentEnv' in internalAuthModule, false);
 });
 
 test('presentedInternalToken reads both header names and prefers neither blank', () => {

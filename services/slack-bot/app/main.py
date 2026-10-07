@@ -53,7 +53,7 @@ from slack_bolt.async_app import AsyncApp
 
 from app._health import install_health_routes
 from app.commands import handle_aisoc_command
-from app.core.config import get_settings, is_development
+from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.interactions import (
     APPROVE_ACTION_ID,
@@ -82,34 +82,22 @@ def _build_bolt_app(api_client: AisocApiClient, actions_client: AisocActionsClie
     settings = get_settings()
 
     # Without a signing secret Bolt cannot verify that a request really came from Slack, so /slack/events would accept
-    # forged slash commands and interactive payloads from anyone who can reach it. That is tolerable on a developer's
-    # machine and nowhere else: outside development the service refuses to start rather than run unverified.
-    if not settings.signature_verification_enabled and not is_development():
+    # forged slash commands and interactive payloads from anyone who can reach it. There is no mode in which that is
+    # acceptable: the service refuses to start rather than run unverified.
+    if not settings.signature_verification_enabled:
         raise RuntimeError(
-            "SLACK_SIGNING_SECRET is required outside development: without it /slack/events would accept unsigned "
-            "requests. Set it, or set AISOC_SLACK_BOT_ENVIRONMENT=development for a local run."
+            "SLACK_SIGNING_SECRET is required: without it /slack/events would accept unsigned requests. "
+            "Set it before starting the bot."
         )
 
-    # In development only, ``request_verification_enabled`` follows whether a signing secret is set so
-    # docker-without-secrets bring-up doesn't 401 every Slack request.
-    #
-    # ``token`` defaults to a placeholder when missing so Bolt doesn't
-    # reject the constructor; outbound API calls obviously won't succeed
-    # without a real token, but startup still works for local dev / tests.
+    # ``token`` defaults to a placeholder when missing so Bolt doesn't reject the constructor; outbound API calls
+    # obviously won't succeed without a real token, but startup still works.
     bolt = AsyncApp(
-        signing_secret=settings.SLACK_SIGNING_SECRET or None,
+        signing_secret=settings.SLACK_SIGNING_SECRET.strip(),
         token=settings.SLACK_BOT_TOKEN or "xoxb-not-configured",
-        request_verification_enabled=settings.signature_verification_enabled,
+        request_verification_enabled=True,
         ignoring_self_events_enabled=True,
     )
-
-    if not settings.signature_verification_enabled:
-        logger.warning(
-            "slack_signing_secret_missing",
-            note=(
-                "Bolt request-signature verification disabled — acceptable for local dev only. Set SLACK_SIGNING_SECRET before shipping."
-            ),
-        )
     if not settings.SLACK_BOT_TOKEN:
         logger.warning(
             "slack_bot_token_missing",

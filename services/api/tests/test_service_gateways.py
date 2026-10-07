@@ -290,12 +290,9 @@ def _ref(value):
     return re.match(r"\$\{(\w+)", str(value)).group(1)
 
 
-@pytest.mark.parametrize("name,var,env_var", [("honeytokens", "AISOC_HONEYTOKENS_SERVICE_TOKEN", "AISOC_HONEYTOKENS_ENVIRONMENT"),
-                                              ("purple-team", "AISOC_PURPLE_TEAM_SERVICE_TOKEN", "AISOC_PURPLE_TEAM_ENVIRONMENT"),
-                                              ("ueba", "AISOC_UEBA_SERVICE_TOKEN", "AISOC_UEBA_ENVIRONMENT")])
-def test_compose_gives_each_service_its_token_and_the_environment_switch(name, var, env_var):
+@pytest.mark.parametrize("name,var", [("honeytokens", "AISOC_HONEYTOKENS_SERVICE_TOKEN"), ("purple-team", "AISOC_PURPLE_TEAM_SERVICE_TOKEN"), ("ueba", "AISOC_UEBA_SERVICE_TOKEN")])
+def test_compose_gives_each_service_its_token(name, var):
     assert _ref(_compose_env(name)[var]) == var
-    assert _ref(_compose_env(name)[env_var]) == "AISOC_ENVIRONMENT", "unset would leave the service open in production"
     if name != "ueba":
         assert _ref(_compose_env("api")[var]) == var, "the API gateway must send the same token the service enforces"
 

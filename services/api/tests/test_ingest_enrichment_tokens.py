@@ -78,12 +78,10 @@ def _ref(value):
 def test_ingest_token_is_one_secret_shared_by_the_service_and_every_caller():
     names = {_ref(_env(s)["AISOC_INGEST_SERVICE_TOKEN"]) for s in ("ingest-worker", "connectors", "osquery-tls", "api")}
     assert names == {"AISOC_INGEST_SERVICE_TOKEN"}
-    assert _ref(_env("ingest-worker")["AISOC_INGEST_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
 
 
 def test_enrichment_token_is_shared_by_the_service_and_the_api_gateway():
     assert _ref(_env("enrichment")["AISOC_ENRICHMENT_SERVICE_TOKEN"]) == _ref(_env("api")["AISOC_ENRICHMENT_SERVICE_TOKEN"]) == "AISOC_ENRICHMENT_SERVICE_TOKEN"
-    assert _ref(_env("enrichment")["AISOC_ENRICHMENT_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
 
 
 @pytest.mark.parametrize("name,service", [("ingest", "ingest-worker"), ("enrichment", "enrichment")])

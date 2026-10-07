@@ -111,19 +111,19 @@ _BODY = {
 
 
 def test_route_requires_token_when_configured(monkeypatch):
-    client = _client(monkeypatch, AISOC_ACTIONS_SERVICE_TOKEN="s3cr3t", AISOC_DEV_MODE="false")
+    client = _client(monkeypatch, AISOC_ACTIONS_SERVICE_TOKEN="s3cr3t")
     assert client.post("/actions", json=_BODY).status_code == 401
     ok = client.post("/actions", json=_BODY, headers={"Authorization": "Bearer s3cr3t"})
     assert ok.status_code != 401
 
 
-def test_route_open_in_dev_without_token(monkeypatch):
+def test_the_old_dev_flag_no_longer_opens_the_route(monkeypatch):
     client = _client(monkeypatch, AISOC_DEV_MODE="true")
-    assert client.post("/actions", json=_BODY).status_code == 200
+    assert client.post("/actions", json=_BODY).status_code == 503
 
 
-def test_route_fails_closed_in_prod_without_token(monkeypatch):
-    client = _client(monkeypatch, AISOC_DEV_MODE="false")
+def test_route_fails_closed_without_token(monkeypatch):
+    client = _client(monkeypatch)
     assert client.post("/actions", json=_BODY).status_code == 503
 
 

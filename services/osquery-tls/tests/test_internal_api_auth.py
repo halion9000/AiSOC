@@ -46,7 +46,6 @@ async def _call(client, method, path, body, headers=None):
 @pytest.fixture
 def configured(monkeypatch):
     monkeypatch.setattr(settings, "api_token", TOKEN)
-    monkeypatch.setattr(settings, "environment", "production")
 
 
 @pytest.mark.asyncio
@@ -89,29 +88,18 @@ async def test_a_refused_enqueue_never_touches_the_database(client, configured):
 
 # ------------------------------------------------------------- fail closed -----
 @pytest.mark.asyncio
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "Production ", "prodution", ""])
 @pytest.mark.parametrize("method,path,body", INTERNAL)
-async def test_without_a_token_anything_but_development_fails_closed(client, monkeypatch, environment, method, path, body):
+async def test_without_a_token_every_internal_route_fails_closed(client, monkeypatch, method, path, body):
+    """There is no development mode: no token configured means 503, with or without credentials."""
     monkeypatch.setattr(settings, "api_token", "")
-    monkeypatch.setattr(settings, "environment", environment)
     for headers in (None, GOOD, {"Authorization": "Bearer "}):
         r = await _call(client, method, path, body, headers)
-        assert r.status_code == 503, f"{environment!r}: {method} {path} answered {r.status_code} with no token configured"
+        assert r.status_code == 503, f"{method} {path} answered {r.status_code} with no token configured"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("environment", ["development", "dev", "local", "test", "Development"])
-async def test_a_development_stack_without_a_token_keeps_working(client, monkeypatch, environment):
-    monkeypatch.setattr(settings, "api_token", "")
-    monkeypatch.setattr(settings, "environment", environment)
-    r = await client.get("/api/v1/osquery/packs")
-    assert r.status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_a_configured_token_is_enforced_even_in_development(client, monkeypatch):
+async def test_a_configured_token_is_enforced(client, monkeypatch):
     monkeypatch.setattr(settings, "api_token", TOKEN)
-    monkeypatch.setattr(settings, "environment", "development")
     assert (await client.get("/api/v1/osquery/packs")).status_code == 401
     assert (await client.get("/api/v1/osquery/packs", headers=GOOD)).status_code == 200
 
@@ -170,25 +158,16 @@ def _matches(concrete: str, template: str) -> bool:
 
 
 # ---------------------------------------------------------------- startup guard -----
-@pytest.mark.parametrize("environment", ["production", "staging", "weird", ""])
 @pytest.mark.parametrize("secret", [PLACEHOLDER_ENROLL_SECRET, "", "  "])
-def test_outside_development_the_placeholder_enroll_secret_refuses_to_start(monkeypatch, environment, secret):
-    monkeypatch.setattr(settings, "environment", environment)
+def test_the_placeholder_enroll_secret_refuses_to_start(monkeypatch, secret):
+    """The placeholder is published in the repository, so anyone could enroll a fake node. No mode excuses it."""
     monkeypatch.setattr(settings, "enroll_secret", secret)
     with pytest.raises(RuntimeError, match="refusing to start"):
         enforce_secure_defaults()
 
 
-def test_a_real_enroll_secret_starts_in_production(monkeypatch):
-    monkeypatch.setattr(settings, "environment", "production")
+def test_a_real_enroll_secret_starts(monkeypatch):
     monkeypatch.setattr(settings, "enroll_secret", "a-long-generated-secret-value")
-    enforce_secure_defaults()
-
-
-@pytest.mark.parametrize("environment", ["development", "dev", "local", "test"])
-def test_development_may_keep_the_placeholder(monkeypatch, environment):
-    monkeypatch.setattr(settings, "environment", environment)
-    monkeypatch.setattr(settings, "enroll_secret", PLACEHOLDER_ENROLL_SECRET)
     enforce_secure_defaults()
 
 
@@ -196,7 +175,6 @@ def test_the_startup_hook_really_runs_the_guard(monkeypatch):
     """The function refusing is not enough: the app's startup must call it, or the service starts anyway."""
     from fastapi.testclient import TestClient
 
-    monkeypatch.setattr(settings, "environment", "production")
     monkeypatch.setattr(settings, "enroll_secret", PLACEHOLDER_ENROLL_SECRET)
     with pytest.raises(RuntimeError, match="refusing to start"):
         with TestClient(app):
@@ -206,7 +184,6 @@ def test_the_startup_hook_really_runs_the_guard(monkeypatch):
 def test_the_service_starts_normally_when_configured(monkeypatch):
     from fastapi.testclient import TestClient
 
-    monkeypatch.setattr(settings, "environment", "production")
     monkeypatch.setattr(settings, "enroll_secret", "a-long-generated-secret-value")
     with TestClient(app) as c:
         assert c.get("/healthz").status_code == 200

@@ -272,9 +272,9 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: neo4j_dev_secret
       # Production: CORE writes these to .env (generated once, never overwritten).
-      # Defaults below are the development values, so an unconfigured stack is unchanged.
+      # Every service runs the real configuration: AISOC_ENVIRONMENT defaults to production and there is no development mode.
       SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
-      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
       JWT_SECRET: ${JWT_SECRET:-}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       REALTIME_INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
@@ -335,10 +335,9 @@ services:
       - "127.0.0.1:9090:9090"
     environment:
       # Bearer token required on /v1/ingest* and the graph stream (callers send the same value). Exempt on purpose: /health, /metrics,
-      # /v1/inbox/* and /v1/ingest/k8s-audit/*, which carry their own credentials. Outside development an empty token answers 503.
+      # /v1/inbox/* and /v1/ingest/k8s-audit/*, which carry their own credentials. An empty token answers 503.
       AISOC_INGEST_SERVICE_TOKEN: ${AISOC_INGEST_SERVICE_TOKEN:-}
-      AISOC_INGEST_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
-      ENV: ${AISOC_ENVIRONMENT:-development}
+      ENV: ${AISOC_ENVIRONMENT:-production}
       HTTP_PORT: 8080
       METRICS_PORT: 9090
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -373,9 +372,8 @@ services:
     ports:
       - "127.0.0.1:8080:8082"
     environment:
-      # Bearer token required on /enrich and /enrich/bulk (the API's enrichment gateway sends it). Outside development an empty token answers 503.
+      # Bearer token required on /enrich and /enrich/bulk (the API's enrichment gateway sends it). An empty token answers 503.
       AISOC_ENRICHMENT_SERVICE_TOKEN: ${AISOC_ENRICHMENT_SERVICE_TOKEN:-}
-      AISOC_ENRICHMENT_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/2
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
@@ -403,8 +401,8 @@ services:
     ports:
       - "127.0.0.1:8003:8003"
     environment:
-      # Bearer token required on every route except /health and /metrics; outside development an empty token answers 503.
-      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      # Bearer token required on every route except /health and /metrics; an empty token answers 503.
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/3
@@ -451,7 +449,7 @@ services:
       AISOC_THREATINTEL_SERVICE_TOKEN: ${AISOC_THREATINTEL_SERVICE_TOKEN:-}
       # Production auth for this service (app/core/service_auth.py): one switch for
       # all services, and the internal token shared with the API and realtime.
-      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
       INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
       # This service's own read-only API key for background calls (issued by the
       # production setup step; CORE writes it to .env).
@@ -602,10 +600,9 @@ services:
       # Sent to the ingest service (it authenticates /v1/ingest*); must equal the service's own value.
       AISOC_INGEST_SERVICE_TOKEN: ${AISOC_INGEST_SERVICE_TOKEN:-}
       # Internal API (queue a query on a host, read results, manage packs, read FIM events): bearer token.
-      # Outside development the service refuses to start on the placeholder enroll secret and answers 503
+      # The service refuses to start on the placeholder enroll secret and answers 503
       # on the internal routes when this token is empty, so a missing value fails closed.
       AISOC_OSQUERY_TLS_API_TOKEN: ${AISOC_OSQUERY_TLS_API_TOKEN:-}
-      AISOC_OSQUERY_TLS_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       AISOC_OSQUERY_TLS_ENROLL_SECRET: ${AISOC_OSQUERY_TLS_ENROLL_SECRET:-change-me-in-production}
       # The ingest service is registered as `ingest-worker` in this compose
@@ -632,7 +629,7 @@ services:
     environment:
       # Bearer token required on every route except health and the signed ChatOps callback (POST /actions,
       # approve, reject, GET /actions/{id}, and all of /live-actions, which executes vendor actions). Empty means
-      # the routes answer 503 (fail closed) unless AISOC_DEV_MODE is set. Callers (slack-bot) read the same variable.
+      # the routes answer 503 (fail closed). Callers (slack-bot) read the same variable.
       AISOC_ACTIONS_SERVICE_TOKEN: ${AISOC_ACTIONS_SERVICE_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/5
@@ -674,10 +671,9 @@ services:
     environment:
       # Sent to the ingest service (it authenticates /v1/ingest*); must equal the service's own value.
       AISOC_INGEST_SERVICE_TOKEN: ${AISOC_INGEST_SERVICE_TOKEN:-}
-      # Bearer token required on every route except health. Outside development an empty token answers 503
+      # Bearer token required on every route except health. An empty token answers 503
       # (fail closed). The API sends the same value (AISOC_CONNECTORS_SERVICE_TOKEN).
       AISOC_CONNECTORS_SERVICE_TOKEN: ${AISOC_CONNECTORS_SERVICE_TOKEN:-}
-      AISOC_CONNECTORS_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/6
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
@@ -718,8 +714,8 @@ services:
     ports:
       - "127.0.0.1:8005:8005"
     environment:
-      # Bearer token required on every route except health; outside development an empty token answers 503.
-      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      # Bearer token required on every route except health; an empty token answers 503.
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
       AISOC_THREATINTEL_SERVICE_TOKEN: ${AISOC_THREATINTEL_SERVICE_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/7
@@ -764,9 +760,8 @@ services:
     ports:
       - "127.0.0.1:8007:8004"
     environment:
-      # Bearer token required on every route; outside development an empty token answers 503 (nothing in the repo calls this service yet).
+      # Bearer token required on every route; an empty token answers 503 (nothing in the repo calls this service yet).
       AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
-      AISOC_UEBA_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/8
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -809,7 +804,6 @@ services:
     environment:
       # Bearer token required on every route except the canary callback (POST /webhook/trigger); the API's gateway sends it.
       AISOC_HONEYTOKENS_SERVICE_TOKEN: ${AISOC_HONEYTOKENS_SERVICE_TOKEN:-}
-      AISOC_HONEYTOKENS_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/9
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -839,7 +833,6 @@ services:
     environment:
       # Bearer token required on every route (atomics/run and caldera/run launch simulations); the API's gateway sends it.
       AISOC_PURPLE_TEAM_SERVICE_TOKEN: ${AISOC_PURPLE_TEAM_SERVICE_TOKEN:-}
-      AISOC_PURPLE_TEAM_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/10
       CORE_API_URL: http://api:8000
@@ -864,7 +857,7 @@ services:
       - "127.0.0.1:8086:8086"  # the container listens on 8086 (Dockerfile EXPOSE, PORT default); it was mapped to 4000, which nothing listens on
     environment:
       # Paired with the API: INTERNAL_TOKEN == api REALTIME_INTERNAL_TOKEN, ticket secret shared.
-      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
       INTERNAL_TOKEN: ${REALTIME_INTERNAL_TOKEN:-}
       AISOC_REALTIME_JWT_SECRET: ${AISOC_REALTIME_JWT_SECRET:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -902,9 +895,8 @@ services:
     profiles:
       - chatops
     environment:
-      # Without SLACK_SIGNING_SECRET the bot cannot verify requests really came from Slack, so outside development it refuses to
-      # start. This follows the stack-wide switch; unset leaves it in development mode.
-      AISOC_SLACK_BOT_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      # Without SLACK_SIGNING_SECRET the bot cannot verify requests really came from Slack, so it refuses to
+      # start without SLACK_SIGNING_SECRET.
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       AISOC_API_BASE_URL: http://api:8000

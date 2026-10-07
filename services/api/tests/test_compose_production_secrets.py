@@ -54,11 +54,6 @@ def test_osquery_internal_token_is_shared_by_the_api_and_the_service():
     assert _source_var(api["AISOC_OSQUERY_TLS_API_TOKEN"]) == _source_var(osq["AISOC_OSQUERY_TLS_API_TOKEN"]) == "AISOC_OSQUERY_TLS_API_TOKEN"
 
 
-def test_osquery_follows_the_one_environment_switch():
-    """If this stayed at its own default, production would still treat the osquery service as development."""
-    assert _source_var(_env("osquery-tls")["AISOC_OSQUERY_TLS_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
-
-
 def _dockerfile_port(service_dir: str) -> int:
     """The port the container REALLY listens on: the --port in the Dockerfile's CMD (no compose `command:` overrides it)."""
     text = (COMPOSE.parent / "services" / service_dir / "Dockerfile").read_text(encoding="utf-8")
@@ -96,11 +91,6 @@ def test_connectors_token_is_shared_by_the_api_and_the_service():
     assert _source_var(api["AISOC_CONNECTORS_SERVICE_TOKEN"]) == _source_var(conn["AISOC_CONNECTORS_SERVICE_TOKEN"]) == "AISOC_CONNECTORS_SERVICE_TOKEN"
 
 
-def test_connectors_follows_the_one_environment_switch():
-    """If it stayed at its own default, production would still treat the connectors service as development (open)."""
-    assert _source_var(_env("connectors")["AISOC_CONNECTORS_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
-
-
 def test_the_api_reaches_connectors_on_the_port_the_container_really_listens_on():
     """The API defaulted to http://connectors:8003, which is the FUSION service's port: every API->connectors call
     (case fan-out, federated query, catalog, test-connection, resource config) went to a dead port."""
@@ -118,7 +108,7 @@ def test_the_api_reaches_connectors_on_the_port_the_container_really_listens_on(
 def test_threatintel_token_is_shared_by_the_service_and_the_agents_that_call_it():
     ti, agents = _env("threatintel"), _env("agents")
     assert _source_var(ti["AISOC_THREATINTEL_SERVICE_TOKEN"]) == _source_var(agents["AISOC_THREATINTEL_SERVICE_TOKEN"]) == "AISOC_THREATINTEL_SERVICE_TOKEN"
-    assert _source_var(ti["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "an unset environment would leave the service open in production"
+    assert _source_var(ti["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "the service must follow the stack-wide AISOC_ENVIRONMENT"
 
 
 def test_fusion_token_is_shared_by_the_service_and_both_callers():
@@ -126,11 +116,6 @@ def test_fusion_token_is_shared_by_the_service_and_both_callers():
     names = {_source_var(x["AISOC_FUSION_SERVICE_TOKEN"]) for x in (fusion, agents, api)}
     assert names == {"AISOC_FUSION_SERVICE_TOKEN"}
     assert _source_var(fusion["ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
-
-
-def test_slack_bot_follows_the_one_environment_switch():
-    """If it stayed at its own default, production would still count as development and the bot would run without verifying Slack."""
-    assert _source_var(_env("slack-bot")["AISOC_SLACK_BOT_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
 
 
 def test_realtime_is_mapped_and_probed_on_the_port_it_really_listens_on():
@@ -147,4 +132,19 @@ def test_realtime_internal_token_is_one_secret_shared_by_the_service_and_both_ca
     """realtime enforces it, agents send it on /internal/*, and the API's push gateway sends it on /v1/push/*."""
     realtime, agents, api = _env("realtime"), _env("agents"), _env("api")
     assert {_source_var(realtime["INTERNAL_TOKEN"]), _source_var(agents["INTERNAL_TOKEN"]), _source_var(api["REALTIME_INTERNAL_TOKEN"])} == {"REALTIME_INTERNAL_TOKEN"}
-    assert _source_var(realtime["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "an unset environment would leave the service open in production"
+    assert _source_var(realtime["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "the service must follow the stack-wide AISOC_ENVIRONMENT"
+
+
+def test_no_service_can_default_to_development_and_no_per_service_switch_exists():
+    """There is no development mode. Every service runs the real configuration: nothing in compose defaults to `development`, the
+    stack-wide default is `production`, and the per-service environment switches (and AISOC_DEV_MODE) that used to open a guard are gone."""
+    text = COMPOSE.read_text(encoding="utf-8")
+    assert ":-development" not in text, "a service defaults to development"
+    defaults = set(re.findall(r"\$\{AISOC_ENVIRONMENT:-([^}]*)\}", text))
+    assert defaults == {"production"}, defaults
+    services = yaml.safe_load(text)["services"]
+    for name in services:
+        keys = set(_env(name)) if services[name].get("environment") else set()
+        stray = {k for k in keys if re.fullmatch(r"AISOC_[A-Z_]+_ENVIRONMENT", k) or k == "AISOC_DEV_MODE"}
+        assert not stray, f"{name} has a per-service environment switch again: {sorted(stray)}"
+
