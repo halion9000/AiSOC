@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.config import settings
 from app.models.ueba import EntityBaseline, PeerGroup, UEBAAnomaly
 from app.services.scoring import ScoringService
+from app.core.service_auth import require_service_token
 
-router = APIRouter(prefix="/api/v1/ueba", tags=["ueba"])
+router = APIRouter(prefix="/api/v1/ueba", tags=["ueba"], dependencies=[Depends(require_service_token)])
 
 # ---------------------------------------------------------------------------
 # DB dependency
@@ -127,8 +128,8 @@ async def list_anomalies(
 
 
 @router.patch("/anomalies/{anomaly_id}/acknowledge", response_model=AnomalyOut)
-async def acknowledge_anomaly(anomaly_id: uuid.UUID, db: DB) -> AnomalyOut:
-    result = await db.execute(select(UEBAAnomaly).where(UEBAAnomaly.id == anomaly_id))
+async def acknowledge_anomaly(anomaly_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> AnomalyOut:
+    result = await db.execute(select(UEBAAnomaly).where(UEBAAnomaly.id == anomaly_id, UEBAAnomaly.tenant_id == tenant_id))
     anomaly = result.scalar_one_or_none()
     if not anomaly:
         raise HTTPException(status_code=404, detail="Anomaly not found")

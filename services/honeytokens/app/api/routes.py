@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.models.honeytoken import Honeytoken, HoneytokenTrigger
 from app.services.alerting import send_alert
 from app.services.generator import TOKEN_GENERATORS, generate_token
+from app.core.service_auth import require_service_token
 
 router = APIRouter(prefix="/api/v1/honeytokens", tags=["honeytokens"])
 
@@ -55,7 +56,10 @@ class TokenOut(BaseModel):
     description: str | None
     token_type: str
     token_value: str
-    metadata_: dict = Field(alias="metadata")
+    # Read from the ORM attribute `metadata_` (the column); `metadata` on a SQLAlchemy model is the table registry, not the
+    # data, so aliasing straight to "metadata" made every response that returned a token fail validation. The JSON key stays
+    # `metadata`.
+    metadata_: dict = Field(validation_alias=AliasChoices("metadata_", "metadata"), serialization_alias="metadata")
     status: str
     expires_at: datetime | None
     created_at: datetime
@@ -91,7 +95,7 @@ class WebhookTriggerPayload(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("", response_model=TokenOut, status_code=201)
+@router.post("", response_model=TokenOut, status_code=201, dependencies=[Depends(require_service_token)])
 async def create_token(body: CreateTokenRequest, db: DB) -> TokenOut:
     """Generate and store a new honeytoken."""
     data = generate_token(
@@ -110,7 +114,7 @@ async def create_token(body: CreateTokenRequest, db: DB) -> TokenOut:
     return TokenOut.model_validate(token)
 
 
-@router.get("", response_model=list[TokenOut])
+@router.get("", response_model=list[TokenOut], dependencies=[Depends(require_service_token)])
 async def list_tokens(
     db: DB,
     tenant_id: uuid.UUID = Query(...),
@@ -127,18 +131,18 @@ async def list_tokens(
     return [TokenOut.model_validate(row) for row in result.scalars().all()]
 
 
-@router.get("/{token_id}", response_model=TokenOut)
-async def get_token(token_id: uuid.UUID, db: DB) -> TokenOut:
-    result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id))
+@router.get("/{token_id}", response_model=TokenOut, dependencies=[Depends(require_service_token)])
+async def get_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TokenOut:
+    result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id, Honeytoken.tenant_id == tenant_id))
     token = result.scalar_one_or_none()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
     return TokenOut.model_validate(token)
 
 
-@router.patch("/{token_id}/revoke", response_model=TokenOut)
-async def revoke_token(token_id: uuid.UUID, db: DB) -> TokenOut:
-    result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id))
+@router.patch("/{token_id}/revoke", response_model=TokenOut, dependencies=[Depends(require_service_token)])
+async def revoke_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TokenOut:
+    result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id, Honeytoken.tenant_id == tenant_id))
     token = result.scalar_one_or_none()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
@@ -148,9 +152,9 @@ async def revoke_token(token_id: uuid.UUID, db: DB) -> TokenOut:
     return TokenOut.model_validate(token)
 
 
-@router.delete("/{token_id}", status_code=204, response_model=None)
-async def delete_token(token_id: uuid.UUID, db: DB) -> None:
-    result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id))
+@router.delete("/{token_id}", status_code=204, response_model=None, dependencies=[Depends(require_service_token)])
+async def delete_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> None:
+    result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id, Honeytoken.tenant_id == tenant_id))
     token = result.scalar_one_or_none()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
@@ -222,15 +226,16 @@ async def webhook_trigger(body: WebhookTriggerPayload, db: DB) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{token_id}/triggers", response_model=list[TriggerOut])
+@router.get("/{token_id}/triggers", response_model=list[TriggerOut], dependencies=[Depends(require_service_token)])
 async def list_triggers(
     token_id: uuid.UUID,
     db: DB,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[TriggerOut]:
     result = await db.execute(
         select(HoneytokenTrigger)
-        .where(HoneytokenTrigger.honeytoken_id == token_id)
+        .where(HoneytokenTrigger.honeytoken_id == token_id, HoneytokenTrigger.tenant_id == tenant_id)
         .order_by(desc(HoneytokenTrigger.triggered_at))
         .limit(limit)
     )

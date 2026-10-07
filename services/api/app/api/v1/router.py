@@ -30,6 +30,7 @@ from app.api.v1.endpoints import (
     easm,
     enrichment,
     osquery_fim,
+    service_gateways,
     effective_permissions,
     federated,
     feedback,
@@ -237,6 +238,7 @@ api_router.include_router(airgap.router)
 api_router.include_router(enrichment.router)
 # Authenticated gateway to the osquery service's FIM data (the console used to reach the service directly).
 api_router.include_router(osquery_fim.router)
+api_router.include_router(service_gateways.router)
 
 # LLM provider visibility for the "Deployment & AI" Settings panel.
 # Mirrors /airgap/status: read-only env-var snapshot, never returns the

@@ -240,6 +240,12 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      # Authenticated gateways to the honeytokens and purple-team services (both in the `extras` profile). Ports are the
+      # services' real listening ports (their Dockerfiles).
+      HONEYTOKENS_SERVICE_URL: http://honeytokens:8005
+      AISOC_HONEYTOKENS_SERVICE_TOKEN: ${AISOC_HONEYTOKENS_SERVICE_TOKEN:-}
+      PURPLE_TEAM_SERVICE_URL: http://purple-team:8006
+      AISOC_PURPLE_TEAM_SERVICE_TOKEN: ${AISOC_PURPLE_TEAM_SERVICE_TOKEN:-}
       # Sent by the fusion gateway when FUSION_URL is set.
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
       # The connectors service makes outbound calls with connector config + credentials the CALLER supplies, so it
@@ -743,6 +749,9 @@ services:
     ports:
       - "127.0.0.1:8007:8004"
     environment:
+      # Bearer token required on every route; outside development an empty token answers 503 (nothing in the repo calls this service yet).
+      AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
+      AISOC_UEBA_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/8
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -783,6 +792,9 @@ services:
     ports:
       - "127.0.0.1:8008:8005"
     environment:
+      # Bearer token required on every route except the canary callback (POST /webhook/trigger); the API's gateway sends it.
+      AISOC_HONEYTOKENS_SERVICE_TOKEN: ${AISOC_HONEYTOKENS_SERVICE_TOKEN:-}
+      AISOC_HONEYTOKENS_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/9
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -810,6 +822,9 @@ services:
     ports:
       - "127.0.0.1:8006:8006"
     environment:
+      # Bearer token required on every route (atomics/run and caldera/run launch simulations); the API's gateway sends it.
+      AISOC_PURPLE_TEAM_SERVICE_TOKEN: ${AISOC_PURPLE_TEAM_SERVICE_TOKEN:-}
+      AISOC_PURPLE_TEAM_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/10
       CORE_API_URL: http://api:8000
