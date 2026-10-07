@@ -131,3 +131,20 @@ def test_fusion_token_is_shared_by_the_service_and_both_callers():
 def test_slack_bot_follows_the_one_environment_switch():
     """If it stayed at its own default, production would still count as development and the bot would run without verifying Slack."""
     assert _source_var(_env("slack-bot")["AISOC_SLACK_BOT_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
+
+
+def test_realtime_is_mapped_and_probed_on_the_port_it_really_listens_on():
+    """The container listens on 8086 (Dockerfile EXPOSE, PORT default) but compose mapped the host port to 4000 and probed 4000: the
+    container was permanently unhealthy and the console's ws://localhost:8086 reached a port nothing listens on."""
+    services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    real = int(re.search(r"^EXPOSE\s+(\d+)", (COMPOSE.parent / "services" / "realtime" / "Dockerfile").read_text(encoding="utf-8"), re.M).group(1))
+    assert [int(str(p).split("#")[0].strip().rsplit(":", 1)[1]) for p in services["realtime"]["ports"]] == [real]
+    probe = " ".join(services["realtime"]["healthcheck"]["test"])
+    assert f"127.0.0.1:{real}/" in probe, probe
+
+
+def test_realtime_internal_token_is_one_secret_shared_by_the_service_and_both_callers():
+    """realtime enforces it, agents send it on /internal/*, and the API's push gateway sends it on /v1/push/*."""
+    realtime, agents, api = _env("realtime"), _env("agents"), _env("api")
+    assert {_source_var(realtime["INTERNAL_TOKEN"]), _source_var(agents["INTERNAL_TOKEN"]), _source_var(api["REALTIME_INTERNAL_TOKEN"])} == {"REALTIME_INTERNAL_TOKEN"}
+    assert _source_var(realtime["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "an unset environment would leave the service open in production"

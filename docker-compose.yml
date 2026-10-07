@@ -846,7 +846,7 @@ services:
       kafka:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8086:4000"
+      - "127.0.0.1:8086:8086"  # the container listens on 8086 (Dockerfile EXPOSE, PORT default); it was mapped to 4000, which nothing listens on
     environment:
       # Paired with the API: INTERNAL_TOKEN == api REALTIME_INTERNAL_TOKEN, ticket secret shared.
       ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
@@ -859,7 +859,7 @@ services:
     # B15: proven healthcheck for the Node-based realtime service.
     # Alpine has wget but not curl; /health returns 200 when ready.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8086/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

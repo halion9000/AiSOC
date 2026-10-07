@@ -25,6 +25,7 @@ import type { Logger } from 'pino';
 import type { Request, Response } from 'express';
 import webpush from 'web-push';
 import crypto from 'crypto';
+import { assertPushEndpointAllowed } from './push-endpoint';
 
 export interface SubscriptionPayload {
   endpoint: string;
@@ -168,6 +169,7 @@ export class PushManager {
       throw new Error('subscription endpoint and keys are required');
     }
 
+    assertPushEndpointAllowed(sub.endpoint);
     const id = hashEndpoint(sub.endpoint);
     const subKey = key('sub', id);
     const tenantKey = key('tenant', tenantId);

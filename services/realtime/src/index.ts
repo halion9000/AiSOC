@@ -9,6 +9,7 @@ import rateLimit from 'express-rate-limit';
 
 import { PushManager } from './push';
 import { resolveTicketSecret, verifyRealtimeTicket } from './auth';
+import { internalAuth } from './internal-auth';
 
 const log = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -563,38 +564,31 @@ const pushRateLimit = rateLimit({
   message: { error: 'Rate limit exceeded' },
 });
 
+// Every route below except the public key needs the internal token (see internal-auth.ts): these are reached through the API's push
+// gateway or by other services, never by a browser. They used to check nothing, so anyone could subscribe their own endpoint under any
+// tenant and receive that tenant's notifications.
+const requireInternalToken = internalAuth();
+
 app.get('/v1/push/public-key', pushManager.publicKeyHandler);
-app.post('/v1/push/subscribe', pushRateLimit, pushManager.subscribeHandler);
-app.post('/v1/push/unsubscribe', pushRateLimit, pushManager.unsubscribeHandler);
-app.post('/v1/push/test', pushRateLimit, pushManager.testNotifyHandler);
+app.post('/v1/push/subscribe', pushRateLimit, requireInternalToken, pushManager.subscribeHandler);
+app.post('/v1/push/unsubscribe', pushRateLimit, requireInternalToken, pushManager.unsubscribeHandler);
+app.post('/v1/push/test', pushRateLimit, requireInternalToken, pushManager.testNotifyHandler);
 
 // --- Internal broadcast endpoint (called by other services) ---
 // POST /internal/agent-event
 // Body: { tenant_id?: string, run_id: string, kind: string, agent: string, summary: string, data?: unknown }
 // The realtime service re-broadcasts to all WebSocket clients on the `agents` channel.
-const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || '';
-
-function requireInternal(req: express.Request, res: express.Response): boolean {
-  if (!INTERNAL_TOKEN) return true;
-  const auth = req.headers['x-internal-token'];
-  if (auth !== INTERNAL_TOKEN) {
-    res.status(401).json({ error: 'unauthorized' });
-    return false;
-  }
-  return true;
-}
+// Auth: `requireInternalToken` (defined above, with the push routes).
 
 // Internal push fan-out used by the agents/api services to send a
 // notification to a tenant, user list, or topic. Same auth contract as
 // `internal/agent-event`.
-app.post('/internal/push', internalPushRateLimit, async (req, res) => {
-  if (!requireInternal(req, res)) return;
+app.post('/internal/push', internalPushRateLimit, requireInternalToken, async (req, res) => {
 
   await pushManager.internalNotifyHandler(req, res);
 });
 
-app.post('/internal/agent-event', internalEventRateLimit, (req, res) => {
-  if (!requireInternal(req, res)) return;
+app.post('/internal/agent-event', internalEventRateLimit, requireInternalToken, (req, res) => {
 
   const { tenant_id, run_id, kind, agent, summary, data } = req.body as {
     tenant_id?: string;
