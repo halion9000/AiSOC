@@ -26,6 +26,9 @@ RULES: list[tuple[re.Pattern[str], frozenset[str] | None, str]] = [
     (re.compile(r"^/api/v1/hunt(-corpus)?(/.*)?$"), _ANY, "lake:query"),
     # contextual helpers (explain / summarize / draft): anyone who can read alerts
     (re.compile(r"^/api/v1/contextual(/.*)?$"), _ANY, "alerts:read"),
+    # "Explain this alert": takes an arbitrary alert payload from the caller and runs the LLM on it. The comment above has always said
+    # explain needs alerts:read, but only /contextual was mapped, so it needed a login and nothing else.
+    (re.compile(r"^/api/v1/explain$"), frozenset({"POST"}), "alerts:read"),
     # investigations
     (re.compile(r"^/api/v1/agents/investigate$"), frozenset({"POST"}), "cases:write"),
     (re.compile(r"^/api/v1/agents/investigations/[^/]+$"), frozenset({"GET"}), "cases:read"),
@@ -42,6 +45,7 @@ CONSOLE_FACING_PREFIXES = (
     "/api/v1/playbooks",
     "/api/v1/hunt",
     "/api/v1/contextual",
+    "/api/v1/explain",
     "/api/v1/agents/investigate",
     "/api/v1/agents/investigations",
     "/api/v1/cases/",

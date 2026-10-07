@@ -155,10 +155,13 @@ def _parse_rewrites() -> list[tuple[str, str]]:
 # Scan frontend for /api/v1/ literals
 # ---------------------------------------------------------------------------
 
-# Matches single-quoted, double-quoted, and template-literal strings.
-# Template literals with ${} interpolation are captured up to the first $.
+# A /api/v1/... path inside a string literal. It must follow a quote or backtick, OR a "}" (the end of a ${HOST} interpolation:
+# `${API_BASE}/api/v1/x`). The old pattern required a quote immediately before /api/v1 and a quote right after the path, so every call
+# written `${API}/api/v1/...` or `'/api/v1/x?limit=5'` was invisible to this gate: the honeytokens and purple-team pages called routes
+# nothing served, and "Explain this alert" 404'd, and the gate passed. ${...} interpolations are kept as path segments; the path ends
+# at a "?" (query string), a quote, a backtick, whitespace, ")" or ",".
 _FRONTEND_API_RE = re.compile(
-    r"""['"`](/api/v1/[A-Za-z0-9/_{}.\-$]+)['"`]"""
+    r"""(?:(?<=['"`])|(?<=\}))(/api/v1/(?:[A-Za-z0-9/_.\-]|\$\{[^}]*\})+)"""
 )
 
 
@@ -243,6 +246,10 @@ def _route_matches(frontend_path: str, backend_routes: set[str]) -> bool:
     like /api/v1/ghost-things/${id}/nothing.  Both ${var} and {param}
     are treated as equivalent single-segment wildcards via _to_regex.
     """
+    if frontend_path.endswith("/"):
+        # `'/api/v1/purple-team/' + x`: a base path the code appends to. Covered if some route lives under it.
+        prefix = _normalize(frontend_path) + "/"
+        return any(_normalize(r).startswith(prefix) for r in backend_routes)
     norm = _normalize(frontend_path)
     # Build regex from the normalized frontend path; _to_regex converts
     # both ${var} and {param} to [^/]+ wildcards so they match each other.
@@ -273,6 +280,8 @@ def _resolve_service_for_path(
     Returns 'API_HOST' if no rewrite matches (the catch-all default).
     """
     norm = _normalize(frontend_path)
+    if frontend_path.endswith("/"):
+        norm += "/PARAM"  # a trailing-slash literal is a base the code appends to: resolve it as if a segment followed
     # Replace each ${...} with a concrete, slash-free segment. (It used to become
     # the regex text "[^/]+", which itself contains "/", so a rewrite's ":param"
     # segment could never match it and the path fell through to the catch-all.
@@ -309,12 +318,18 @@ _EXCEPTIONS: dict[str, str] = {
     # Enrichment service has its own host variable
     # Fusion/osquery — conditional routers not loaded in dev-mode OpenAPI
     "/api/v1/fusion": "fusion ML endpoint, conditional registration",
+    "/api/v1/fusion/": "base path the console appends to; routed to FUSION_HOST, a service this gate does not model",
     "/api/v1/osquery": "the console builds its FIM URLs from this base path; the API serves only /api/v1/osquery/fim/events and /summary, never the bare base",
     # Report.md paths are served by agents via specific rewrite, but the
     # resolver's :caseId/:runId normalization doesn't match the frontend's
     # ${caseId}/${runId} template literals against the rewrite regex.
     # Copilot conversation by ID — dynamic CRUD not in static OpenAPI
     "/api/v1/copilot/conversations/${id}": "frontend calls a route that does not exist (known bug)",
+    # Dead client code: api.ts defines these two but nothing calls them (test_unserved_stream_exceptions_have_no_callers fails the moment
+    # something does, so this cannot hide a live call). Neither is served: the API serves only /copilot/chat, and the agents service's
+    # copilot is a separate hardcoded-reply endpoint that must NOT be wired in (see the comment in next.config.js).
+    "/api/v1/copilot/chat/stream": "unused client (copilotApi.streamChat); no service serves it",
+    "/api/v1/agents/investigate/stream": "unused client (agentsApi.streamInvestigation); no service serves it",
     # Saved hunt by ID — conditional router not loaded in dev-mode OpenAPI
     }
 
@@ -583,3 +598,81 @@ def test_a_console_call_to_an_unserved_path_with_a_query_suffix_is_still_caught(
     missing = _scan_frontend_paths(extra_sources=["request(`/api/v1/definitely-not-served${qs}`)"]) - set(_scan_frontend_paths())
     assert missing == {"/api/v1/definitely-not-served"}
     assert not _route_matches("/api/v1/definitely-not-served", _load_api_routes())
+
+
+# ---------------------------------------------------------------------------
+# The scanner itself, and the exceptions that must expire
+# ---------------------------------------------------------------------------
+
+class TestFrontendScanner:
+    """The extraction used to miss every call written `${HOST}/api/v1/...`; these pin what it must see."""
+
+    @staticmethod
+    def _scan(src: str) -> set[str]:
+        """Just the extraction, on the given text (_scan_frontend_paths also adds every path in the real console sources)."""
+        return {_strip_query_suffix(m.group(1)) for m in _FRONTEND_API_RE.finditer(src)}
+
+    def test_host_interpolation_prefix_is_seen(self) -> None:
+        assert "/api/v1/honeytokens/${id}/revoke" in self._scan("authFetch(`${API}/api/v1/honeytokens/${id}/revoke`, {})")
+        assert "/api/v1/explain" in self._scan("authFetch(`${AGENTS_BASE}/api/v1/explain`)")
+        assert "/api/v1/x" in self._scan("fetch(`${apiBase}/api/v1/x`)")
+
+    def test_a_literal_query_string_does_not_hide_the_path(self) -> None:
+        assert "/api/v1/things" in self._scan("request('/api/v1/things?limit=5&x=1')")
+        assert "/api/v1/things" in self._scan("request(`/api/v1/things?limit=${n}`)")
+
+    def test_the_forms_that_were_always_seen_still_are(self) -> None:
+        assert "/api/v1/a" in self._scan("request('/api/v1/a')")
+        assert "/api/v1/b" in self._scan('request("/api/v1/b")')
+        assert "/api/v1/c" in self._scan("request(`/api/v1/c${qs}`)")
+        assert "/api/v1/d/${id}/e" in self._scan("request(`/api/v1/d/${id}/e`)")
+        assert "/api/v1/f" in self._scan("const u = base + '/api/v1/f'")
+
+    def test_a_trailing_slash_base_keeps_its_slash(self) -> None:
+        assert "/api/v1/purple-team/" in self._scan("const url = '/api/v1/purple-team/' + path")
+
+    def test_prose_and_comments_are_not_calls(self) -> None:
+        assert self._scan("// the console calls /api/v1/foo here") == set()
+        assert self._scan("see POST /api/v1/bar for details") == set()
+
+    def test_a_ghost_route_behind_a_host_prefix_is_now_caught(self) -> None:
+        found = self._scan("authFetch(`${AGENTS_BASE}/api/v1/ghost-things/${id}/nothing`)")
+        assert found == {"/api/v1/ghost-things/${id}/nothing"}
+        assert not _route_matches("/api/v1/ghost-things/${id}/nothing", {"/api/v1/cases/{case_id}"})
+
+
+class TestPrefixPaths:
+    def test_a_base_is_covered_if_some_route_lives_under_it(self) -> None:
+        routes = {"/api/v1/purple-team/coverage", "/api/v1/other"}
+        assert _route_matches("/api/v1/purple-team/", routes)
+
+    def test_a_base_with_nothing_under_it_is_not_covered(self) -> None:
+        assert not _route_matches("/api/v1/nothing-here/", {"/api/v1/purple-team/coverage"})
+        assert not _route_matches("/api/v1/purple-team/", {"/api/v1/purple-teamx/coverage"})
+
+    def test_a_base_is_resolved_like_a_path_with_a_segment_after_it(self) -> None:
+        rewrites = [("^/api/v1/contextual/.*$", "AGENTS_HOST")]
+        assert _resolve_service_for_path("/api/v1/contextual/", rewrites) == "AGENTS_HOST"
+
+
+class TestExpiringExceptions:
+    def test_unserved_stream_exceptions_have_no_callers(self) -> None:
+        """These two are excused ONLY because nothing calls them. The day something does, the call would 404 in production, so the
+        exception must be resolved (add the route or the rewrite) rather than left to hide it."""
+        callers: list[str] = []
+        for ext in ("*.ts", "*.tsx"):
+            for fpath in WEB_SRC.rglob(ext):
+                if _is_test_source(fpath):
+                    continue
+                for n, line in enumerate(fpath.read_text(encoding="utf-8").splitlines(), 1):
+                    if re.search(r"\.(streamChat|streamInvestigation)\(", line):
+                        callers.append(f"{fpath.relative_to(WEB_SRC)}:{n}: {line.strip()[:90]}")
+        assert not callers, (
+            "streamChat/streamInvestigation are now called, but no service serves their routes. Add the route (or the rewrite) and "
+            "remove them from _EXCEPTIONS:\n" + "\n".join(callers)
+        )
+
+    def test_explain_is_routed_to_the_agents_service(self, rewrites: list[tuple[str, str]] | None = None) -> None:
+        """The console's 'Explain this alert' POSTs /api/v1/explain, which only the agents service serves."""
+        assert _resolve_service_for_path("/api/v1/explain", _parse_rewrites()) == "AGENTS_HOST"
+

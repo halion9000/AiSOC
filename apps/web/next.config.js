@@ -223,6 +223,13 @@ const nextConfig = {
       // renamed prefix, api's /api/v1/hunts falls through to the generic
       // API_HOST catch-all at the bottom of this list instead - both
       // features are genuinely reachable now, at their own distinct paths.
+      // "Explain this alert" (ExplainDrawer -> agentsApi.explainStream) POSTs /api/v1/explain, which only the agents service serves. With no
+      // rule it fell through to the API catch-all below and 404'd. Exact path, so nothing else under /api/v1 is captured. The agents
+      // service authorizes it (alerts:read, services/agents/app/core/route_permissions.py).
+      {
+        source: '/api/v1/explain',
+        destination: `${AGENTS_HOST}/api/v1/explain`,
+      },
       {
         source: '/api/v1/hunt-corpus/:path*',
         destination: `${AGENTS_HOST}/api/v1/hunt-corpus/:path*`,

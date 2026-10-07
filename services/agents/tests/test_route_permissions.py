@@ -23,6 +23,7 @@ CASES = [
     ("GET", "/api/v1/contextual/actions", "alerts:read"),
     ("POST", "/api/v1/contextual/action", "alerts:read"),
     ("POST", "/api/v1/contextual/action/stream", "alerts:read"),
+    ("POST", "/api/v1/explain", "alerts:read"),
     ("POST", "/api/v1/agents/investigate", "cases:write"),
     ("GET", "/api/v1/agents/investigations/r1", "cases:read"),
     ("POST", "/api/v1/cases/c1/investigate", "cases:write"),
@@ -63,3 +64,13 @@ def test_every_console_facing_route_is_covered_by_a_rule():
             if method in ("get", "post", "put", "patch", "delete") and required_permission(method, path) is None:
                 uncovered.append(f"{method.upper()} {path}")
     assert not uncovered, "console-facing agents routes with no permission rule (add one to app/core/route_permissions.py):\n  " + "\n  ".join(uncovered)
+
+
+def test_explain_needs_alerts_read_and_nothing_near_it_is_swept_in():
+    """/api/v1/explain takes an arbitrary alert payload and runs the LLM; it used to need only a login."""
+    assert required_permission("POST", "/api/v1/explain") == "alerts:read"
+    assert required_permission("GET", "/api/v1/explain") is None, "only POST /explain is the endpoint"
+    for lookalike in ("/api/v1/explain/", "/api/v1/explainer", "/api/v1/explain/x", "/api/v1/x/explain"):
+        assert required_permission("POST", lookalike) is None, lookalike
+    assert "/api/v1/explain" in CONSOLE_FACING_PREFIXES, "the coverage test must enforce it from now on"
+
