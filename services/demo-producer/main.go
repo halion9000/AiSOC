@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -237,6 +238,9 @@ func runProducer(ctx context.Context, wg *sync.WaitGroup, profile connectorProfi
 			}
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Tenant-ID", opts.tenant)
+			if token := strings.TrimSpace(os.Getenv("AISOC_INGEST_SERVICE_TOKEN")); token != "" {
+				req.Header.Set("Authorization", "Bearer "+token)
+			}
 			resp, err := client.Do(req)
 			if err != nil {
 				if ctx.Err() == nil {

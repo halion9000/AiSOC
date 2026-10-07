@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/beenuar/aisoc/enrichment/internal/handler"
+	"github.com/beenuar/aisoc/enrichment/internal/serviceauth"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -78,7 +79,7 @@ func New(port string, h *handler.Handler) *Server {
 	return &Server{
 		httpServer: &http.Server{
 			Addr:         fmt.Sprintf(":%s", port),
-			Handler:      r,
+			Handler:      serviceauth.Protect(r, serviceauth.EnrichmentOptions()),
 			ReadTimeout:  15 * time.Second,
 			WriteTimeout: 60 * time.Second,
 			IdleTimeout:  120 * time.Second,

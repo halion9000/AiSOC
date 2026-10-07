@@ -13,6 +13,7 @@ import (
 	"github.com/beenuar/aisoc/services/ingest/internal/graph_ws"
 	"github.com/beenuar/aisoc/services/ingest/internal/handler"
 	"github.com/beenuar/aisoc/services/ingest/internal/inbox"
+	"github.com/beenuar/aisoc/services/ingest/internal/serviceauth"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -138,7 +139,7 @@ func New(cfg *config.Config, h *handler.Handler, inboxHandler *inbox.Handler, gr
 	return &Server{
 		httpServer: &http.Server{
 			Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
-			Handler:      r,
+			Handler:      serviceauth.Protect(r, serviceauth.IngestOptions()),
 			ReadTimeout:  15 * time.Second,
 			WriteTimeout: 30 * time.Second,
 			IdleTimeout:  120 * time.Second,
