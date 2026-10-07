@@ -6,12 +6,14 @@ All settings are read from environment variables prefixed with
 
 from __future__ import annotations
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AISOC_OSQUERY_TLS_",
+        populate_by_name=True,
         env_file=".env",
         extra="ignore",
     )
@@ -22,7 +24,9 @@ class Settings(BaseSettings):
 
     # --- Ingest service -------------------------------------------------
     # Where normalised osquery rows are forwarded to.
-    ingest_url: str = "http://ingest:8080"
+    # The compose service is `ingest-worker` (there is no host called `ingest`), and compose sets AISOC_INGEST_BASE_URL, which this
+    # class (prefix AISOC_OSQUERY_TLS_) never read: both names are accepted now, and the default is the real host.
+    ingest_url: str = Field(default="http://ingest-worker:8080", validation_alias=AliasChoices("AISOC_OSQUERY_TLS_INGEST_URL", "AISOC_INGEST_BASE_URL"))
 
     # --- Enrollment auth ------------------------------------------------
     # The enroll secret that osqueryd must present. In production this should

@@ -103,6 +103,9 @@ class IngestClient:
             "Content-Type": "application/json",
             "X-Tenant-ID": str(tenant_id),
         }
+        token = (os.getenv("AISOC_INGEST_SERVICE_TOKEN") or "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         payload = {
             "connector_id": str(connector_id),
             "connector_type": connector_type,

@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.services.explain_rate_limit import ExplainRateLimiter
+from app.core.internal_auth import enrichment_service_headers
 
 router = APIRouter(prefix="/enrichment", tags=["enrichment"])
 
@@ -163,7 +164,7 @@ async def _post(path: str, payload: dict[str, Any], timeout: float) -> dict[str,
     try:
         # No Authorization header: the enrichment service does no authentication, and the
         # caller's token has no business leaving the API.
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, headers=enrichment_service_headers()) as client:
             resp = await client.post(url, json=payload)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Enrichment service unavailable") from exc

@@ -74,6 +74,7 @@ from app.api.v1.dev_auth import (
 from app.core.security import decode_token
 from app.db.database import get_db
 from app.models.tenant import User
+from app.core.internal_auth import ingest_service_headers
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ router = APIRouter(prefix="/graph_ws", tags=["graph", "realtime"])
 # and the route registered by services/ingest/internal/server/server.go.
 # Operators override per-deployment with AISOC_INGEST_GRAPH_WS_URL,
 # e.g. ws://ingest.aisoc.svc.cluster.local:8080/v1/graph_ws/stream.
-_DEFAULT_UPSTREAM = "ws://ingest:8080/v1/graph_ws/stream"
+_DEFAULT_UPSTREAM = "ws://ingest-worker:8080/v1/graph_ws/stream"  # the compose service is ingest-worker; there is no host `ingest`
 
 
 def _upstream_url(tenant_id: uuid.UUID) -> str:
@@ -252,7 +253,7 @@ async def _relay(websocket: WebSocket, upstream_url: str) -> None:
         return
 
     try:
-        async with aconnect_ws(upstream_url) as upstream:
+        async with aconnect_ws(upstream_url, headers=ingest_service_headers()) as upstream:
             done: asyncio.Event = asyncio.Event()
 
             async def client_to_upstream() -> None:

@@ -240,6 +240,10 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      # Sent to the enrichment service by the API's enrichment gateway.
+      AISOC_ENRICHMENT_SERVICE_TOKEN: ${AISOC_ENRICHMENT_SERVICE_TOKEN:-}
+      # Sent to the ingest service (it authenticates /v1/ingest*); must equal the service's own value.
+      AISOC_INGEST_SERVICE_TOKEN: ${AISOC_INGEST_SERVICE_TOKEN:-}
       # Authenticated gateways to the honeytokens and purple-team services (both in the `extras` profile). Ports are the
       # services' real listening ports (their Dockerfiles).
       HONEYTOKENS_SERVICE_URL: http://honeytokens:8005
@@ -330,6 +334,10 @@ services:
       - "127.0.0.1:8081:8080"
       - "127.0.0.1:9090:9090"
     environment:
+      # Bearer token required on /v1/ingest* and the graph stream (callers send the same value). Exempt on purpose: /health, /metrics,
+      # /v1/inbox/* and /v1/ingest/k8s-audit/*, which carry their own credentials. Outside development an empty token answers 503.
+      AISOC_INGEST_SERVICE_TOKEN: ${AISOC_INGEST_SERVICE_TOKEN:-}
+      AISOC_INGEST_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       ENV: ${AISOC_ENVIRONMENT:-development}
       HTTP_PORT: 8080
       METRICS_PORT: 9090
@@ -365,6 +373,9 @@ services:
     ports:
       - "127.0.0.1:8080:8082"
     environment:
+      # Bearer token required on /enrich and /enrich/bulk (the API's enrichment gateway sends it). Outside development an empty token answers 503.
+      AISOC_ENRICHMENT_SERVICE_TOKEN: ${AISOC_ENRICHMENT_SERVICE_TOKEN:-}
+      AISOC_ENRICHMENT_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/2
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
@@ -588,6 +599,8 @@ services:
     profiles:
       - osquery
     environment:
+      # Sent to the ingest service (it authenticates /v1/ingest*); must equal the service's own value.
+      AISOC_INGEST_SERVICE_TOKEN: ${AISOC_INGEST_SERVICE_TOKEN:-}
       # Internal API (queue a query on a host, read results, manage packs, read FIM events): bearer token.
       # Outside development the service refuses to start on the placeholder enroll secret and answers 503
       # on the internal routes when this token is empty, so a missing value fails closed.
@@ -659,6 +672,8 @@ services:
     # profile-gated). It idles harmlessly with no configured instances; a cold
     # `up` therefore ships the full ingest→detect→respond spine out of the box.
     environment:
+      # Sent to the ingest service (it authenticates /v1/ingest*); must equal the service's own value.
+      AISOC_INGEST_SERVICE_TOKEN: ${AISOC_INGEST_SERVICE_TOKEN:-}
       # Bearer token required on every route except health. Outside development an empty token answers 503
       # (fail closed). The API sends the same value (AISOC_CONNECTORS_SERVICE_TOKEN).
       AISOC_CONNECTORS_SERVICE_TOKEN: ${AISOC_CONNECTORS_SERVICE_TOKEN:-}

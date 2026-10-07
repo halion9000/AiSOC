@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+INGEST_CONNECTOR_ID = "osquery-tls"
+INGEST_CONNECTOR_TYPE = "osquery"
 
 
 async def forward_events(events: list[dict], tenant_id: str) -> None:
@@ -20,12 +24,18 @@ async def forward_events(events: list[dict], tenant_id: str) -> None:
     if not events:
         return
     url = f"{settings.ingest_url}/v1/ingest/batch"
+    # The ingest service requires a bearer token and rejects a batch without connector_id and connector_type (a 400 this forwarder
+    # never sent, so no osquery event had ever been accepted; the failure was swallowed by the log line below).
+    headers = {"X-Tenant-ID": tenant_id}
+    token = (os.getenv("AISOC_INGEST_SERVICE_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 url,
-                json={"events": events},
-                headers={"X-Tenant-ID": tenant_id},
+                json={"connector_id": INGEST_CONNECTOR_ID, "connector_type": INGEST_CONNECTOR_TYPE, "events": events},
+                headers=headers,
             )
             resp.raise_for_status()
     except Exception:
