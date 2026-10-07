@@ -54,3 +54,12 @@ def normalize_ioc(ioc_type: str, value: str) -> str:
 def ioc_hash(ioc_type: str, value: str) -> str:
     """SHA-256 of the normalized IOC. This is what's published — never the value."""
     return hashlib.sha256(normalize_ioc(ioc_type, value).encode()).hexdigest()
+
+
+def opt_out_message(instance_pubkey: str) -> bytes:
+    """The exact bytes an instance signs to opt itself out of the mesh.
+
+    Opting out must be signed by the instance's own key like every other write. A public key is not a secret (it accompanies every
+    published sighting), so an unsigned opt-out let anyone remove any instance from the mesh.
+    """
+    return f"aisoc-mesh-opt-out:v1:{instance_pubkey}".encode()

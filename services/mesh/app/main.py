@@ -45,6 +45,7 @@ class SigPublish(BaseModel):
 
 class OptOut(BaseModel):
     instance_pubkey: str = Field(..., min_length=8)
+    signature: str = Field(..., min_length=8, description="Ed25519 signature over crypto.opt_out_message(instance_pubkey)")
 
 
 @app.post("/v1/sightings")
@@ -90,7 +91,8 @@ def get_signature(signature_key: str) -> dict:
 
 @app.post("/v1/opt-out")
 def opt_out(body: OptOut) -> dict:
-    _hub.opt_out(body.instance_pubkey)
+    if not _hub.opt_out_signed(body.instance_pubkey, body.signature):
+        raise HTTPException(status_code=403, detail="rejected (bad signature)")
     return {"opted_out": True}
 
 

@@ -126,3 +126,8 @@ def test_fusion_token_is_shared_by_the_service_and_both_callers():
     names = {_source_var(x["AISOC_FUSION_SERVICE_TOKEN"]) for x in (fusion, agents, api)}
     assert names == {"AISOC_FUSION_SERVICE_TOKEN"}
     assert _source_var(fusion["ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
+
+
+def test_slack_bot_follows_the_one_environment_switch():
+    """If it stayed at its own default, production would still count as development and the bot would run without verifying Slack."""
+    assert _source_var(_env("slack-bot")["AISOC_SLACK_BOT_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"

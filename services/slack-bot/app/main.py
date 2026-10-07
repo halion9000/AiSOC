@@ -53,7 +53,7 @@ from slack_bolt.async_app import AsyncApp
 
 from app._health import install_health_routes
 from app.commands import handle_aisoc_command
-from app.core.config import get_settings
+from app.core.config import get_settings, is_development
 from app.core.logging import configure_logging
 from app.interactions import (
     APPROVE_ACTION_ID,
@@ -81,10 +81,17 @@ def _build_bolt_app(api_client: AisocApiClient, actions_client: AisocActionsClie
     """
     settings = get_settings()
 
-    # ``request_verification_enabled`` defaults to True; we explicitly
-    # disable it when no signing secret is set so docker-without-secrets
-    # bring-up doesn't 401 every Slack request. Production manifests must
-    # supply ``SLACK_SIGNING_SECRET``.
+    # Without a signing secret Bolt cannot verify that a request really came from Slack, so /slack/events would accept
+    # forged slash commands and interactive payloads from anyone who can reach it. That is tolerable on a developer's
+    # machine and nowhere else: outside development the service refuses to start rather than run unverified.
+    if not settings.signature_verification_enabled and not is_development():
+        raise RuntimeError(
+            "SLACK_SIGNING_SECRET is required outside development: without it /slack/events would accept unsigned "
+            "requests. Set it, or set AISOC_SLACK_BOT_ENVIRONMENT=development for a local run."
+        )
+
+    # In development only, ``request_verification_enabled`` follows whether a signing secret is set so
+    # docker-without-secrets bring-up doesn't 401 every Slack request.
     #
     # ``token`` defaults to a placeholder when missing so Bolt doesn't
     # reject the constructor; outbound API calls obviously won't succeed

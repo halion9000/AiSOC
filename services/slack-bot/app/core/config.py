@@ -104,3 +104,14 @@ class SlackBotSettings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> SlackBotSettings:
     return SlackBotSettings()
+
+
+_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
+
+
+def is_development() -> bool:
+    """True for a plain local run. Unset means development; set-but-empty or unrecognised is NOT (a mistake must fail closed)."""
+    import os
+
+    raw = os.getenv("AISOC_SLACK_BOT_ENVIRONMENT")
+    return ("development" if raw is None else raw).strip().lower() in _DEV_ENVIRONMENTS

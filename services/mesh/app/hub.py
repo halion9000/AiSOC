@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from app.artifacts import IocSighting, VerdictSignature
-from app.crypto import verify
+from app.crypto import verify, opt_out_message
 
 DEFAULT_K = 5
 
@@ -73,6 +73,13 @@ class MeshHub:
     def opt_out(self, instance_pubkey: str) -> None:
         with self._lock:
             self._optout.add(instance_pubkey)
+
+    def opt_out_signed(self, instance_pubkey: str, signature_b64: str) -> bool:
+        """Opt an instance out, but only on a valid signature by that instance's own key. Returns False if rejected."""
+        if not verify(instance_pubkey, opt_out_message(instance_pubkey), signature_b64):
+            return False
+        self.opt_out(instance_pubkey)
+        return True
 
     def is_opted_out(self, instance_pubkey: str) -> bool:
         return instance_pubkey in self._optout

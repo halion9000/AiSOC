@@ -887,6 +887,9 @@ services:
     profiles:
       - chatops
     environment:
+      # Without SLACK_SIGNING_SECRET the bot cannot verify requests really came from Slack, so outside development it refuses to
+      # start. This follows the stack-wide switch; unset leaves it in development mode.
+      AISOC_SLACK_BOT_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       AISOC_API_BASE_URL: http://api:8000
