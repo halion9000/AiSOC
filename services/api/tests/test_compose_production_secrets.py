@@ -88,3 +88,28 @@ def test_actions_service_token_is_shared_by_the_service_and_its_callers():
     DIFFERENT variable (AISOC_SLACK_ACTIONS_TOKEN) that nothing set on the other side, so the two could never match."""
     actions, slack = _env("actions"), _env("slack-bot")
     assert _source_var(actions["AISOC_ACTIONS_SERVICE_TOKEN"]) == _source_var(slack["AISOC_ACTIONS_SERVICE_TOKEN"]) == "AISOC_ACTIONS_SERVICE_TOKEN"
+
+
+def test_connectors_token_is_shared_by_the_api_and_the_service():
+    """The API sends this token; the connectors service enforces it. They must read the SAME variable."""
+    api, conn = _env("api"), _env("connectors")
+    assert _source_var(api["AISOC_CONNECTORS_SERVICE_TOKEN"]) == _source_var(conn["AISOC_CONNECTORS_SERVICE_TOKEN"]) == "AISOC_CONNECTORS_SERVICE_TOKEN"
+
+
+def test_connectors_follows_the_one_environment_switch():
+    """If it stayed at its own default, production would still treat the connectors service as development (open)."""
+    assert _source_var(_env("connectors")["AISOC_CONNECTORS_ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
+
+
+def test_the_api_reaches_connectors_on_the_port_the_container_really_listens_on():
+    """The API defaulted to http://connectors:8003, which is the FUSION service's port: every API->connectors call
+    (case fan-out, federated query, catalog, test-connection, resource config) went to a dead port."""
+    services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    dockerfile = (COMPOSE.parent / "services" / "connectors" / "Dockerfile").read_text(encoding="utf-8")
+    real = int(re.search(r"^EXPOSE\s+(\d+)", dockerfile, re.M).group(1))
+    assert [int(str(p).rsplit(":", 1)[1]) for p in services["connectors"]["ports"]] == [real]
+    assert _env("api")["CONNECTORS_SERVICE_URL"] == f"http://connectors:{real}"
+    fusion = (COMPOSE.parent / "services" / "fusion" / "Dockerfile").read_text(encoding="utf-8")
+    fusion_port = int(re.search(r"^EXPOSE\s+(\d+)", fusion, re.M).group(1))
+    assert real != fusion_port, f"connectors and fusion cannot share port {real}"
+    assert _env("api")["CONNECTORS_SERVICE_URL"] != f"http://connectors:{fusion_port}", "that is the fusion service's port"

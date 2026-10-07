@@ -21,11 +21,12 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app._health import install_health_routes
-from app.api.router import router
+from app.api.router import public_router, router
+from app.security.service_auth import require_service_token
 from app.db.engine import dispose_engine
 from app.scheduler import ConnectorScheduler, scheduler_disabled
 from app.security.cors import build_cors_kwargs
@@ -99,4 +100,6 @@ app.add_middleware(
     **build_cors_kwargs(service_name="connectors", allow_credentials=True),
 )
 
-app.include_router(router, prefix="/api/v1")
+# Every route needs the service token (the API is the only caller) except health, which is public.
+app.include_router(router, prefix="/api/v1", dependencies=[Depends(require_service_token)])
+app.include_router(public_router, prefix="/api/v1")

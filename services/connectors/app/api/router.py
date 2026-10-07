@@ -39,6 +39,8 @@ from app.federated.query import QueryError, parse_unified_query
 
 logger = structlog.get_logger()
 router = APIRouter()
+# Health is the one route that stays open (everything on `router` needs the service token; see main.py).
+public_router = APIRouter()
 
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -478,6 +480,6 @@ async def push_status_change(connector_id: str, payload: PushStatusChangeRequest
     return result
 
 
-@router.get("/health")
+@public_router.get("/health")
 async def health():
     return {"status": "healthy", "service": "aisoc-connectors"}

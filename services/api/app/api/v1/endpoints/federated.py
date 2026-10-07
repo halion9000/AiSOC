@@ -48,6 +48,7 @@ from app.core.config import settings
 from app.models.audit import AuditLog
 from app.models.connector import Connector
 from app.security.credential_vault import CredentialVaultError, get_vault
+from app.core.internal_auth import connectors_service_headers
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +243,7 @@ async def _query_one_backend(
     url = _connectors_query_url(connector.connector_type)
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, headers=connectors_service_headers()) as client:
             resp = await client.post(url, json=payload)
     except httpx.HTTPError as exc:
         logger.warning(

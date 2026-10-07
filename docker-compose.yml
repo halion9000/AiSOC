@@ -240,6 +240,10 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      # The connectors service makes outbound calls with connector config + credentials the CALLER supplies, so it
+      # requires this bearer token (the API is its only caller). It listens on 8087 (8003 is the fusion service).
+      CONNECTORS_SERVICE_URL: http://connectors:8087
+      AISOC_CONNECTORS_SERVICE_TOKEN: ${AISOC_CONNECTORS_SERVICE_TOKEN:-}
       # The API is the console's only route to the osquery service (FIM events): it checks login and tenant,
       # then calls the service with the same internal token the service is configured with.
       OSQUERY_TLS_URL: http://osquery-tls:9001
@@ -640,6 +644,10 @@ services:
     # profile-gated). It idles harmlessly with no configured instances; a cold
     # `up` therefore ships the full ingest→detect→respond spine out of the box.
     environment:
+      # Bearer token required on every route except health. Outside development an empty token answers 503
+      # (fail closed). The API sends the same value (AISOC_CONNECTORS_SERVICE_TOKEN).
+      AISOC_CONNECTORS_SERVICE_TOKEN: ${AISOC_CONNECTORS_SERVICE_TOKEN:-}
+      AISOC_CONNECTORS_ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/6
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc

@@ -58,6 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.connector import Connector
 from app.security.credential_vault import CredentialVaultError, get_vault
+from app.core.internal_auth import connectors_service_headers
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ async def _post_to_connector_service(
     """
     timeout = httpx.Timeout(timeout_seconds, connect=min(5.0, timeout_seconds))
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, headers=connectors_service_headers()) as client:
             resp = await client.post(url, json=payload)
     except httpx.HTTPError as exc:
         return ("error", None, f"connectors service unreachable: {exc}")

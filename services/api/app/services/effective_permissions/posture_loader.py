@@ -31,6 +31,7 @@ from typing import Any
 
 import httpx
 import structlog
+from app.core.internal_auth import connectors_service_headers
 
 logger = structlog.get_logger()
 
@@ -149,8 +150,8 @@ class HttpResourceConfigFetcher:
         self._config = connector_config or {}
 
     async def __call__(self, connector_id: str, resource_id: str, at_ts: str) -> dict[str, Any]:
-        url = f"{self._base}/connectors/{connector_id}/resource_config"
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        url = f"{self._base}/api/v1/connectors/{connector_id}/resource_config"  # routes live under /api/v1
+        async with httpx.AsyncClient(timeout=15.0, headers=connectors_service_headers()) as client:
             resp = await client.post(
                 url,
                 json={

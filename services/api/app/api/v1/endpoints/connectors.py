@@ -40,6 +40,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+from app.core.internal_auth import connectors_service_headers
 
 # Connector type IDs are restricted to alphanumeric, hyphens, and underscores.
 # This prevents path-traversal / partial-SSRF via user-supplied connector_type.
@@ -363,7 +364,7 @@ async def _fetch_catalog() -> list[dict[str, Any]]:
 
     url = _connectors_service_url("/connectors/schemas")
     try:
-        async with httpx.AsyncClient(timeout=_CATALOG_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOG_TIMEOUT, headers=connectors_service_headers()) as client:
             resp = await client.get(url)
             resp.raise_for_status()
     except httpx.HTTPError as exc:
@@ -434,7 +435,7 @@ async def _proxy_test_connection(
         "connector_config": connector_config,
     }
     try:
-        async with httpx.AsyncClient(timeout=_CATALOG_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOG_TIMEOUT, headers=connectors_service_headers()) as client:
             resp = await client.post(url, json=payload)
     except httpx.HTTPError as exc:
         logger.warning(
