@@ -121,26 +121,27 @@ async def test_process_alert_posts_to_root_process_endpoint(
     assert route.calls.last.request.read() == httpx.Request("POST", f"{fusion_url}/process", json=raw_alert).read()
 
 
-async def test_process_alert_forwards_bearer_token(
+async def test_process_alert_sends_the_fusion_service_token_not_the_callers_api_token(
     raw_alert: dict[str, Any],
     fused_alert: dict[str, Any],
     fusion_url: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An ``api_token`` arg is forwarded as ``Authorization: Bearer ...``.
+    """The fusion service requires ITS OWN token (AISOC_FUSION_SERVICE_TOKEN).
 
-    The fusion service can enforce auth on ``/process``; the agents-side
-    client must pass through the caller's token unmodified.
+    The caller's ``api_token`` is a credential for the API, a different service, and is NOT forwarded: it used to be, which
+    handed an API credential to a service with no use for it.
     """
     from app.tools.fusion import process_alert
 
+    monkeypatch.setenv("AISOC_FUSION_SERVICE_TOKEN", "fusion-svc-token")
     async with respx.mock(base_url=fusion_url, assert_all_called=True) as router:
-        route = router.post("/process").mock(
-            return_value=httpx.Response(200, json=fused_alert),
-        )
-
+        route = router.post("/process").mock(return_value=httpx.Response(200, json=fused_alert))
         await process_alert(raw_alert, api_token="tok-123")
 
-    assert route.calls.last.request.headers["authorization"] == "Bearer tok-123"
+    sent = route.calls.last.request.headers
+    assert sent["authorization"] == "Bearer fusion-svc-token"
+    assert "tok-123" not in str(sent)
 
 
 async def test_process_alert_no_token_omits_authorization_header(
@@ -264,22 +265,22 @@ async def test_detect_agent_process_delegates_to_fusion_client(
     assert result == fused_alert
 
 
-async def test_detect_agent_process_forwards_api_token(
+async def test_detect_agent_process_authenticates_to_fusion_with_the_fusion_token(
     raw_alert: dict[str, Any],
     fused_alert: dict[str, Any],
     fusion_url: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The keyword-only ``api_token`` must reach the fusion service."""
+    """``DetectAgent.process`` accepts ``api_token`` for compatibility but fusion only ever sees its own token."""
     from app.agents import DetectAgent
 
+    monkeypatch.setenv("AISOC_FUSION_SERVICE_TOKEN", "fusion-svc-token")
     async with respx.mock(base_url=fusion_url, assert_all_called=True) as router:
-        route = router.post("/process").mock(
-            return_value=httpx.Response(200, json=fused_alert),
-        )
-
+        route = router.post("/process").mock(return_value=httpx.Response(200, json=fused_alert))
         await DetectAgent.process(raw_alert, api_token="downstream-tok")
 
-    assert route.calls.last.request.headers["authorization"] == "Bearer downstream-tok"
+    sent = route.calls.last.request.headers
+    assert sent["authorization"] == "Bearer fusion-svc-token" and "downstream-tok" not in str(sent)
 
 
 async def test_detect_agent_process_propagates_fusion_errors(

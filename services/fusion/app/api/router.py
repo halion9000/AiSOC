@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 
 from app.models.alert import AnalystFeedback, FusedAlert, FusionDecision, RawAlert
 from app.workers.consumer import FusionWorker
+from app.core.service_auth import require_service_token
 
 router = APIRouter()
 
@@ -29,7 +30,7 @@ async def metrics():
     return {"status": "ok", "metrics": FusionWorker.get_metrics()}
 
 
-@router.get("/ml/status")
+@router.get("/ml/status", dependencies=[Depends(require_service_token)])
 async def ml_status():
     """Return current ML model training status."""
     if _worker_ref is None or _worker_ref.engine is None:
@@ -37,7 +38,7 @@ async def ml_status():
     return _worker_ref.engine.ml_scorer.status()
 
 
-@router.post("/ml/feedback")
+@router.post("/ml/feedback", dependencies=[Depends(require_service_token)])
 async def submit_feedback(feedback: AnalystFeedback):
     """Submit analyst feedback to improve ML ranker."""
     if _worker_ref is None or _worker_ref.engine is None:
@@ -46,7 +47,7 @@ async def submit_feedback(feedback: AnalystFeedback):
     return {"status": "accepted", "alert_id": str(feedback.alert_id)}
 
 
-@router.post("/ml/retrain")
+@router.post("/ml/retrain", dependencies=[Depends(require_service_token)])
 async def trigger_retrain():
     """Manually trigger ML model retraining."""
     if _worker_ref is None or _worker_ref.engine is None:
@@ -60,7 +61,7 @@ async def trigger_retrain():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@router.post("/process", response_model=FusedAlert)
+@router.post("/process", response_model=FusedAlert, dependencies=[Depends(require_service_token)])
 async def process_alert(alert: RawAlert) -> FusedAlert:
     """Run a single ``RawAlert`` through the full fusion pipeline.
 
@@ -98,7 +99,7 @@ def _require_entity_risk():
     return eng
 
 
-@router.get("/entity-risk/queue")
+@router.get("/entity-risk/queue", dependencies=[Depends(require_service_token)])
 async def entity_risk_queue(
     tenant_id: UUID,
     limit: int = Query(default=25, ge=1, le=200),
@@ -120,14 +121,14 @@ async def entity_risk_queue(
     }
 
 
-@router.get("/entity-risk/stats")
+@router.get("/entity-risk/stats", dependencies=[Depends(require_service_token)])
 async def entity_risk_stats(tenant_id: UUID):
     """Tenant-scoped queue stats for dashboards (banding, totals, threshold)."""
     eng = _require_entity_risk()
     return {"tenant_id": str(tenant_id), **(await eng.stats(tenant_id))}
 
 
-@router.get("/entity-risk/{entity_type}/{entity_value}")
+@router.get("/entity-risk/{entity_type}/{entity_value}", dependencies=[Depends(require_service_token)])
 async def entity_risk_detail(entity_type: str, entity_value: str, tenant_id: UUID):
     """Return the full risk record (contributing alerts + severity histogram)
     for a single entity, used by the alert-detail drawer."""
@@ -145,7 +146,7 @@ async def entity_risk_detail(entity_type: str, entity_value: str, tenant_id: UUI
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@router.post("/confidence/score")
+@router.post("/confidence/score", dependencies=[Depends(require_service_token)])
 async def score_confidence(alert: RawAlert):
     """Run an alert through the confidence + explainability scorer in
     isolation and return the rationale chain.

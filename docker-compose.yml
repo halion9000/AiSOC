@@ -240,6 +240,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      # Sent by the fusion gateway when FUSION_URL is set.
+      AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
       # The connectors service makes outbound calls with connector config + credentials the CALLER supplies, so it
       # requires this bearer token (the API is its only caller). It listens on 8087 (8003 is the fusion service).
       CONNECTORS_SERVICE_URL: http://connectors:8087
@@ -384,6 +386,9 @@ services:
     ports:
       - "127.0.0.1:8003:8003"
     environment:
+      # Bearer token required on every route except /health and /metrics; outside development an empty token answers 503.
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/3
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
@@ -423,6 +428,10 @@ services:
     ports:
       - "127.0.0.1:8001:8084"
     environment:
+      # Sent to the fusion service on /process (its credential, not an API token).
+      AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
+      # Sent to the threatintel service (its only caller here); must equal the service's own value.
+      AISOC_THREATINTEL_SERVICE_TOKEN: ${AISOC_THREATINTEL_SERVICE_TOKEN:-}
       # Production auth for this service (app/core/service_auth.py): one switch for
       # all services, and the internal token shared with the API and realtime.
       ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
@@ -688,6 +697,9 @@ services:
     ports:
       - "127.0.0.1:8005:8005"
     environment:
+      # Bearer token required on every route except health; outside development an empty token answers 503.
+      ENVIRONMENT: ${AISOC_ENVIRONMENT:-development}
+      AISOC_THREATINTEL_SERVICE_TOKEN: ${AISOC_THREATINTEL_SERVICE_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/7
       OPENSEARCH_URL: http://opensearch:9200

@@ -17,7 +17,7 @@ from functools import partial
 import redis.asyncio as aioredis
 import structlog
 from aiokafka import AIOKafkaProducer
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from neo4j import AsyncGraphDatabase
 from opensearchpy import AsyncOpenSearch
 from prometheus_client import Counter, make_asgi_app
@@ -27,6 +27,7 @@ from app._health import install_health_routes
 from app.actors.attribution import ThreatActorAttributionEngine
 from app.airgap import airgap_status, is_host_allowed_for_airgap
 from app.api.actor_attribution import router as actor_attribution_router
+from app.api.auth import require_actor_auth
 from app.clients.cisa_kev import CisaKevClient
 from app.clients.misp import MispClient
 from app.clients.otx import OtxClient
@@ -308,7 +309,7 @@ async def health() -> dict:
     }
 
 
-@app.get("/api/v1/iocs/search")
+@app.get("/api/v1/iocs/search", dependencies=[Depends(require_actor_auth)])
 async def search_iocs(
     value: str | None = None,
     ioc_type: str | None = None,

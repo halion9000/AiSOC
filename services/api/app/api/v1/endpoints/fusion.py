@@ -35,6 +35,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Depends
 
 from app.api.v1.deps import AuthUser, require_permission
+from app.core.internal_auth import fusion_service_headers
 from app.core.logging import safe_log_value
 
 
@@ -70,7 +71,7 @@ async def _proxy_get(path: str, params: dict[str, Any] | None = None) -> dict[st
         return None
     safe_path = _validate_proxy_path(path)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=fusion_service_headers()) as client:
             resp = await client.get(f"{_FUSION_URL}{safe_path}", params=params or {})
         if resp.status_code >= 500:
             logger.warning(

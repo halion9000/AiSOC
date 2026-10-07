@@ -148,3 +148,26 @@ def test_the_default_url_points_at_the_port_the_connectors_container_listens_on(
     assert default == f"http://connectors:{port}", f"default {default!r}; the container listens on {port} (8003 is the fusion service)"
     example = (APP.parents[2] / ".env.example").read_text(encoding="utf-8")
     assert f"CONNECTORS_SERVICE_URL=http://connectors:{port}" in example
+
+
+# ------------------------------------------------------------------ the fusion gateway ----
+@respx.mock
+@pytest.mark.asyncio
+async def test_the_fusion_gateway_sends_the_fusion_token_and_not_the_connectors_one(monkeypatch):
+    from app.api.v1.endpoints import fusion as fusion_ep
+
+    monkeypatch.setenv("AISOC_FUSION_SERVICE_TOKEN", "fusion-tok")
+    monkeypatch.setattr(fusion_ep, "_FUSION_URL", "http://fusion:8003")
+    route = respx.get("http://fusion:8003/ml/status").mock(return_value=httpx.Response(200, json={"ok": True}))
+    await fusion_ep._proxy_get("/ml/status")
+    sent = route.calls[0].request.headers["authorization"]
+    assert sent == "Bearer fusion-tok" and TOKEN not in sent
+
+
+def test_every_fusion_client_sends_the_fusion_token_and_only_that_module_uses_the_helper():
+    calls = _async_client_calls("api/v1/endpoints/fusion.py")
+    assert calls, "the fusion gateway builds no httpx client any more: update this test"
+    for call in calls:
+        assert [ast.unparse(k.value) for k in call.keywords if k.arg == "headers"] == ["fusion_service_headers()"], call.lineno
+    users = {str(f.relative_to(APP)) for f in APP.rglob("*.py") if "fusion_service_headers" in f.read_text(encoding="utf-8")}
+    assert users == {"api/v1/endpoints/fusion.py", "core/internal_auth.py"}, users

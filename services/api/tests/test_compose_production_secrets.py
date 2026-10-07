@@ -113,3 +113,16 @@ def test_the_api_reaches_connectors_on_the_port_the_container_really_listens_on(
     fusion_port = int(re.search(r"^EXPOSE\s+(\d+)", fusion, re.M).group(1))
     assert real != fusion_port, f"connectors and fusion cannot share port {real}"
     assert _env("api")["CONNECTORS_SERVICE_URL"] != f"http://connectors:{fusion_port}", "that is the fusion service's port"
+
+
+def test_threatintel_token_is_shared_by_the_service_and_the_agents_that_call_it():
+    ti, agents = _env("threatintel"), _env("agents")
+    assert _source_var(ti["AISOC_THREATINTEL_SERVICE_TOKEN"]) == _source_var(agents["AISOC_THREATINTEL_SERVICE_TOKEN"]) == "AISOC_THREATINTEL_SERVICE_TOKEN"
+    assert _source_var(ti["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "an unset environment would leave the service open in production"
+
+
+def test_fusion_token_is_shared_by_the_service_and_both_callers():
+    fusion, agents, api = _env("fusion"), _env("agents"), _env("api")
+    names = {_source_var(x["AISOC_FUSION_SERVICE_TOKEN"]) for x in (fusion, agents, api)}
+    assert names == {"AISOC_FUSION_SERVICE_TOKEN"}
+    assert _source_var(fusion["ENVIRONMENT"]) == "AISOC_ENVIRONMENT"

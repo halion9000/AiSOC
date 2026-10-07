@@ -43,12 +43,14 @@ def _timeout() -> float:
     return float(os.getenv("AGENTS_FUSION_TIMEOUT", _DEFAULT_TIMEOUT))
 
 
-def _headers(api_token: str | None) -> dict[str, str]:
-    # Prefer the caller's own token; otherwise use this service's own key for
-    # background calls (AGENTS_API_TOKEN, issued by AiSOC's production setup).
-    # In production the API refuses anonymous calls, and without this every
-    # graph lookup during an investigation quietly returned nothing.
-    token = api_token or os.getenv("AGENTS_API_TOKEN", "").strip()
+def _headers(api_token: str | None = None) -> dict[str, str]:
+    """Credentials for the FUSION service: its own token, AISOC_FUSION_SERVICE_TOKEN, and nothing else.
+
+    This call goes to the fusion service, not the API. An API token (the caller's, or this service's AGENTS_API_TOKEN) is a
+    credential for a different service and must not be sent here: it did exactly that before, handing an API credential to
+    a service that has no use for it. ``api_token`` is still accepted so existing callers keep working, and is ignored.
+    """
+    token = os.getenv("AISOC_FUSION_SERVICE_TOKEN", "").strip()
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 

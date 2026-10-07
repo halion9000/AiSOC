@@ -26,3 +26,9 @@ def connectors_service_headers() -> dict[str, str]:
     """
     token = (os.getenv("AISOC_CONNECTORS_SERVICE_TOKEN") or "").strip()
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def fusion_service_headers() -> dict[str, str]:
+    """Credentials for the API's calls to the fusion service (``Authorization: Bearer <AISOC_FUSION_SERVICE_TOKEN>``)."""
+    token = (os.getenv("AISOC_FUSION_SERVICE_TOKEN") or "").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
