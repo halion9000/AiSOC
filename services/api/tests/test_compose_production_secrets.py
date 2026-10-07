@@ -118,14 +118,19 @@ def test_fusion_token_is_shared_by_the_service_and_both_callers():
     assert _source_var(fusion["ENVIRONMENT"]) == "AISOC_ENVIRONMENT"
 
 
-def test_realtime_is_mapped_and_probed_on_the_port_it_really_listens_on():
-    """The container listens on 8086 (Dockerfile EXPOSE, PORT default) but compose mapped the host port to 4000 and probed 4000: the
-    container was permanently unhealthy and the console's ws://localhost:8086 reached a port nothing listens on."""
+def test_everything_agrees_on_the_port_realtime_really_listens_on():
+    """The container listens on the PORT compose gives it (4000), NOT the 8086 its Dockerfile EXPOSEs and its code defaults to. A first
+    attempt to 'fix' the mapping read the Dockerfile and broke the healthcheck; and the API's and agents' own defaults (8086, and 3001
+    in the playbook engine) were dead ports, so the push gateway and agent events never reached it. Everything must use the one real
+    port: the compose PORT."""
     services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
-    real = int(re.search(r"^EXPOSE\s+(\d+)", (COMPOSE.parent / "services" / "realtime" / "Dockerfile").read_text(encoding="utf-8"), re.M).group(1))
-    assert [int(str(p).split("#")[0].strip().rsplit(":", 1)[1]) for p in services["realtime"]["ports"]] == [real]
-    probe = " ".join(services["realtime"]["healthcheck"]["test"])
-    assert f"127.0.0.1:{real}/" in probe, probe
+    realtime_env = _env("realtime")
+    assert "PORT" in realtime_env, "realtime's port must be explicit in compose, not inferred from a default or a Dockerfile"
+    port = int(realtime_env["PORT"])
+    assert [int(str(p).split("#")[0].strip().rsplit(":", 1)[1]) for p in services["realtime"]["ports"]] == [port], "host mapping must target the real port"
+    assert f"127.0.0.1:{port}/" in " ".join(services["realtime"]["healthcheck"]["test"]), "the healthcheck must probe the real port"
+    assert _env("api")["REALTIME_BASE_URL"] == f"http://realtime:{port}", "the API's push gateway and approvals must reach realtime"
+    assert _env("agents")["REALTIME_URL"] == f"http://realtime:{port}", "agent events (investigate, triage, playbooks) must reach realtime"
 
 
 def test_realtime_internal_token_is_one_secret_shared_by_the_service_and_both_callers():

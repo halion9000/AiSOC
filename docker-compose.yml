@@ -240,6 +240,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      # realtime listens on its PORT (4000); the code default (8086) is a dead port in this stack, which silently broke the push gateway and approvals.
+      REALTIME_BASE_URL: http://realtime:4000
       # Sent to the enrichment service by the API's enrichment gateway.
       AISOC_ENRICHMENT_SERVICE_TOKEN: ${AISOC_ENRICHMENT_SERVICE_TOKEN:-}
       # Sent to the ingest service (it authenticates /v1/ingest*); must equal the service's own value.
@@ -443,6 +445,8 @@ services:
     ports:
       - "127.0.0.1:8001:8084"
     environment:
+      # Same: the agents' defaults say 8086 (investigate, triage) and 3001 (the playbook engine); realtime is on 4000.
+      REALTIME_URL: http://realtime:4000
       # Sent to the fusion service on /process (its credential, not an API token).
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
       # Sent to the threatintel service (its only caller here); must equal the service's own value.
@@ -854,7 +858,7 @@ services:
       kafka:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8086:8086"  # the container listens on 8086 (Dockerfile EXPOSE, PORT default); it was mapped to 4000, which nothing listens on
+      - "127.0.0.1:8086:4000"  # host 8086 -> the container, which listens on its PORT (4000, set in its environment below)
     environment:
       # Paired with the API: INTERNAL_TOKEN == api REALTIME_INTERNAL_TOKEN, ticket secret shared.
       ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
@@ -867,7 +871,7 @@ services:
     # B15: proven healthcheck for the Node-based realtime service.
     # Alpine has wget but not curl; /health returns 200 when ready.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8086/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
