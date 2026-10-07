@@ -16,11 +16,17 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Each service keeps its OWN Alembic version table. All three share one database and all use revision id "0001", so with the default
+# shared `alembic_version` table the first service to migrate recorded 0001 and every later service saw "already applied" and created nothing
+# (purple-team got only its 0002 table; honeytokens got none).
+VERSION_TABLE = "alembic_version_purple_team"
 target_metadata = Base.metadata
 
-DATABASE_URL = os.environ.get(
-    "PURPLE_TEAM_DATABASE_URL",
-    "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc",
+# The same variables, in the same order, as app/core/config.py, so the app and its migrations always agree on the database.
+DATABASE_URL = (
+    os.environ.get("PURPLE_TEAM_DATABASE_URL")
+    or os.environ.get("DATABASE_URL")
+    or "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc"
 )
 
 
@@ -28,6 +34,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=DATABASE_URL,
         target_metadata=target_metadata,
+        version_table=VERSION_TABLE,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -36,7 +43,7 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection):  # type: ignore[no-untyped-def]
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(connection=connection, target_metadata=target_metadata, version_table=VERSION_TABLE)
     with context.begin_transaction():
         context.run_migrations()
 

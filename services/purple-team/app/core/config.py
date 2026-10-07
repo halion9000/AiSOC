@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="PURPLE_TEAM_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="PURPLE_TEAM_", env_file=".env", extra="ignore", populate_by_name=True)
 
     # Database
-    database_url: str = "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc"
+    # Compose sets plain DATABASE_URL, but this class has the PURPLE_TEAM_ prefix, so it was IGNORED and the service fell back to localhost.
+    database_url: str = Field(
+        default="postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc",
+        validation_alias=AliasChoices("PURPLE_TEAM_DATABASE_URL", "DATABASE_URL"),
+    )
 
     # Caldera integration
     caldera_url: str = "http://localhost:8888"

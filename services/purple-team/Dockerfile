@@ -33,4 +33,5 @@ COPY app/ app/
 
 EXPOSE 8006
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8006"]
+# Apply this service's migrations (idempotent) before serving: nothing else creates its tables.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8006"]
