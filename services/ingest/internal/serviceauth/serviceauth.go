@@ -7,9 +7,8 @@
 // Default deny. Every path needs the token unless the service's Options exempt it by name, so a route added later is protected without
 // anyone remembering to protect it. Exemptions are for health/metrics and for routes that carry their own credential.
 //
-// Fail closed. With no token configured, only a development environment runs open (so a local stack keeps working); anything else
-// answers 503. An unset environment variable means a plain local run; set-but-empty or unrecognised is NOT development, because a
-// mistake must fail closed. The environment is read per request so a redeploy or a test can change it.
+// There is no development mode. With no token configured every request answers 503, and CORE generates the token on every build, so a
+// properly set up stack always has one. The token is read per request so a redeploy or a test can change it.
 //
 // Only the standard library is used on purpose: this package is wired in with one line and is tested in isolation.
 package serviceauth
@@ -27,20 +26,8 @@ import (
 type Options struct {
 	ServiceName    string   // used in messages, e.g. "ingest"
 	TokenEnv       string   // environment variable holding the bearer token
-	EnvironmentEnv string   // environment variable naming the environment (development, production, ...)
 	ExemptPaths    []string // exact paths that need no token (health, metrics)
 	ExemptPrefixes []string // path prefixes whose routes carry their own credential
-}
-
-var developmentEnvironments = map[string]bool{"development": true, "dev": true, "local": true, "test": true}
-
-// IsDevelopment reports whether the named environment variable describes a local development run.
-func IsDevelopment(envName string) bool {
-	raw, set := os.LookupEnv(envName)
-	if !set {
-		return true
-	}
-	return developmentEnvironments[strings.ToLower(strings.TrimSpace(raw))]
 }
 
 // Exempt reports whether a request path needs no token. A path containing empty, "." or ".." segments is never exempt: the router may
@@ -98,10 +85,6 @@ func Protect(next http.Handler, opts Options) http.Handler {
 		}
 		token := strings.TrimSpace(os.Getenv(opts.TokenEnv))
 		if token == "" {
-			if IsDevelopment(opts.EnvironmentEnv) {
-				next.ServeHTTP(w, r)
-				return
-			}
 			writeError(w, http.StatusServiceUnavailable, opts.ServiceName+" service auth is not configured", false)
 			return
 		}

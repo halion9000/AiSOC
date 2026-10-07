@@ -10,7 +10,6 @@ func IngestOptions() Options {
 	return Options{
 		ServiceName:    "ingest",
 		TokenEnv:       "AISOC_INGEST_SERVICE_TOKEN",
-		EnvironmentEnv: "AISOC_INGEST_ENVIRONMENT",
 		ExemptPaths:    []string{"/health", "/metrics"},
 		ExemptPrefixes: []string{"/v1/inbox/", "/v1/ingest/k8s-audit/"},
 	}

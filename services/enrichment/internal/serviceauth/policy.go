@@ -8,7 +8,6 @@ func EnrichmentOptions() Options {
 	return Options{
 		ServiceName:    "enrichment",
 		TokenEnv:       "AISOC_ENRICHMENT_SERVICE_TOKEN",
-		EnvironmentEnv: "AISOC_ENRICHMENT_ENVIRONMENT",
 		ExemptPaths:    []string{"/health"},
 		ExemptPrefixes: []string{},
 	}

@@ -14,7 +14,6 @@ const testToken = "service-token-123"
 var testOptions = Options{
 	ServiceName:    "svc",
 	TokenEnv:       "TEST_SVC_TOKEN",
-	EnvironmentEnv: "TEST_SVC_ENVIRONMENT",
 	ExemptPaths:    []string{"/health", "/metrics"},
 	ExemptPrefixes: []string{"/v1/inbox/"},
 }
@@ -38,22 +37,13 @@ func call(t *testing.T, method, target string, headers map[string]string) (int, 
 	return rec.Code, rec.Body.String(), reached
 }
 
-func configure(t *testing.T, token string, environment *string) {
+func configure(t *testing.T, token string) {
 	t.Helper()
 	t.Setenv("TEST_SVC_TOKEN", token)
-	if environment == nil {
-		// t.Setenv has no "unset": clear it and restore afterwards so the variable is genuinely absent.
-		t.Setenv("TEST_SVC_ENVIRONMENT", "x")
-		unsetForTest(t, "TEST_SVC_ENVIRONMENT")
-		return
-	}
-	t.Setenv("TEST_SVC_ENVIRONMENT", *environment)
 }
 
-func str(s string) *string { return &s }
-
 func TestNoCredentialsIsRefusedAndTheHandlerIsNeverReached(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	code, body, reached := call(t, "POST", "/v1/ingest", nil)
 	if code != http.StatusUnauthorized || reached != 0 || !strings.Contains(body, "invalid or missing service token") {
 		t.Fatalf("got %d reached=%d body=%q", code, reached, body)
@@ -61,7 +51,7 @@ func TestNoCredentialsIsRefusedAndTheHandlerIsNeverReached(t *testing.T) {
 }
 
 func TestTheRightTokenIsAccepted(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	for _, h := range []string{"Bearer " + testToken, "bearer " + testToken, "BEARER " + testToken, "Bearer   " + testToken + "  "} {
 		if code, _, reached := call(t, "POST", "/v1/ingest", map[string]string{"Authorization": h}); code != 200 || reached != 1 {
 			t.Errorf("%q: got %d reached=%d", h, code, reached)
@@ -70,7 +60,7 @@ func TestTheRightTokenIsAccepted(t *testing.T) {
 }
 
 func TestOnlyTheExactTokenIsAccepted(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	for _, h := range []string{"Bearer " + testToken + "x", "Bearer " + testToken[:len(testToken)-1], "Bearer " + strings.Repeat("x", 500), "Basic " + testToken,
 		testToken, "Bearer ", "Bearer", "", "Token " + testToken, "Bearer " + strings.ToUpper(testToken)} {
 		if code, _, reached := call(t, "POST", "/v1/ingest", map[string]string{"Authorization": h}); code != 401 || reached != 0 {
@@ -79,9 +69,12 @@ func TestOnlyTheExactTokenIsAccepted(t *testing.T) {
 	}
 }
 
-func TestWithNoTokenAnythingButDevelopmentFailsClosed(t *testing.T) {
-	for _, env := range []string{"production", "staging", "prod", "prodution", "", "  "} {
-		configure(t, "", str(env))
+func TestWithNoTokenEveryRequestIsRefusedWhateverTheEnvironmentSays(t *testing.T) {
+	// There is no development mode: no environment variable, however it is set (or not), opens an unconfigured service.
+	for _, env := range []string{"production", "staging", "prod", "prodution", "", "  ", "development", "dev", "local", "test", "Development"} {
+		configure(t, "")
+		t.Setenv("ENVIRONMENT", env)
+		t.Setenv("AISOC_ENVIRONMENT", env)
 		for _, headers := range []map[string]string{nil, {"Authorization": "Bearer " + testToken}} {
 			code, body, reached := call(t, "POST", "/v1/ingest", headers)
 			if code != http.StatusServiceUnavailable || reached != 0 || !strings.Contains(body, "auth is not configured") {
@@ -92,27 +85,15 @@ func TestWithNoTokenAnythingButDevelopmentFailsClosed(t *testing.T) {
 }
 
 func TestAWhitespaceOnlyTokenCountsAsNotConfigured(t *testing.T) {
-	configure(t, "   ", str("production"))
+	configure(t, "   ")
 	if code, _, _ := call(t, "POST", "/v1/ingest", nil); code != http.StatusServiceUnavailable {
 		t.Fatalf("got %d", code)
 	}
 }
 
-func TestDevelopmentWithoutATokenStaysOpen(t *testing.T) {
-	for _, env := range []*string{nil, str("development"), str("dev"), str("local"), str("test"), str("Development"), str(" DEV ")} {
-		configure(t, "", env)
-		if code, _, reached := call(t, "POST", "/v1/ingest", nil); code != 200 || reached != 1 {
-			name := "<unset>"
-			if env != nil {
-				name = *env
-			}
-			t.Errorf("env %s: got %d reached=%d", name, code, reached)
-		}
-	}
-}
-
-func TestAConfiguredTokenIsEnforcedInDevelopmentToo(t *testing.T) {
-	configure(t, testToken, str("development"))
+func TestAConfiguredTokenIsAlwaysEnforced(t *testing.T) {
+	configure(t, testToken)
+	t.Setenv("ENVIRONMENT", "development")
 	if code, _, _ := call(t, "POST", "/v1/ingest", nil); code != 401 {
 		t.Fatalf("got %d", code)
 	}
@@ -122,18 +103,16 @@ func TestAConfiguredTokenIsEnforcedInDevelopmentToo(t *testing.T) {
 }
 
 func TestExemptRoutesNeedNoTokenAndNoConfiguration(t *testing.T) {
-	for _, env := range []string{"production", ""} {
-		configure(t, "", str(env))
-		for _, p := range []string{"/health", "/metrics", "/v1/inbox/abc", "/v1/inbox/email/abc"} {
-			if code, _, reached := call(t, "POST", p, nil); code != 200 || reached != 1 {
-				t.Errorf("env %q %s: got %d reached=%d", env, p, code, reached)
-			}
+	configure(t, "")
+	for _, p := range []string{"/health", "/metrics", "/v1/inbox/abc", "/v1/inbox/email/abc"} {
+		if code, _, reached := call(t, "POST", p, nil); code != 200 || reached != 1 {
+			t.Errorf("%s: got %d reached=%d", p, code, reached)
 		}
 	}
 }
 
 func TestNearMissesOfTheExemptionsAreProtected(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	for _, p := range []string{"/healthz", "/health/", "/health/x", "/metrics/x", "/v1/inbox", "/v1/inboxx/abc", "/v1/ingest", "/", "/Health", "/V1/inbox/abc", "/v1/INBOX/abc"} {
 		if code, _, reached := call(t, "POST", p, nil); code != 401 || reached != 0 {
 			t.Errorf("%s: got %d reached=%d, want 401", p, code, reached)
@@ -142,7 +121,7 @@ func TestNearMissesOfTheExemptionsAreProtected(t *testing.T) {
 }
 
 func TestPathTricksCannotRideOnAnExemption(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	for _, p := range []string{"/v1/inbox/../ingest", "/v1/inbox/../../ingest", "/health/../v1/ingest", "//health", "/v1//inbox/abc", "/v1/inbox//abc", "/v1/inbox/./abc",
 		"/v1/inbox/..", "/v1/inbox/abc/..", "/./health", "/health/."} {
 		if testOptions.Exempt(p) {
@@ -161,7 +140,7 @@ func TestPathTricksCannotRideOnAnExemption(t *testing.T) {
 }
 
 func TestCORSPreflightPassesWithoutCredentials(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	if code, _, reached := call(t, "OPTIONS", "/v1/ingest", nil); code != 200 || reached != 1 {
 		t.Fatalf("got %d reached=%d", code, reached)
 	}
@@ -172,7 +151,7 @@ func TestCORSPreflightPassesWithoutCredentials(t *testing.T) {
 }
 
 func TestEveryMethodIsProtected(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	for _, m := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"} {
 		if code, _, reached := call(t, m, "/v1/ingest", nil); code != 401 || reached != 0 {
 			t.Errorf("%s: got %d reached=%d", m, code, reached)
@@ -181,7 +160,7 @@ func TestEveryMethodIsProtected(t *testing.T) {
 }
 
 func TestTheChallengeHeaderIsSetOn401(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	rec := httptest.NewRecorder()
 	Protect(http.NotFoundHandler(), testOptions).ServeHTTP(rec, httptest.NewRequest("POST", "/v1/ingest", nil))
 	if rec.Header().Get("WWW-Authenticate") != "Bearer" || rec.Header().Get("Content-Type") != "application/json" {
@@ -201,7 +180,7 @@ func (h *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func TestTheResponseWriterIsPassedThroughSoWebSocketUpgradesStillWork(t *testing.T) {
-	configure(t, testToken, str("production"))
+	configure(t, testToken)
 	w := &hijackWriter{ResponseRecorder: httptest.NewRecorder()}
 	h := Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hj, ok := w.(http.Hijacker)
@@ -216,18 +195,5 @@ func TestTheResponseWriterIsPassedThroughSoWebSocketUpgradesStillWork(t *testing
 	h.ServeHTTP(w, req)
 	if !w.hijacked {
 		t.Fatal("the handler never got to hijack the connection")
-	}
-}
-
-func TestIsDevelopment(t *testing.T) {
-	configure(t, "", nil)
-	if !IsDevelopment("TEST_SVC_ENVIRONMENT") {
-		t.Error("unset must be development")
-	}
-	for env, want := range map[string]bool{"development": true, "DEV": true, " local ": true, "test": true, "production": false, "": false, "  ": false, "prodution": false} {
-		t.Setenv("TEST_SVC_ENVIRONMENT", env)
-		if got := IsDevelopment("TEST_SVC_ENVIRONMENT"); got != want {
-			t.Errorf("%q: got %v want %v", env, got, want)
-		}
 	}
 }
