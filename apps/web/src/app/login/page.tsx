@@ -7,9 +7,6 @@
  * console. The mobile responder PWA at ``/responder/login`` uses passkeys; this
  * page is the desktop counterpart and the link target from the responder login
  * footer ("Sign in on desktop").
- *
- * Demo credentials live in `services/api/app/api/v1/dev_auth.py`:
- *    / 
  */
 
 import Link from 'next/link';
@@ -20,9 +17,6 @@ import { authApi } from '@/lib/api';
 type Phase = 'idle' | 'pending' | 'success' | 'error';
 
 export const dynamic = 'force-dynamic';
-
-const DEMO_EMAIL = '';
-const DEMO_PASSWORD = '';
 
 /**
  * Sanitize the ``?next=`` redirect target so a crafted link can't be used to
@@ -86,11 +80,6 @@ function LoginInner() {
     }
   };
 
-  const useDemo = () => {
-    setEmail(DEMO_EMAIL);
-    setPassword(DEMO_PASSWORD);
-  };
-
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 antialiased flex flex-col">
       <div className="flex-1 flex items-center justify-center px-6 py-16">
@@ -120,29 +109,8 @@ function LoginInner() {
               Sign in to AiSOC
             </h1>
             <p className="text-sm text-zinc-400 mt-2 leading-relaxed">
-              Open-source AI SOC console. Use the demo credentials below or
-              your own tenant&rsquo;s account.
+              Open-source AI SOC console. Sign in with your tenant&rsquo;s account.
             </p>
-          </div>
-
-          {/* Demo banner */}
-          <div className="mb-6 rounded-xl border border-indigo-500/30 bg-indigo-500/5 px-4 py-3 text-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-medium text-indigo-300">Public demo</p>
-                <p className="text-xs text-zinc-400 mt-0.5">
-                  <code className="text-zinc-300"></code> /{' '}
-                  <code className="text-zinc-300"></code>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={useDemo}
-                className="shrink-0 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20 transition"
-              >
-                Use demo
-              </button>
-            </div>
           </div>
 
           {/* Form */}
