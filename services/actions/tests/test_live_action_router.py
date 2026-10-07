@@ -33,6 +33,7 @@ from app.live_actions import (
     register_executor,
     reset_for_tests,
 )
+from app.core.config import get_settings
 from app.main import app
 from fastapi.testclient import TestClient
 
@@ -73,8 +74,11 @@ class _StubBlockIP(LiveActionExecutor):
         )
 
 
+_TOKEN = "router-test-service-token"
+
+
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """Yield a TestClient with a clean registry seeded with two stubs.
 
     We deliberately *don't* let the startup hook run with the full set
@@ -83,10 +87,15 @@ def client() -> Iterator[TestClient]:
     regardless of how many executors are registered, so two stubs are
     enough to cover the contract.
     """
+    # The live-actions routes need the service bearer token (they execute vendor actions); authenticate like a
+    # real caller. test_service_auth_coverage.py pins that anonymous calls are refused.
+    monkeypatch.setenv("AISOC_ACTIONS_SERVICE_TOKEN", _TOKEN)
+    monkeypatch.delenv("AISOC_DEV_MODE", raising=False)
+    get_settings.cache_clear()
     reset_for_tests()
     register_executor(_StubIsolateHost(), source="builtin")
     register_executor(_StubBlockIP(), source="builtin")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"}) as c:
         # The startup hook re-registered the real builtins on top of our
         # stubs. Wipe again and re-seed so the assertions below see only
         # what we expect.
@@ -95,6 +104,7 @@ def client() -> Iterator[TestClient]:
         register_executor(_StubBlockIP(), source="builtin")
         yield c
     reset_for_tests()
+    get_settings.cache_clear()
 
 
 def test_discovery_returns_all_registered_executors(client: TestClient) -> None:

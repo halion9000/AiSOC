@@ -81,3 +81,10 @@ def test_osquery_ports_match_what_the_container_really_listens_on():
 
 def test_the_enroll_secret_is_read_from_env_not_hardcoded():
     _source_var(_env("osquery-tls")["AISOC_OSQUERY_TLS_ENROLL_SECRET"])
+
+
+def test_actions_service_token_is_shared_by_the_service_and_its_callers():
+    """The actions service has always demanded this token, but compose never gave it one, and the Slack bot read a
+    DIFFERENT variable (AISOC_SLACK_ACTIONS_TOKEN) that nothing set on the other side, so the two could never match."""
+    actions, slack = _env("actions"), _env("slack-bot")
+    assert _source_var(actions["AISOC_ACTIONS_SERVICE_TOKEN"]) == _source_var(slack["AISOC_ACTIONS_SERVICE_TOKEN"]) == "AISOC_ACTIONS_SERVICE_TOKEN"

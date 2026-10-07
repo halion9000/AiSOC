@@ -598,6 +598,10 @@ services:
     ports:
       - "127.0.0.1:8002:8085"
     environment:
+      # Bearer token required on every route except health and the signed ChatOps callback (POST /actions,
+      # approve, reject, GET /actions/{id}, and all of /live-actions, which executes vendor actions). Empty means
+      # the routes answer 503 (fail closed) unless AISOC_DEV_MODE is set. Callers (slack-bot) read the same variable.
+      AISOC_ACTIONS_SERVICE_TOKEN: ${AISOC_ACTIONS_SERVICE_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/5
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
@@ -853,7 +857,7 @@ services:
       AISOC_API_BASE_URL: http://api:8000
       AISOC_ACTIONS_BASE_URL: http://actions:8085
       AISOC_API_SERVICE_TOKEN: ${AISOC_SLACK_API_TOKEN:-}
-      AISOC_ACTIONS_SERVICE_TOKEN: ${AISOC_SLACK_ACTIONS_TOKEN:-}
+      AISOC_ACTIONS_SERVICE_TOKEN: ${AISOC_ACTIONS_SERVICE_TOKEN:-}
       AISOC_DEFAULT_TENANT_ID: ${AISOC_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
       AISOC_WEB_BASE_URL: ${AISOC_WEB_BASE_URL:-http://localhost:3000}
       AISOC_SLACK_BOT_PORT: 8089

@@ -32,9 +32,10 @@ from __future__ import annotations
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from app.security.authz import require_service_auth
 from app.live_actions import (
     LiveActionDescriptor,
     LiveActionRequest,
@@ -46,7 +47,11 @@ from app.live_actions import (
 )
 
 logger = structlog.get_logger(__name__)
-router = APIRouter(prefix="/live-actions", tags=["live-actions"])
+# Every route here needs the service bearer token (AISOC_ACTIONS_SERVICE_TOKEN), failing closed when it is not
+# configured outside dev mode: POST /dispatch runs a vendor executor synchronously and, unlike POST /actions,
+# goes through none of the blast-radius gate, approval, principal or audit checks, so it must not be reachable
+# anonymously by whatever else shares the network.
+router = APIRouter(prefix="/live-actions", tags=["live-actions"], dependencies=[Depends(require_service_auth)])
 
 
 class LiveActionDiscoveryResponse(BaseModel):

@@ -163,8 +163,8 @@ async def reject_action(action_id: str, _auth: None = Depends(require_service_au
 
 
 @router.get("/actions/{action_id}")
-async def get_action(action_id: str):
-    """Get action status and result."""
+async def get_action(action_id: str, _auth: None = Depends(require_service_auth)):
+    """Get action status and result. (Needs the service token: the record holds the target, params and requester.)"""
     record = _actions.get(action_id)
     if not record:
         raise HTTPException(status_code=404, detail="Action not found")
