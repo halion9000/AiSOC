@@ -542,6 +542,10 @@ async def _resolve_active_baseline(
     return q.scalar_one_or_none()
 
 
+# Connection settings the eval subprocess must NOT inherit (see _run_eval_subprocess).
+_EVAL_ENV_STRIPPED = ("DATABASE_URL", "MIGRATION_DATABASE_URL")
+
+
 def _run_eval_subprocess(
     *,
     baseline_path: Path | None,
@@ -567,6 +571,10 @@ def _run_eval_subprocess(
         cmd.extend(["--baseline", str(baseline_path)])
 
     env = os.environ.copy()
+    # The eval harness is documented as deterministic and OFFLINE, but it runs the agents' own memory suites, which write through DATABASE_URL: with the API's connection inherited it wrote fixture tenants (t-search, tenant-C,
+    # analyst_override:ALT-100...) into the live aisoc_institutional_memory and never cleaned them up. Without a database those suites use their in-memory fallback.
+    for name in _EVAL_ENV_STRIPPED:
+        env.pop(name, None)
     # The runner imports modules from services/agents — ensure that path is always present.
     agents_path = str(_REPO_ROOT / "services" / "agents")
     existing_pp = env.get("PYTHONPATH", "")

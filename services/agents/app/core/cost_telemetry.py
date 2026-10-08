@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
+from app.core.ensure_table import close_quietly, ensure_table, report_unavailable
 
 logger = structlog.get_logger()
 
@@ -100,24 +101,7 @@ class CallRecord:
 _POOL: Any = None
 
 
-async def _get_pool() -> Any | None:
-    global _POOL
-    if _POOL is not None:
-        return _POOL
-    dsn = os.environ.get("DATABASE_URL", "").strip()
-    if not dsn:
-        return None
-    try:
-        import asyncpg  # type: ignore[import]
-
-        pool = await asyncpg.create_pool(
-            dsn.replace("postgresql+asyncpg://", "postgresql://").replace("postgres+asyncpg://", "postgresql://"),
-            min_size=1,
-            max_size=2,
-        )
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
+_DDL = """
                 CREATE TABLE IF NOT EXISTS aisoc_run_costs (
                     run_id          TEXT NOT NULL,
                     tenant_id       TEXT NOT NULL,
@@ -133,11 +117,30 @@ async def _get_pool() -> Any | None:
                 CREATE INDEX IF NOT EXISTS aisoc_run_costs_tenant_run
                     ON aisoc_run_costs (tenant_id, run_id);
                 """
-            )
+
+
+async def _get_pool() -> Any | None:
+    global _POOL
+    if _POOL is not None:
+        return _POOL
+    dsn = os.environ.get("DATABASE_URL", "").strip()
+    if not dsn:
+        return None
+    pool = None
+    try:
+        import asyncpg  # type: ignore[import]
+
+        pool = await asyncpg.create_pool(
+            dsn.replace("postgresql+asyncpg://", "postgresql://").replace("postgres+asyncpg://", "postgresql://"),
+            min_size=1,
+            max_size=2,
+        )
+        await ensure_table(pool, "aisoc_run_costs", _DDL)  # only if the migrations have not created it
         _POOL = pool
         return _POOL
     except Exception as exc:
-        logger.debug("cost_telemetry.db_unavailable", error=str(exc))
+        await close_quietly(pool)  # it used to leak: one open connection per failed call
+        report_unavailable(logger, "cost_telemetry.db_unavailable", str(exc), "run costs are NOT recorded to the database")
         return None
 
 

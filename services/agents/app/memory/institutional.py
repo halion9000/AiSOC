@@ -24,6 +24,7 @@ import os
 from typing import Any
 
 import structlog
+from app.core.ensure_table import close_quietly, ensure_table, report_unavailable
 
 logger = structlog.get_logger()
 
@@ -36,21 +37,7 @@ def _normalise_dsn(url: str) -> str:
     return url.replace("postgresql+asyncpg://", "postgresql://").replace("postgres+asyncpg://", "postgresql://")
 
 
-async def _get_pool() -> Any | None:
-    global _POOL
-    if _POOL is not None:
-        return _POOL
-    dsn = os.environ.get("DATABASE_URL", "").strip()
-    if not dsn:
-        return None
-    try:
-        import asyncpg  # type: ignore[import]
-
-        pool = await asyncpg.create_pool(_normalise_dsn(dsn), min_size=1, max_size=3)
-        # Ensure table exists
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
+_DDL = """
                 CREATE TABLE IF NOT EXISTS aisoc_institutional_memory (
                     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     tenant_id       TEXT NOT NULL,
@@ -65,11 +52,26 @@ async def _get_pool() -> Any | None:
                 CREATE INDEX IF NOT EXISTS aisoc_institutional_memory_tenant_key
                     ON aisoc_institutional_memory (tenant_id, key);
                 """
-            )
+
+
+async def _get_pool() -> Any | None:
+    global _POOL
+    if _POOL is not None:
+        return _POOL
+    dsn = os.environ.get("DATABASE_URL", "").strip()
+    if not dsn:
+        return None
+    pool = None
+    try:
+        import asyncpg  # type: ignore[import]
+
+        pool = await asyncpg.create_pool(_normalise_dsn(dsn), min_size=1, max_size=3)
+        await ensure_table(pool, "aisoc_institutional_memory", _DDL)  # only if the migrations have not created it
         _POOL = pool
         return _POOL
     except Exception as exc:
-        logger.debug("memory.institutional.db_unavailable", error=str(exc))
+        await close_quietly(pool)  # it used to leak: one open connection per failed call
+        report_unavailable(logger, "memory.institutional.db_unavailable", str(exc), "institutional memory is NOT persisted or shared: this process uses an in-memory fallback")
         return None
 
 
