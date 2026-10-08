@@ -9,7 +9,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
  * onboarding root page (WS-A2). Triggered by `?welcome=1`.
  *
  * The banner explains the three highest-leverage next steps an operator can
- * take from a cold dashboard, then self-clears the querystring so a refresh
+ * take from a cold dashboard (it used to suggest loading the demo seed and opened a
+ * sample case, INC-RT-001, that does not exist in a real workspace), then self-clears the querystring so a refresh
  * doesn't re-trigger it. We deliberately keep this lightweight — WS-F5 owns
  * the deep empty-state polish for every list view.
  */
@@ -68,19 +69,19 @@ export function DashboardWelcome() {
         <Tip
           step="1"
           title="Connect a source"
-          body="Pick from 26 vendors. EDR + cloud + IAM gives the agent enough signal to start triaging."
+          body="EDR, cloud and identity sources give the agent enough signal to start triaging."
           cta={{ label: 'Open the connector gallery →', href: '/onboarding' }}
         />
         <Tip
           step="2"
-          title="Or load the demo seed"
-          body="Run pnpm seed:demo and refresh. You'll get an in-flight LockBit case to investigate."
-          cta={{ label: 'Open a sample case →', href: '/cases/INC-RT-001?tab=ledger' }}
+          title="Review detection rules"
+          body="Browse the community catalog, or write your own rule and test it against an example event."
+          cta={{ label: 'Open detections \u2192', href: '/detection' }}
         />
         <Tip
           step="3"
           title="Browse playbooks"
-          body="25 named runbooks for ransomware, BEC, account takeover, cloud-TO, and more."
+          body="Runbooks for ransomware, business email compromise, account takeover, cloud takeover, and more."
           cta={{ label: 'Open the playbook gallery →', href: '/playbooks' }}
         />
       </ul>
