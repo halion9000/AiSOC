@@ -7,14 +7,14 @@
  *   - Profile        Identity + display preferences for the current operator.
  *   - Workspace      Tenant / org-level metadata.
  *   - Integrations   Connectors managed via the connectorsApi.
- *   - API keys       Programmatic access (demo).
+ *   - API keys       Programmatic access, from the apiKeysApi.
  *   - Notifications  Alerting preferences (localStorage).
  *   - Appearance     Theme, density, motion (localStorage).
- *   - Audit log      Recent settings/security events (demo).
+ *   - Audit log      Recent settings/security events, from the audit API.
  *   - About          Build, license, support links.
  *
- * Designed to keep working when the backend hasn't been deployed: everything
- * has a graceful demo fallback so the page always feels alive.
+ * Nothing here is sample data. Profile and Workspace show the signed-in account and its tenant; where a call fails or is not permitted
+ * the panel says so instead of showing invented content (it used to show a made-up person, workspace and member list).
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -29,8 +29,13 @@ import toast from 'react-hot-toast';
 import {
   ApiError,
   apiKeysApi,
+  authApi,
   connectorsApi,
   deploymentApi,
+  tenantsApi,
+  type AuthUser,
+  type TenantDetails,
+  type TenantUser,
   type AirgapStatus,
   type Connector,
   type ConnectorStatus,
@@ -101,21 +106,35 @@ const DEFAULT_PREFS: Preferences = {
 };
 
 const STORAGE_KEY = 'aisoc:settings:preferences';
-const PROFILE_KEY = 'aisoc:settings:profile';
+/** The old browser-only profile, seeded with a made-up person. It is no longer read; it is removed so it cannot linger. */
+const LEGACY_PROFILE_KEY = 'aisoc:settings:profile';
 
-interface ProfileData {
+export interface ProfileData {
   displayName: string;
   email: string;
   title: string;
   timezone: string;
 }
 
-const DEFAULT_PROFILE: ProfileData = {
-  displayName: 'Sasha Lin',
-  email: 'sasha.lin@example.com',
-  title: 'Senior SOC Analyst',
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-};
+function browserTimezone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+/**
+ * The profile of the signed-in account: the email and role come from the account itself (the address given at setup), and the display name,
+ * title and timezone from the preferences saved on it. Null when nobody is signed in. Nothing is invented: an unset title is empty.
+ */
+export function profileFromAccount(user: AuthUser | null): ProfileData | null {
+  if (!user) return null;
+  const saved = (user.preferences?.profile ?? {}) as Record<string, unknown>;
+  const text = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+  return {
+    displayName: text(saved.displayName) ?? user.username ?? '',
+    email: user.email,
+    title: text(saved.title) ?? '',
+    timezone: text(saved.timezone) || browserTimezone(),
+  };
+}
 
 const STATUS_PILL: Record<ConnectorStatus, string> = {
   active: 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/40',
@@ -148,26 +167,6 @@ function savePreferences(prefs: Preferences) {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-  } catch {
-    /* ignore */
-  }
-}
-
-function loadProfile(): ProfileData {
-  if (typeof window === 'undefined') return DEFAULT_PROFILE;
-  try {
-    const raw = window.localStorage.getItem(PROFILE_KEY);
-    if (!raw) return DEFAULT_PROFILE;
-    return { ...DEFAULT_PROFILE, ...(JSON.parse(raw) as Partial<ProfileData>) };
-  } catch {
-    return DEFAULT_PROFILE;
-  }
-}
-
-function saveProfile(profile: ProfileData) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
   } catch {
     /* ignore */
   }
@@ -397,26 +396,60 @@ function Toggle({
 // ─── Panel: Profile ───────────────────────────────────────────────────────────
 
 function ProfilePanel() {
-  const [profile, setProfile] = useState<ProfileData>(DEFAULT_PROFILE);
+  const [account, setAccount] = useState<AuthUser | null>(null);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [ready, setReady] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setProfile(loadProfile());
+    // Read on the client only, so the server render and the first browser render agree.
+    const user = authApi.currentUser();
+    setAccount(user);
+    setProfile(profileFromAccount(user));
+    setReady(true);
+    try {
+      window.localStorage.removeItem(LEGACY_PROFILE_KEY);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  const update = <K extends keyof ProfileData>(key: K, value: ProfileData[K]) => {
-    setProfile((p) => ({ ...p, [key]: value }));
+  const update = <K extends 'displayName' | 'title' | 'timezone'>(key: K, value: ProfileData[K]) => {
+    setProfile((p) => (p ? { ...p, [key]: value } : p));
     setDirty(true);
   };
 
-  const onSave = () => {
-    saveProfile(profile);
-    setDirty(false);
-    toast.success('Profile updated');
+  const onSave = async () => {
+    if (!profile) return;
+    setSaving(true);
+    try {
+      const updated = await authApi.updateUserPreferences({
+        profile: { displayName: profile.displayName, title: profile.title, timezone: profile.timezone },
+      });
+      setAccount(updated);
+      setDirty(false);
+      toast.success('Profile updated');
+    } catch {
+      toast.error('Could not save your profile. Try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const initials = profile.displayName
-    .split(/\s+/)
+  if (!ready) return <div className="px-6 py-8 text-sm text-gray-500">Loading your profile…</div>;
+  if (!profile) {
+    return (
+      <div>
+        <PanelHeader title="Profile" description="Your identity inside this workspace." />
+        <div className="px-6 py-8 text-sm text-gray-400">Sign in to view and edit your profile.</div>
+      </div>
+    );
+  }
+
+  const label = profile.displayName || profile.email;
+  const initials = label
+    .split(/[\s@.]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? '')
@@ -430,16 +463,14 @@ function ProfilePanel() {
         action={
           <button
             type="button"
-            disabled={!dirty}
-            onClick={onSave}
+            disabled={!dirty || saving}
+            onClick={() => void onSave()}
             className={clsx(
               'rounded-lg px-4 py-2 text-sm font-medium transition-colors',
-              dirty
-                ? 'bg-blue-600 text-white hover:bg-blue-500'
-                : 'cursor-not-allowed bg-gray-800 text-gray-500',
+              dirty && !saving ? 'bg-blue-600 text-white hover:bg-blue-500' : 'cursor-not-allowed bg-gray-800 text-gray-500',
             )}
           >
-            Save changes
+            {saving ? 'Saving…' : 'Save changes'}
           </button>
         }
       />
@@ -447,14 +478,12 @@ function ProfilePanel() {
         <div className="flex items-center gap-4">
           <div
             aria-hidden
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-600 text-xl font-semibold text-white ring-2 ring-gray-800"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-600 text-xl font-semibold text-white ring-2 ring-gray-700"
           >
             {initials || '?'}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-gray-100">
-              {profile.displayName || 'Unnamed user'}
-            </p>
+            <p className="truncate text-base font-semibold text-gray-100">{profile.displayName || 'Unnamed user'}</p>
             <p className="truncate text-sm text-gray-400">{profile.email}</p>
             <p className="mt-1 text-xs text-gray-500">
               Avatar generated from initials.{' '}
@@ -470,43 +499,26 @@ function ProfilePanel() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Display name">
-            <input
-              className={inputClass()}
-              value={profile.displayName}
-              onChange={(e) => update('displayName', e.target.value)}
-              placeholder="e.g. Avi Sharma"
-            />
+            <input className={inputClass()} value={profile.displayName} onChange={(e) => update('displayName', e.target.value)} placeholder="Your name" />
           </Field>
-          <Field label="Email" hint="Used for notifications and login.">
-            <input
-              type="email"
-              className={inputClass()}
-              value={profile.email}
-              onChange={(e) => update('email', e.target.value)}
-              placeholder="you@org.com"
-            />
+          <Field label="Email" hint="The address on your account. It is used to sign in.">
+            <input type="email" className={inputClass()} value={profile.email} readOnly aria-readonly="true" />
           </Field>
           <Field label="Job title">
-            <input
-              className={inputClass()}
-              value={profile.title}
-              onChange={(e) => update('title', e.target.value)}
-              placeholder="e.g. SOC Analyst"
-            />
+            <input className={inputClass()} value={profile.title} onChange={(e) => update('title', e.target.value)} placeholder="e.g. SOC Analyst" />
           </Field>
           <Field label="Timezone" hint="Used to localize timestamps.">
-            <input
-              className={inputClass()}
-              value={profile.timezone}
-              onChange={(e) => update('timezone', e.target.value)}
-              placeholder="e.g. America/Los_Angeles"
-            />
+            <input className={inputClass()} value={profile.timezone} onChange={(e) => update('timezone', e.target.value)} placeholder="e.g. America/Los_Angeles" />
           </Field>
+          {account?.role ? (
+            <Field label="Role" hint="Set by a workspace administrator.">
+              <input className={inputClass()} value={account.role} readOnly aria-readonly="true" />
+            </Field>
+          ) : null}
         </div>
 
         <div className="rounded-lg border border-gray-800 bg-gray-950/40 p-4 text-xs text-gray-500">
-          Profile preferences are persisted to your user account and sync
-          across devices when you sign in.
+          Your display name, job title and timezone are saved to your user account and follow you across devices when you sign in.
         </div>
       </div>
     </div>
@@ -515,51 +527,62 @@ function ProfilePanel() {
 
 // ─── Panel: Workspace ─────────────────────────────────────────────────────────
 
+/** What to tell someone when a workspace call fails: a 403 means "not permitted", never "here is some sample data". */
+export function workspaceProblem(error: unknown, what: string): string {
+  if (error instanceof ApiError && error.status === 403) return `Your role is not permitted to view ${what}. Ask a workspace administrator.`;
+  const detail = error instanceof Error && error.message ? ` (${error.message})` : '';
+  return `Could not load ${what}${detail}.`;
+}
+
 function WorkspacePanel() {
+  const { data: tenant, error: tenantError, isLoading: tenantLoading } = useSWR<TenantDetails>('settings:workspace', () => tenantsApi.details());
+  const { data: members, error: membersError, isLoading: membersLoading } = useSWR<TenantUser[]>('settings:workspace-members', () => tenantsApi.users());
+
   return (
     <div>
-      <PanelHeader
-        title="Workspace"
-        description="Tenant identity and locale settings. Available to workspace administrators."
-      />
-      <div className="grid gap-5 px-6 py-5 sm:grid-cols-2">
-        <InfoTile label="Workspace name" value="AiSOC Demo" />
-        <InfoTile label="Tenant ID" value="tenant_demo_01H0XE4T2WJ9N6" mono />
-        <InfoTile label="Plan" value="Open-source (MIT)" />
-        <InfoTile label="Region" value="us-east-1 / Multi-AZ" />
-        <InfoTile label="Created" value={format(Date.now() - 1000 * 60 * 60 * 24 * 96, 'PPP')} />
-        <InfoTile
-          label="Default locale"
-          value={`${Intl.DateTimeFormat().resolvedOptions().locale} • 24h`}
-        />
-      </div>
+      <PanelHeader title="Workspace" description="Tenant identity and locale settings. Available to workspace administrators." />
+      {tenantLoading && !tenant ? (
+        <div role="status" className="px-6 py-5 text-sm text-gray-500">Loading workspace…</div>
+      ) : tenantError && !tenant ? (
+        <div role="alert" className="px-6 py-5 text-sm text-gray-400">{workspaceProblem(tenantError, 'this workspace')}</div>
+      ) : tenant ? (
+        <div className="grid gap-5 px-6 py-5 sm:grid-cols-2">
+          <InfoTile label="Workspace name" value={tenant.name} />
+          <InfoTile label="Tenant ID" value={tenant.id} mono />
+          <InfoTile label="Plan" value={tenant.plan} />
+          <InfoTile label="Created" value={Number.isNaN(new Date(tenant.created_at).getTime()) ? '—' : format(new Date(tenant.created_at), 'PPP')} />
+          <InfoTile label="Default locale" value={`${Intl.DateTimeFormat().resolvedOptions().locale} • 24h`} />
+        </div>
+      ) : null}
       <div className="border-t border-gray-800 px-6 py-5">
         <h3 className="text-sm font-semibold text-gray-200">Members</h3>
-        <p className="mt-1 text-xs text-gray-500">
-          5 active operators in this workspace (demo data).
-        </p>
-        <ul className="mt-3 divide-y divide-gray-800 rounded-lg border border-gray-800 bg-gray-950/40">
-          {[
-            { name: 'Sasha Lin', email: 'sasha.lin@example.com', role: 'Admin' },
-            { name: 'Avi Sharma', email: 'avi.sharma@example.com', role: 'Analyst' },
-            { name: 'Diego Vega', email: 'diego.vega@example.com', role: 'Analyst' },
-            { name: 'Mia Ocampo', email: 'mia.ocampo@example.com', role: 'Hunter' },
-            { name: 'CI Service', email: 'ci@example.com', role: 'Service' },
-          ].map((m) => (
-            <li
-              key={m.email}
-              className="flex items-center justify-between px-4 py-3 text-sm"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-gray-100">{m.name}</p>
-                <p className="truncate text-xs text-gray-500">{m.email}</p>
-              </div>
-              <span className="rounded-full bg-gray-800 px-2.5 py-1 text-xs text-gray-300 ring-1 ring-gray-700">
-                {m.role}
-              </span>
-            </li>
-          ))}
-        </ul>
+        {membersLoading && !members ? (
+          <p role="status" className="mt-1 text-xs text-gray-500">Loading members…</p>
+        ) : membersError && !members ? (
+          <p role="alert" className="mt-1 text-xs text-gray-400">{workspaceProblem(membersError, 'the members of this workspace')}</p>
+        ) : members && members.length === 0 ? (
+          <p className="mt-1 text-xs text-gray-500">No members found.</p>
+        ) : members ? (
+          <>
+            <p className="mt-1 text-xs text-gray-500">
+              {members.length} {members.length === 1 ? 'member' : 'members'} in this workspace.
+            </p>
+            <ul className="mt-3 divide-y divide-gray-800 rounded-lg border border-gray-800 bg-gray-950/40">
+              {members.map((m) => (
+                <li key={m.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate text-gray-100">{m.username || m.email}</p>
+                    <p className="truncate text-xs text-gray-500">{m.email}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {m.is_active ? null : <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-xs text-red-300 ring-1 ring-red-500/30">Disabled</span>}
+                    <span className="rounded-full bg-gray-800 px-2.5 py-1 text-xs text-gray-300 ring-1 ring-gray-700">{m.role}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
       </div>
     </div>
   );

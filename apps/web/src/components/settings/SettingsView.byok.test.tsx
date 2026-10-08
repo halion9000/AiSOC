@@ -62,6 +62,9 @@ vi.mock('@/lib/api', () => ({
     list: mockGetConnectors,
     statuses: mockGetConnectorStatuses,
   },
+  // The Profile tab renders by default; it reads the signed-in account.
+  authApi: { currentUser: () => null, updateUserPreferences: vi.fn() },
+  tenantsApi: { details: vi.fn(), users: vi.fn() },
   ApiError: class ApiError extends Error {
     status: number;
     constructor(message: string, status = 500) {

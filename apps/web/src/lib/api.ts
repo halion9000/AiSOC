@@ -371,6 +371,27 @@ export interface ChildTenant {
   created_at?: string;
 }
 
+export interface TenantDetails {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  is_active: boolean;
+  created_at: string;
+  mssp_role?: string | null;
+  parent_tenant_id?: string | null;
+}
+
+export interface TenantUser {
+  id: string;
+  email: string;
+  username: string | null;
+  role: string;
+  is_active: boolean;
+  last_login: string | null;
+  created_at: string;
+}
+
 export const tenantsApi = {
   /**
    * Lightweight tenant identity for the SOC console TopBar.
@@ -383,11 +404,55 @@ export const tenantsApi = {
   async me(): Promise<MyTenant> {
     return request<MyTenant>('/api/v1/tenants/me/identity');
   },
+  /** The full tenant record (name, plan, creation date). Needs `settings:read`; an analyst without it gets a 403. */
+  async details(): Promise<TenantDetails> {
+    return request<TenantDetails>('/api/v1/tenants/me');
+  },
+  /** Everyone in this tenant. Needs `users:read`; a role without it gets a 403. */
+  async users(): Promise<TenantUser[]> {
+    return request<TenantUser[]>('/api/v1/tenants/me/users');
+  },
 };
+
+/**
+ * Cross-tenant totals for the MSSP parent dashboard. Every figure is the sum or mean over the child tenants that have reported a metrics
+ * snapshot, and is `null` when none has. Never a made-up number: the server used to return hard-coded demo values here.
+ */
+export interface MsspOverview {
+  total_tenants: number;
+  tenants_reporting: number;
+  total_open_alerts: number | null;
+  total_critical_alerts: number | null;
+  total_open_cases: number | null;
+  avg_health_score: number | null;
+  avg_mttr_minutes: number | null;
+  sla_breach_count: number | null;
+}
+
+/** One real child tenant, with its latest metrics snapshot. `has_metrics` is false (and every metric null) until one has been recorded. */
+export interface ManagedTenantRow {
+  tenant_id: string;
+  name: string;
+  has_metrics: boolean;
+  snapshot_at: string | null;
+  health_score: number | null;
+  open_alerts: number | null;
+  critical_alerts: number | null;
+  open_cases: number | null;
+  mttr_minutes: number | null;
+  sla_breaches: number | null;
+  connector_count: number | null;
+}
 
 export const msspApi = {
   async listChildren(): Promise<ChildTenant[]> {
     return request<ChildTenant[]>('/api/v1/mssp/children');
+  },
+  async overview(): Promise<MsspOverview> {
+    return request<MsspOverview>('/api/v1/mssp/overview');
+  },
+  async tenants(): Promise<ManagedTenantRow[]> {
+    return request<ManagedTenantRow[]>('/api/v1/mssp/tenants');
   },
 };
 
@@ -1087,6 +1152,8 @@ export interface Case {
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
+  /** When it was marked resolved. A resolved case has this but may have no `closedAt`. */
+  resolvedAt?: string;
   dueAt?: string;
   timeline?: CaseTimelineEvent[];
   tasks?: CaseTask[];
@@ -1310,6 +1377,10 @@ function normalizeCase(raw: unknown): Case {
       (r.closed_at as string | null | undefined) ??
       (r.closedAt as string | null | undefined) ??
       undefined,
+    resolvedAt:
+      (r.resolved_at as string | null | undefined) ??
+      (r.resolvedAt as string | null | undefined) ??
+      undefined,
     dueAt:
       (r.sla_due_at as string | null | undefined) ??
       (r.dueAt as string | null | undefined) ??
@@ -1366,6 +1437,16 @@ export const casesApi = {
     }
     const raw = await request<unknown>('/api/v1/cases', { params });
     return normalizeCasesResponse(raw, filters);
+  },
+
+  /**
+   * The most recent cases (newest first), up to the API's maximum of 500 per request. Used by analytics, which needs more than a screenful.
+   * When exactly `limit` come back there may be older ones the caller has not seen.
+   */
+  recent: async (limit = 500) => {
+    const capped = Math.min(500, Math.max(1, Math.floor(limit)));
+    const raw = await request<unknown>('/api/v1/cases', { params: { limit: String(capped) } });
+    return normalizeCasesResponse(raw);
   },
 
   get: async (id: string) => {

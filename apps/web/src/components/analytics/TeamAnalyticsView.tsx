@@ -1,285 +1,283 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { clsx } from 'clsx';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { casesApi, type Case } from '@/lib/api';
 
-interface Analyst {
-  id: string;
-  name: string;
-  initials: string;
-  avatarColor: string;
-  casesClosed: number;
-  avgResolutionMin: number;
-  accuracy: number;
-  score: number;
-  badges: string[];
+/**
+ * Analyst activity, computed from this workspace's real cases.
+ *
+ * This page used to be a "gamification leaderboard" built on hard-coded people ("Sarah Chen", "Marcus Rivera", ...) with invented scores,
+ * accuracy percentages, badges ("Speed Demon", "Zero FP") and a "Team Highlights" feed. None of that had a data source. What cases DO record is
+ * who a case is assigned to, its status and when it was opened and finished, so that is all this shows: cases closed, how long they took, and
+ * what each person has open. The assignee is the free-text value stored on the case, shown exactly as recorded.
+ */
+
+/** The API returns at most this many cases per request, newest first. */
+export const CASE_LIMIT = 500;
+export const PERIODS = [7, 30, 90] as const;
+export type Period = (typeof PERIODS)[number];
+export type SortKey = 'closed' | 'speed' | 'open';
+
+export interface AnalystRow {
+  analyst: string;
+  closed: number;
+  /** Mean minutes from opened to finished over the closed cases that have a valid duration; null if none. */
+  avgMinutes: number | null;
+  open: number;
 }
 
-interface Achievement {
-  text: string;
-  timeAgo: string;
-  icon: 'badge' | 'streak' | 'record' | 'rank';
+export interface TeamStats {
+  rows: AnalystRow[];
+  totalClosed: number;
+  avgMinutes: number | null;
+  totalOpen: number;
+  activeAnalysts: number;
+  unassignedOpen: number;
 }
 
-const BADGE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  'MITRE Master':     { bg: 'bg-purple-500/15', text: 'text-purple-300', border: 'border-purple-500/30' },
-  'Speed Demon':      { bg: 'bg-blue-500/15',   text: 'text-blue-300',   border: 'border-blue-500/30' },
-  'Zero FP':          { bg: 'bg-green-500/15',  text: 'text-green-300',  border: 'border-green-500/30' },
-  'Night Owl':        { bg: 'bg-indigo-500/15', text: 'text-indigo-300', border: 'border-indigo-500/30' },
-  'Precision Strike': { bg: 'bg-amber-500/15',  text: 'text-amber-300',  border: 'border-amber-500/30' },
-  'Mentor':           { bg: 'bg-teal-500/15',   text: 'text-teal-300',   border: 'border-teal-500/30' },
-  'Newcomer Rising':  { bg: 'bg-rose-500/15',   text: 'text-rose-300',   border: 'border-rose-500/30' },
-};
+const FINISHED = new Set(['resolved', 'closed']);
 
-const ANALYSTS: Analyst[] = [
-  { id: 'sc', name: 'Sarah Chen',     initials: 'SC', avatarColor: 'bg-violet-500', casesClosed: 47, avgResolutionMin: 18, accuracy: 96.2, score: 945, badges: ['MITRE Master', 'Speed Demon'] },
-  { id: 'mr', name: 'Marcus Rivera',  initials: 'MR', avatarColor: 'bg-sky-500',    casesClosed: 42, avgResolutionMin: 22, accuracy: 94.8, score: 892, badges: ['Zero FP', 'Night Owl'] },
-  { id: 'ap', name: 'Aisha Patel',    initials: 'AP', avatarColor: 'bg-emerald-500',casesClosed: 39, avgResolutionMin: 15, accuracy: 97.1, score: 878, badges: ['Precision Strike', 'MITRE Master'] },
-  { id: 'jw', name: 'James Wong',     initials: 'JW', avatarColor: 'bg-amber-500',  casesClosed: 35, avgResolutionMin: 25, accuracy: 91.5, score: 812, badges: ['Speed Demon'] },
-  { id: 'ev', name: 'Elena Vasquez',  initials: 'EV', avatarColor: 'bg-pink-500',   casesClosed: 31, avgResolutionMin: 20, accuracy: 95.3, score: 785, badges: ['Mentor', 'Zero FP'] },
-  { id: 'dk', name: 'David Kim',      initials: 'DK', avatarColor: 'bg-orange-500', casesClosed: 28, avgResolutionMin: 28, accuracy: 89.7, score: 721, badges: ['Newcomer Rising'] },
-];
+function finishedAt(c: Case): number | null {
+  const stamp = c.closedAt ?? c.resolvedAt;
+  if (!stamp) return null;
+  const time = new Date(stamp).getTime();
+  return Number.isNaN(time) ? null : time;
+}
 
-const ACHIEVEMENTS: Achievement[] = [
-  { text: 'Sarah Chen earned MITRE Master badge',            timeAgo: '2 hours ago', icon: 'badge' },
-  { text: 'Marcus Rivera achieved Zero FP streak (30 days)', timeAgo: '5 hours ago', icon: 'streak' },
-  { text: 'Team closed 50 cases this week — new record!',    timeAgo: '1 day ago',   icon: 'record' },
-  { text: 'Aisha Patel reached #1 accuracy rating',          timeAgo: '2 days ago',  icon: 'rank' },
-];
+function minutesBetween(c: Case, end: number): number | null {
+  const start = new Date(c.createdAt).getTime();
+  if (Number.isNaN(start) || end < start) return null;
+  return (end - start) / 60000;
+}
 
-const RANK_ACCENTS: Record<number, { ring: string; text: string; label: string }> = {
-  1: { ring: 'ring-2 ring-amber-400/60',  text: 'text-amber-400',  label: '🥇' },
-  2: { ring: 'ring-2 ring-gray-300/40',   text: 'text-gray-300',   label: '🥈' },
-  3: { ring: 'ring-2 ring-orange-400/40', text: 'text-orange-400', label: '🥉' },
-};
+function mean(values: number[]): number | null {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+}
 
-type SortKey = 'score' | 'cases' | 'accuracy' | 'speed';
+/** Per-analyst totals for cases finished in the last `days` days, plus what each assignee has open right now. */
+export function buildTeamStats(cases: Case[], now: number, days: number): TeamStats {
+  const since = now - days * 86400000;
+  const byAnalyst = new Map<string, { closed: number; minutes: number[]; open: number }>();
+  const slot = (name: string) => {
+    let entry = byAnalyst.get(name);
+    if (!entry) byAnalyst.set(name, (entry = { closed: 0, minutes: [], open: 0 }));
+    return entry;
+  };
+  const allMinutes: number[] = [];
+  let totalClosed = 0;
+  let totalOpen = 0;
+  let unassignedOpen = 0;
 
-function achievementIcon(icon: Achievement['icon']) {
-  switch (icon) {
-    case 'badge':
-      return (
-        <svg className="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.746 3.746 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.746 3.746 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.745 3.745 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
-        </svg>
-      );
-    case 'streak':
-      return (
-        <svg className="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1.001A3.75 3.75 0 0012 18z" />
-        </svg>
-      );
-    case 'record':
-      return (
-        <svg className="h-4 w-4 text-amber-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M18.75 4.236c.982.143 1.954.317 2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0a6.003 6.003 0 01-4.52 1.522 6.003 6.003 0 01-4.52-1.522" />
-        </svg>
-      );
-    case 'rank':
-      return (
-        <svg className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
-        </svg>
-      );
+  for (const c of cases) {
+    const who = c.assignee?.trim() || null;
+    if (FINISHED.has(c.status)) {
+      const end = finishedAt(c);
+      if (end === null || end < since || end > now) continue;
+      totalClosed += 1;
+      const minutes = minutesBetween(c, end);
+      if (minutes !== null) allMinutes.push(minutes);
+      if (who) {
+        const entry = slot(who);
+        entry.closed += 1;
+        if (minutes !== null) entry.minutes.push(minutes);
+      }
+    } else {
+      totalOpen += 1;
+      if (who) slot(who).open += 1;
+      else unassignedOpen += 1;
+    }
   }
+
+  const rows = [...byAnalyst.entries()].map(([analyst, e]) => ({ analyst, closed: e.closed, avgMinutes: mean(e.minutes), open: e.open }));
+  return { rows, totalClosed, avgMinutes: mean(allMinutes), totalOpen, activeAnalysts: rows.filter((r) => r.closed > 0).length, unassignedOpen };
 }
+
+export function sortRows(rows: AnalystRow[], key: SortKey): AnalystRow[] {
+  const byName = (a: AnalystRow, b: AnalystRow) => a.analyst.localeCompare(b.analyst);
+  return [...rows].sort((a, b) => {
+    if (key === 'closed') return b.closed - a.closed || byName(a, b);
+    if (key === 'open') return b.open - a.open || byName(a, b);
+    // fastest first; someone with no timed cases goes last
+    if (a.avgMinutes === null && b.avgMinutes === null) return byName(a, b);
+    if (a.avgMinutes === null) return 1;
+    if (b.avgMinutes === null) return -1;
+    return a.avgMinutes - b.avgMinutes || byName(a, b);
+  });
+}
+
+export function formatDuration(minutes: number | null): string {
+  if (minutes === null) return '—';
+  if (minutes < 120) return `${Math.round(minutes)} min`;
+  const hours = minutes / 60;
+  if (hours < 48) return `${hours.toFixed(1)} h`;
+  return `${(hours / 24).toFixed(1)} days`;
+}
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'closed', label: 'Cases closed' },
+  { key: 'speed', label: 'Fastest' },
+  { key: 'open', label: 'Open now' },
+];
 
 export function TeamAnalyticsView() {
-  const [sortBy, setSortBy] = useState<SortKey>('score');
+  const [cases, setCases] = useState<Case[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [days, setDays] = useState<Period>(30);
+  const [sortBy, setSortBy] = useState<SortKey>('closed');
   const [search, setSearch] = useState('');
 
-  const totalCases = ANALYSTS.reduce((s, a) => s + a.casesClosed, 0);
-  const avgResolution = Math.round(ANALYSTS.reduce((s, a) => s + a.avgResolutionMin, 0) / ANALYSTS.length);
-  const teamAccuracy = (ANALYSTS.reduce((s, a) => s + a.accuracy, 0) / ANALYSTS.length).toFixed(1);
-  const totalBadges = ANALYSTS.reduce((s, a) => s + a.badges.length, 0);
+  const load = useCallback(async () => {
+    setError(null);
+    setCases(null);
+    try {
+      const result = await casesApi.recent(CASE_LIMIT);
+      setCases(result.cases);
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : 'Could not load cases.');
+    }
+  }, []);
 
-  const sorted = [...ANALYSTS]
-    .filter((a) => !search.trim() || a.name.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'score':    return b.score - a.score;
-        case 'cases':    return b.casesClosed - a.casesClosed;
-        case 'accuracy': return b.accuracy - a.accuracy;
-        case 'speed':    return a.avgResolutionMin - b.avgResolutionMin;
-      }
-    });
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-    { key: 'score',    label: 'Score' },
-    { key: 'cases',    label: 'Cases' },
-    { key: 'accuracy', label: 'Accuracy' },
-    { key: 'speed',    label: 'Speed' },
-  ];
+  const stats = useMemo(() => (cases ? buildTeamStats(cases, Date.now(), days) : null), [cases, days]);
+  const rows = useMemo(() => {
+    if (!stats) return [];
+    const needle = search.trim().toLowerCase();
+    return sortRows(stats.rows, sortBy).filter((r) => !needle || r.analyst.toLowerCase().includes(needle));
+  }, [stats, sortBy, search]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-white">Team Analytics</h1>
-        <p className="mt-1 text-sm text-gray-400">Analyst performance and gamification leaderboard</p>
+        <p className="mt-1 text-sm text-gray-400">Analyst activity from this workspace&rsquo;s cases</p>
       </div>
 
-      {/* Aggregate stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: 'Cases Closed This Month', value: totalCases.toString(), accent: 'text-emerald-400' },
-          { label: 'Avg Resolution Time',     value: `${avgResolution} min`,     accent: 'text-sky-400' },
-          { label: 'Team Accuracy Rate',       value: `${teamAccuracy}%`,         accent: 'text-violet-400' },
-          { label: 'Total Badges Earned',      value: totalBadges.toString(),      accent: 'text-amber-400' },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-5 space-y-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-gray-400">{stat.label}</p>
-            <p className={clsx('text-3xl font-bold', stat.accent)}>{stat.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Leaderboard */}
-      <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-white">Analyst Leaderboard</h2>
-          <div className="flex items-center gap-3">
-            <input
-              type="search"
-              placeholder="Search analyst…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="rounded-lg border border-gray-700/60 bg-gray-900 px-3 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500/60 w-44"
-            />
-            <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Sort</span>
-            {SORT_OPTIONS.map((opt) => (
+      {error ? (
+        <EmptyState
+          icon={EmptyStateIcons.search}
+          title="Could not load team analytics"
+          description={error}
+          action={
+            <button type="button" onClick={() => void load()} className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors">
+              Try again
+            </button>
+          }
+        />
+      ) : cases === null || stats === null ? (
+        <p role="status" className="text-sm text-gray-400">Loading cases…</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Period</span>
+            {PERIODS.map((p) => (
               <button
-                key={opt.key}
-                onClick={() => setSortBy(opt.key)}
-                className={clsx(
-                  'rounded-md px-2.5 py-1 text-xs font-medium transition',
-                  sortBy === opt.key
-                    ? 'bg-white/10 text-white'
-                    : 'text-gray-500 hover:text-gray-300',
-                )}
+                key={p}
+                type="button"
+                onClick={() => setDays(p)}
+                aria-pressed={days === p}
+                className={clsx('rounded-md px-2.5 py-1 text-xs font-medium transition', days === p ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300')}
               >
-                {opt.label}
+                Last {p} days
               </button>
             ))}
+            {cases.length >= CASE_LIMIT ? (
+              <span className="text-xs text-amber-400">Based on the most recent {CASE_LIMIT} cases; older cases are not counted.</span>
+            ) : null}
           </div>
-        </div>
 
-        {sorted.length === 0 ? (
-          <EmptyState
-            icon={EmptyStateIcons.search}
-            title="No analysts match your search"
-            description="Try a different name or clear the search to see all analysts."
-            action={
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors"
-              >
-                Clear search
-              </button>
-            }
-          />
-        ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-gray-800/60 text-xs uppercase tracking-wider text-gray-500">
-                <th className="pb-3 pr-3 font-medium w-12">Rank</th>
-                <th className="pb-3 pr-3 font-medium">Analyst</th>
-                <th className="pb-3 pr-3 font-medium text-right">Cases</th>
-                <th className="pb-3 pr-3 font-medium text-right">Avg Time</th>
-                <th className="pb-3 pr-3 font-medium text-right">Accuracy</th>
-                <th className="pb-3 pr-3 font-medium text-right">Score</th>
-                <th className="pb-3 font-medium">Badges</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800/40">
-              {sorted.map((analyst, i) => {
-                const rank = i + 1;
-                const accent = RANK_ACCENTS[rank];
-                return (
-                  <tr key={analyst.id} className="group transition hover:bg-white/[0.02]">
-                    <td className="py-3 pr-3">
-                      <span className={clsx('text-sm font-bold', accent?.text ?? 'text-gray-500')}>
-                        {accent?.label ?? `#${rank}`}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-3">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={clsx(
-                            'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white',
-                            analyst.avatarColor,
-                            accent?.ring,
-                          )}
-                        >
-                          {analyst.initials}
-                        </div>
-                        <span className="font-medium text-white">{analyst.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 pr-3 text-right tabular-nums text-gray-300">
-                      {analyst.casesClosed}
-                    </td>
-                    <td className="py-3 pr-3 text-right tabular-nums text-gray-300">
-                      {analyst.avgResolutionMin} min
-                    </td>
-                    <td className="py-3 pr-3 text-right tabular-nums text-gray-300">
-                      {analyst.accuracy.toFixed(1)}%
-                    </td>
-                    <td className="py-3 pr-3 text-right">
-                      <span className={clsx('tabular-nums font-bold', accent?.text ?? 'text-white')}>
-                        {analyst.score}
-                      </span>
-                    </td>
-                    <td className="py-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        {analyst.badges.map((badge) => {
-                          const bc = BADGE_COLORS[badge] ?? { bg: 'bg-gray-500/15', text: 'text-gray-300', border: 'border-gray-500/30' };
-                          return (
-                            <span
-                              key={badge}
-                              className={clsx(
-                                'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold',
-                                bc.bg, bc.text, bc.border,
-                              )}
-                            >
-                              {badge}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        )}
-      </div>
-
-      {/* Team Highlights */}
-      <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-5 space-y-4">
-        <h2 className="text-lg font-semibold text-white">Team Highlights</h2>
-        <div className="space-y-3">
-          {ACHIEVEMENTS.map((ach, i) => (
-            <div
-              key={i}
-              className="flex items-start gap-3 rounded-lg border border-gray-800/40 bg-black/20 p-3.5"
-            >
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/5">
-                {achievementIcon(ach.icon)}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: `Cases Closed (${days} days)`, value: String(stats.totalClosed), accent: 'text-emerald-400' },
+              { label: 'Avg Resolution Time', value: formatDuration(stats.avgMinutes), accent: 'text-sky-400' },
+              { label: 'Open Cases', value: String(stats.totalOpen), accent: 'text-violet-400', hint: stats.unassignedOpen ? `${stats.unassignedOpen} unassigned` : undefined },
+              { label: 'Analysts Closing Cases', value: String(stats.activeAnalysts), accent: 'text-amber-400' },
+            ].map((stat) => (
+              <div key={stat.label} className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-5 space-y-4">
+                <p className="text-xs font-medium uppercase tracking-wider text-gray-400">{stat.label}</p>
+                <p className={clsx('text-3xl font-bold', stat.accent)}>{stat.value}</p>
+                {stat.hint ? <p className="text-xs text-gray-500">{stat.hint}</p> : null}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-200">{ach.text}</p>
-                <p className="mt-0.5 text-xs text-gray-500">{ach.timeAgo}</p>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-white">Analyst Activity</h2>
+              <div className="flex items-center gap-3">
+                <input
+                  type="search"
+                  placeholder="Search analyst…"
+                  aria-label="Search analyst"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="rounded-lg border border-gray-700/60 bg-gray-900 px-3 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Sort</span>
+                {SORT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setSortBy(opt.key)}
+                    aria-pressed={sortBy === opt.key}
+                    className={clsx('rounded-md px-2.5 py-1 text-xs font-medium transition', sortBy === opt.key ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300')}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
-      </div>
+
+            {stats.rows.length === 0 ? (
+              <EmptyState
+                icon={EmptyStateIcons.search}
+                title="No assigned cases yet"
+                description="Once cases are assigned to analysts, and some are resolved or closed, each analyst's activity appears here."
+              />
+            ) : rows.length === 0 ? (
+              <EmptyState
+                icon={EmptyStateIcons.search}
+                title="No analysts match your search"
+                description="Try a different name or clear the search to see all analysts."
+                action={
+                  <button type="button" onClick={() => setSearch('')} className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 transition-colors">
+                    Clear search
+                  </button>
+                }
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-800/60 text-xs uppercase tracking-wider text-gray-500">
+                      <th className="pb-3 pr-3 font-medium w-12">#</th>
+                      <th className="pb-3 pr-3 font-medium">Analyst</th>
+                      <th className="pb-3 pr-3 font-medium text-right">Closed ({days}d)</th>
+                      <th className="pb-3 pr-3 font-medium text-right">Avg Time</th>
+                      <th className="pb-3 font-medium text-right">Open Now</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/40">
+                    {rows.map((r, i) => (
+                      <tr key={r.analyst} className="transition hover:bg-white/[0.02]">
+                        <td className="py-3 pr-3 text-gray-500">{i + 1}</td>
+                        <td className="py-3 pr-3 font-medium text-white">{r.analyst}</td>
+                        <td className="py-3 pr-3 text-right tabular-nums text-gray-300">{r.closed}</td>
+                        <td className="py-3 pr-3 text-right tabular-nums text-gray-300">{formatDuration(r.avgMinutes)}</td>
+                        <td className="py-3 text-right tabular-nums text-gray-300">{r.open}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
