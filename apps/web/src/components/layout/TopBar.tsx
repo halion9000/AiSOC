@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { authApi, type AuthUser } from '@/lib/api';
+import { unsubscribeFromPush } from '@/lib/pwa';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { TimeWindowSelector } from './TimeWindowSelector';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -47,6 +49,23 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
   const [now, setNow] = useState<Date | null>(null);
   const [shortcut, setShortcut] = useState<'⌘K' | 'Ctrl K'>('⌘K');
   const { userRole } = useTenant();
+  const router = useRouter();
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  // Who is signed in. Read in an effect (not during render) so the server render and the first browser render agree.
+  useEffect(() => {
+    setUser(authApi.currentUser());
+  }, []);
+
+  const signOut = () => {
+    // Same order as the phone-side sign-out: drop this browser's push subscription while there is still a token to authorise it
+    // (best effort, never blocks), then clear the stored session and go to the sign-in page.
+    void unsubscribeFromPush().catch(() => undefined);
+    authApi.logout();
+    router.replace('/login');
+  };
+  const identity = user?.username || user?.email || null;
+  const initials = identity ? identity.slice(0, 2).toUpperCase() : '?';
 
   // Update the clock every second on the client only (avoids hydration drift).
   useEffect(() => {
@@ -220,16 +239,40 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
           />
         </button>
 
-        {/* User avatar */}
-        <div className="flex items-center gap-2 cursor-pointer group">
-          <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
-            SO
+        {/* Who is signed in. This used to be hard-coded placeholder text ("SOC Analyst" / "Admin") for everyone. */}
+        <div className="flex items-center gap-2">
+          <div
+            aria-hidden
+            className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white"
+          >
+            {initials}
           </div>
-          <div className="hidden lg:block">
-            <p className="text-xs font-medium text-fg-secondary">SOC Analyst</p>
-            <p className="text-xs text-fg-subtle">Admin</p>
-          </div>
+          {identity ? (
+            <div className="hidden lg:block min-w-0">
+              <p className="text-xs font-medium text-fg-secondary truncate max-w-[12rem]">{identity}</p>
+              {user?.username ? <p className="text-xs text-fg-subtle truncate max-w-[12rem]">{user.email}</p> : null}
+            </div>
+          ) : null}
         </div>
+
+        {/* Sign out: the desktop console had no way to end a session at all. */}
+        <button
+          type="button"
+          onClick={signOut}
+          aria-label="Sign out"
+          title="Sign out"
+          className="flex items-center gap-1.5 relative p-1.5 text-fg-muted hover:text-fg-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+            />
+          </svg>
+          <span className="hidden md:inline text-xs font-medium">Sign out</span>
+        </button>
       </div>
     </header>
   );
