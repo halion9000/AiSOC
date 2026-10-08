@@ -57,6 +57,10 @@ coverage/
 # without this negation the coverage tool page silently drops from the build.
 !apps/web/src/app/**/coverage/
 !apps/web/src/app/**/coverage/**
+# Likewise the detection-coverage UI components. Without this, a new file in apps/web/src/components/coverage/ (such as its test) is silently ignored
+# and never committed, because `**/coverage/` above matches the directory name.
+!apps/web/src/components/coverage/
+!apps/web/src/components/coverage/**
 *.lcov
 
 # IDE

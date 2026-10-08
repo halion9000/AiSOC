@@ -18,7 +18,7 @@ import { docs } from '@/lib/docs';
  * Design: keep the same `StickyNav` + `sections/Footer` chrome the rest
  * of the marketing site uses (so the user never feels like they have
  * left the site), and surface a small list of the destinations they
- * were probably looking for — interactive demo, pricing, contact, docs.
+ * were probably looking for — the dashboard, pricing, contact, docs.
  *
  * Why the imports are direct (not the (marketing) layout)
  * --------------------------------------------------------
@@ -33,7 +33,7 @@ import { docs } from '@/lib/docs';
 export const metadata: Metadata = {
   title: '404 — page not found · AiSOC',
   description:
-    'That URL is not part of the AiSOC marketing site. Jump back to the homepage, open the interactive demo, or pick one of the popular destinations below.',
+    'That URL is not part of the AiSOC marketing site. Jump back to the homepage, open the dashboard, or pick one of the popular destinations below.',
   // Tell crawlers we know this is a 404 surface; do not let them index it.
   robots: { index: false, follow: false },
 };
@@ -50,7 +50,7 @@ const DESTINATIONS: ReadonlyArray<Destination> = [
     label: 'Open the live dashboard',
     href: '/dashboard',
     blurb:
-      'Anonymous, pre-seeded investigation. No signup. Demo data resets daily at 00:00 UTC.',
+      'Your workspace: alerts, cases, and the metrics behind them.',
   },
   {
     label: 'See pricing',
