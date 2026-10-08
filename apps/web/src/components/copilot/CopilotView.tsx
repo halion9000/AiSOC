@@ -23,6 +23,7 @@ import {
   type CopilotMessage,
 } from '@/lib/api';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { copilotFailureText } from '@/lib/copilotFailure';
 
 // ─── Suggested prompts ───────────────────────────────────────────────────────
 
@@ -73,16 +74,16 @@ const SUGGESTED_PROMPTS: Array<{ label: string; prompt: string }> = [
 // but a genuine failure (an auth error, a network drop) triggered fabricated
 // security analysis instead of a plain, honest error. Replaced with the same
 // pattern CopilotDock.tsx already uses: state what's actually true.
-function offlineReply(prompt: string): CopilotMessage {
+function failureReply(prompt: string, err: unknown): CopilotMessage {
+  // States what is actually true: the copilot could not answer, and why (the backend's own reason when it gave one). No suggestion chips: clicking one sends its text to
+  // the model as a prompt, so "Retry" and "Open AISOC status" were never actions.
   return {
     id: `offline-${Date.now()}`,
     role: 'assistant',
     createdAt: new Date().toISOString(),
     content:
-      'The AI backend is currently unreachable. Check that the AiSOC stack ' +
-      'is running and that CORE\'s provider config is synced (rebuild AISOC ' +
-      `from the HUD or run \`syncAisocProviderConfig()\`).\n\nYour query was: "${prompt}"`,
-    suggestions: ['Retry', 'Open AISOC status'],
+      `${copilotFailureText(err)}.\n\nYour message was: "${prompt}"\n\n` +
+      'If this keeps happening, check that the AiSOC stack is running and that CORE\'s provider config is synced (rebuild AISOC from the HUD).',
   };
 }
 
@@ -364,7 +365,7 @@ export function CopilotView() {
       // Genuine failure only - the backend's own honest "LLM unreachable"
       // path already returns 200 with degraded:true and real content, so
       // this only fires for something actually wrong (auth, network).
-      const fallback = offlineReply(trimmed);
+      const fallback = failureReply(trimmed, err);
       setMessages((prev) => [...prev, fallback]);
       setError(err);
     } finally {

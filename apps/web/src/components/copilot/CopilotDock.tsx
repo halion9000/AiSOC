@@ -4,8 +4,8 @@
  * Floating AI Copilot dock.
  *
  * A persistent bottom-right launcher that opens a compact chat panel without
- * leaving the current page. Reuses `copilotApi` for real calls and falls back
- * to a deterministic demo reply when the backend is unreachable.
+ * leaving the current page. Reuses `copilotApi` for real calls and says
+ * so, with the real reason, when a call fails (never a made-up reply).
  *
  * The full-page experience lives at `/copilot` (CopilotView). This dock is
  * the "ambient" surface — quick questions, scoped to whatever the analyst is
@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { copilotApi, type CopilotMessage } from '@/lib/api';
+import { copilotFailureText } from '@/lib/copilotFailure';
 import { authFetch } from '@/lib/auth-session';
 
 const QUICK_PROMPTS = [
@@ -26,17 +27,15 @@ const QUICK_PROMPTS = [
   'Which detection rules are noisiest this week?',
 ];
 
-/** Fallback message when the LLM backend is unreachable. */
-function offlineReply(prompt: string): CopilotMessage {
+/** What the dock says when the copilot could not answer: the real reason, not a made-up reply and not a vague "unreachable". */
+function failureReply(err: unknown): CopilotMessage {
   return {
     id: `offline-${Date.now()}`,
     role: 'assistant',
     content:
-      'The AI backend is currently unreachable. Check that the AiSOC stack ' +
-      'is running and that CORE\'s provider config is synced (rebuild AISOC ' +
-      'from the HUD or run `syncAisocProviderConfig()`).',
+      `${copilotFailureText(err)}.\n\n` +
+      'If this keeps happening, check that the AiSOC stack is running and that CORE\'s provider config is synced (rebuild AISOC from the HUD).',
     createdAt: new Date().toISOString(),
-    suggestions: ['Retry', 'Open AISOC status'],
   };
 }
 
@@ -125,8 +124,8 @@ export function CopilotDock() {
       setConversationId(res.conversationId);
       setMessages((prev) => [...prev, res.reply]);
       setConnectionStatus(res.degraded ? 'disconnected' : 'connected');
-    } catch {
-      setMessages((prev) => [...prev, offlineReply(trimmed)]);
+    } catch (err) {
+      setMessages((prev) => [...prev, failureReply(err)]);
       setConnectionStatus('disconnected');
     } finally {
       setSending(false);
@@ -185,7 +184,7 @@ export function CopilotDock() {
                 <div>
                   <p className="text-sm font-semibold text-white">AI Copilot</p>
                   <p className="text-[11px] text-slate-400">
-                    {connectionStatus === 'checking' ? 'Connecting…' : connectionStatus === 'connected' ? 'Connected' : 'Offline (demo)'}
+                    {connectionStatus === 'checking' ? 'Connecting…' : connectionStatus === 'connected' ? 'Connected' : 'Offline'}
                   </p>
                 </div>
               </div>

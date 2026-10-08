@@ -383,151 +383,6 @@ function ScrubberBar({
 // Main component
 // ---------------------------------------------------------------------------
 
-/** Synthetic demo timeline shown when no runId is provided. */
-function makeDemoTimeline(): TimelineResponse {
-  const base = Date.now() - 45000;
-  const makeTs = (offsetMs: number) =>
-    new Date(base + offsetMs).toISOString();
-
-  return {
-    run_id: "demo-run",
-    case_id: "CASE-001",
-    status: "completed",
-    total_duration_ms: 45000,
-    attempt_count: 1,
-    nodes: [
-      {
-        seq: 1,
-        ts: makeTs(0),
-        kind: "run_start",
-        agent: "orchestrator",
-        summary: "Investigation started for CASE-001",
-        duration_ms: 12,
-        decision: null,
-        has_artifact: false,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 2,
-        ts: makeTs(800),
-        kind: "agent_start",
-        agent: "triage",
-        summary: "Triage agent initialised; loading alert context",
-        duration_ms: 200,
-        decision: null,
-        has_artifact: false,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 3,
-        ts: makeTs(2000),
-        kind: "decision",
-        agent: "triage",
-        summary: "Classified as credential-stuffing attack; routing to Identity investigation",
-        duration_ms: 850,
-        decision: {
-          reason:
-            "Three failed MFA events from distinct ASNs in under 60 s — confidence below 0.6 triggers forensic escalation",
-          confidence: 0.52,
-          next_phase: "identity-forensics",
-          tool_name: null,
-          tool_args: null,
-          tool_result_summary: null,
-        },
-        has_artifact: false,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 4,
-        ts: makeTs(5000),
-        kind: "tool_call",
-        agent: "identity",
-        summary: "Querying Okta audit logs for user alice@example.com",
-        duration_ms: 1200,
-        decision: {
-          reason: "Target user identified from alert entity extraction",
-          confidence: 0.88,
-          next_phase: null,
-          tool_name: "okta_get_user_events",
-          tool_args: { user: "alice@example.com", window_minutes: 60 },
-          tool_result_summary: "12 events returned; 3 failed MFA, 1 successful login from US",
-        },
-        has_artifact: true,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 5,
-        ts: makeTs(11000),
-        kind: "tool_result",
-        agent: "identity",
-        summary: "Okta returned 12 events; anomalous login from 185.x.x.x flagged",
-        duration_ms: 80,
-        decision: null,
-        has_artifact: true,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 6,
-        ts: makeTs(14000),
-        kind: "decision",
-        agent: "identity",
-        summary: "Confidence now 0.82 — escalating to automated containment",
-        duration_ms: 310,
-        decision: {
-          reason: "Anomalous IP + impossible travel confirmed; confidence crossed 0.8 threshold",
-          confidence: 0.82,
-          next_phase: "containment",
-          tool_name: null,
-          tool_args: null,
-          tool_result_summary: null,
-        },
-        has_artifact: false,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 7,
-        ts: makeTs(18000),
-        kind: "tool_call",
-        agent: "response",
-        summary: "Suspending Okta session for alice@example.com",
-        duration_ms: 950,
-        decision: {
-          reason: "Playbook: suspend-and-notify on confirmed account compromise",
-          confidence: 0.95,
-          next_phase: null,
-          tool_name: "okta_suspend_user_session",
-          tool_args: { user: "alice@example.com", notify_user: true },
-          tool_result_summary: "Session suspended; email dispatched to alice@example.com",
-        },
-        has_artifact: false,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 8,
-        ts: makeTs(25000),
-        kind: "agent_output",
-        agent: "response",
-        summary: "Containment complete — session suspended, user notified, ticket created",
-        duration_ms: 120,
-        decision: null,
-        has_artifact: false,
-        diff_vs_prev_attempt: null,
-      },
-      {
-        seq: 9,
-        ts: makeTs(45000),
-        kind: "run_end",
-        agent: "orchestrator",
-        summary: "Investigation closed successfully in 45 s",
-        duration_ms: 30,
-        decision: null,
-        has_artifact: false,
-        diff_vs_prev_attempt: null,
-      },
-    ],
-  };
-}
-
 export default function InvestigationTimeline({
   runId,
   apiBase = "/api/v1",
@@ -563,7 +418,11 @@ export default function InvestigationTimeline({
 
   useEffect(() => {
     if (!runId) {
-      setTimeline(makeDemoTimeline());
+      // No run selected: show nothing but an honest empty state. This used to show makeDemoTimeline(), an invented Okta investigation of alice@example.com
+      // ("Suspending Okta session for alice@example.com", "Classified as credential-stuffing attack"), as if it were the analyst's run.
+      setTimeline(null);
+      setLoading(false);
+      setError(null);
       return;
     }
     setLoading(true);
@@ -601,7 +460,11 @@ export default function InvestigationTimeline({
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return runId ? null : (
+      <div className="flex h-24 items-center justify-center text-sm text-slate-400">Select an investigation to see its timeline.</div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2 text-slate-100">

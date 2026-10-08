@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authFetch } from '@/lib/auth-session';
+import { failureDetail } from '@/lib/communityInstall';
 
 type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -25,28 +26,27 @@ const QUICK_ACTIONS = [
   'Check Reputation',
 ] as const;
 
-/** Fallback when the LLM backend is unreachable. */
-function offlineFallback(input: string): string {
-  return (
-    'The AI backend is currently unreachable. Check that the AiSOC stack ' +
-    'is running and that CORE\'s provider config is synced.\n\n' +
-    `Your query was: "${input}"`
-  );
+/**
+ * What the chat says when the copilot could not answer: the real reason, shown as a system notice (not as if the assistant had said it).
+ */
+function chatFailure(reason: string): string {
+  return `The copilot could not answer: ${reason}`;
 }
-
-const CONTEXT = {
-  caseId: 'CS-2187',
-  alertCount: 7,
-  iocsFound: 3,
-  riskLevel: 'High',
-};
 
 interface Props {
-  /** Optional live run ID. When provided the Close button calls the real API. */
+  /** The live investigation run. Closing the investigation and the PDF need it; without one there is nothing to close. */
   runId?: string;
+  /**
+   * The real case this chat is about, and its real figures. All optional: the panel shows a dash for anything not supplied. These used to be hard-coded
+   * (case "CS-2187", 7 alerts, 3 IOCs, risk "High") and the case id was sent to the copilot as the context of EVERY conversation.
+   */
+  caseId?: string;
+  alertCount?: number;
+  iocsFound?: number;
+  riskLevel?: string;
 }
 
-export default function InvestigationChat({ runId }: Props) {
+export default function InvestigationChat({ runId, caseId, alertCount, iocsFound, riskLevel }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'sys-0',
@@ -87,27 +87,35 @@ export default function InvestigationChat({ runId }: Props) {
 
     (async () => {
       let content: string;
+      let role: MessageRole = 'assistant';
       try {
         const res = await authFetch('/api/v1/copilot/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: trimmed,
-            context: { caseId: CONTEXT.caseId, page: 'investigation' },
+            context: { caseId, runId, page: 'investigation' },
           }),
         });
         if (res.ok) {
           const data = await res.json();
-          content = data.reply?.content || offlineFallback(trimmed);
+          if (data.reply?.content) {
+            content = data.reply.content;
+          } else {
+            content = chatFailure('it returned an empty reply');
+            role = 'system';
+          }
         } else {
-          content = offlineFallback(trimmed);
+          content = chatFailure(await failureDetail(res));
+          role = 'system';
         }
-      } catch {
-        content = offlineFallback(trimmed);
+      } catch (err) {
+        content = chatFailure(err instanceof Error && err.message ? err.message : 'it could not be reached');
+        role = 'system';
       }
       const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
-        role: 'assistant',
+        role,
         content,
         timestamp: new Date().toISOString(),
       };
@@ -124,38 +132,34 @@ export default function InvestigationChat({ runId }: Props) {
   };
 
   const handleCloseInvestigation = useCallback(async () => {
+    if (!runId) {
+      // Without a run there is no server-side investigation and no artifact to close. This used to build a local "summary" from invented figures, sign it with a
+      // person's email address and announce "Summary generated and stored as an artifact" when nothing had been stored.
+      setShowNoteInput(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `sys-err-${Date.now()}`,
+          role: 'system',
+          content: 'There is no investigation run attached to this chat, so there is nothing to close.',
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
     setIsClosing(true);
     try {
-      let artifactId: string;
-      let summaryMarkdown: string;
-
-      if (runId) {
-        const res = await authFetch(`/api/v1/investigations/${runId}/close`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ analyst_note: analystNote || null }),
-        });
-        if (!res.ok) {
-          throw new Error(`Close failed: ${res.status} ${await res.text()}`);
-        }
-        const data = await res.json();
-        artifactId = data.artifact_id;
-        summaryMarkdown = data.summary_markdown;
-      } else {
-        // Offline / demo mode — build a local summary from message history
-        artifactId = `demo-${Date.now()}`;
-        const msgLines = messages
-          .filter((m) => m.role !== 'system')
-          .slice(-10)
-          .map((m) => `- [${m.role.toUpperCase()}] ${m.content.slice(0, 120)}`)
-          .join('\n');
-        summaryMarkdown =
-          `# Investigation Summary — ${CONTEXT.caseId}\n\n` +
-          `**Status:** closed  \n**Case ID:** ${CONTEXT.caseId}  \n**Alerts:** ${CONTEXT.alertCount}  \n**IOCs:** ${CONTEXT.iocsFound}  \n**Risk:** ${CONTEXT.riskLevel}  \n\n` +
-          `## Conversation (last 10 turns)\n\n${msgLines || '_No messages._'}\n\n` +
-          (analystNote ? `## Analyst Note\n\n${analystNote}\n\n` : '') +
-          `---\n*Generated by AiSOC — beenu@cyble.com*`;
+      const res = await authFetch(`/api/v1/investigations/${runId}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analyst_note: analystNote || null }),
+      });
+      if (!res.ok) {
+        throw new Error(`Close failed: ${res.status} ${await res.text()}`);
       }
+      const data = await res.json();
+      const artifactId: string = data.artifact_id;
+      const summaryMarkdown: string = data.summary_markdown;
 
       setSummary({
         artifactId,
@@ -185,33 +189,22 @@ export default function InvestigationChat({ runId }: Props) {
     } finally {
       setIsClosing(false);
     }
-  }, [runId, messages, analystNote]);
+  }, [runId, analystNote]);
 
   const handleDownloadPdf = useCallback(async () => {
-    if (!summary) return;
+    if (!summary || !runId) return;
     setPdfLoading(true);
 
     try {
-      if (runId) {
-        const res = await authFetch(`/api/v1/investigations/${runId}/summary.pdf`);
-        if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `investigation-${runId}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        // Client-side plain-text fallback when no backend is available
-        const blob = new Blob([summary.summaryMarkdown], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `investigation-${CONTEXT.caseId}.md`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      const res = await authFetch(`/api/v1/investigations/${runId}/summary.pdf`);
+      if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `investigation-${runId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error('[InvestigationChat] PDF download error:', err);
     } finally {
@@ -410,28 +403,28 @@ export default function InvestigationChat({ runId }: Props) {
             <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
               Case ID
             </p>
-            <p className="mt-1 font-mono text-sm text-white">{CONTEXT.caseId}</p>
+            <p className="mt-1 font-mono text-sm text-white">{caseId ?? '—'}</p>
           </div>
 
           <div className="rounded-lg border border-slate-800/80 bg-slate-800/30 p-3">
             <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
               Alert Count
             </p>
-            <p className="mt-1 text-2xl font-bold text-white">{CONTEXT.alertCount}</p>
+            <p className="mt-1 text-2xl font-bold text-white">{alertCount ?? '—'}</p>
           </div>
 
           <div className="rounded-lg border border-slate-800/80 bg-slate-800/30 p-3">
             <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
               IOCs Found
             </p>
-            <p className="mt-1 text-2xl font-bold text-amber-400">{CONTEXT.iocsFound}</p>
+            <p className="mt-1 text-2xl font-bold text-amber-400">{iocsFound ?? '—'}</p>
           </div>
 
           <div className="rounded-lg border border-slate-800/80 bg-slate-800/30 p-3">
             <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
               Risk Level
             </p>
-            <p className="mt-1 text-lg font-bold text-red-400">{CONTEXT.riskLevel}</p>
+            <p className="mt-1 text-lg font-bold text-red-400">{riskLevel ?? '—'}</p>
           </div>
 
           {/* Status badge */}
