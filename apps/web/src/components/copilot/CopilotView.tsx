@@ -35,7 +35,8 @@ const SUGGESTED_PROMPTS: Array<{ label: string; prompt: string }> = [
   {
     label: 'Investigate an entity',
     prompt:
-      'Investigate host WIN-FIN-DB01: show recent alerts, related users, and ATT&CK techniques observed.',
+      // Sent to the model as-is when clicked, so it must not name a host that may not exist (it used to say WIN-FIN-DB01, inviting a made-up investigation).
+      'Investigate the highest-risk host or user in my environment right now: show its recent alerts, related users, and ATT&CK techniques observed. If nothing is currently high risk, say so.',
   },
   {
     label: 'Explain an ATT&CK technique',
@@ -579,7 +580,7 @@ export function CopilotView() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               rows={1}
-              placeholder="Ask anything — try 'investigate WIN-FIN-DB01'…"
+              placeholder="Ask anything — try 'investigate <hostname>'…"
               className="flex-1 resize-none bg-transparent px-2 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none"
             />
             <button
