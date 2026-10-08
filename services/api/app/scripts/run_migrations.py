@@ -93,7 +93,15 @@ def _asyncpg_dsn(url: str) -> tuple[str, dict]:
     return new_url, kwargs
 
 
-async def _connect() -> asyncpg.Connection:
+def migration_url(url: str | None = None) -> str:
+    """The URL migrations connect with: an explicit `url`, else MIGRATION_DATABASE_URL, else DATABASE_URL. Whitespace-only counts as unset."""
+    explicit = (url or "").strip()
+    if explicit:
+        return explicit
+    return (settings.MIGRATION_DATABASE_URL or "").strip() or str(settings.DATABASE_URL)
+
+
+async def _connect(url: str | None = None) -> asyncpg.Connection:
     """Open a fresh asyncpg connection, retrying on transient connect errors.
 
     On Fly, the migration ``release_command`` runs the moment a new app VM
@@ -112,7 +120,7 @@ async def _connect() -> asyncpg.Connection:
     intentionally **not** retried — those need human attention, not
     more attempts.
     """
-    dsn, kwargs = _asyncpg_dsn(str(settings.DATABASE_URL))
+    dsn, kwargs = _asyncpg_dsn(migration_url(url))
     last_exc: Exception | None = None
     # ~3 min total window (see the back-off below). On the Fly demo, the
     # release_command machine is often the *first* thing to touch the Postgres

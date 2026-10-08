@@ -48,4 +48,6 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://aisoc_app:${AISOC_APP_DB_PASSWORD:?set AISOC_APP_DB_PASSWORD in .env}@postgres:5432/aisoc
 
-  # `api` is deliberately NOT switched: it runs the SQL migrations and (in development) create_all at startup, which need a role that can change the schema. It needs a separate migration connection first.
+  # `api` is deliberately NOT switched yet. Its migrations CAN now run on their own connection: set MIGRATION_DATABASE_URL to the database owner and DATABASE_URL to aisoc_app (verified on real Postgres, including a genuinely
+  # pending migration). A sweep of all 143 parameterless GET endpoints of the real API, with its real startup, behaved identically as aisoc_app and as the superuser (no status differences, no permission errors in the logs).
+  # What has NOT been exercised as aisoc_app is the API's WRITE paths, and `create_all` (development and demo only) still needs the owner. Try it in staging before adding it here.

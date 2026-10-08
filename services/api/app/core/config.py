@@ -323,6 +323,10 @@ class Settings(BaseSettings):
     # this default mirrors the compose default so ``aisoc serve`` works on a
     # fresh clone with zero configuration.
     DATABASE_URL: PostgresDsn = "postgresql+asyncpg://aisoc:aisoc_dev_secret@localhost:5432/aisoc"  # type: ignore[assignment]
+    # The connection the SQL MIGRATIONS run on (app/scripts/run_migrations.py, also run by the API at startup). EMPTY (the default) means "use DATABASE_URL", so nothing changes unless this is set.
+    # Set it to the database OWNER when DATABASE_URL is a NON-superuser role (aisoc_app): migrations change the schema, which that role cannot do ("permission denied for schema public"
+    # even when nothing is pending, because the runner always runs CREATE TABLE IF NOT EXISTS). The service then serves requests as the restricted role, so row-level security applies.
+    MIGRATION_DATABASE_URL: str = ""
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
     # Recycle pooled connections before managed Postgres idle-closes them.

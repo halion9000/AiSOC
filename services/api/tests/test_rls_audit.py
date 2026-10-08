@@ -195,7 +195,7 @@ class TestCollectAndMain:
     def run_main(self, monkeypatch, capsys, args, conn):
         import app.scripts.run_migrations as rm
 
-        async def connect():
+        async def connect(url=None):
             return conn
 
         monkeypatch.setattr(rm, "_connect", connect)
@@ -353,7 +353,7 @@ class TestTheFlag:
     def run_main(self, monkeypatch, capsys, args, conn, probe):
         import app.scripts.run_migrations as rm
 
-        async def connect():
+        async def connect(url=None):
             return conn
 
         monkeypatch.setattr(rm, "_connect", connect)

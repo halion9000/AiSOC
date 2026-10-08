@@ -178,7 +178,8 @@ async def main(argv: list[str] | None = None) -> int:
     from app.core.config import settings  # noqa: PLC0415
     from app.scripts.run_migrations import _asyncpg_dsn, _connect  # noqa: PLC0415  (the same DATABASE_URL handling as the migration runner)
 
-    conn = await _connect()
+    # The SERVICE's own connection (DATABASE_URL), never the migration connection: the audit reports on the role the services run as, and MIGRATION_DATABASE_URL may well be the owner.
+    conn = await _connect(str(settings.DATABASE_URL))
     try:
         report = await collect(conn)
     finally:
