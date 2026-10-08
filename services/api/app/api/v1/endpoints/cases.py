@@ -1165,7 +1165,12 @@ async def case_investigation_run(
     resp = await _agents_proxy("GET", f"/api/v1/investigations/{safe_run_id}")
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    return resp.json()
+    run = resp.json()
+    # The agents service does not scope a call made with the internal token (it trusts the API to have authorised it), so the tenant check belongs HERE, where the caller's tenant is known. This used to
+    # return whatever run the id named, to any user. A run that is not this tenant's (or that records no owner) is the SAME 404 the agents service gives for an unknown id: nothing leaks about which ids exist.
+    if not isinstance(run, dict) or str(run.get("tenant_id")) != str(user.tenant_id):
+        raise HTTPException(status_code=404, detail='{"detail":"Investigation run not found"}')
+    return run
 
 
 # Filename sanitiser for Content-Disposition: keep only safe ASCII so the

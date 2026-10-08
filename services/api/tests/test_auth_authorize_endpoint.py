@@ -39,10 +39,12 @@ def _ask(client, permission):
 @pytest.mark.parametrize("role", list(ROLE_PERMISSIONS))
 @pytest.mark.parametrize("permission", ["playbooks:execute", "playbooks:write", "lake:query", "cases:write", "alerts:read", "settings:write"])
 def test_answers_match_the_role_table(role, permission):
-    r = _ask(_client(_user(role)), permission)
+    user = _user(role)
+    r = _ask(_client(user), permission)
     assert r.status_code == (200 if has_permission(role, permission) else 403)
     if r.status_code == 200:
-        assert r.json() == {"allowed": True, "permission": permission}
+        # The answer, plus WHO the caller is (additive): see test_the_answer_says_whose_data_the_caller_may_act_on.
+        assert r.json() == {"allowed": True, "permission": permission, "tenant_id": str(TENANT), "user_id": str(user.user_id), "role": role}
 
 
 def test_api_key_scopes_decide_for_keys():
@@ -68,3 +70,23 @@ def test_every_permission_the_agents_table_uses_is_known():
     agents_uses = {"playbooks:read", "playbooks:write", "playbooks:execute", "lake:query", "settings:write", "alerts:read", "cases:read", "cases:write"}
     assert agents_uses <= kp(), f"the agents service asks about permissions the API rejects: {agents_uses - kp()}"
     assert "*" not in known_permissions()
+
+
+def test_the_answer_says_whose_data_the_caller_may_act_on():
+    """The agents service learns the tenant from HERE, not from a tenant_id named in a request body (which let any caller name any tenant)."""
+    other_tenant = uuid.uuid4()
+    user = CurrentUser(user_id=uuid.uuid4(), tenant_id=other_tenant, role="admin", email="t@example.com")
+    body = _ask(_client(user), "cases:read").json()
+    assert body["tenant_id"] == str(other_tenant) and body["user_id"] == str(user.user_id) and body["role"] == "admin"
+    assert body["tenant_id"] != str(TENANT)  # it is the CALLER's tenant, not some default
+
+
+def test_an_api_key_with_no_user_id_still_reports_its_tenant():
+    key = CurrentUser(user_id=None, tenant_id=TENANT, role="admin", email="key@example.com", scopes=["cases:read"])
+    r = _ask(_client(key), "cases:read")
+    assert r.status_code == 200 and r.json()["tenant_id"] == str(TENANT) and r.json()["user_id"] is None
+
+
+def test_a_refused_caller_is_told_nothing_about_identity():
+    r = _ask(_client(_user("viewer")), "settings:write")
+    assert r.status_code == 403 and "tenant_id" not in r.json()

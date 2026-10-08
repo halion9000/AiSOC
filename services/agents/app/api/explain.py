@@ -116,6 +116,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.core.caller import authenticated_tenant, resolve_tenant
 from app.core.rate_limit import RateLimitDecision, TokenBucketLimiter
 from app.security.llm_resolver import LlmConfig, resolve_llm_config
 
@@ -701,6 +702,7 @@ async def explain(req: ExplainRequest, request: Request) -> StreamingResponse:
     throttle. The body is still NDJSON so an SSE/EventSource client
     that ignores status codes still gets a structured failure.
     """
+    req.tenant_id = resolve_tenant(req.tenant_id, authenticated_tenant(request))  # the authenticated caller's tenant, never the body's claim
     limiter = _get_explain_limiter()
     decision: RateLimitDecision | None = None
     if limiter is not None:

@@ -31,7 +31,10 @@ from app.core.route_permissions import required_permission
 OPEN_PATHS = frozenset({"/livez", "/readyz", "/healthz", "/health", "/metrics"})
 CACHE_TTL_SECONDS = 30.0
 _CACHE_MAX = 1024
-_verified: dict[str, float] = {}  # sha256(Authorization header) -> expiry (monotonic)
+_verified: dict[str, float] = {}  # sha256(permission + Authorization header) -> expiry (monotonic)
+# WHO the credential belongs to, as the API reported it ({"tenant_id", "user_id", "role"}; {} when the API answered without identity). Keyed by the credential alone, and cached for exactly as long
+# as the "verified" answer: a verified hit without a cached identity is not trusted, it asks the API again.
+_identities: dict[str, tuple[float, dict[str, str]]] = {}
 
 
 def _internal_token() -> str:
@@ -44,6 +47,30 @@ def _api_url() -> str:
 
 def clear_cache() -> None:
     _verified.clear()
+    _identities.clear()
+
+
+def _credential_key(authorization: str) -> str:
+    return hashlib.sha256(authorization.encode()).hexdigest()
+
+
+def identity_for(authorization: str) -> dict[str, str] | None:
+    """The identity the API reported for this credential, or None if unknown or expired. {} means the API verified it but did not say who it is."""
+    entry = _identities.get(_credential_key(authorization))
+    return entry[1] if entry and entry[0] > time.monotonic() else None
+
+
+def _remember_identity(authorization: str, resp: httpx.Response, expires: float) -> None:
+    """Pick the caller's tenant, user and role out of the API's 200 body. /auth/authorize returns tenant_id/user_id/role; /auth/me returns tenant_id/id/role."""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    identity = {k: str(v) for k, v in (("tenant_id", body.get("tenant_id")), ("user_id", body.get("user_id") or body.get("id")), ("role", body.get("role"))) if v}
+    if len(_identities) >= _CACHE_MAX:
+        _identities.clear()
+    _identities[_credential_key(authorization)] = (expires, identity)
 
 
 async def check_with_api(authorization: str, permission: str | None) -> str:
@@ -55,7 +82,7 @@ async def check_with_api(authorization: str, permission: str | None) -> str:
     """
     key = hashlib.sha256(f"{permission or ''}\n{authorization}".encode()).hexdigest()
     now = time.monotonic()
-    if _verified.get(key, 0.0) > now:
+    if _verified.get(key, 0.0) > now and identity_for(authorization) is not None:
         return "ok"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -71,6 +98,7 @@ async def check_with_api(authorization: str, permission: str | None) -> str:
         if len(_verified) >= _CACHE_MAX:
             _verified.clear()
         _verified[key] = now + CACHE_TTL_SECONDS
+        _remember_identity(authorization, resp, now + CACHE_TTL_SECONDS)
         return "ok"
     if resp.status_code == 401:
         return "unauthenticated"
@@ -98,6 +126,17 @@ async def authorize(headers: dict[str, str], method: str = "GET", path: str = ""
     return 503, "Authentication service unavailable"
 
 
+def caller_for(headers: dict[str, str]) -> dict[str, str | None]:
+    """Who made an ALLOWED request. kind="internal": the API's own proxy (already authorised the user; the tenant it names is trusted). kind="user": a login or API key, with the tenant, user and role
+    the API reported (tenant_id is None if the API did not say). Handlers take the tenant from here for kind="user", never from the request body."""
+    internal = _internal_token()
+    sent = headers.get("x-internal-token", "")
+    if internal and sent and hmac.compare_digest(sent, internal):
+        return {"kind": "internal"}
+    identity = identity_for(headers.get("authorization", "")) or {}
+    return {"kind": "user", "tenant_id": identity.get("tenant_id"), "user_id": identity.get("user_id"), "role": identity.get("role")}
+
+
 class ServiceAuthMiddleware:
     """Plain ASGI middleware (streams and WebSockets pass through untouched)."""
 
@@ -114,6 +153,7 @@ class ServiceAuthMiddleware:
         method = "GET" if scope["type"] == "websocket" else scope.get("method", "GET")
         status, reason = await authorize(headers, method, scope.get("path", ""))
         if status == 0:
+            scope.setdefault("state", {})["caller"] = caller_for(headers)  # request.state.caller / websocket.state.caller
             return await self.app(scope, receive, send)
         if scope["type"] == "websocket":
             await send({"type": "websocket.close", "code": {401: 4401, 403: 4403}.get(status, 1013), "reason": reason})

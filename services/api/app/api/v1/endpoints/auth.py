@@ -189,6 +189,10 @@ class AuthorizeRequest(BaseModel):
 class AuthorizeResponse(BaseModel):
     allowed: bool
     permission: str
+    # WHO the caller is, so a service that asks "may they do this?" also learns whose data it is acting on instead of trusting a tenant named in a request body. Additive: older callers ignore them.
+    tenant_id: uuid.UUID | None = None
+    user_id: uuid.UUID | None = None
+    role: str | None = None
 
 
 @router.post("/authorize", response_model=AuthorizeResponse)
@@ -204,7 +208,7 @@ async def authorize(body: AuthorizeRequest, current_user: AuthUser) -> Authorize
     if body.permission not in known_permissions():
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unknown permission: {body.permission}")
     current_user.require_permission(body.permission)
-    return AuthorizeResponse(allowed=True, permission=body.permission)
+    return AuthorizeResponse(allowed=True, permission=body.permission, tenant_id=current_user.tenant_id, user_id=current_user.user_id, role=current_user.role)
 
 
 @router.get("/me", response_model=UserMeResponse)

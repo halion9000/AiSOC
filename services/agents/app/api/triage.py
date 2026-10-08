@@ -36,9 +36,10 @@ from uuid import UUID, uuid4
 
 import httpx
 import structlog
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.core.caller import authenticated_tenant, resolve_tenant
 from app.models.state import AgentStatus, InvestigationState
 from app.orchestrator import PARALLEL_TOPOLOGY_FLAG, RouterOrchestrator
 
@@ -262,12 +263,14 @@ async def launch_triage(
     case_id: str,
     body: TriageRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
 ) -> TriageResponse:
     """Launch a router-topology triage run for ``case_id``.
 
     Returns immediately with the run identifier; poll
     ``GET /api/v1/triage/{run_id}`` for the final verdict / findings.
     """
+    body.tenant_id = resolve_tenant(body.tenant_id, authenticated_tenant(request))  # the authenticated caller's tenant, never the body's claim
     topology = _resolve_topology(body.topology)
 
     run_id = str(uuid4())
@@ -319,6 +322,7 @@ async def launch_triage(
 async def get_triage(
     run_id: str,
     tenant_id: str = "default",
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     """Return the current state of a router triage run.
 
@@ -328,6 +332,7 @@ async def get_triage(
     rather than 403 to avoid leaking the existence of run IDs across
     tenant boundaries.
     """
+    tenant_id = resolve_tenant(tenant_id, authenticated_tenant(request) if request is not None else None)  # who the caller IS, not who they say they are
     run = _triage_runs.get(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Triage run not found")

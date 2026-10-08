@@ -17,8 +17,9 @@ class _FakeLaunch:
     def __init__(self):
         self.case_id = None
 
-    async def __call__(self, *, case_id, body, background_tasks):
+    async def __call__(self, *, case_id, body, background_tasks, request):  # `request` is how launch_investigation learns the authenticated caller's tenant
         self.case_id = case_id
+        self.request = request
         inv._runs["run-1"] = {"started_at": "2026-10-06T00:00:00"}  # what the real launch records
         return types.SimpleNamespace(run_id="run-1", case_id=case_id, status="running", message="started")
 

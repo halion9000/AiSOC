@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import structlog
+from app.core.caller import authenticated_tenant, resolve_tenant, visible_run
 from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -229,12 +230,15 @@ async def launch_investigation(
     case_id: str,
     body: InvestigateRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
 ):
     """Launch a Pillar-1 autonomous investigation for a case."""
+    body.tenant_id = resolve_tenant(body.tenant_id, authenticated_tenant(request))  # the authenticated caller's tenant, never the body's claim
     run_id = str(uuid4())
     _runs[run_id] = {
         "run_id": run_id,
         "case_id": case_id,
+        "tenant_id": body.tenant_id,  # who owns this run: every read route checks it (runs used to be stored without one)
         "status": "running",
         "started_at": datetime.utcnow().isoformat(),
     }
@@ -249,22 +253,18 @@ async def launch_investigation(
 
 
 @router.get("/investigations/{run_id}")
-async def get_investigation(run_id: str):
+async def get_investigation(run_id: str, request: Request):
     """Poll investigation status and results."""
-    run = _runs.get(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Investigation run not found")
+    run = visible_run(_runs.get(run_id), request, "Investigation run not found")
     # Strip large fields from polling response — use dedicated endpoints instead
     slim = {k: v for k, v in run.items() if k not in ("report_md", "report_html")}
     return slim
 
 
 @router.get("/investigations/{run_id}/report.md", response_class=PlainTextResponse)
-async def get_report_md(run_id: str):
+async def get_report_md(run_id: str, request: Request):
     """Download the Markdown incident report."""
-    run = _runs.get(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+    run = visible_run(_runs.get(run_id), request)
     if run["status"] != "completed":
         raise HTTPException(status_code=409, detail=f"Investigation is {run['status']}")
     return run.get("report_md", "")
@@ -278,30 +278,26 @@ async def get_report_md(run_id: str):
     "/cases/{case_id}/investigations/{run_id}/report.md",
     response_class=PlainTextResponse,
 )
-async def get_report_md_case_scoped(case_id: str, run_id: str):
+async def get_report_md_case_scoped(case_id: str, run_id: str, request: Request):
     """Case-scoped alias for get_report_md (B5 frontend compat)."""
-    return await get_report_md(run_id)
+    return await get_report_md(run_id, request)
 
 
 @router.get("/investigations/{run_id}/report.html", response_class=HTMLResponse)
-async def get_report_html(run_id: str):
+async def get_report_html(run_id: str, request: Request):
     """Download the HTML incident report."""
-    run = _runs.get(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+    run = visible_run(_runs.get(run_id), request)
     if run["status"] != "completed":
         raise HTTPException(status_code=409, detail=f"Investigation is {run['status']}")
     return run.get("report_html", "<html><body>No report yet.</body></html>")
 
 
 @router.get("/investigations/{run_id}/report.pdf")
-async def get_report_pdf(run_id: str):
+async def get_report_pdf(run_id: str, request: Request):
     """Download the PDF incident report (rendered from HTML via weasyprint)."""
     from fastapi.responses import Response as FastAPIResponse
 
-    run = _runs.get(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+    run = visible_run(_runs.get(run_id), request)
     if run["status"] != "completed":
         raise HTTPException(status_code=409, detail=f"Investigation is {run['status']}")
 
@@ -341,8 +337,18 @@ async def stream_investigation(ws: WebSocket, run_id: str):
     """
     case_id = ws.query_params.get("case_id", run_id)
     alert_summary = ws.query_params.get("alert_summary", "")
-    tenant_id = ws.query_params.get("tenant_id", "default")
+    try:
+        tenant_id = resolve_tenant(ws.query_params.get("tenant_id"), authenticated_tenant(ws))
+    except HTTPException:  # a logged-in caller whose tenant is unknown: refuse the socket, do not guess
+        await ws.close(code=4403)
+        return
 
+    if run_id in _runs:
+        try:
+            visible_run(_runs.get(run_id), ws)
+        except HTTPException:  # someone else's run: close exactly as for an unknown run, never tail it
+            await ws.close(code=4404)
+            return
     await ws.accept()
     try:
         # If a background run exists, tail it via polling
@@ -458,7 +464,7 @@ async def legacy_investigate(
         raw_alert=alert,
         tenant_id=tenant_id,
     )
-    result = await launch_investigation(case_id=case_id, body=req, background_tasks=background_tasks)
+    result = await launch_investigation(case_id=case_id, body=req, background_tasks=background_tasks, request=request)
 
     # Store the alertId on the run so the poll endpoint can return it
     _runs[result.run_id]["alert_id"] = alert_id
@@ -472,15 +478,13 @@ async def legacy_investigate(
 
 
 @router.get("/agents/investigations/{run_id}", response_model=_AgentInvestigationResponse)
-async def get_agent_investigation(run_id: str):
+async def get_agent_investigation(run_id: str, request: Request):
     """Poll endpoint returning AgentInvestigation shape for the UI.
 
     Maps the internal _runs state to the frontend's expected shape,
     populating findings when the investigation completes.
     """
-    run = _runs.get(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Investigation run not found")
+    run = visible_run(_runs.get(run_id), request, "Investigation run not found")
 
     # Map internal status to frontend status values
     status_map = {
