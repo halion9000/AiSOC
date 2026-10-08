@@ -143,7 +143,8 @@ export default function AdminWaitlistPage() {
       const response = await authFetch('/api/v1/admin/tenants/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waitlist_entry_id: entryId, seed_demo: true }),
+        // No sample data: a customer's new workspace starts empty. (This used to send seed_demo: true, loading invented incidents into every newly provisioned tenant.)
+        body: JSON.stringify({ waitlist_entry_id: entryId, seed_demo: false }),
       });
       if (!response.ok) {
         const body = await response.text().catch(() => '');
@@ -180,8 +181,8 @@ export default function AdminWaitlistPage() {
         </h1>
         <p className="mt-1 text-sm text-gray-400">
           Triage incoming requests for <code className="rounded bg-white/[0.05] px-1">tryaisoc.com</code>{' '}
-          managed tenants. Promote an entry to mint the tenant, seed the
-          demo dataset, and generate the initial admin invite link.
+          managed tenants. Promote an entry to mint the tenant and generate the initial
+          admin invite link. No sample data is added: the workspace starts empty.
         </p>
       </header>
 
@@ -402,10 +403,6 @@ function InviteCard({ invite, onDismiss }: InviteCardProps) {
             <span className="font-mono text-emerald-200">
               {invite.admin_user.email}
             </span>
-            . Demo dataset seeded:{' '}
-            <strong className="text-white">
-              {invite.demo_seeded ? 'yes' : 'no'}
-            </strong>
             . Credential-key fingerprint:{' '}
             <code className="rounded bg-white/[0.05] px-1 text-[11px]">
               {invite.aisoc_credential_key_fingerprint || '—'}

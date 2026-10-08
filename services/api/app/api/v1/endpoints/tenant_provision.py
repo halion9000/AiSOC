@@ -71,12 +71,13 @@ class TenantProvisionRequest(BaseModel):
     """Body of the provision POST.
 
     ``waitlist_entry_id`` is the only required field. The optional
-    ``seed_demo`` flag lets the operator turn off the starter dataset
+    ``seed_demo`` (default OFF) lets an operator explicitly opt in to loading the demo dataset
     for tenants where the customer wants a clean slate.
     """
 
     waitlist_entry_id: uuid.UUID
-    seed_demo: bool = True
+    # OFF unless an operator explicitly asks for it: a real customer's new workspace must not start with invented incidents. (It used to default to True, and the admin UI sent True.)
+    seed_demo: bool = False
     invite_base_url: str | None = Field(default=None, max_length=512)
 
 

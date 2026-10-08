@@ -28,7 +28,7 @@ What "provisioning" does, end to end:
    ``aisoc_credential_key`` (a fresh Fernet key) tucked into
    ``settings``. Operators rotate this key with the existing
    ``CredentialVault`` machinery; we only mint it here.
-4. Seed the demo dataset by calling into ``app.scripts.seed_demo`` so
+4. ONLY when explicitly requested with ``seed_demo=True`` (the default is OFF), seed the demo dataset by calling into ``app.scripts.seed_demo`` so
    the tenant has something to look at on day one. We rely on the
    seed-demo script's existing idempotency: it inspects whether the
    target tenant already has connectors and bails out cheaply if so.
@@ -282,7 +282,7 @@ async def provision_from_waitlist(
     waitlist_entry_id: uuid.UUID,
     actor_email: str,
     invite_base_url: str = "https://tryaisoc.com",
-    seed_demo: bool = True,
+    seed_demo: bool = False,
     demo_seeder: DemoSeederCallable | None = None,
     templates: TenantTemplateBundle | None = None,
     shard_factory: Callable[[], str] | None = None,
