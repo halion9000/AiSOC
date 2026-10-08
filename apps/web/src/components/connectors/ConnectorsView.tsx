@@ -25,10 +25,14 @@ import {
   type Connector,
   type ConnectorHealthSummary,
 } from '@/lib/api';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { AddConnectorModal } from './AddConnectorModal';
 import { ConnectorInstanceList } from './ConnectorInstanceList';
 import { EditConnectorModal } from './EditConnectorModal';
 import { InboxTokensPanel } from './InboxTokensPanel';
+
+/** Shown instead of a number we do not know. */
+const UNKNOWN = '\u2014';
 
 export function ConnectorsView() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -67,6 +71,10 @@ export function ConnectorsView() {
   const catalog = useMemo(() => catalogData?.connectors ?? [], [catalogData]);
 
   const connectors: Connector[] = useMemo(() => data?.connectors ?? [], [data]);
+
+  // The connector list could not be loaded and nothing earlier is on screen. Every figure derived from that (empty) list would be a made-up zero:
+  // "0 active, 0 errors" reads as healthy when the truth is unknown. (The health summary comes from a separate endpoint; when it did load, its figures are real.)
+  const listFailed = Boolean(error) && !data;
 
   const localStats = useMemo(() => {
     const active = connectors.filter((c) => c.status === 'active').length;
@@ -181,7 +189,7 @@ export function ConnectorsView() {
       <div
         className={clsx(
           'grid grid-cols-2 gap-3',
-          stats.driftedRecently > 0 || stats.totalDropped > 0
+          !listFailed && (stats.driftedRecently > 0 || stats.totalDropped > 0)
             ? 'md:grid-cols-6'
             : 'md:grid-cols-4',
         )}
@@ -189,15 +197,15 @@ export function ConnectorsView() {
         {[
           {
             label: 'Total Connectors',
-            value: healthSummary?.total ?? connectors.length,
+            value: healthSummary?.total ?? (listFailed ? UNKNOWN : connectors.length),
             color: 'text-blue-400',
             show: true,
           },
-          { label: 'Active', value: stats.active, color: 'text-green-400', show: true },
-          { label: 'Errors', value: stats.errored, color: 'text-red-400', show: true },
+          { label: 'Active', value: !healthSummary && listFailed ? UNKNOWN : stats.active, color: 'text-green-400', show: true },
+          { label: 'Errors', value: !healthSummary && listFailed ? UNKNOWN : stats.errored, color: 'text-red-400', show: true },
           {
             label: 'Events Ingested',
-            value: stats.totalEvents.toLocaleString(),
+            value: !healthSummary && listFailed ? UNKNOWN : stats.totalEvents.toLocaleString(),
             color: 'text-purple-400',
             show: true,
           },
@@ -233,22 +241,32 @@ export function ConnectorsView() {
       </div>
 
       {/* Body */}
-      {error && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
-          Connectors API unreachable — showing demo instances so you can explore the interface.
-        </div>
-      )}
-      {(
-        <ConnectorInstanceList
-          connectors={connectors}
-          isLoading={isLoading && !data}
-          testingId={testingId}
-          testResults={testResults}
-          onTest={handleTest}
-          onAdd={() => setModalOpen(true)}
-          onConfigure={handleConfigure}
-          onDelete={handleDelete}
+      {/* There are no demo instances: the old banner said "showing demo instances so you can explore the interface" while showing an empty list. */}
+      {listFailed ? (
+        <ErrorState
+          title="Couldn't load connectors"
+          description="The connectors service didn't respond."
+          error={error}
+          onRetry={() => void mutate()}
         />
+      ) : (
+        <>
+          {error && (
+            <div role="alert" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
+              Couldn&rsquo;t refresh connectors; showing what was last loaded.
+            </div>
+          )}
+          <ConnectorInstanceList
+            connectors={connectors}
+            isLoading={isLoading && !data}
+            testingId={testingId}
+            testResults={testResults}
+            onTest={handleTest}
+            onAdd={() => setModalOpen(true)}
+            onConfigure={handleConfigure}
+            onDelete={handleDelete}
+          />
+        </>
       )}
 
       {/* Universal capture (push) — collapsed by default. Sits below the
