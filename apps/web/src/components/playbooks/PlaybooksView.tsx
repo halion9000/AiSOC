@@ -20,6 +20,7 @@ import clsx from 'clsx';
 import type { Playbook, PlaybookRun } from './types';
 import { PlaybooksGallery, type PlaybookGalleryFilters } from './PlaybooksGallery';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import { DraftFromPromptDialog } from './DraftFromPromptDialog';
 import { authFetch } from '@/lib/auth-session';
@@ -396,7 +397,7 @@ function CommunityPlaybookCard({ playbook }: { playbook: CommunityPlaybook }) {
 
 export function PlaybooksView() {
   const [tab, setTab] = useState<'playbooks' | 'runs' | 'community'>('playbooks');
-  const { data, isLoading, error } = useSWR<Playbook[]>('/api/v1/playbooks', fetcher, {
+  const { data, isLoading, error, mutate } = useSWR<Playbook[]>('/api/v1/playbooks', fetcher, {
     refreshInterval: 30000,
   });
 
@@ -486,9 +487,18 @@ export function PlaybooksView() {
 
           {isLoading && <div className="text-gray-600 text-sm">Loading playbooks…</div>}
 
-          {error && (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
-              Agents API unreachable — showing demo playbooks so you can explore the workflow.
+          {/* There are no demo playbooks: the old banner said "showing demo playbooks so you can explore the workflow", which was never true. */}
+          {error && !data && (
+            <ErrorState
+              title="Couldn't load playbooks"
+              description="The agents service didn't respond."
+              error={error}
+              onRetry={() => void mutate()}
+            />
+          )}
+          {error && data && (
+            <div role="alert" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
+              Couldn&rsquo;t refresh playbooks; showing what was last loaded.
             </div>
           )}
 
