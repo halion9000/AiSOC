@@ -25,13 +25,19 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+import structlog
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.core.config import settings
 from app.db.rls import TenantDBSession
+from app.models.detection_suggestion import DetectionSuggestion
+
+logger = structlog.get_logger()
+
+MAX_LISTED = 500  # a suggestion list, not a data store: the newest N
 
 router = APIRouter(prefix="/detection-loop", tags=["detection_rules", "detection_loop"])
 
@@ -159,12 +165,25 @@ def _template_fallback(current_sigma: str, alert_fields: dict[str, Any], analyst
 # In-memory store (replace with DB table in prod)
 # ────────────────────────────────────────────────────────────────────────────
 
-_SUGGESTIONS: dict[uuid.UUID, dict[str, Any]] = {}
+# Suggestions are stored in Postgres (table detection_suggestions; see migrations/058). They used to be a process-wide dict: lost on restart, and the draft proposal row did not carry enough to rebuild them.
 
 
 # ────────────────────────────────────────────────────────────────────────────
 # Endpoints
 # ────────────────────────────────────────────────────────────────────────────
+
+
+def _to_response(row: DetectionSuggestion) -> SuggestionResponse:
+    return SuggestionResponse(
+        suggestion_id=row.id,
+        alert_id=row.alert_id,
+        base_rule_id=row.base_rule_id,
+        draft_rule_name=row.draft_rule_name,
+        draft_sigma_yaml=row.draft_sigma_yaml,
+        rationale=row.rationale,
+        proposal_id=row.proposal_id,
+        created_at=row.created_at,
+    )
 
 
 @router.post(
@@ -229,32 +248,33 @@ async def suggest_fp_fix(
     proposal_id: uuid.UUID | None = None
     try:
         proposal_id = uuid.uuid4()
-        await db.execute(
-            text(
-                """
-                INSERT INTO detection_rule_proposals
-                  (id, tenant_id, base_rule_id, name, description,
-                   rule_language, rule_body, category, severity, confidence,
-                   status, source, created_at, updated_at)
-                VALUES
-                  (:id, :tid, :rid, :name, :desc,
-                   'sigma', :body, 'fp-fix', 'low', 70,
-                   'draft', 'detection-loop', :now, :now)
-                """
-            ).bindparams(
-                id=proposal_id,
-                tid=tenant_id,
-                rid=rule_id,
-                name=draft.get("rule_name", "fp-exclusion-draft"),
-                desc=draft.get("rationale", ""),
-                body=draft.get("sigma_yaml", ""),
-                now=now,
+        async with db.begin_nested():  # SAVEPOINT: a failed proposal insert must not poison the suggestion that follows
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO detection_rule_proposals
+                      (id, tenant_id, base_rule_id, name, description,
+                       rule_language, rule_body, category, severity, confidence,
+                       status, source, created_at, updated_at)
+                    VALUES
+                      (:id, :tid, :rid, :name, :desc,
+                       'sigma', :body, 'fp-fix', 'low', 70,
+                       'draft', 'detection-loop', :now, :now)
+                    """
+                ).bindparams(
+                    id=proposal_id,
+                    tid=tenant_id,
+                    rid=rule_id,
+                    name=draft.get("rule_name", "fp-exclusion-draft"),
+                    desc=draft.get("rationale", ""),
+                    body=draft.get("sigma_yaml", ""),
+                    now=now,
+                )
             )
-        )
-        await db.commit()
     except Exception:
+        # This used to be silent (`proposal_id = None` and nothing else; the module had no logger). The suggestion is still returned and stored: a missing draft proposal is not fatal, but it must be visible.
+        logger.warning("detection_loop.proposal_insert_failed", tenant_id=str(tenant_id), alert_id=str(body.alert_id), exc_info=True)
         proposal_id = None
-        await db.rollback()
 
     result = SuggestionResponse(
         suggestion_id=suggestion_id,
@@ -266,12 +286,21 @@ async def suggest_fp_fix(
         proposal_id=proposal_id,
         created_at=now,
     )
-    # Tag the in-memory record with the caller's tenant so list/detail reads
-    # can filter cross-tenant access. ``tenant_id`` is *not* part of the
-    # response schema — it is internal metadata used only for isolation.
-    stored = result.model_dump()
-    stored["tenant_id"] = tenant_id
-    _SUGGESTIONS[suggestion_id] = stored
+    db.add(
+        DetectionSuggestion(
+            id=suggestion_id,
+            tenant_id=tenant_id,  # the CALLER's tenant, never a value read back from the database
+            created_by=user.user_id,
+            alert_id=body.alert_id,
+            base_rule_id=rule_id,
+            draft_rule_name=result.draft_rule_name,
+            draft_sigma_yaml=result.draft_sigma_yaml,
+            rationale=result.rationale,
+            proposal_id=proposal_id,
+            created_at=now,
+        )
+    )
+    await db.commit()  # one commit: the draft proposal (if it was created) and the suggestion are stored together
     return result
 
 
@@ -281,19 +310,12 @@ async def suggest_fp_fix(
     summary="List LLM-drafted Sigma suggestions",
     dependencies=[Depends(require_permission("alerts:read"))],
 )
-async def list_suggestions(user: AuthUser) -> SuggestionListResponse:
-    """List suggestions drafted by *this* tenant only.
-
-    Tenant isolation: ``_SUGGESTIONS`` is process-wide and shared across all
-    tenants. Filtering on the stored ``tenant_id`` ensures one tenant never
-    sees another tenant's drafts, rule names, or evidence-derived rationale.
-    """
-    items = [
-        SuggestionResponse(**{k: v for k, v in stored.items() if k != "tenant_id"})
-        for stored in _SUGGESTIONS.values()
-        if str(stored.get("tenant_id")) == str(user.tenant_id)
-    ]
-    return SuggestionListResponse(suggestions=items, total=len(items))
+async def list_suggestions(user: AuthUser, db: TenantDBSession) -> SuggestionListResponse:
+    """List suggestions drafted by *this* tenant only, newest first (explicit tenant filter, plus RLS in Postgres)."""
+    where = DetectionSuggestion.tenant_id == user.tenant_id
+    rows = (await db.execute(select(DetectionSuggestion).where(where).order_by(DetectionSuggestion.created_at.desc()).limit(MAX_LISTED))).scalars().all()
+    total = (await db.execute(select(func.count()).select_from(DetectionSuggestion).where(where))).scalar_one()
+    return SuggestionListResponse(suggestions=[_to_response(r) for r in rows], total=total)
 
 
 @router.get(
@@ -305,13 +327,14 @@ async def list_suggestions(user: AuthUser) -> SuggestionListResponse:
 async def get_suggestion(
     suggestion_id: uuid.UUID,
     user: AuthUser,
+    db: TenantDBSession,
 ) -> SuggestionResponse:
     """Return one suggestion if and only if it belongs to the caller's tenant.
 
     Tenant isolation: a cross-tenant lookup returns 404 (not 403) to avoid
     leaking the existence of a suggestion that belongs to another tenant.
     """
-    item = _SUGGESTIONS.get(suggestion_id)
-    if not item or str(item.get("tenant_id")) != str(user.tenant_id):
+    row = (await db.execute(select(DetectionSuggestion).where(DetectionSuggestion.id == suggestion_id, DetectionSuggestion.tenant_id == user.tenant_id))).scalar_one_or_none()
+    if row is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")
-    return SuggestionResponse(**{k: v for k, v in item.items() if k != "tenant_id"})
+    return _to_response(row)

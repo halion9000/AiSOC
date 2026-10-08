@@ -44,6 +44,7 @@ from app.models.saved_hunt import SavedHunt
 from app.models.saved_view import SavedView
 from app.models.community_catalog import CommunityCatalogItem
 from app.models.copilot_conversation import CopilotConversation
+from app.models.detection_suggestion import DetectionSuggestion
 from app.models.saved_hunt_search import SavedHuntSearch
 from app.models.stix_object import StixObject
 from app.models.shift import Shift
@@ -103,6 +104,7 @@ __all__ = [
     "SavedView",
     "CommunityCatalogItem",
     "CopilotConversation",
+    "DetectionSuggestion",
     "SavedHuntSearch",
     "StixObject",
     "ThreatActor",

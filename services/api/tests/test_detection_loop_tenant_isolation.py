@@ -14,13 +14,9 @@ The contract being protected
 * The auto-created ``detection_rule_proposals`` row must bind the
   **caller's** ``tenant_id`` — never one derived from a database read,
   so a poisoned ``aisoc_alerts.tenant_id`` cannot redirect the write.
-* ``GET /detection-loop/suggestions`` and
-  ``GET /detection-loop/suggestions/{id}`` operate over a process-wide
-  in-memory ``_SUGGESTIONS`` dict. Filtering on the stored ``tenant_id``
-  must hide other tenants' drafts. A cross-tenant GET-by-id must 404
-  (not 403) so we don't leak existence.
-* The ``tenant_id`` we tag onto the in-memory record is *internal
-  metadata* — it must not appear in any response body.
+* The suggestion is stored (table ``detection_suggestions``) bound to the **caller's** tenant, never one read back from the database, and nothing is stored when the alert lookup 404s.
+* ``GET /detection-loop/suggestions`` and ``GET /detection-loop/suggestions/{id}`` are tenant-scoped; they now read the database and are covered against a real database in
+  :mod:`tests.test_detection_suggestions_persistence` (they used to operate over a process-wide in-memory dict, which is gone).
 
 These tests call the endpoint functions directly with a mocked
 :class:`AsyncSession`, the same pattern used in
@@ -40,10 +36,9 @@ from app.api.v1.endpoints import detection_loop as detection_loop_module
 from app.api.v1.endpoints.detection_loop import (
     SuggestionResponse,
     SuggestRequest,
-    get_suggestion,
-    list_suggestions,
     suggest_fp_fix,
 )
+from app.models.detection_suggestion import DetectionSuggestion
 from fastapi import HTTPException
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -110,6 +105,17 @@ def _mk_db(rows: list[Any]) -> MagicMock:
     db.execute = AsyncMock(side_effect=_execute)
     db.commit = AsyncMock()
     db.rollback = AsyncMock()
+    db.added = []  # ORM objects the endpoint add()ed (the stored suggestion)
+    db.add = MagicMock(side_effect=db.added.append)
+
+    class _Savepoint:  # `async with db.begin_nested():` (an exception inside is NOT swallowed, as with a real savepoint)
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *exc: Any) -> bool:
+            return False
+
+    db.begin_nested = MagicMock(side_effect=lambda: _Savepoint())
     return db
 
 
@@ -129,14 +135,6 @@ def _find_insert(executed: list[tuple[str, dict[str, Any]]], table: str) -> tupl
         if "insert into" in normalized and table.lower() in normalized:
             return sql, params
     return None
-
-
-@pytest.fixture(autouse=True)
-def _clear_suggestions_store() -> Any:
-    """The ``_SUGGESTIONS`` dict is process-wide; reset it per test."""
-    detection_loop_module._SUGGESTIONS.clear()
-    yield
-    detection_loop_module._SUGGESTIONS.clear()
 
 
 @pytest.fixture
@@ -204,7 +202,8 @@ async def test_suggest_cross_tenant_alert_id_returns_404(_stub_llm: dict[str, An
     assert _find_select(db.executed, "aisoc_detection_rules") is None, "rule body lookup must not run when the alert lookup 404s"
     assert _find_insert(db.executed, "detection_rule_proposals") is None, "no proposal must be inserted when the alert lookup 404s"
     # And nothing must land in the in-memory store.
-    assert detection_loop_module._SUGGESTIONS == {}
+    assert db.added == [], "nothing may be stored when the alert lookup 404s"
+    db.commit.assert_not_awaited()
 
 
 async def test_suggest_same_tenant_scopes_alert_rule_and_proposal(_stub_llm: dict[str, Any]) -> None:
@@ -247,11 +246,14 @@ async def test_suggest_same_tenant_scopes_alert_rule_and_proposal(_stub_llm: dic
         params.get("tid") == user.tenant_id
     ), f"proposal INSERT did not bind the caller's tenant; params={params}; expected={user.tenant_id}"
 
-    # The in-memory record must be tagged with the caller's tenant
-    # (used by list/get for cross-tenant filtering) and must hold the
-    # full response.
-    stored = detection_loop_module._SUGGESTIONS[response.suggestion_id]
-    assert stored["tenant_id"] == user.tenant_id
+    # The stored suggestion is bound to the caller's tenant and holds the full response; one commit stores it together with the proposal.
+    (stored,) = db.added
+    assert isinstance(stored, DetectionSuggestion)
+    assert stored.tenant_id == user.tenant_id and stored.created_by == user.user_id
+    assert stored.id == response.suggestion_id and stored.alert_id == response.alert_id and stored.base_rule_id == rule_id
+    assert stored.draft_sigma_yaml == response.draft_sigma_yaml and stored.rationale == response.rationale and stored.proposal_id == response.proposal_id
+    assert stored.proposal_id is not None
+    db.commit.assert_awaited_once()
 
 
 async def test_suggest_proposal_insert_binds_caller_tenant_not_db_row_tenant(_stub_llm: dict[str, Any]) -> None:
@@ -271,7 +273,7 @@ async def test_suggest_proposal_insert_binds_caller_tenant_not_db_row_tenant(_st
     rule = _rule_row()
     db = _mk_db([forged_alert, rule, None])
 
-    response = await suggest_fp_fix(
+    await suggest_fp_fix(
         body=SuggestRequest(alert_id=uuid.uuid4()),
         db=db,
         user=user,
@@ -285,9 +287,9 @@ async def test_suggest_proposal_insert_binds_caller_tenant_not_db_row_tenant(_st
     assert params.get("tid") == user.tenant_id
     assert params.get("tid") != poisoned_row_tenant
 
-    # And the in-memory tag also follows the caller, not the row.
-    stored = detection_loop_module._SUGGESTIONS[response.suggestion_id]
-    assert stored["tenant_id"] == user.tenant_id
+    # And the stored suggestion also follows the caller, not the row.
+    (stored,) = db.added
+    assert stored.tenant_id == user.tenant_id and stored.tenant_id != poisoned_row_tenant
 
 
 async def test_suggest_alert_without_rule_id_skips_rule_select(_stub_llm: dict[str, Any]) -> None:
@@ -314,119 +316,5 @@ async def test_suggest_alert_without_rule_id_skips_rule_select(_stub_llm: dict[s
     proposal_insert = _find_insert(db.executed, "detection_rule_proposals")
     assert proposal_insert is not None
     assert proposal_insert[1].get("tid") == user.tenant_id
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# GET /detection-loop/suggestions
-# ────────────────────────────────────────────────────────────────────────────
-
-
-def _seed_suggestion(tenant_id: uuid.UUID, rule_name: str = "fp-fix-draft") -> uuid.UUID:
-    """Insert a stub row directly into ``_SUGGESTIONS`` for list/get tests."""
-    sid = uuid.uuid4()
-    from datetime import UTC, datetime  # noqa: PLC0415 — keep helper hermetic.
-
-    detection_loop_module._SUGGESTIONS[sid] = {
-        "suggestion_id": sid,
-        "alert_id": uuid.uuid4(),
-        "base_rule_id": uuid.uuid4(),
-        "draft_rule_name": rule_name,
-        "draft_sigma_yaml": "filter:\n  - User: 'svc-ci'\n",
-        "rationale": "test",
-        "proposal_id": uuid.uuid4(),
-        "created_at": datetime.now(UTC),
-        "tenant_id": tenant_id,
-    }
-    return sid
-
-
-async def test_list_suggestions_only_returns_caller_tenant() -> None:
-    """A list call must return only the caller-tenant's suggestions, never others'."""
-    tenant_a = _user()
-    tenant_b = _user()
-    a1 = _seed_suggestion(tenant_a.tenant_id, "a-1")
-    a2 = _seed_suggestion(tenant_a.tenant_id, "a-2")
-    # Seed a tenant-B suggestion solely to prove it doesn't leak into tenant A's
-    # list response below; we never need its id here.
-    _seed_suggestion(tenant_b.tenant_id, "b-1")
-
-    resp = await list_suggestions(user=tenant_a)
-
-    assert resp.total == 2
-    returned_ids = {item.suggestion_id for item in resp.suggestions}
-    assert returned_ids == {a1, a2}, "tenant A's list returned the wrong set — possible cross-tenant leak"
-
-
-async def test_list_suggestions_does_not_leak_internal_tenant_id_field() -> None:
-    """The internal ``tenant_id`` tag must not appear in the response body."""
-    user = _user()
-    _seed_suggestion(user.tenant_id)
-
-    resp = await list_suggestions(user=user)
-
-    assert resp.total == 1
-    item = resp.suggestions[0]
-    # ``SuggestionResponse`` does not declare ``tenant_id`` and pydantic
-    # will not expose attributes that aren't declared. Verify defensively
-    # in case someone adds the field to the schema later.
-    assert not hasattr(item, "tenant_id"), "internal tenant_id metadata must not be part of the API response"
-    dumped = item.model_dump()
-    assert "tenant_id" not in dumped
-
-
-async def test_list_suggestions_empty_when_no_caller_tenant_rows() -> None:
-    """A caller in a fresh tenant must see an empty list — not other tenants' work."""
-    tenant_a = _user()
-    other = _user()
-    _seed_suggestion(other.tenant_id, "other-1")
-    _seed_suggestion(other.tenant_id, "other-2")
-
-    resp = await list_suggestions(user=tenant_a)
-
-    assert resp.total == 0
-    assert resp.suggestions == []
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# GET /detection-loop/suggestions/{id}
-# ────────────────────────────────────────────────────────────────────────────
-
-
-async def test_get_suggestion_cross_tenant_returns_404() -> None:
-    """Looking up another tenant's suggestion by id must 404 — not 403, not 200."""
-    tenant_a = _user()
-    tenant_b = _user()
-    target = _seed_suggestion(tenant_b.tenant_id, "b-only")
-
-    with pytest.raises(HTTPException) as exc:
-        await get_suggestion(suggestion_id=target, user=tenant_a)
-
-    # 404 (not 403) avoids leaking the existence of suggestions owned
-    # by other tenants.
-    assert exc.value.status_code == 404
-
-
-async def test_get_suggestion_unknown_id_returns_404() -> None:
-    """A non-existent suggestion id must 404, not 500 or 200."""
-    user = _user()
-    # Store contains rows for *other* tenants — exercise the "key missing"
-    # branch separately from the "wrong tenant" branch.
-    _seed_suggestion(uuid.uuid4())
-
-    with pytest.raises(HTTPException) as exc:
-        await get_suggestion(suggestion_id=uuid.uuid4(), user=user)
-
-    assert exc.value.status_code == 404
-
-
-async def test_get_suggestion_same_tenant_returns_item() -> None:
-    """A caller can read its own suggestion and the response excludes ``tenant_id``."""
-    user = _user()
-    sid = _seed_suggestion(user.tenant_id, "mine")
-
-    resp = await get_suggestion(suggestion_id=sid, user=user)
-
-    assert resp.suggestion_id == sid
-    assert resp.draft_rule_name == "mine"
-    dumped = resp.model_dump()
-    assert "tenant_id" not in dumped
+    (stored,) = db.added
+    assert stored.base_rule_id is None and stored.tenant_id == user.tenant_id
