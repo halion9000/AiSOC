@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { authFetch } from '@/lib/auth-session';
+import { failureDetail } from '@/lib/communityInstall';
 
 interface Permission {
   id: string;
@@ -220,10 +222,18 @@ export function RBACView() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleDelete = async (role: Role) => {
     if (!confirm(`Delete role "${role.name}"?`)) return;
-    await authFetch(`/api/v1/rbac/roles/${role.id}`, { method: 'DELETE' });
+    setDeleteError(null);
+    try {
+      // The response used to be ignored, so a refused delete (e.g. a system role, or no permission) looked like nothing had happened.
+      const res = await authFetch(`/api/v1/rbac/roles/${role.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await failureDetail(res));
+    } catch (err) {
+      setDeleteError(`Could not delete "${role.name}": ${err instanceof Error ? err.message : 'the request failed'}`);
+    }
     mutate('/api/v1/rbac/roles');
   };
 
@@ -242,9 +252,23 @@ export function RBACView() {
         </button>
       </div>
 
-      {rolesError && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
-          RBAC API unreachable — showing demo roles so you can explore access control.
+      {deleteError && (
+        <div role="alert" className="rounded-md border border-red-500/30 bg-red-500/5 px-4 py-2 text-xs text-red-200">
+          {deleteError}
+        </div>
+      )}
+      {/* No sample roles exist: the old banner said "showing demo roles", which was never true. */}
+      {rolesError && !roles && (
+        <ErrorState
+          title="Couldn't load roles"
+          description="The access-control service didn't respond."
+          error={rolesError}
+          onRetry={() => void mutate('/api/v1/rbac/roles')}
+        />
+      )}
+      {rolesError && roles && (
+        <div role="alert" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
+          Couldn&rsquo;t refresh roles; showing what was last loaded.
         </div>
       )}
 
