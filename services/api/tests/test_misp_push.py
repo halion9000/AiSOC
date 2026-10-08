@@ -22,6 +22,7 @@ by ``test_security_defaults.py``.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -39,6 +40,7 @@ from app.api.v1.endpoints.stix_taxii import (
 from app.api.v1.endpoints.stix_taxii import (
     router as stix_router,
 )
+from app.api.v1.deps import CurrentUser, get_current_user, get_db
 from app.core.airgap import AirgapViolation
 from app.core.config import settings
 from app.services.misp_push import (
@@ -782,6 +784,20 @@ class TestPushBundleOrSwallow:
 # ── Endpoint tests (TestClient on a stub app) ───────────────────────────────
 
 
+class _StubSession:
+    """Just enough of an AsyncSession for the publish routes: records add() and acknowledges commit()."""
+
+    def __init__(self) -> None:
+        self.added: list[Any] = []
+        self.commits = 0
+
+    def add(self, obj: Any) -> None:
+        self.added.append(obj)
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
 @pytest.fixture
 def stub_app() -> FastAPI:
     """Mount only the stix_taxii router — keeps tests independent of auth/middleware.
@@ -791,6 +807,13 @@ def stub_app() -> FastAPI:
     """
     app = FastAPI()
     app.include_router(stix_router, prefix="/api/v1")
+    # Publishing now stores the object in the database. These tests are about MISP push behaviour, not storage (tests/test_stix_taxii_real_data.py covers storage
+    # against a real database), so give the route a stub session that just records what it was asked to add.
+    app.state.stub_db = _StubSession()
+    app.dependency_overrides[get_db] = lambda: app.state.stub_db
+    # An explicit signed-in admin. These tests used to get a user only because SOME OTHER test had left the process in development mode (which maps an anonymous request
+    # to a demo user); run on their own (or in a different order) 17 of them returned 401. They must not depend on ambient state.
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="admin", email="ops@example.com")
     return app
 
 
@@ -813,6 +836,9 @@ class TestCreateIndicatorEndpoint:
         )
         assert resp.status_code == 201
         assert resp.json()["misp"] is None
+        stub = client.app.state.stub_db
+        assert [(o.kind, o.stix_id) for o in stub.added] == [("indicator", resp.json()["id"])]  # the publish really was handed to storage...
+        assert stub.commits == 1  # ...and committed
 
     def test_explicit_push_unconfigured_returns_error_payload(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
         """``?push_to_misp=true`` with no MISP creds returns a 201 + error.

@@ -25,7 +25,11 @@ from app.services.misp_push import (
     stix_bundle_to_misp_event,
     stix_indicator_to_misp_event,
 )
-from app.api.v1.deps import CurrentUser, get_current_user, require_permission
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.v1.deps import CurrentUser, get_current_user, get_db, require_permission
+from app.models.stix_object import StixObject
 
 logger = logging.getLogger("aisoc.stix_taxii")
 
@@ -158,24 +162,33 @@ class MispDryRunResponse(BaseModel):
     airgap_message: str | None = None
 
 
-# ── Published STIX store (in memory, one per tenant) ───────────────────────────────────────────────────
+# ── Published STIX store (database, one per tenant) ───────────────────────────────────────────────────
 #
-# These lists used to be module-level and SEEDED with invented indicators ("Malicious IP - C2 Server ... associated with APT-42", a "LockBit 3.0 ransomware"
+# What a tenant publishes is stored in the stix_objects table (app/models/stix_object.py, migrations/053_stix_objects.sql), so it survives an API restart.
+#
+# History: this used to be two module-level in-memory lists, SEEDED with invented indicators ("Malicious IP - C2 Server ... associated with APT-42", a "LockBit 3.0 ransomware"
 # hash that is actually the SHA-256 of an empty file, confidence 95), shared by every tenant, and listed three TAXII collections that had no endpoints behind them.
 # A feed that serves invented indicators as threat intelligence is dangerous: pasted into a blocklist, the empty-file hash blocks every zero-byte file.
 #
-# Now a tenant sees only what it published itself, and nothing is pre-loaded. The store is still in memory: published indicators and bundles are LOST WHEN THE
-# API RESTARTS. Persisting them (a table + migration) is the missing piece; until then that is the honest limitation.
-
-_INDICATORS: dict[str, list[STIXIndicator]] = {}
-_BUNDLES: dict[str, list[STIXBundle]] = {}
-
-
-def _tenant_key(user: CurrentUser) -> str:
-    return str(user.tenant_id)
+# Now a tenant sees only what it published itself, nothing is pre-loaded, and what it published is stored in the database (table stix_objects), so it survives an API restart.
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
+
+async def _documents(db: AsyncSession, user: CurrentUser, kind: str) -> list[dict]:
+    """The STIX documents THIS tenant published of this kind, in publish order."""
+    result = await db.execute(
+        select(StixObject)
+        .where(StixObject.tenant_id == user.tenant_id, StixObject.kind == kind)
+        .order_by(StixObject.created_at, StixObject.id)
+    )
+    return [row.document for row in result.scalars().all()]
+
+
+async def _store(db: AsyncSession, user: CurrentUser, kind: str, stix_id: str, document: dict) -> None:
+    db.add(StixObject(tenant_id=user.tenant_id, kind=kind, stix_id=stix_id, document=document))
+    await db.commit()
 
 
 @router.get("/indicators", response_model=IndicatorListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
@@ -184,9 +197,10 @@ async def list_indicators(
     page_size: int = Query(default=25, ge=1, le=200),
     label: str | None = Query(default=None),
     current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> IndicatorListResponse:
     """List the STIX 2.1 indicators THIS tenant has published (none until it publishes some)."""
-    items = list(_INDICATORS.get(_tenant_key(current_user), []))
+    items = [STIXIndicator(**doc) for doc in await _documents(db, current_user, "indicator")]
     if label:
         items = [i for i in items if label in i.labels]
     return IndicatorListResponse(items=items, total=len(items))
@@ -275,6 +289,7 @@ async def create_indicator(
         description=("Mirror this indicator to the configured MISP instance. Defaults to the value of MISP_PUSH_AUTO."),
     ),
     current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> STIXIndicatorWithPush:
     """Publish a new STIX 2.1 indicator and optionally mirror it to MISP."""
     now_iso = datetime.now(UTC).isoformat()
@@ -292,7 +307,7 @@ async def create_indicator(
         confidence=body.confidence,
         labels=body.labels,
     )
-    _INDICATORS.setdefault(_tenant_key(current_user), []).append(indicator)
+    await _store(db, current_user, "indicator", indicator.id, indicator.model_dump(mode="json"))
 
     push_result: MispPushResult | None = None
     if _should_push(push_to_misp):
@@ -302,9 +317,12 @@ async def create_indicator(
 
 
 @router.get("/bundles", response_model=BundleListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
-async def list_bundles(current_user: CurrentUser = Depends(get_current_user)) -> BundleListResponse:
+async def list_bundles(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BundleListResponse:
     """List the STIX 2.1 bundles THIS tenant has published (none until it publishes some)."""
-    items = list(_BUNDLES.get(_tenant_key(current_user), []))
+    items = [STIXBundle(**doc) for doc in await _documents(db, current_user, "bundle")]
     return BundleListResponse(items=items, total=len(items))
 
 
@@ -325,6 +343,7 @@ async def create_bundle(
         ),
     ),
     current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> STIXBundleWithPush:
     """Create a new STIX 2.1 bundle and optionally mirror it to MISP."""
     if not body.objects:
@@ -337,7 +356,7 @@ async def create_bundle(
         created=datetime.now(UTC).isoformat(),
         objects=body.objects,
     )
-    _BUNDLES.setdefault(_tenant_key(current_user), []).append(bundle)
+    await _store(db, current_user, "bundle", bundle.id, bundle.model_dump(mode="json"))
 
     push_result: MispPushResult | None = None
     if _should_push(push_to_misp):
