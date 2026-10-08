@@ -121,7 +121,6 @@ export function DetectionsView() {
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
-  const useFallback = !!error;
   // Memoise so `useMemo(filtered)` and selection helpers don't see a fresh
   // array reference on every render — important because we feed `rules`
   // into a downstream useMemo dep array.
@@ -209,9 +208,9 @@ export function DetectionsView() {
     );
 
     try {
-      if (!useFallback) {
-        await detectionApi.update(rule.id, { enabled: next });
-      }
+      // Always the backend. With useFallback this call was SKIPPED and the toast still said "Rule enabled": any failed refresh while real rules were on
+      // screen made the next toggle look successful when nothing had been saved.
+      await detectionApi.update(rule.id, { enabled: next });
       toast.success(next ? 'Rule enabled' : 'Rule disabled');
       mutate();
     } catch (err) {
@@ -224,27 +223,6 @@ export function DetectionsView() {
   const runBulkToggle = async (enabled: boolean) => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-
-    if (useFallback) {
-      // Demo mode — apply optimistically with no backend round-trip.
-      mutate(
-        (curr) =>
-          curr
-            ? {
-                ...curr,
-                rules: curr.rules.map((r) =>
-                  selected.has(r.id) ? { ...r, enabled } : r,
-                ),
-              }
-            : curr,
-        { revalidate: false },
-      );
-      toast.success(
-        `${ids.length} rule${ids.length === 1 ? '' : 's'} ${enabled ? 'enabled' : 'disabled'} (demo)`,
-      );
-      clearSelection();
-      return;
-    }
 
     setBulkPending(true);
     // Optimistic update — flip enabled state in-memory so the UI reflects the
@@ -359,13 +337,12 @@ export function DetectionsView() {
         ))}
       </div>
 
-      {/* Demo banner */}
-      {useFallback && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
-          Detection API unreachable — showing curated demo rules so you can
-          explore the workflow.
+      {/* The last refresh failed but earlier data is still on screen: say so. */}
+      {error && data ? (
+        <div role="alert" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
+          Couldn&rsquo;t refresh the detection rules; showing what was last loaded.
         </div>
-      )}
+      ) : null}
 
       {tab === 'rules' && (
         <>
@@ -555,10 +532,10 @@ export function DetectionsView() {
           )}
 
           {/* Footer / errors */}
-          {error && !useFallback && (
+          {error && !data && (
             <ErrorState
               title="Couldn't load detection rules"
-              description="The detection service didn't respond. We've shown the local demo set instead."
+              description="The detection service didn't respond."
               error={error}
               onRetry={() => mutate()}
             />

@@ -133,6 +133,8 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
     matches: number;
     preview: HuntResult[];
   } | null>(null);
+  // Why the last test could not run. There is no offline stand-in: it used to run a local imitation of the engine and report "matched N event(s)".
+  const [testError, setTestError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Wave 3 (W3.3) — no-code builder panel toggle.
@@ -226,6 +228,7 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
     }
     setLanguage(next);
     setTestResult(null);
+    setTestError(null);
   };
 
   const addChip = (
@@ -247,6 +250,7 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
   const handleTest = async () => {
     setTesting(true);
     setTestResult(null);
+    setTestError(null);
     try {
       const result = await detectionApi.test({
         language,
@@ -260,16 +264,11 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
         toast(`No match against the sample`);
       }
     } catch (err) {
-      console.warn('Test failed, using demo evaluator', err);
-      const demo = evaluateDemo(language, body, sampleEvent);
-      setTestResult(demo);
-      if (demo.matches > 0) {
-        toast.success(
-          `Demo evaluator: matched ${demo.matches} event(s) (offline mode)`,
-        );
-      } else {
-        toast('Demo evaluator: no match (offline mode)');
-      }
+      // A rule test that could not run is reported as exactly that. It used to fall back to evaluateDemo(), a client-side imitation of the detection
+      // engine, and toast "Demo evaluator: matched N event(s) (offline mode)": a made-up verdict on whether the rule detects anything.
+      const message = err instanceof Error && err.message ? err.message : 'the detection service is unreachable';
+      setTestError(message);
+      toast.error(`Rule test failed: ${message}`);
     } finally {
       setTesting(false);
     }
@@ -792,7 +791,11 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
                   Result
                 </div>
                 <div className="h-56 overflow-y-auto px-4 py-3 text-sm">
-                  {!testResult ? (
+                  {testError ? (
+                <p role="alert" className="text-xs text-red-300">
+                  The test could not run: {testError}
+                </p>
+              ) : !testResult ? (
                     <div className="flex h-full items-center justify-center text-xs text-gray-600">
                       Click &ldquo;Run test&rdquo; to evaluate the rule.
                     </div>
@@ -1109,115 +1112,4 @@ function severityActive(sev: AlertSeverity): string {
     case 'info':
       return 'bg-slate-500/15 text-slate-300 ring-slate-500/40';
   }
-}
-
-// ─── Demo evaluator ───────────────────────────────────────────────────────────
-// Used when the detection backend is unreachable. Light-touch heuristics so the
-// UI feels responsive in offline / demo mode.
-
-function evaluateDemo(
-  language: DetectionLanguage,
-  body: string,
-  sampleRaw: string,
-): { matches: number; preview: HuntResult[] } {
-  let sample: Record<string, unknown> = {};
-  try {
-    sample = JSON.parse(sampleRaw);
-  } catch {
-    return { matches: 0, preview: [] };
-  }
-
-  const flat = flatten(sample);
-  const lower = (s: string) => s.toLowerCase();
-
-  let isMatch = false;
-
-  if (language === 'sigma') {
-    // Look for `contains:` and `endswith:` operands inside `detection:` block.
-    const operands: string[] = [];
-    const re = /(?:contains|endswith)\s*:\s*'([^']+)'|(?:contains|endswith)\s*:\s*"([^"]+)"/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(body))) {
-      operands.push(m[1] ?? m[2] ?? '');
-    }
-    if (operands.length > 0) {
-      isMatch = operands.every((needle) =>
-        Object.values(flat).some((v) =>
-          typeof v === 'string' && lower(v).includes(lower(needle)),
-        ),
-      );
-    }
-  } else if (language === 'regex') {
-    try {
-      const re = new RegExp(body, 'm');
-      isMatch = Object.values(flat).some(
-        (v) => typeof v === 'string' && re.test(v),
-      );
-    } catch {
-      isMatch = false;
-    }
-  } else if (language === 'kql' || language === 'eql' || language === 'lucene') {
-    // Pull bare-word literals out of the query and require any to be present.
-    const tokens = body
-      .split(/[\s,()='":\[\]<>!]+/)
-      .filter(
-        (t) =>
-          t.length > 3 &&
-          !/^(where|and|or|not|by|in|like|count|summarize|project|process|true|false|null|sequence|maxspan|with|extend|order|asc|desc)$/i.test(
-            t,
-          ),
-      )
-      .slice(0, 6);
-    if (tokens.length > 0) {
-      isMatch = tokens.some((tok) =>
-        Object.values(flat).some(
-          (v) => typeof v === 'string' && lower(v).includes(lower(tok)),
-        ),
-      );
-    }
-  } else if (language === 'yara') {
-    const stringMatches = [...body.matchAll(/\$[a-zA-Z0-9_]+\s*=\s*"([^"]+)"/g)].map(
-      (m) => m[1],
-    );
-    if (stringMatches.length > 0) {
-      isMatch = stringMatches.some((needle) =>
-        Object.values(flat).some(
-          (v) => typeof v === 'string' && v.includes(needle),
-        ),
-      );
-    }
-  }
-
-  if (!isMatch) return { matches: 0, preview: [] };
-
-  const previewRow: HuntResult = {
-    id: 'demo-match-1',
-    timestamp:
-      typeof sample['@timestamp'] === 'string'
-        ? (sample['@timestamp'] as string)
-        : new Date().toISOString(),
-    source: 'sample-event',
-    fields: flat,
-  };
-  return { matches: 1, preview: [previewRow] };
-}
-
-function flatten(
-  obj: unknown,
-  prefix = '',
-  out: Record<string, unknown> = {},
-): Record<string, unknown> {
-  if (obj === null || typeof obj !== 'object') {
-    out[prefix || 'value'] = obj as unknown;
-    return out;
-  }
-  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-    const next = prefix ? `${prefix}.${k}` : k;
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      flatten(v, next, out);
-    } else {
-      out[next] = v;
-    }
-  }
-  return out;
 }
