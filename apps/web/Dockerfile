@@ -57,16 +57,16 @@ ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 #   - NEXT_PUBLIC_DEMO_AUTOLOGIN_EMAIL/_PASSWORD: credentials DemoAutoLogin uses on
 #     first paint so visitors land already authenticated and can roam
 #
-# Defaults match the canonical hosted demo so a no-arg `docker build` of the web
-# image (e.g. CI's publish-images.yml) ships a demo-ready bundle. Production
-# customers override NEXT_PUBLIC_DEMO_MODE="" at build time to suppress all
-# demo affordances. The api/agents/realtime images are unaffected — demo gating
-# in those services is runtime via AISOC_DEMO_MODE, not build-time.
-ARG NEXT_PUBLIC_DEMO_MODE="true"
-ARG NEXT_PUBLIC_DEMO_DEEPLINK="/cases/INC-RT-001?tab=ledger"
-ARG NEXT_PUBLIC_DEMO_BANNER="Demo data resets daily at 00:00 UTC. All write actions are disabled."
-ARG NEXT_PUBLIC_DEMO_AUTOLOGIN_EMAIL="demo@tryaisoc.com"
-ARG NEXT_PUBLIC_DEMO_AUTOLOGIN_PASSWORD="aisoc-demo"
+# Every default is EMPTY, so a plain `docker build` of this image is the real product: no banner, no auto-login, no read-only gating, and no demo
+# credentials baked into the public JavaScript bundle. (The defaults used to be the hosted demo's values, demo mode on plus a demo login, so any
+# build that forgot to override them shipped the demo, and its credentials, to everyone.) The hosted demo does not rely on defaults: it passes these as explicit
+# build args (.github/workflows/release.yml, .github/workflows/publish-images.yml, render.yaml). The api/agents/realtime images are unaffected: demo gating in
+# those services is runtime via AISOC_DEMO_MODE, not build-time.
+ARG NEXT_PUBLIC_DEMO_MODE=""
+ARG NEXT_PUBLIC_DEMO_DEEPLINK=""
+ARG NEXT_PUBLIC_DEMO_BANNER=""
+ARG NEXT_PUBLIC_DEMO_AUTOLOGIN_EMAIL=""
+ARG NEXT_PUBLIC_DEMO_AUTOLOGIN_PASSWORD=""
 ENV NEXT_PUBLIC_DEMO_MODE=${NEXT_PUBLIC_DEMO_MODE}
 ENV NEXT_PUBLIC_DEMO_DEEPLINK=${NEXT_PUBLIC_DEMO_DEEPLINK}
 ENV NEXT_PUBLIC_DEMO_BANNER=${NEXT_PUBLIC_DEMO_BANNER}

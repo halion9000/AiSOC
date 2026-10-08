@@ -935,7 +935,12 @@ services:
       # suppress the banner, auto-login, and read-only gating; empty
       # string is what isDemoMode() (lib/demoMode.ts) treats as false.
       args:
+        # All five demo values are blank on purpose (the Dockerfile defaults are blank too): nothing demo-related is baked into the bundle, credentials included.
         NEXT_PUBLIC_DEMO_MODE: ""
+        NEXT_PUBLIC_DEMO_DEEPLINK: ""
+        NEXT_PUBLIC_DEMO_BANNER: ""
+        NEXT_PUBLIC_DEMO_AUTOLOGIN_EMAIL: ""
+        NEXT_PUBLIC_DEMO_AUTOLOGIN_PASSWORD: ""
         # Hal, live, 2026-09-22: the copilot chat kept answering with
         # hardcoded, fabricated security analysis (an exact, word-for-word
         # match to services/agents' own _SYNTHETIC_REPLIES list) no matter
