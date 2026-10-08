@@ -3165,7 +3165,7 @@ export const nlQueryApi = {
 // ─── Saved natural-language hunts (T3.4) ─────────────────────────────────────
 //
 // Backs the /hunt page's NL hero block + saved-hunts sidebar. Distinct from
-// `huntApi` above (legacy SIEM-style query bar, demo-data fallback) and from
+// `huntApi` above (legacy SIEM-style query bar; a failed call shows its error, with no sample data) and from
 // the hypothesis-driven `/hunts` workbench (heavyweight, detection-engineer
 // authored, separate page). Wire shape mirrors
 // `services/api/app/api/v1/endpoints/saved_hunts.py`.

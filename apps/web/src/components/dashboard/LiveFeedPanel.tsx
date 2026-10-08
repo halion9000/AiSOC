@@ -4,18 +4,21 @@
  * LiveFeedPanel
  *
  * Subscribes to the realtime `alerts` channel and renders the most recent
- * fused alerts as a live-streaming list. If the realtime service is not
- * reachable (common in dev when only the web app is running), the panel
- * gracefully falls back to a small set of demo events so the UI never
- * appears broken.
+ * fused alerts as a live-streaming list. It only ever shows events that really
+ * arrived: if the realtime service is unreachable, or nothing has happened yet,
+ * the list is empty and the pill says which of those it is. (It used to label
+ * an empty list "Demo" with a tooltip claiming it was "showing demo data", which
+ * was never true.)
  *
  * The status pill reflects the actual WebSocket state:
  *   - "Live"          → connected and receiving
- *   - "Reconnecting"  → connecting / closing / closed (auto-retry)
- *   - "Demo"          → no real events received yet, showing seeded data
+ *   - "Waiting"       → connected, no event has arrived yet
+ *   - "Connecting…"   → opening the connection
+ *   - "Reconnecting…" → the connection dropped after events were received
+ *   - "Offline"       → the realtime service is unreachable
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useRealtimeChannel, type RealtimeStatus } from '@/lib/realtime';
 
@@ -27,7 +30,6 @@ interface LiveEvent {
   text: string;
   source: string;
   receivedAt: number; // epoch ms
-  isDemo?: boolean;
 }
 
 /**
@@ -89,17 +91,14 @@ function relativeTime(receivedAt: number, now: number): string {
   return `${days}d ago`;
 }
 
-function statusToLabel(status: RealtimeStatus, hasReal: boolean): {
-  label: string;
-  tone: 'live' | 'reconnect' | 'demo';
-} {
-  if (status === 'open' && hasReal) return { label: 'Live', tone: 'live' };
-  if (status === 'open') return { label: 'Demo', tone: 'demo' };
-  if (status === 'connecting') return { label: 'Connecting…', tone: 'reconnect' };
-  if (status === 'closing' || status === 'closed' || status === 'error') {
-    return { label: hasReal ? 'Reconnecting…' : 'Demo', tone: hasReal ? 'reconnect' : 'demo' };
-  }
-  return { label: 'Demo', tone: 'demo' };
+export type PillTone = 'live' | 'waiting' | 'reconnect' | 'offline';
+
+export function statusToLabel(status: RealtimeStatus, hasReal: boolean): { label: string; tone: PillTone; hint: string } {
+  if (status === 'open' && hasReal) return { label: 'Live', tone: 'live', hint: 'Connected and receiving events.' };
+  if (status === 'open') return { label: 'Waiting', tone: 'waiting', hint: 'Connected. No events have arrived yet.' };
+  if (status === 'connecting') return { label: 'Connecting…', tone: 'reconnect', hint: 'Connecting to the realtime service.' };
+  if (hasReal) return { label: 'Reconnecting…', tone: 'reconnect', hint: 'The connection dropped. Reconnecting.' };
+  return { label: 'Offline', tone: 'offline', hint: 'The realtime service is unreachable.' };
 }
 
 function eventFromMessage(msg: RealtimeAlertMessage, fallbackId: number): LiveEvent | null {
@@ -161,12 +160,7 @@ export function LiveFeedPanel() {
   }, []);
 
   const hasReal = events.length > 0;
-  const visible = useMemo<LiveEvent[]>(() => {
-    if (hasReal) return events;
-    // Refresh demo timestamps so they don't drift to "5h ago" while the dev
-    // sits on the page with no realtime backend running.
-    return [];
-  }, [events, hasReal, now]);
+  const visible = events;
 
   const pill = statusToLabel(status, hasReal);
 
@@ -179,7 +173,8 @@ export function LiveFeedPanel() {
               'w-2 h-2 rounded-full',
               pill.tone === 'live' && 'bg-emerald-400 animate-pulse',
               pill.tone === 'reconnect' && 'bg-amber-400 animate-pulse',
-              pill.tone === 'demo' && 'bg-gray-500',
+              pill.tone === 'waiting' && 'bg-gray-500',
+              pill.tone === 'offline' && 'bg-red-400',
             )}
           />
           Live Feed
@@ -189,19 +184,19 @@ export function LiveFeedPanel() {
             'text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border',
             pill.tone === 'live' && 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
             pill.tone === 'reconnect' && 'bg-amber-500/10 text-amber-300 border-amber-500/30',
-            pill.tone === 'demo' && 'bg-gray-500/10 text-gray-400 border-gray-700',
+            pill.tone === 'waiting' && 'bg-gray-500/10 text-gray-400 border-gray-700',
+            pill.tone === 'offline' && 'bg-red-500/10 text-red-300 border-red-500/30',
           )}
-          title={
-            pill.tone === 'demo'
-              ? 'Realtime service unreachable or no events received yet — showing demo data'
-              : `WebSocket: ${status}`
-          }
+          title={`${pill.hint} (WebSocket: ${status})`}
         >
           {pill.label}
         </span>
       </div>
 
       <div className="space-y-2.5 overflow-y-auto max-h-52 pr-1">
+        {visible.length === 0 ? (
+          <p className="text-xs text-gray-500">{pill.tone === 'offline' ? 'The realtime service is unreachable.' : 'No events yet.'}</p>
+        ) : null}
         {visible.map((event) => (
           <div key={event.id} className="flex items-start gap-2">
             <span

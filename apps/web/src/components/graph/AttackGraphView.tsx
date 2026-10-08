@@ -9,8 +9,10 @@
  *   2. A live MITRE ATT&CK coverage heatmap (tactic columns x technique rows)
  *      with intensity shaded by detection count.
  *
- * Both panels are driven by `graphApi` and gracefully fall back to a small
- * deterministic demo graph if the backend hasn't been seeded yet.
+ * Both panels are driven by `graphApi` and show only what it returns. If a call
+ * fails the panel says so, with a Retry; if there is nothing yet it says that.
+ * There is no sample data (a synthetic heatmap used to stand in for a failed
+ * MITRE call, presenting invented coverage as the tenant's own).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -194,42 +196,6 @@ function GraphCanvas({ graph, onSelect }: GraphCanvasProps) {
 
 // ─── MITRE heatmap ────────────────────────────────────────────────────────────
 
-const FALLBACK_TACTICS = [
-  'Initial Access',
-  'Execution',
-  'Persistence',
-  'Privilege Escalation',
-  'Defense Evasion',
-  'Credential Access',
-  'Discovery',
-  'Lateral Movement',
-  'Collection',
-  'Exfiltration',
-  'Command and Control',
-  'Impact',
-];
-
-function buildDemoCoverage(): MitreCoverage {
-  const cells = FALLBACK_TACTICS.flatMap((tactic, ti) =>
-    Array.from({ length: 6 }, (_, ri) => {
-      const detections = ((ti * 7 + ri * 3 + 5) % 9);
-      return {
-        techniqueId: `T${1000 + ti * 10 + ri}`,
-        techniqueName: `Technique ${ti + 1}.${ri + 1}`,
-        tactic,
-        detections,
-        alerts: detections * (1 + ((ti + ri) % 4)),
-        intensity: Math.min(1, detections / 8),
-      };
-    }),
-  );
-  return {
-    tactics: FALLBACK_TACTICS,
-    cells,
-    generatedAt: '2026-05-06T12:00:00Z',
-  };
-}
-
 function MitreHeatmap({ coverage }: { coverage: MitreCoverage }) {
   const grouped = useMemo(() => {
     const map = new Map<string, MitreCoverage['cells']>();
@@ -316,17 +282,9 @@ export function AttackGraphView() {
 
   const mitreState = useSWR<MitreCoverage>(
     'mitre-coverage',
-    async () => {
-      try {
-        return await graphApi.getMitreCoverage();
-      } catch {
-        // B7: backend MITRE endpoint unavailable; label the synthetic
-        // heatmap so analysts know it is not live telemetry.
-        const demo = buildDemoCoverage();
-        (demo as MitreCoverage & { __demo?: boolean }).__demo = true;
-        return demo;
-      }
-    },
+    // A failure reaches the error state below (with a Retry). It used to be caught here and replaced with a synthetic heatmap of invented "Technique 3.2"
+    // cells, so a failed call presented made-up coverage as the tenant's own.
+    () => graphApi.getMitreCoverage(),
     { revalidateOnFocus: false, refreshInterval: 60_000 },
   );
 
@@ -389,7 +347,7 @@ export function AttackGraphView() {
               <div className="p-6">
                 <EmptyState
                   title="No graph yet"
-                  description="Start ingesting events with `pnpm demo:produce` to populate the attack graph."
+                  description="Entities and relationships appear here as events are ingested and alerts are fused."
                 />
               </div>
             )}
@@ -493,11 +451,6 @@ export function AttackGraphView() {
           </div>
         </div>
 
-        {(mitre as (MitreCoverage & { __demo?: boolean }) | null)?.__demo && (
-          <div className="mb-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-xs text-amber-300 border border-amber-500/20">
-            Demo data — backend MITRE endpoint unavailable
-          </div>
-        )}
         {mitreState.isLoading ? (
           <Skeleton className="h-64 w-full rounded-lg" />
         ) : mitreState.error ? (
