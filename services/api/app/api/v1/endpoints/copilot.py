@@ -6,10 +6,9 @@ investigation pipeline already uses.  The ``aisoc-copilot`` alias is pinned
 in ``model_pins.py`` and routed through whatever provider CORE's active
 config points at (GhostCLI today, OpenRouter or local tomorrow).
 
-Conversation history is kept in-memory (module-level dict keyed by
-conversationId) so follow-up questions actually work.  A persistent store
-(Postgres-backed ``copilot_conversations`` table) is a deliberate follow-up
-once this endpoint is proven working end-to-end.
+Conversation history is persisted in Postgres (``copilot_conversations``), keyed by (tenant, owner, conversation) so follow-up questions work across restarts and a conversation id from another
+tenant or user is simply an unknown id. It used to be a module-level dict keyed by the client-supplied conversationId alone: a restart silently dropped the model's memory while the UI still showed
+the chat, any holder of another tenant's id could read and write that conversation, and its LRU was global so one tenant evicted everyone else's. See ``app/services/copilot_history.py``.
 """
 
 from __future__ import annotations
@@ -17,46 +16,22 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections import OrderedDict
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.copilot_tools import COPILOT_TOOL_SCHEMAS, execute_copilot_tool
+from app.db.rls import TenantDBSession
 from app.llm.contract import safe_ainvoke
 from app.llm.factory import make_chat_model
+from app.services import copilot_history
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/copilot", tags=["copilot"])
-
-# ---------------------------------------------------------------------------
-# In-memory conversation store
-# ---------------------------------------------------------------------------
-
-_MAX_HISTORY_PER_CONVERSATION = 40  # keep last N turns to bound token usage
-_MAX_CONVERSATIONS = 500  # evict oldest when exceeded
-
-# OrderedDict gives us O(1) move_to_end + popitem(last=False) for LRU eviction.
-# Values are lists of LangChain message objects (SystemMessage excluded — those
-# are rebuilt per request from _SYSTEM_PROMPT + context).
-_conversation_store: OrderedDict[str, list[BaseMessage]] = OrderedDict()
-
-
-def _get_or_create_history(conversation_id: str) -> list[BaseMessage]:
-    """Return the stored message list for a conversation, creating if needed."""
-    if conversation_id in _conversation_store:
-        _conversation_store.move_to_end(conversation_id)
-        return _conversation_store[conversation_id]
-    # Evict oldest if at capacity
-    while len(_conversation_store) >= _MAX_CONVERSATIONS:
-        _conversation_store.popitem(last=False)
-    history: list[BaseMessage] = []
-    _conversation_store[conversation_id] = history
-    return history
 
 # ---------------------------------------------------------------------------
 # Request / response shapes — must match apps/web/src/lib/api.ts
@@ -146,6 +121,7 @@ def _context_snippet(ctx: CopilotContext | None) -> str:
 async def copilot_chat(
     body: CopilotChatRequest,
     user: Annotated[AuthUser, Depends(require_permission("copilot:use"))],
+    db: TenantDBSession,
 ) -> CopilotChatResponse:
     """Route a copilot message through the LiteLLM gateway.
 
@@ -156,7 +132,12 @@ async def copilot_chat(
     reply came from the real model or from the fallback path.
     """
     conversation_id = body.conversationId or str(uuid.uuid4())
-    history = _get_or_create_history(conversation_id)
+    if not copilot_history.valid_conversation_id(conversation_id):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="conversationId must be 1-100 characters from A-Z a-z 0-9 . _ : -")
+    owner = copilot_history.owner_key(user)
+    # History is looked up by (tenant, owner, conversation), never by the client-supplied id alone.
+    history = await copilot_history.load_history(db, user.tenant_id, owner, conversation_id)
+    await db.rollback()  # release the connection: the model call below can take many seconds
 
     # Build the full message list: system prompt + context + stored history
     # + new user message. System/context messages are NOT stored — they're
@@ -195,7 +176,9 @@ async def copilot_chat(
                 )
         else:
             content = getattr(result, "content", "") or ""
-            logger.warning("copilot.tool_loop.truncated", iterations=max_tool_iters)
+            # (This used structlog-style keyword arguments on a STDLIB logger, which raises TypeError: the warning itself crashed, the outer except caught it, and a model that was working was reported
+            # to the analyst as "couldn't reach the LLM backend".)
+            logger.warning("copilot.tool_loop.truncated iterations=%s", max_tool_iters)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Copilot LLM call failed: %s", exc, exc_info=True)
         degraded = True
@@ -210,10 +193,15 @@ async def copilot_chat(
     # actually succeeded. Storing fallback apologies as real assistant turns
     # would poison future context when the gateway recovers.
     if not degraded:
-        history.append(HumanMessage(content=body.message))
-        history.append(AIMessage(content=content))
-        while len(history) > _MAX_HISTORY_PER_CONVERSATION:
-            history.pop(0)
+        try:
+            await copilot_history.append_turn(db, user.tenant_id, owner, conversation_id, body.message, content)
+        except Exception:  # noqa: BLE001
+            # The analyst still gets the answer they waited for; only the stored context for their NEXT message is lost.
+            logger.warning("copilot.history.save_failed conversation=%s", conversation_id, exc_info=True)
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
     reply = CopilotMessageOut(
         id=str(uuid.uuid4()),

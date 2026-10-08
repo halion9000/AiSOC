@@ -43,6 +43,7 @@ from app.models.outcome_suppression import OutcomeSuppression
 from app.models.saved_hunt import SavedHunt
 from app.models.saved_view import SavedView
 from app.models.community_catalog import CommunityCatalogItem
+from app.models.copilot_conversation import CopilotConversation
 from app.models.saved_hunt_search import SavedHuntSearch
 from app.models.stix_object import StixObject
 from app.models.shift import Shift
@@ -101,6 +102,7 @@ __all__ = [
     "SavedHunt",
     "SavedView",
     "CommunityCatalogItem",
+    "CopilotConversation",
     "SavedHuntSearch",
     "StixObject",
     "ThreatActor",
