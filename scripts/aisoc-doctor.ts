@@ -343,16 +343,17 @@ async function checkApi() {
   }
   record("GET /health", "OK", JSON.stringify(health).slice(0, 80));
 
-  // Demo data: at least one alert. The API is mounted at `/api/v1`
+  // Alerts: reported as information, never as a problem. A real, freshly deployed SOC legitimately has none yet; this check used to WARN "demo data seeded" for that
+  // and tell people to run `pnpm seed:demo`, nudging a real install toward loading invented data. The API is mounted at `/api/v1`
   // (services/api/app/api/v1/router.py), not `/v1` — using the wrong
   // prefix here used to produce a permanent false FAIL after a clean
   // `pnpm aisoc:demo`.
   const alerts = await fetchJson("http://localhost:8000/api/v1/alerts?limit=1");
   if (!alerts) {
     record(
-      "demo data seeded",
+      "alerts API reachable",
       "WARN",
-      "could not query alerts (auth required?) — try `pnpm seed:demo`"
+      "could not query alerts (auth required?)"
     );
     return;
   }
@@ -362,9 +363,11 @@ async function checkApi() {
       ? alerts.items.length
       : 0;
   record(
-    "demo data seeded",
-    count > 0 ? "OK" : "WARN",
-    count > 0 ? `${count} alert(s) found` : "no alerts — run `pnpm seed:demo`"
+    "alerts API reachable",
+    "OK",
+    count > 0
+      ? `${count} alert(s) found`
+      : "no alerts yet — normal for a new install; connect a source (`pnpm seed:demo` is only for a throwaway demo stack)"
   );
 }
 
@@ -407,7 +410,7 @@ async function main() {
     process.exit(1);
   }
   if (warns > 0) {
-    console.log(c.yellow("\n  AiSOC is up but missing demo data or non-critical config."));
+    console.log(c.yellow("\n  AiSOC is up, with non-critical warnings (see above)."));
     process.exit(0);
   }
   console.log(c.green("\n  AiSOC is healthy."));
