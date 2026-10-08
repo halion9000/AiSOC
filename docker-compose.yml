@@ -624,6 +624,8 @@ services:
     pull_policy: build
     container_name: aisoc-actions
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       kafka:

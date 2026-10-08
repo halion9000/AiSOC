@@ -31,6 +31,13 @@ class ActionsSettings(BaseSettings):
         extra="ignore",
     )
 
+    DATABASE_URL: str = Field(
+        default="",
+        description=(
+            "SQLAlchemy async URL of the shared Postgres (postgresql+asyncpg://...). Response actions are stored in the response_actions table (created by the API's migration 055). "
+            "Compose has always passed this variable, but nothing read it until now. When it is empty the action routes answer 503 rather than silently using memory."
+        ),
+    )
     AISOC_API_BASE_URL: str = Field(
         default="http://aisoc-api:8000",
         description="Base URL of the services/api FastAPI app, e.g. http://aisoc-api:8000.",
