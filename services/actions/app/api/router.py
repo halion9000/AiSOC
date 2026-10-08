@@ -38,6 +38,12 @@ _actions: dict[str, dict[str, Any]] = {}
 _chatops_replied: set[str] = set()
 
 
+def _status_text(record: dict[str, Any]) -> str:
+    """The action's status as a plain word ("running"), not the enum's repr ("ActionStatus.RUNNING"), for error messages."""
+    status = record["status"]
+    return str(getattr(status, "value", status))
+
+
 @router.post("/actions", response_model=dict)
 async def submit_action(request: ActionRequest, _auth: None = Depends(require_service_auth)):
     """Submit an action for execution (may require approval)."""
@@ -115,7 +121,7 @@ async def approve_action(
     if not record:
         raise HTTPException(status_code=404, detail="Action not found")
     if record["status"] != ActionStatus.AWAITING_APPROVAL:
-        raise HTTPException(status_code=400, detail=f"Action is not awaiting approval (current: {record['status']})")
+        raise HTTPException(status_code=400, detail=f"Action is not awaiting approval (current: {_status_text(record)})")
 
     if approver is None:
         if get_settings().AISOC_ACTIONS_REQUIRE_PRINCIPAL:
@@ -138,11 +144,25 @@ async def approve_action(
         rationale=record["rationale"],
     )
 
+    # CLAIM the action before awaiting the executor. The status used to stay "awaiting_approval" for the whole execution, so a second approval arriving meanwhile passed the check above
+    # and executed the action AGAIN (two host isolations, two account disables). There is no await between the check above and this line, so within one process only one approval can claim it.
+    record["status"] = ActionStatus.RUNNING
+
     executor = EXECUTOR_REGISTRY.get(request.action_type)
     if executor:
-        result = await executor.execute(request)
-        record["status"] = result.status
-        record["output"] = result.output
+        try:
+            result = await executor.execute(request)
+            record["status"] = result.status
+            record["output"] = result.output
+            # The submit path keeps these; the approve path dropped them, so an approved action could not be rolled back and an executor's error was lost.
+            record["rollback_data"] = result.rollback_data
+            if result.error:
+                record["error"] = result.error
+        except Exception as exc:
+            # Unhandled here (unlike in submit_action) this was a 500 that left the action stuck. Record the failure the way submit does.
+            logger.error("Approved action execution failed", action_id=action_id, error=str(exc), exc_info=True)
+            record["status"] = ActionStatus.FAILED
+            record["error"] = f"execution failed ({type(exc).__name__})"
     else:
         record["status"] = ActionStatus.FAILED
         record["error"] = "No executor available"
@@ -157,6 +177,10 @@ async def reject_action(action_id: str, _auth: None = Depends(require_service_au
     record = _actions.get(action_id)
     if not record:
         raise HTTPException(status_code=404, detail="Action not found")
+    # Only an action still awaiting approval can be rejected. There was no check, so rejecting an action that had ALREADY RUN rewrote its status to "rejected", falsifying the record of a response
+    # action that really executed (and could not be told apart from one that was genuinely refused).
+    if record["status"] != ActionStatus.AWAITING_APPROVAL:
+        raise HTTPException(status_code=400, detail=f"Action is not awaiting approval (current: {_status_text(record)})")
     record["status"] = ActionStatus.REJECTED
     logger.info("Action rejected", action_id=action_id)
     return record
