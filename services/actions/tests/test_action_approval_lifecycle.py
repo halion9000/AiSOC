@@ -470,3 +470,80 @@ class TestChatOpsResponses:
         r = TestClient(make_app(db_path)).get(self.link(aid) + "x")
         assert r.status_code == 400
         assert stored(db_path, aid).chatops_responded_at is None and self.timeline == []
+
+
+class TestStuckActions:
+    """An action left in 'running' means the service stopped between claiming it and recording its outcome: it may or may not have executed, so it is never re-run. These let an operator find and settle it."""
+
+    def test_stuck_actions_can_be_listed_by_status_and_age(self, db_path):
+        stuck = seed(db_path, status=ActionStatus.RUNNING)
+        fresh = seed(db_path, status=ActionStatus.RUNNING)
+        seed(db_path, status=ActionStatus.COMPLETED)
+        engine = create_engine(f"sqlite:///{db_path}")
+        with Session(engine) as s:  # make one of the two running actions old
+            from datetime import UTC, datetime, timedelta
+
+            s.get(ActionRecord, uuid.UUID(stuck)).updated_at = datetime.now(UTC) - timedelta(hours=2)
+            s.commit()
+        engine.dispose()
+        client = TestClient(make_app(db_path))
+        everything_running = {a["id"] for a in client.get("/actions?status=running").json()["items"]}
+        assert everything_running == {stuck, fresh}
+        only_stuck = [a["id"] for a in client.get("/actions?status=running&older_than_seconds=900").json()["items"]]
+        assert only_stuck == [stuck]  # the one claimed moments ago is not stuck, just running
+
+    def test_listing_can_be_scoped_to_a_tenant(self, db_path):
+        mine = make_request()
+        seed(db_path, status=ActionStatus.RUNNING, request=mine)
+        seed(db_path, status=ActionStatus.RUNNING)
+        items = TestClient(make_app(db_path)).get(f"/actions?status=running&tenant_id={mine.tenant_id}").json()["items"]
+        assert [a["id"] for a in items] == [str(mine.id)]
+        assert TestClient(make_app(db_path)).get("/actions?tenant_id=not-a-uuid").json()["items"] == []
+
+    @pytest.mark.parametrize("outcome", ["completed", "failed"])
+    def test_an_operator_can_record_what_actually_happened(self, db_path, monkeypatch, outcome):
+        executor = register(monkeypatch, FakeExecutor())
+        aid = seed(db_path, status=ActionStatus.RUNNING)
+        r = TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": outcome, "note": "checked the EDR console: host is isolated", "resolved_by": "hal"})
+        assert r.status_code == 200 and r.json()["status"] == outcome
+        res = stored(db_path, aid).result["resolution"]
+        assert res["note"] == "checked the EDR console: host is isolated" and res["resolved_by"] == "hal" and res["outcome"] == outcome and res["resolved_at"]
+        assert executor.calls == 0, "resolving must NEVER execute the action"
+
+    @pytest.mark.parametrize("status", [ActionStatus.AWAITING_APPROVAL, ActionStatus.COMPLETED, ActionStatus.FAILED, ActionStatus.REJECTED, ActionStatus.APPROVED])
+    def test_only_a_running_action_can_be_resolved_and_others_are_left_untouched(self, db_path, status):
+        aid = seed(db_path, status=status, result={"output": {"x": 1}})
+        before = stored(db_path, aid)
+        r = TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "completed", "note": "trying to rewrite history"})
+        assert r.status_code == 400 and "running" in r.json()["detail"]
+        after = stored(db_path, aid)
+        assert (after.status, after.result) == (before.status, before.result)
+
+    def test_the_outcome_must_be_completed_or_failed(self, db_path):
+        aid = seed(db_path, status=ActionStatus.RUNNING)
+        for bad in ("rejected", "running", "awaiting_approval"):
+            assert TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": bad, "note": "nope nope"}).status_code == 400
+        assert TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "bogus", "note": "nope nope"}).status_code == 422
+        assert stored(db_path, aid).status == "running"
+
+    def test_a_note_is_required(self, db_path):
+        aid = seed(db_path, status=ActionStatus.RUNNING)
+        assert TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "failed"}).status_code == 422
+        assert TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "failed", "note": "x"}).status_code == 422
+
+    def test_resolving_an_unknown_action_is_a_404(self, db_path):
+        assert TestClient(make_app(db_path)).post(f"/actions/{uuid.uuid4()}/resolve", json={"outcome": "failed", "note": "no such action"}).status_code == 404
+
+    def test_two_operators_resolving_at_once_exactly_one_wins(self, db_path):
+        aid = seed(db_path, status=ActionStatus.RUNNING)
+
+        async def scenario():
+            clients = [httpx.AsyncClient(transport=httpx.ASGITransport(app=make_app(db_path)), base_url="http://test") for _ in range(5)]
+            try:
+                rs = await asyncio.gather(*[c.post(f"/actions/{aid}/resolve", json={"outcome": "completed" if i % 2 else "failed", "note": f"operator {i}"}) for i, c in enumerate(clients)])
+                return sorted(r.status_code for r in rs)
+            finally:
+                for c in clients:
+                    await c.aclose()
+
+        assert asyncio.run(scenario()) == [200, 400, 400, 400, 400]

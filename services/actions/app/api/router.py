@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -156,6 +156,41 @@ async def reject_action(action_id: str, _auth: None = Depends(require_service_au
     if outcome == "conflict":
         raise HTTPException(status_code=400, detail=f"Action is not awaiting approval (current: {_status_text(record or {})})")
     logger.info("Action rejected", action_id=action_id)
+    return record
+
+
+@router.get("/actions")
+async def list_actions(
+    status: str | None = Query(None, description="Filter by status, e.g. running"),
+    tenant_id: str | None = Query(None),
+    older_than_seconds: int | None = Query(None, ge=1, description="Only actions not updated for this long; with status=running this finds stuck actions"),
+    limit: int = Query(100, ge=1, le=500),
+    _auth: None = Depends(require_service_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """List actions. `?status=running&older_than_seconds=900` finds actions stuck mid-execution."""
+    return {"items": await action_store.list_actions(db, status=status, tenant_id=tenant_id, older_than_seconds=older_than_seconds, limit=limit)}
+
+
+@router.post("/actions/{action_id}/resolve")
+async def resolve_action(
+    action_id: str,
+    outcome: ActionStatus = Body(..., description="completed or failed: what ACTUALLY happened, after checking the real system"),
+    note: str = Body(..., min_length=3, description="What the operator checked"),
+    resolved_by: str | None = Body(None),
+    _auth: None = Depends(require_service_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record the real outcome of an action stuck in 'running' (the service stopped between claiming it and recording its result, so it may or may not have executed).
+    This NEVER executes anything: an operator checks the actual system, then records what they found. Only valid from 'running'."""
+    if outcome not in (ActionStatus.COMPLETED, ActionStatus.FAILED):
+        raise HTTPException(status_code=400, detail="outcome must be 'completed' or 'failed'")
+    result, record = await action_store.resolve(db, action_id, outcome=outcome, note=note, resolved_by=resolved_by)
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Action not found")
+    if result == "conflict":
+        raise HTTPException(status_code=400, detail=f"Only an action stuck in 'running' can be resolved (current: {_status_text(record or {})})")
+    logger.warning("Stuck action resolved by an operator", action_id=action_id, outcome=outcome.value, resolved_by=resolved_by)
     return record
 
 

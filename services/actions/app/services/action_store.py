@@ -14,7 +14,7 @@ A row left in 'running' means the service stopped between claim() and finish(): 
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -195,3 +195,40 @@ async def mark_chatops_responded(db: AsyncSession, action_id: str | UUID) -> boo
     if result.rowcount == 1:
         return True
     return False if await _row(db, uid) is not None else None
+
+
+async def list_actions(
+    db: AsyncSession, *, status: str | None = None, tenant_id: str | UUID | None = None, older_than_seconds: int | None = None, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Actions, newest first. `status="running"` with `older_than_seconds` finds actions that look STUCK: claimed, but no outcome recorded (the service stopped mid-action)."""
+    stmt = select(ActionRecord).order_by(ActionRecord.updated_at.desc()).limit(max(1, min(limit, 500)))
+    if status:
+        stmt = stmt.where(ActionRecord.status == status)
+    tid = _uuid(tenant_id) if tenant_id else None
+    if tenant_id and tid is None:
+        return []
+    if tid is not None:
+        stmt = stmt.where(ActionRecord.tenant_id == tid)
+    if older_than_seconds:
+        stmt = stmt.where(ActionRecord.updated_at < datetime.now(UTC) - timedelta(seconds=older_than_seconds))
+    return [to_dict(r) for r in (await db.execute(stmt)).scalars().all()]
+
+
+async def resolve(db: AsyncSession, action_id: str | UUID, *, outcome: ActionStatus, note: str, resolved_by: str | None) -> tuple[str, dict[str, Any] | None]:
+    """An operator records what ACTUALLY happened to an action stuck in 'running' (after checking the real system). Atomic (only from 'running'); never executes anything.
+    Returns ("resolved" | "not_found" | "conflict", record)."""
+    uid = _uuid(action_id)
+    if uid is not None:
+        row = await _row(db, uid, fresh=True)
+        if row is not None and row.status == _text(ActionStatus.RUNNING):
+            result = {**(row.result or {}), "resolution": _jsonable({"outcome": _text(outcome), "note": note, "resolved_by": resolved_by, "resolved_at": datetime.now(UTC).isoformat()})}
+            claimed = await db.execute(
+                update(ActionRecord)
+                .where(ActionRecord.id == uid, ActionRecord.status == _text(ActionStatus.RUNNING))
+                .values(status=_text(outcome), result=result, updated_at=datetime.now(UTC))
+            )
+            await db.commit()
+            if claimed.rowcount == 1:
+                return "resolved", await get(db, uid)
+    current = await get(db, action_id)
+    return ("not_found", None) if current is None else ("conflict", current)
