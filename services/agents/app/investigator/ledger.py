@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Any
 
 import asyncpg
+from app.core.db_role import warn_if_rls_bypassed
 from app.core.tenant_scope import tenant_scope
 import structlog
 
@@ -72,6 +73,7 @@ async def get_pool() -> asyncpg.Pool | None:
             command_timeout=10,
         )
         logger.info("ledger.pool_initialised")
+        await warn_if_rls_bypassed(_POOL)  # best-effort fact: does RLS apply to this role?
         return _POOL
     except Exception as exc:  # noqa: BLE001
         logger.warning("ledger.pool_init_failed", error=str(exc))

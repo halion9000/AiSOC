@@ -28,6 +28,7 @@ from app.api.live_actions_router import router as live_actions_router
 from app.api.router import router as legacy_router
 from app.db import dispose_engine
 from app.live_actions import register_builtin_executors
+from app.db_role import warn_if_rls_bypassed
 from app.store_readiness import check_action_store, mark_ready_when_store_answers
 
 logger = structlog.get_logger(__name__)
@@ -69,6 +70,7 @@ async def _register_builtin_live_actions() -> None:
     ready, reason = await check_action_store()
     if ready:
         app.state.mark_ready()
+        await warn_if_rls_bypassed()  # a fact worth logging once; best-effort, never raises
     else:
         logger.error("actions.store_not_ready", reason=reason, hint="set DATABASE_URL and apply migration 055 (services/api/migrations/055_response_actions.sql); /readyz stays 503 until the store answers")
         app.state.store_watch = asyncio.create_task(mark_ready_when_store_answers(app.state.mark_ready))

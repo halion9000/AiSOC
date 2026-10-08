@@ -25,6 +25,7 @@ from app.core.scheduler_lock import scheduler_lock
 from app.core.telemetry import instrument_app
 from app.db.clickhouse import close_clickhouse
 from app.db.database import engine
+from app.db.role_check import schedule_role_check
 from app.db.neo4j import close_neo4j, init_neo4j
 from app.graphql.schema import graphql_router
 from app.middleware.audit_middleware import AuditMiddleware
@@ -292,6 +293,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # log stream so operators see them before anything else. In production this
     # hard-fails the boot rather than serving with a known-bad secret (Phase 2).
     enforce_secure_defaults(settings)
+
+    # Say whether row-level security actually applies to the role this service connects as (it does not for a superuser). Background and best-effort: never delays startup.
+    schedule_role_check(engine)
 
     # Create all database tables (dev only; use Alembic migrations in prod).
     # We keep this narrowly scoped to the canonical ``"development"`` label
