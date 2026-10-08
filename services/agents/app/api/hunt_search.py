@@ -1,22 +1,18 @@
 """
-Hunt search & saved-searches API.
+Hunt search API.
 
-The console's threat-hunter view posts ad-hoc queries here and saves/retrieves
-search bookmarks. This is *distinct* from the hunt-corpus YAML runner
-(``hunts.py``); this module handles free-form telemetry search.
+The console's threat-hunter view posts ad-hoc queries here. This is *distinct* from the hunt-corpus YAML runner (``hunts.py``); this module handles free-form telemetry search.
 
 Endpoints (under ``/api/v1/hunt``):
+    POST /search          - execute a hunt query against telemetry
 
-    POST /search          — execute a hunt query against telemetry
-    GET  /saved           — list saved searches for the current tenant
-    POST /saved           — save a new search
-    DELETE /saved/{id}    — delete a saved search
+Saved searches (``/api/v1/hunt/saved``) are NOT served here any more. They were one module-level dict in this service: lost on every restart and not tenant-scoped (the docstring said "for the
+current tenant", the code never looked at a tenant), so every tenant's saved queries were listed to anyone. They live in the core API (services/api ... hunt_saved_searches.py), persisted and tenant-scoped,
+and the web console's Next.js rewrite sends ``/api/v1/hunt/saved*`` there.
 """
 
 from __future__ import annotations
 
-import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -57,28 +53,6 @@ class HuntResponse(BaseModel):
     hits: list[HuntHit]
 
 
-class SavedSearchCreate(BaseModel):
-    name: str
-    query: str
-    language: str = "lucene"
-
-
-class SavedSearch(BaseModel):
-    id: str
-    name: str
-    query: str
-    language: str
-    createdAt: str
-    pinned: bool = False
-
-
-# ---------------------------------------------------------------------------
-# In-memory store (demo; production would persist to Postgres)
-# ---------------------------------------------------------------------------
-
-_SAVED_SEARCHES: dict[str, SavedSearch] = {}
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -96,31 +70,3 @@ async def hunt_search(query: HuntQuery) -> HuntResponse:
         status_code=501,
         detail="Hunt search is not connected to an event store yet, so it cannot return results.",
     )
-
-
-@router.get("/saved")
-async def list_saved_searches() -> dict[str, list[dict[str, Any]]]:
-    """Return all saved searches."""
-    return {"searches": [s.model_dump() for s in _SAVED_SEARCHES.values()]}
-
-
-@router.post("/saved", response_model=SavedSearch, status_code=201)
-async def save_search(data: SavedSearchCreate) -> SavedSearch:
-    """Persist a new saved search."""
-    ss = SavedSearch(
-        id=str(uuid.uuid4()),
-        name=data.name,
-        query=data.query,
-        language=data.language,
-        createdAt=datetime.now(UTC).isoformat(),
-    )
-    _SAVED_SEARCHES[ss.id] = ss
-    return ss
-
-
-@router.delete("/saved/{search_id}", status_code=204, response_model=None)
-async def delete_saved_search(search_id: str) -> None:
-    """Delete a saved search by ID."""
-    if search_id not in _SAVED_SEARCHES:
-        raise HTTPException(status_code=404, detail="saved search not found")
-    del _SAVED_SEARCHES[search_id]

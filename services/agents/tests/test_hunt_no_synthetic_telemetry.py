@@ -18,11 +18,9 @@ INVENTED = ["WS-DEV-01", "corp.example", "192.0.2.42", "AssumeRole", "arn:aws:ia
 
 @pytest.fixture
 def client():
-    hunt_search._SAVED_SEARCHES.clear()
     app = FastAPI()
     app.include_router(hunt_search.router)
     yield TestClient(app)
-    hunt_search._SAVED_SEARCHES.clear()
 
 
 class TestHuntSearch:
@@ -43,13 +41,12 @@ class TestHuntSearch:
     def test_the_synthetic_generator_no_longer_exists(self):
         assert not hasattr(hunt_search, "_synthetic_hits")
 
-    def test_saved_searches_still_work(self, client):
-        created = client.post("/api/v1/hunt/saved", json={"name": "Encoded PowerShell", "query": "powershell -enc", "language": "lucene"})
-        assert created.status_code == 201
-        listed = client.get("/api/v1/hunt/saved").json()["searches"]
-        assert [s["name"] for s in listed] == ["Encoded PowerShell"]
-        assert client.delete(f"/api/v1/hunt/saved/{created.json()['id']}").status_code == 204
-        assert client.get("/api/v1/hunt/saved").json()["searches"] == []
+    def test_the_agents_service_no_longer_serves_saved_searches(self, client):
+        """They were one in-memory dict here: lost on restart and returned to EVERY tenant. They live in the core API (tenant-scoped, persisted); the web rewrite sends /api/v1/hunt/saved* there."""
+        assert not hasattr(hunt_search, "_SAVED_SEARCHES")
+        assert client.get("/api/v1/hunt/saved").status_code in (404, 405)
+        assert client.post("/api/v1/hunt/saved", json={"name": "n", "query": "q", "language": "lucene"}).status_code in (404, 405)
+        assert client.delete("/api/v1/hunt/saved/1").status_code in (404, 405)
 
 
 class TestSchedulerTelemetry:

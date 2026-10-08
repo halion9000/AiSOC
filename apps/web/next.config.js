@@ -170,7 +170,17 @@ const nextConfig = {
         source: '/api/v1/playbooks',
         destination: `${AGENTS_HOST}/api/v1/playbooks`,
       },
-      // Hunt search + saved searches (singular /hunt, distinct from /hunts corpus)
+      // Saved hunt SEARCHES (raw query bookmarks) live in the core API: persisted and tenant-scoped. They used to be served by the agents service from an in-memory dict that was lost on
+      // restart and returned EVERY tenant's saved queries to anyone. These two rules must come BEFORE the generic /api/v1/hunt/:path* rule below, or the agents service would answer them.
+      {
+        source: '/api/v1/hunt/saved/:path*',
+        destination: `${API_HOST}/api/v1/hunt/saved/:path*`,
+      },
+      {
+        source: '/api/v1/hunt/saved',
+        destination: `${API_HOST}/api/v1/hunt/saved`,
+      },
+      // Hunt search (singular /hunt, distinct from /hunts corpus)
       {
         source: '/api/v1/hunt/:path*',
         destination: `${AGENTS_HOST}/api/v1/hunt/:path*`,

@@ -43,6 +43,7 @@ from app.models.outcome_suppression import OutcomeSuppression
 from app.models.saved_hunt import SavedHunt
 from app.models.saved_view import SavedView
 from app.models.community_catalog import CommunityCatalogItem
+from app.models.saved_hunt_search import SavedHuntSearch
 from app.models.stix_object import StixObject
 from app.models.shift import Shift
 from app.models.tenant import ApiKey, Tenant, User
@@ -100,6 +101,7 @@ __all__ = [
     "SavedHunt",
     "SavedView",
     "CommunityCatalogItem",
+    "SavedHuntSearch",
     "StixObject",
     "ThreatActor",
     "ThreatIntelFeed",

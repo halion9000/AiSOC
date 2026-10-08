@@ -38,6 +38,7 @@ from app.api.v1.endpoints import (
     graph,
     graph_ws,
     health,
+    hunt_saved_searches,
     hunts,
     identity_graph,
     identity_timeline,
@@ -215,6 +216,9 @@ api_router.include_router(hunts.router)
 # shared (every analyst in the tenant sees every saved hunt). Distinct from
 # /hunts (above), which is the heavyweight detection-engineer hunt workbench.
 api_router.include_router(saved_hunts.router)
+
+# Saved hunt SEARCHES (raw query bookmarks, `/hunt/saved`): persisted + tenant-scoped here, formerly an in-memory, cross-tenant dict in the agents service.
+api_router.include_router(hunt_saved_searches.router)
 
 # Email-security + phishing-triage workflow (Tier 3)
 api_router.include_router(phishing.router)
