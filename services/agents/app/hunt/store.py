@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 import asyncpg
+from app.core.tenant_scope import tenant_scope
 import structlog
 
 from .engine import HuntFindingDraft, HuntRunResult
@@ -70,10 +71,6 @@ async def _resolve_tenant_id(conn: asyncpg.Connection, tenant_ref: str) -> uuid.
     return row["id"] if row else None
 
 
-async def _set_rls_context(conn: asyncpg.Connection, tenant_id: uuid.UUID) -> None:
-    await conn.execute("SELECT set_config('app.tenant_id', $1, true)", str(tenant_id))
-
-
 # ---------------------------------------------------------------------------
 # Catalog sync — keep ``hunt_hypotheses`` table in sync with the YAML corpus
 # ---------------------------------------------------------------------------
@@ -101,61 +98,61 @@ async def sync_catalog(
             if tenant_id is None:
                 logger.debug("hunt.store.catalog.skip", reason="unknown_tenant", tenant_ref=tenant_ref)
                 return 0
-            await _set_rls_context(conn, tenant_id)
+            async with tenant_scope(conn, tenant_id):
 
-            for hunt in hunts:
-                await conn.execute(
-                    """
-                    INSERT INTO hunt_hypotheses
-                      (tenant_id, hunt_id, name, description, version,
-                       severity, category, tags, log_sources,
-                       schedule_enabled, interval_minutes, jitter_seconds,
-                       hypothesis, expected, refs, author, source_sha256,
-                       created_at, updated_at)
-                    VALUES
-                      ($1, $2, $3, $4, $5,
-                       $6, $7, $8::text[], $9::text[],
-                       $10, $11, $12,
-                       $13::jsonb, $14::jsonb, $15::text[], $16, $17,
-                       NOW(), NOW())
-                    ON CONFLICT (tenant_id, hunt_id) DO UPDATE SET
-                       name = EXCLUDED.name,
-                       description = EXCLUDED.description,
-                       version = EXCLUDED.version,
-                       severity = EXCLUDED.severity,
-                       category = EXCLUDED.category,
-                       tags = EXCLUDED.tags,
-                       log_sources = EXCLUDED.log_sources,
-                       schedule_enabled = EXCLUDED.schedule_enabled,
-                       interval_minutes = EXCLUDED.interval_minutes,
-                       jitter_seconds = EXCLUDED.jitter_seconds,
-                       hypothesis = EXCLUDED.hypothesis,
-                       expected = EXCLUDED.expected,
-                       refs = EXCLUDED.refs,
-                       author = EXCLUDED.author,
-                       source_sha256 = EXCLUDED.source_sha256,
-                       updated_at = NOW()
-                    """,
-                    tenant_id,
-                    hunt.id,
-                    hunt.name,
-                    hunt.description,
-                    hunt.version,
-                    hunt.severity,
-                    hunt.category,
-                    list(hunt.tags),
-                    list(hunt.log_sources),
-                    hunt.schedule.enabled,
-                    hunt.schedule.interval_minutes,
-                    hunt.schedule.jitter_seconds,
-                    json.dumps(hunt.hypothesis.model_dump(by_alias=True)),
-                    json.dumps(hunt.expected.model_dump()),
-                    list(hunt.references),
-                    hunt.author,
-                    hunt.source_sha256,
-                )
-                touched += 1
-            logger.info("hunt.store.catalog.synced", count=touched)
+                for hunt in hunts:
+                    await conn.execute(
+                        """
+                        INSERT INTO hunt_hypotheses
+                          (tenant_id, hunt_id, name, description, version,
+                           severity, category, tags, log_sources,
+                           schedule_enabled, interval_minutes, jitter_seconds,
+                           hypothesis, expected, refs, author, source_sha256,
+                           created_at, updated_at)
+                        VALUES
+                          ($1, $2, $3, $4, $5,
+                           $6, $7, $8::text[], $9::text[],
+                           $10, $11, $12,
+                           $13::jsonb, $14::jsonb, $15::text[], $16, $17,
+                           NOW(), NOW())
+                        ON CONFLICT (tenant_id, hunt_id) DO UPDATE SET
+                           name = EXCLUDED.name,
+                           description = EXCLUDED.description,
+                           version = EXCLUDED.version,
+                           severity = EXCLUDED.severity,
+                           category = EXCLUDED.category,
+                           tags = EXCLUDED.tags,
+                           log_sources = EXCLUDED.log_sources,
+                           schedule_enabled = EXCLUDED.schedule_enabled,
+                           interval_minutes = EXCLUDED.interval_minutes,
+                           jitter_seconds = EXCLUDED.jitter_seconds,
+                           hypothesis = EXCLUDED.hypothesis,
+                           expected = EXCLUDED.expected,
+                           refs = EXCLUDED.refs,
+                           author = EXCLUDED.author,
+                           source_sha256 = EXCLUDED.source_sha256,
+                           updated_at = NOW()
+                        """,
+                        tenant_id,
+                        hunt.id,
+                        hunt.name,
+                        hunt.description,
+                        hunt.version,
+                        hunt.severity,
+                        hunt.category,
+                        list(hunt.tags),
+                        list(hunt.log_sources),
+                        hunt.schedule.enabled,
+                        hunt.schedule.interval_minutes,
+                        hunt.schedule.jitter_seconds,
+                        json.dumps(hunt.hypothesis.model_dump(by_alias=True)),
+                        json.dumps(hunt.expected.model_dump()),
+                        list(hunt.references),
+                        hunt.author,
+                        hunt.source_sha256,
+                    )
+                    touched += 1
+                logger.info("hunt.store.catalog.synced", count=touched)
     except Exception as exc:  # noqa: BLE001
         logger.warning("hunt.store.catalog.failed", error=str(exc))
     return touched
@@ -185,48 +182,48 @@ async def record_run(
             if tenant_id is None:
                 logger.debug("hunt.store.run.skip", reason="unknown_tenant", tenant_ref=tenant_ref)
                 return None
-            await _set_rls_context(conn, tenant_id)
+            async with tenant_scope(conn, tenant_id):
 
-            hyp_row = await conn.fetchrow(
-                "SELECT id FROM hunt_hypotheses WHERE tenant_id = $1 AND hunt_id = $2",
-                tenant_id,
-                hunt.id,
-            )
-            hypothesis_id = hyp_row["id"] if hyp_row else None
+                hyp_row = await conn.fetchrow(
+                    "SELECT id FROM hunt_hypotheses WHERE tenant_id = $1 AND hunt_id = $2",
+                    tenant_id,
+                    hunt.id,
+                )
+                hypothesis_id = hyp_row["id"] if hyp_row else None
 
-            status = "error" if result.error else "completed"
-            await conn.execute(
-                """
-                INSERT INTO hunt_runs
-                  (id, tenant_id, hunt_id, hypothesis_id, trigger_source,
-                   status, events_scanned, findings_count, match_score,
-                   error, started_at, completed_at, created_at)
-                VALUES
-                  ($1, $2, $3, $4, $5,
-                   $6, $7, $8, $9,
-                   $10, NOW(), NOW(), NOW())
-                """,
-                run_id,
-                tenant_id,
-                hunt.id,
-                hypothesis_id,
-                trigger_source,
-                status,
-                result.events_scanned,
-                len(result.findings),
-                round(result.match_score, 3),
-                result.error,
-            )
+                status = "error" if result.error else "completed"
+                await conn.execute(
+                    """
+                    INSERT INTO hunt_runs
+                      (id, tenant_id, hunt_id, hypothesis_id, trigger_source,
+                       status, events_scanned, findings_count, match_score,
+                       error, started_at, completed_at, created_at)
+                    VALUES
+                      ($1, $2, $3, $4, $5,
+                       $6, $7, $8, $9,
+                       $10, NOW(), NOW(), NOW())
+                    """,
+                    run_id,
+                    tenant_id,
+                    hunt.id,
+                    hypothesis_id,
+                    trigger_source,
+                    status,
+                    result.events_scanned,
+                    len(result.findings),
+                    round(result.match_score, 3),
+                    result.error,
+                )
 
-            for f in result.findings:
-                await _insert_finding(conn, tenant_id, run_id, f)
+                for f in result.findings:
+                    await _insert_finding(conn, tenant_id, run_id, f)
 
-            logger.info(
-                "hunt.store.run.recorded",
-                hunt_id=hunt.id,
-                events_scanned=result.events_scanned,
-                findings=len(result.findings),
-            )
+                logger.info(
+                    "hunt.store.run.recorded",
+                    hunt_id=hunt.id,
+                    events_scanned=result.events_scanned,
+                    findings=len(result.findings),
+                )
     except Exception as exc:  # noqa: BLE001
         logger.warning("hunt.store.run.failed", hunt_id=hunt.id, error=str(exc))
         return None
@@ -279,21 +276,21 @@ async def list_recent_runs(*, tenant_ref: str = "default", limit: int = 50) -> l
             tenant_id = await _resolve_tenant_id(conn, tenant_ref)
             if tenant_id is None:
                 return []
-            await _set_rls_context(conn, tenant_id)
-            rows = await conn.fetch(
-                """
-                SELECT id, hunt_id, status, trigger_source, events_scanned,
-                       findings_count, match_score, error, started_at,
-                       completed_at
-                FROM hunt_runs
-                WHERE tenant_id = $1
-                ORDER BY started_at DESC
-                LIMIT $2
-                """,
-                tenant_id,
-                limit,
-            )
-            return [dict(r) for r in rows]
+            async with tenant_scope(conn, tenant_id):
+                rows = await conn.fetch(
+                    """
+                    SELECT id, hunt_id, status, trigger_source, events_scanned,
+                           findings_count, match_score, error, started_at,
+                           completed_at
+                    FROM hunt_runs
+                    WHERE tenant_id = $1
+                    ORDER BY started_at DESC
+                    LIMIT $2
+                    """,
+                    tenant_id,
+                    limit,
+                )
+                return [dict(r) for r in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning("hunt.store.list_runs.failed", error=str(exc))
         return []
@@ -314,27 +311,27 @@ async def list_recent_findings(
             tenant_id = await _resolve_tenant_id(conn, tenant_ref)
             if tenant_id is None:
                 return []
-            await _set_rls_context(conn, tenant_id)
-            clauses = ["tenant_id = $1"]
-            params: list[Any] = [tenant_id]
-            if hunt_id:
-                params.append(hunt_id)
-                clauses.append(f"hunt_id = ${len(params)}")
-            if status:
-                params.append(status)
-                clauses.append(f"status = ${len(params)}")
-            params.append(limit)
-            sql = f"""
-                SELECT id, hunt_run_id, hunt_id, severity, title, summary,
-                       primary_entity, primary_log_source, match_score,
-                       mitre_techniques, status, created_at
-                FROM hunt_findings
-                WHERE {" AND ".join(clauses)}
-                ORDER BY created_at DESC
-                LIMIT ${len(params)}
-            """
-            rows = await conn.fetch(sql, *params)
-            return [dict(r) for r in rows]
+            async with tenant_scope(conn, tenant_id):
+                clauses = ["tenant_id = $1"]
+                params: list[Any] = [tenant_id]
+                if hunt_id:
+                    params.append(hunt_id)
+                    clauses.append(f"hunt_id = ${len(params)}")
+                if status:
+                    params.append(status)
+                    clauses.append(f"status = ${len(params)}")
+                params.append(limit)
+                sql = f"""
+                    SELECT id, hunt_run_id, hunt_id, severity, title, summary,
+                           primary_entity, primary_log_source, match_score,
+                           mitre_techniques, status, created_at
+                    FROM hunt_findings
+                    WHERE {" AND ".join(clauses)}
+                    ORDER BY created_at DESC
+                    LIMIT ${len(params)}
+                """
+                rows = await conn.fetch(sql, *params)
+                return [dict(r) for r in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning("hunt.store.list_findings.failed", error=str(exc))
         return []

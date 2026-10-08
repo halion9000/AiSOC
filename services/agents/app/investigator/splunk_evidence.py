@@ -35,6 +35,7 @@ import structlog
 from app.investigator import ledger as ledger_module
 from app.models.state import InvestigationState
 from app.security.credential_vault import get_vault
+from app.core.tenant_scope import tenant_scope
 
 logger = structlog.get_logger()
 
@@ -206,8 +207,7 @@ async def resolve_splunk_credentials(state: InvestigationState) -> SplunkCreds |
     except (ValueError, TypeError):
         return None
     try:
-        async with pool.acquire() as conn:
-            await conn.execute("SELECT set_config('app.tenant_id', $1, true)", str(state.tenant_id))
+        async with pool.acquire() as conn, tenant_scope(conn, state.tenant_id):
             row = await conn.fetchrow(
                 """
                 SELECT auth_config, connector_config

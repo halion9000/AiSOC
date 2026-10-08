@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Any
 
 import asyncpg
+from app.core.tenant_scope import tenant_scope
 import structlog
 
 logger = structlog.get_logger()
@@ -146,12 +147,6 @@ async def resolve_tenant(tenant_ref: str) -> uuid.UUID | None:
         return None
 
 
-async def _set_rls_context(conn: asyncpg.Connection, tenant_id: uuid.UUID) -> None:
-    """Match the API service's set_rls_context — required so the audit-log
-    immutability trigger and tenant policies allow our INSERTs."""
-    await conn.execute("SELECT set_config('app.tenant_id', $1, true)", str(tenant_id))
-
-
 async def start_run(
     *,
     run_id: uuid.UUID,
@@ -184,30 +179,30 @@ async def start_run(
                     hint="pass an explicit tenant_id (UUID/slug); 'default' resolves only when a canonical or single tenant exists",
                 )
                 return None
-            await _set_rls_context(conn, tenant_id)
-            await conn.execute(
-                """
-                INSERT INTO investigation_runs
-                  (id, tenant_id, case_id, alert_summary, raw_alert,
-                   model_used, status, started_at, created_at)
-                VALUES
-                  ($1, $2, $3, $4, $5::jsonb, $6, 'running', now(), now())
-                ON CONFLICT (id) DO NOTHING
-                """,
-                run_id,
-                tenant_id,
-                case_id,
-                alert_summary[:8000] if alert_summary else None,
-                json.dumps(raw_alert or {}),
-                model_used,
-            )
-            logger.info(
-                "ledger.run_started",
-                run_id=str(run_id),
-                case_id=case_id,
-                tenant_id=str(tenant_id),
-            )
-            return tenant_id
+            async with tenant_scope(conn, tenant_id):
+                await conn.execute(
+                    """
+                    INSERT INTO investigation_runs
+                      (id, tenant_id, case_id, alert_summary, raw_alert,
+                       model_used, status, started_at, created_at)
+                    VALUES
+                      ($1, $2, $3, $4, $5::jsonb, $6, 'running', now(), now())
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    run_id,
+                    tenant_id,
+                    case_id,
+                    alert_summary[:8000] if alert_summary else None,
+                    json.dumps(raw_alert or {}),
+                    model_used,
+                )
+                logger.info(
+                    "ledger.run_started",
+                    run_id=str(run_id),
+                    case_id=case_id,
+                    tenant_id=str(tenant_id),
+                )
+                return tenant_id
     except Exception as exc:  # noqa: BLE001
         logger.warning("ledger.start_run_failed", run_id=str(run_id), error=str(exc))
         return None
@@ -237,30 +232,30 @@ async def record_event(
 
     try:
         async with pool.acquire() as conn:
-            await _set_rls_context(conn, tenant_id)
-            await conn.execute(
-                """
-                INSERT INTO investigation_events
-                  (id, run_id, tenant_id, seq, ts, kind, agent, summary,
-                   payload, input_hash, output_hash, duration_ms, created_at)
-                VALUES
-                  ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, now())
-                ON CONFLICT (run_id, seq) DO NOTHING
-                """,
-                event_id,
-                run_id,
-                tenant_id,
-                seq,
-                ts,
-                kind,
-                agent,
-                summary[:8000],
-                json.dumps(payload or {}),
-                input_hash,
-                output_hash,
-                duration_ms,
-            )
-            return event_id
+            async with tenant_scope(conn, tenant_id):
+                await conn.execute(
+                    """
+                    INSERT INTO investigation_events
+                      (id, run_id, tenant_id, seq, ts, kind, agent, summary,
+                       payload, input_hash, output_hash, duration_ms, created_at)
+                    VALUES
+                      ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, now())
+                    ON CONFLICT (run_id, seq) DO NOTHING
+                    """,
+                    event_id,
+                    run_id,
+                    tenant_id,
+                    seq,
+                    ts,
+                    kind,
+                    agent,
+                    summary[:8000],
+                    json.dumps(payload or {}),
+                    input_hash,
+                    output_hash,
+                    duration_ms,
+                )
+                return event_id
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "ledger.record_event_failed",
@@ -296,25 +291,25 @@ async def record_artifact(
 
     try:
         async with pool.acquire() as conn:
-            await _set_rls_context(conn, tenant_id)
-            await conn.execute(
-                """
-                INSERT INTO investigation_artifacts
-                  (id, run_id, event_id, tenant_id, kind, content,
-                   sha256, size_bytes, created_at)
-                VALUES
-                  ($1, $2, $3, $4, $5, $6, $7, $8, now())
-                """,
-                artifact_id,
-                run_id,
-                event_id,
-                tenant_id,
-                kind,
-                content,
-                sha,
-                size,
-            )
-            return artifact_id
+            async with tenant_scope(conn, tenant_id):
+                await conn.execute(
+                    """
+                    INSERT INTO investigation_artifacts
+                      (id, run_id, event_id, tenant_id, kind, content,
+                       sha256, size_bytes, created_at)
+                    VALUES
+                      ($1, $2, $3, $4, $5, $6, $7, $8, now())
+                    """,
+                    artifact_id,
+                    run_id,
+                    event_id,
+                    tenant_id,
+                    kind,
+                    content,
+                    sha,
+                    size,
+                )
+                return artifact_id
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "ledger.record_artifact_failed",
@@ -342,31 +337,31 @@ async def complete_run(
 
     try:
         async with pool.acquire() as conn:
-            await _set_rls_context(conn, tenant_id)
-            await conn.execute(
-                """
-                UPDATE investigation_runs
-                   SET status = $2,
-                       error = $3,
-                       iterations = $4,
-                       total_tokens = $5,
-                       total_cost_usd = $6,
-                       completed_at = now()
-                 WHERE id = $1
-                """,
-                run_id,
-                status,
-                error,
-                iterations,
-                total_tokens,
-                total_cost_usd,
-            )
-            logger.info(
-                "ledger.run_completed",
-                run_id=str(run_id),
-                status=status,
-                iterations=iterations,
-            )
+            async with tenant_scope(conn, tenant_id):
+                await conn.execute(
+                    """
+                    UPDATE investigation_runs
+                       SET status = $2,
+                           error = $3,
+                           iterations = $4,
+                           total_tokens = $5,
+                           total_cost_usd = $6,
+                           completed_at = now()
+                     WHERE id = $1
+                    """,
+                    run_id,
+                    status,
+                    error,
+                    iterations,
+                    total_tokens,
+                    total_cost_usd,
+                )
+                logger.info(
+                    "ledger.run_completed",
+                    run_id=str(run_id),
+                    status=status,
+                    iterations=iterations,
+                )
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "ledger.complete_run_failed",
@@ -431,86 +426,86 @@ async def persist_auto_triage(
             if tenant_id is None:
                 logger.debug("ledger.auto_triage_skip", reason="unknown_tenant", tenant_ref=tenant_ref)
                 return False
-            await _set_rls_context(conn, tenant_id)
-            async with conn.transaction():
-                await conn.execute(
-                    """
-                    INSERT INTO investigation_runs
-                      (id, tenant_id, case_id, alert_summary, raw_alert,
-                       model_used, status, started_at, created_at)
-                    VALUES
-                      ($1, $2, $3, $4, $5::jsonb, $6, 'running', now(), now())
-                    ON CONFLICT (id) DO NOTHING
-                    """,
-                    run_id,
-                    tenant_id,
-                    str(alert_id or ""),
-                    (alert_summary or "")[:8000] or None,
-                    json.dumps(raw_alert or {}),
-                    f"kafka:auto_triage:{tier}",
-                )
-                await conn.execute(
-                    """
-                    INSERT INTO investigation_events
-                      (id, run_id, tenant_id, seq, ts, kind, agent, summary,
-                       payload, duration_ms, created_at)
-                    VALUES
-                      ($1, $2, $3, 1, now(), 'triage_verdict', $4, $5, $6::jsonb, 0, now())
-                    ON CONFLICT (run_id, seq) DO NOTHING
-                    """,
-                    uuid.uuid4(),
-                    run_id,
-                    tenant_id,
-                    f"auto_triage:{tier}",
-                    f"verdict={verdict} confidence={confidence:.2f}"[:8000],
-                    json.dumps(
-                        {
-                            "verdict": verdict,
-                            "confidence": confidence,
-                            "rationale": rationale,
-                            "findings": findings or [],
-                            "proposed_actions": recommendations,
-                            "auto_closed": auto_closed,
-                        }
-                    ),
-                )
-                await conn.execute(
-                    """
-                    UPDATE investigation_runs
-                       SET status = 'completed', iterations = $2,
-                           total_tokens = $3, total_cost_usd = $4, completed_at = now()
-                     WHERE id = $1
-                    """,
-                    run_id,
-                    iterations,
-                    tokens,
-                    cost_usd,
-                )
-                if alert_uuid is not None:
-                    # Surface the automated verdict on the alert row. Status is
-                    # only advanced to 'resolved' when auto-triage auto-closed a
-                    # benign/FP alert at high confidence; otherwise the alert
-                    # stays open for escalation / human review.
+            async with tenant_scope(conn, tenant_id):
+                async with conn.transaction():
                     await conn.execute(
                         """
-                        UPDATE alerts
-                           SET disposition = $3,
-                               ai_score = $4,
-                               ai_summary = $5,
-                               ai_recommendations = $6::jsonb,
-                               status = CASE WHEN $7 THEN 'resolved' ELSE status END,
-                               resolved_at = CASE WHEN $7 THEN now() ELSE resolved_at END,
-                               updated_at = now()
-                         WHERE id = $1 AND tenant_id = $2
+                        INSERT INTO investigation_runs
+                          (id, tenant_id, case_id, alert_summary, raw_alert,
+                           model_used, status, started_at, created_at)
+                        VALUES
+                          ($1, $2, $3, $4, $5::jsonb, $6, 'running', now(), now())
+                        ON CONFLICT (id) DO NOTHING
                         """,
-                        alert_uuid,
+                        run_id,
                         tenant_id,
-                        verdict[:50],
-                        float(confidence),
-                        (rationale or "")[:8000] or None,
-                        json.dumps(recommendations),
-                        auto_closed,
+                        str(alert_id or ""),
+                        (alert_summary or "")[:8000] or None,
+                        json.dumps(raw_alert or {}),
+                        f"kafka:auto_triage:{tier}",
                     )
+                    await conn.execute(
+                        """
+                        INSERT INTO investigation_events
+                          (id, run_id, tenant_id, seq, ts, kind, agent, summary,
+                           payload, duration_ms, created_at)
+                        VALUES
+                          ($1, $2, $3, 1, now(), 'triage_verdict', $4, $5, $6::jsonb, 0, now())
+                        ON CONFLICT (run_id, seq) DO NOTHING
+                        """,
+                        uuid.uuid4(),
+                        run_id,
+                        tenant_id,
+                        f"auto_triage:{tier}",
+                        f"verdict={verdict} confidence={confidence:.2f}"[:8000],
+                        json.dumps(
+                            {
+                                "verdict": verdict,
+                                "confidence": confidence,
+                                "rationale": rationale,
+                                "findings": findings or [],
+                                "proposed_actions": recommendations,
+                                "auto_closed": auto_closed,
+                            }
+                        ),
+                    )
+                    await conn.execute(
+                        """
+                        UPDATE investigation_runs
+                           SET status = 'completed', iterations = $2,
+                               total_tokens = $3, total_cost_usd = $4, completed_at = now()
+                         WHERE id = $1
+                        """,
+                        run_id,
+                        iterations,
+                        tokens,
+                        cost_usd,
+                    )
+                    if alert_uuid is not None:
+                        # Surface the automated verdict on the alert row. Status is
+                        # only advanced to 'resolved' when auto-triage auto-closed a
+                        # benign/FP alert at high confidence; otherwise the alert
+                        # stays open for escalation / human review.
+                        await conn.execute(
+                            """
+                            UPDATE alerts
+                               SET disposition = $3,
+                                   ai_score = $4,
+                                   ai_summary = $5,
+                                   ai_recommendations = $6::jsonb,
+                                   status = CASE WHEN $7 THEN 'resolved' ELSE status END,
+                                   resolved_at = CASE WHEN $7 THEN now() ELSE resolved_at END,
+                                   updated_at = now()
+                             WHERE id = $1 AND tenant_id = $2
+                            """,
+                            alert_uuid,
+                            tenant_id,
+                            verdict[:50],
+                            float(confidence),
+                            (rationale or "")[:8000] or None,
+                            json.dumps(recommendations),
+                            auto_closed,
+                        )
         logger.info(
             "ledger.auto_triage_persisted",
             run_id=str(run_id),

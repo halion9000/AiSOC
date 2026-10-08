@@ -83,6 +83,7 @@ import asyncpg
 import structlog
 
 from app.security.credential_vault import CredentialVaultError, get_vault
+from app.core.tenant_scope import tenant_scope
 
 # NOTE: ``app.investigator.ledger`` is imported lazily inside
 # :func:`resolve_llm_config` rather than at module load time. The
@@ -234,11 +235,6 @@ async def _resolve_tenant_uuid(conn: asyncpg.Connection, tenant_ref: str) -> uui
     return row["id"] if row else None
 
 
-async def _set_rls_context(conn: asyncpg.Connection, tenant_id: uuid.UUID) -> None:
-    """Set the RLS GUC so policies on ``tenant_llm_credentials`` admit us."""
-    await conn.execute("SELECT set_config('app.tenant_id', $1, true)", str(tenant_id))
-
-
 async def _fetch_tenant_credential(pool: asyncpg.Pool, tenant_ref: str) -> dict[str, Any] | None:
     """Resolve ``tenant_ref`` and fetch the ``tenant_llm_credentials`` row.
 
@@ -258,21 +254,21 @@ async def _fetch_tenant_credential(pool: asyncpg.Pool, tenant_ref: str) -> dict[
             tenant_id = await _resolve_tenant_uuid(conn, tenant_ref)
             if tenant_id is None:
                 return None
-            await _set_rls_context(conn, tenant_id)
-            row = await conn.fetchrow(
-                """
-                SELECT
-                    provider,
-                    base_url,
-                    model,
-                    api_key_vault,
-                    settings,
-                    enabled
-                FROM tenant_llm_credentials
-                WHERE tenant_id = $1
-                """,
-                tenant_id,
-            )
+            async with tenant_scope(conn, tenant_id):
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        provider,
+                        base_url,
+                        model,
+                        api_key_vault,
+                        settings,
+                        enabled
+                    FROM tenant_llm_credentials
+                    WHERE tenant_id = $1
+                    """,
+                    tenant_id,
+                )
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "explain.llm_resolve_db_failed",
