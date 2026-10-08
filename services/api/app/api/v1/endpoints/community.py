@@ -40,7 +40,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from app.api.v1.deps import AuthUser, CurrentUser, require_permission
+from app.api.v1.deps import AuthUser, CurrentUser, DBSession, require_permission
 from app.db.rls import TenantDBSession
 from app.core.security import verify_ed25519_signature
 
@@ -244,8 +244,12 @@ async def install_community_plugin(
     if p["status"] != PublishStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Plugin is not approved for installation")
 
-    p["install_count"] += 1
-    return {"message": f"Plugin {plugin_id} installed successfully", "version": p["version"]}
+    # Publishing a plugin stores only the SHA-256 of the submitted package, never the package, so there is nothing here to install. This used to bump a counter and
+    # answer "installed successfully".
+    raise HTTPException(
+        status_code=501,
+        detail="Community plugins cannot be installed yet: the submitted package is not stored. Plugins are installed by an administrator.",
+    )
 
 
 @router.post("/plugins/{plugin_id}/rate")
@@ -396,6 +400,7 @@ async def get_community_detection(detection_id: str) -> dict[str, Any]:
 async def install_community_detection(
     detection_id: str,
     current_user: AuthUser,
+    db: DBSession,
 ) -> dict[str, str]:
     """Install a community detection rule to the tenant."""
     d = _community_detections.get(detection_id)
@@ -403,9 +408,42 @@ async def install_community_detection(
         raise HTTPException(status_code=404, detail="Detection not found")
     if d["status"] != PublishStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Detection is not approved for installation")
+    # Installing creates a real rule in THIS tenant, in "testing" status (the model default), so it does not fire until someone promotes it. This used to only
+    # bump a counter (after a KeyError on d["title"], which never existed: entries store the title under "name") and report "installed".
+    from sqlalchemy import select
+
+    from app.models.detection_rule import DetectionRule
+
+    already = await db.execute(
+        select(DetectionRule.id).where(
+            DetectionRule.tenant_id == current_user.tenant_id,
+            DetectionRule.name == d["name"],
+            DetectionRule.rule_body == d["sigma_yaml"],
+        )
+    )
+    if already.first() is not None:
+        raise HTTPException(status_code=409, detail="This detection is already installed")
+    rule = DetectionRule(
+        tenant_id=current_user.tenant_id,
+        name=d["name"],
+        description=d["description"] or None,
+        rule_language="sigma",
+        rule_body=d["sigma_yaml"],
+        category=d.get("logsource_category") or "community",
+        severity=_rule_severity(d.get("level")),
+        tags=list(d.get("tags") or []),
+        provenance={"source": "community", "community_detection_id": detection_id, "author": d.get("author", "")},
+        created_by_id=current_user.user_id,
+    )
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
     d["install_count"] += 1
-    # Entries store the rule's title under "name"; this used to read d["title"], a KeyError (HTTP 500) on every install.
-    return {"message": f"Detection {detection_id} installed", "title": d["name"]}
+    return {
+        "message": f"Detection {detection_id} installed as rule {rule.id} in testing status; it does not fire until you promote it",
+        "title": d["name"],
+        "rule_id": str(rule.id),
+    }
 
 
 # ── Playbook endpoints ────────────────────────────────────────────────────────
@@ -504,8 +542,18 @@ async def install_community_playbook(
         raise HTTPException(status_code=404, detail="Playbook not found")
     if p["status"] != PublishStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Playbook is not approved for installation")
+    # Installing creates the playbook in the engine, DISABLED, through the same proxy the API's own playbook creation uses; if the engine refuses it, the install
+    # fails with that error (and is not counted). It used to only bump a counter and report "installed".
+    from app.api.v1.endpoints import playbooks as playbooks_api
+
+    created = await playbooks_api._proxy("POST", "", json={**p["definition"], "enabled": False})
     p["install_count"] += 1
-    return {"message": f"Playbook {playbook_id} installed", "name": p["name"]}
+    new_id = str(created.get("id", "")) if isinstance(created, dict) else ""
+    return {
+        "message": f"Playbook {playbook_id} installed (disabled until you enable it)",
+        "name": p["name"],
+        "playbook_id": new_id,
+    }
 
 
 @router.put("/playbooks/{playbook_id}/curate")
@@ -529,6 +577,14 @@ async def curate_community_playbook(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _rule_severity(level: Any) -> str:
+    """Map a Sigma `level` to the detection rule severities (informational becomes info; anything unknown is medium)."""
+    value = str(level or "medium").lower()
+    if value == "informational":
+        return "info"
+    return value if value in {"low", "medium", "high", "critical"} else "medium"
 
 
 async def _get_registered_pub_key(user_id: str, db: Any) -> bytes | None:
