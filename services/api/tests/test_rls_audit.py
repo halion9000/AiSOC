@@ -146,8 +146,18 @@ class TestExitCodes:
 
 
 class FakeConn:
-    def __init__(self, role=("aisoc", True, False)):
-        self.role, self.sql = role, []
+    def __init__(self, role=("aisoc", True, False), app_role_exists=True, can_truncate=False, tables=("a", "b")):
+        self.role, self.sql, self.params = role, [], []
+        self.app_role_exists, self.can_truncate, self.tables = app_role_exists, can_truncate, tables
+
+    async def fetchval(self, sql, *params):
+        self.sql.append(sql)
+        self.params.append(params)
+        if "FROM pg_roles" in sql:
+            return 1 if self.app_role_exists else None
+        if "has_table_privilege" in sql:
+            return self.can_truncate
+        raise AssertionError(f"unexpected fetchval: {sql}")
 
     async def fetchrow(self, sql):
         self.sql.append(sql)
@@ -161,7 +171,7 @@ class FakeConn:
             return [{"table_name": "a"}, {"table_name": "b"}]
         if "relrowsecurity" in sql:
             return [{"relname": "a"}]
-        return [{"relname": "a"}, {"relname": "b"}]
+        return [{"relname": t} for t in self.tables]
 
     async def close(self):
         pass
@@ -171,7 +181,7 @@ class TestCollectAndMain:
     def test_collect_reads_only_the_catalog_and_never_writes(self):
         conn = FakeConn()
         asyncio.run(ra.collect(conn))
-        assert len(conn.sql) == 5
+        assert len(conn.sql) == 6  # role, tables, tenant columns, rls, policies, does aisoc_app exist (no audit_log table here, so the TRUNCATE question is not asked)
         for sql in conn.sql:
             s = " ".join(sql.split()).upper()
             assert s.startswith("SELECT") and not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b", s)
@@ -180,6 +190,7 @@ class TestCollectAndMain:
     def test_collect_builds_the_report(self):
         r = asyncio.run(ra.collect(FakeConn()))
         assert r.role == "aisoc" and r.covered == ["a"] and r.uncovered == ["b"]
+        assert r.app_role == {"exists": True, "can_truncate_audit_log": None}  # the fake schema has no audit_log table, so it is not asked
 
     def run_main(self, monkeypatch, capsys, args, conn):
         import app.scripts.run_migrations as rm
@@ -224,3 +235,163 @@ class TestMigrationsDoNotReintroduceDefectiveShapes:
             created = re.findall(r"CREATE POLICY (\w+) ON (\w+)\s+USING \((.*?)\);", text, re.S)
             assert len(created) == 4, name
             assert all(ra.classify_policy(" ".join(q.split())) == "standard" for _, _, q in created), name
+
+
+class TestTheAppRoleChecks:
+    """`aisoc_app` (migration 002) was granted ALL on every table, which includes TRUNCATE: TRUNCATE ignores RLS and row triggers, so it could erase the append-only audit_log (verified on a real database; fixed by 062)."""
+
+    def test_the_truncate_question_is_asked_only_when_the_role_and_the_table_exist(self):
+        asked = lambda conn: any("has_table_privilege" in q for q in conn.sql)  # noqa: E731
+        with_log = FakeConn(tables=("a", "audit_log"))
+        asyncio.run(ra.collect(with_log))
+        assert asked(with_log)
+        no_role, no_table = FakeConn(tables=("a", "audit_log"), app_role_exists=False), FakeConn()
+        asyncio.run(ra.collect(no_role))
+        asyncio.run(ra.collect(no_table))
+        assert not asked(no_role) and not asked(no_table)
+
+    def test_the_role_name_is_a_bound_parameter_and_the_queries_only_read(self):
+        conn = FakeConn(tables=("audit_log",))
+        asyncio.run(ra.collect(conn))
+        assert ("aisoc_app",) in conn.params and all(" ".join(q.split()).upper().startswith("SELECT") for q in conn.sql)
+
+    def test_a_role_that_can_truncate_the_audit_log_is_a_defect(self):
+        r = asyncio.run(ra.collect(FakeConn(tables=("audit_log",), can_truncate=True)))
+        assert r.app_role == {"exists": True, "can_truncate_audit_log": True}
+        assert any(d["table"] == "audit_log" and "TRUNCATE" in d["using"] and "062" in d["using"] for d in r.defects)
+        assert ra.exit_code(r, strict=True, require_enforced=False) == 1
+
+    def test_a_role_that_cannot_is_not(self):
+        r = asyncio.run(ra.collect(FakeConn(tables=("audit_log",), can_truncate=False)))
+        assert r.defects == [] and "can TRUNCATE audit_log: no" in ra.render(r)
+
+    def test_an_unknown_answer_is_reported_as_unknown_not_as_safe(self):
+        assert "can TRUNCATE audit_log: unknown" in ra.render(asyncio.run(ra.collect(FakeConn())))
+
+    def test_the_truncate_defect_is_named_in_the_rendered_report(self):
+        text = ra.render(asyncio.run(ra.collect(FakeConn(tables=("audit_log",), can_truncate=True))))
+        assert "can TRUNCATE audit_log: YES (DEFECT: apply migration 062)" in text and "1 defect(s)." in text
+
+
+class TestCredentialSubstitution:
+    def test_only_the_credentials_change(self):
+        out = ra.with_credentials("postgresql://aisoc:s3cret@db.internal:5433/aisoc?sslmode=require", "aisoc_app", "changeme")
+        assert out == "postgresql://aisoc_app:changeme@db.internal:5433/aisoc?sslmode=require" and "s3cret" not in out
+
+    def test_special_characters_are_percent_encoded(self):
+        assert ra.with_credentials("postgresql://u:p@h/db", "aisoc_app", "a@b/c:d#e?f").split("@")[0] == "postgresql://aisoc_app:a%40b%2Fc%3Ad%23e%3Ff"
+
+    def test_a_dsn_without_credentials_gets_them(self):
+        assert ra.with_credentials("postgresql://h:5432/db", "x", "y") == "postgresql://x:y@h:5432/db"
+
+    def test_an_at_sign_in_the_original_password_does_not_confuse_the_host(self):
+        assert ra.with_credentials("postgresql://u:p%40ss@host:5432/db", "x", "y") == "postgresql://x:y@host:5432/db"
+
+
+class TestTheDefaultPasswordProbe:
+    """It is an AUTHENTICATION ATTEMPT, so it must never run unless asked for."""
+
+    def run(self, connect, kwargs=None):
+        return asyncio.run(ra.default_password_accepted("postgresql://aisoc:real@h:5432/db", kwargs or {}, connect=connect))
+
+    def test_accepted_means_true_and_the_connection_is_closed(self):
+        closed = []
+
+        class Conn:
+            async def close(self_):
+                closed.append(1)
+
+        async def connect(dsn, **kw):
+            assert dsn == "postgresql://aisoc_app:changeme@h:5432/db"
+            return Conn()
+
+        assert self.run(connect) is True and closed == [1]
+
+    def test_a_refused_password_means_false(self):
+        import asyncpg
+
+        async def connect(dsn, **kw):
+            raise asyncpg.exceptions.InvalidPasswordError("nope")
+
+        assert self.run(connect) is False
+
+    def test_anything_else_means_could_not_tell_not_safe(self):
+        async def connect(dsn, **kw):
+            raise OSError("unreachable")
+
+        assert self.run(connect) is None
+
+    def test_connection_options_are_passed_through(self):
+        seen = {}
+
+        async def connect(dsn, **kw):
+            seen.update(kw)
+            raise OSError
+
+        self.run(connect, {"ssl": "require"})
+        assert seen.get("ssl") == "require" and seen.get("timeout") == 10
+
+    def test_an_accepted_published_password_is_a_defect_and_fails_strict(self):
+        r = report()
+        r.app_role = {"exists": True, "can_truncate_audit_log": False, "default_password_accepted": True}
+        assert any("published in the repository" in d["using"] for d in r.defects) and ra.exit_code(r, strict=True, require_enforced=False) == 1
+        assert "accepts the published password: YES (DEFECT: set a real password)" in ra.render(r)
+
+    @pytest.mark.parametrize("value,wording", [(False, "accepts the published password: no"), (None, "accepts the published password: could not tell")])
+    def test_refused_or_unknown_is_not_a_defect(self, value, wording):
+        r = report()
+        r.app_role = {"exists": True, "can_truncate_audit_log": False, "default_password_accepted": value}
+        assert r.defects == [] and wording in ra.render(r)
+
+    def test_not_checked_says_how_to_check(self):
+        r = report()
+        r.app_role = {"exists": True, "can_truncate_audit_log": False}
+        assert "not checked (use --check-default-password)" in ra.render(r)
+
+
+class TestTheFlag:
+    def run_main(self, monkeypatch, capsys, args, conn, probe):
+        import app.scripts.run_migrations as rm
+
+        async def connect():
+            return conn
+
+        monkeypatch.setattr(rm, "_connect", connect)
+        monkeypatch.setattr(ra, "default_password_accepted", probe)
+        code = asyncio.run(ra.main(args))
+        return code, capsys.readouterr().out
+
+    def test_without_the_flag_no_login_is_ever_attempted(self, monkeypatch, capsys):
+        async def probe(*a, **k):
+            raise AssertionError("an authentication attempt was made without --check-default-password")
+
+        code, out = self.run_main(monkeypatch, capsys, ["--strict"], FakeConn(), probe)
+        assert code == 0 and "not checked" in out
+
+    def test_with_the_flag_and_an_accepting_role_it_is_reported_and_fails_strict(self, monkeypatch, capsys):
+        async def probe(dsn, kwargs, connect=None):
+            return True
+
+        code, out = self.run_main(monkeypatch, capsys, ["--check-default-password", "--strict"], FakeConn(), probe)
+        assert code == 1 and "accepts the published password: YES" in out
+
+    def test_with_the_flag_and_a_refusing_role_it_passes(self, monkeypatch, capsys):
+        async def probe(dsn, kwargs, connect=None):
+            return False
+
+        code, out = self.run_main(monkeypatch, capsys, ["--check-default-password", "--strict"], FakeConn(), probe)
+        assert code == 0 and "accepts the published password: no" in out
+
+    def test_with_the_flag_but_no_such_role_nothing_is_attempted(self, monkeypatch, capsys):
+        async def probe(*a, **k):
+            raise AssertionError("probed a role that does not exist")
+
+        code, out = self.run_main(monkeypatch, capsys, ["--check-default-password"], FakeConn(app_role_exists=False), probe)
+        assert code == 0 and "Role aisoc_app" not in out
+
+    def test_json_carries_the_role_facts(self, monkeypatch, capsys):
+        async def probe(dsn, kwargs, connect=None):
+            return False
+
+        code, out = self.run_main(monkeypatch, capsys, ["--json", "--check-default-password"], FakeConn(), probe)
+        assert json.loads(out)["app_role"] == {"exists": True, "can_truncate_audit_log": None, "default_password_accepted": False}
