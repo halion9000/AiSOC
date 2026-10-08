@@ -159,5 +159,10 @@ class TestTheOverlay:
         assert set(OVERLAY["services"]) == {"db-roles", "actions", "agents"}
         assert all("ports" not in v for v in OVERLAY["services"].values())
 
-    def test_the_activation_instructions_name_both_variables_and_the_way_back(self):
-        assert "AISOC_APP_DB_PASSWORD=" in OVERLAY_TEXT and "COMPOSE_FILE=docker-compose.yml:docker-compose.rls.yml" in OVERLAY_TEXT and "Remove those two lines to go back" in OVERLAY_TEXT
+    def test_the_activation_instructions_name_every_variable_and_the_way_back(self):
+        assert "AISOC_APP_DB_PASSWORD=" in OVERLAY_TEXT and "Remove those three lines to go back" in OVERLAY_TEXT
+        assert "COMPOSE_FILE=docker-compose.yml,docker-compose.rls.yml" in OVERLAY_TEXT
+
+    def test_the_separator_is_stated_so_the_same_instructions_work_on_windows_and_linux(self):
+        """Compose's default COMPOSE_FILE separator is `;` on Windows and `:` elsewhere; a colon-separated value silently fails on Windows."""
+        assert "COMPOSE_PATH_SEPARATOR=," in OVERLAY_TEXT and "COMPOSE_FILE=docker-compose.yml:" not in OVERLAY_TEXT

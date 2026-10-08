@@ -3,10 +3,13 @@
 # Why: the default compose connects every service as `aisoc`, the Postgres bootstrap superuser, which bypasses RLS entirely. Trialled on the full real schema: the actions service passes 14/14 and the agents service 11/11 as
 # `aisoc_app`, with no code change. The API is NOT included: its migration runner needs a role that can change the schema (see the note on `api` below).
 #
-# Activate (both lines in .env, next to POSTGRES_PASSWORD; generate the secret, e.g. `openssl rand -hex 32`):
+# Activate (in .env, next to POSTGRES_PASSWORD; generate the secret, e.g. `openssl rand -hex 32`):
 #     AISOC_APP_DB_PASSWORD=<generated secret>
-#     COMPOSE_FILE=docker-compose.yml:docker-compose.rls.yml
-# Compose then merges this file into every `docker compose` command. Remove those two lines to go back. Nothing here changes behaviour unless activated. Once proven, fold this into docker-compose.yml.
+#     COMPOSE_PATH_SEPARATOR=,
+#     COMPOSE_FILE=docker-compose.yml,docker-compose.rls.yml
+# The separator is stated explicitly because compose's default is `;` on Windows and `:` elsewhere: with it stated, the same two lines work on both.
+# Compose then merges this file into every `docker compose` command. Remove those three lines to go back. Nothing here changes behaviour unless activated. Once proven, fold this into docker-compose.yml.
+# CORE's AiSOC build does all of this for you (generating the secret, proving it, writing these lines) when AISOC_RLS_STAGING=1.
 #
 # The password is REQUIRED (compose stops with the message below if it is unset) and is never given a default: a default would be a published credential, which is the problem being removed.
 
