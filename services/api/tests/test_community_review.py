@@ -23,7 +23,9 @@ from app.api.v1 import deps
 from app.api.v1.endpoints import community
 from app.api.v1.endpoints import playbooks as playbooks_api
 from app.db.database import Base
+from app.models.community_catalog import CommunityCatalogItem
 from app.models.detection_rule import DetectionRule
+from app.models.tenant import Tenant
 
 SIGMA = """title: Suspicious PowerShell
 id: {rule_id}
@@ -61,6 +63,26 @@ def client_as(role: str, tenant_id: uuid.UUID | None = None) -> TestClient:
     return TestClient(app)
 
 
+def catalog(kind: str, item_id: str) -> dict | None:
+    """The stored catalog entry (what the API serves), read straight from the table."""
+    with Session(DB.sync) as s:
+        row = s.get(CommunityCatalogItem, (kind, item_id))
+        return None if row is None else dict(row.data)
+
+
+def seed_catalog(kind: str, item_id: str, entry: dict) -> None:
+    with Session(DB.sync) as s:
+        s.add(CommunityCatalogItem(kind=kind, item_id=item_id, status=str(entry["status"]), data=entry))
+        s.commit()
+
+
+def set_catalog(kind: str, item_id: str, **changes) -> None:
+    with Session(DB.sync) as s:
+        row = s.get(CommunityCatalogItem, (kind, item_id))
+        row.data = {**row.data, **changes}
+        s.commit()
+
+
 def installed_rules() -> list[DetectionRule]:
     with Session(DB.sync) as s:
         return list(s.scalars(select(DetectionRule)).all())
@@ -71,7 +93,7 @@ def database(tmp_path):
     """A real (file-backed SQLite) database holding the detection_rules table, so installs are checked against actual rows."""
     path = tmp_path / "community.db"
     DB.sync = create_engine(f"sqlite:///{path}")
-    Base.metadata.create_all(DB.sync, tables=[DetectionRule.__table__])
+    Base.metadata.create_all(DB.sync, tables=[Tenant.__table__, DetectionRule.__table__, CommunityCatalogItem.__table__])
     engine = create_async_engine(f"sqlite+aiosqlite:///{path}", poolclass=NullPool)
     DB.factory = async_sessionmaker(engine, expire_on_commit=False)
     yield
@@ -91,15 +113,6 @@ def fake_playbook_engine(monkeypatch):
         return PROXY.result
 
     monkeypatch.setattr(playbooks_api, "_proxy", fake_proxy)
-
-
-@pytest.fixture(autouse=True)
-def clean_stores():
-    community._community_detections.clear()
-    community._community_playbooks.clear()
-    yield
-    community._community_detections.clear()
-    community._community_playbooks.clear()
 
 
 @pytest.fixture
@@ -126,7 +139,7 @@ class TestDetections:
         rule_id, _ = submit_detection(admin)
         r = admin.post(f"{PREFIX}/detections/{rule_id}/install")
         assert r.status_code == 400 and "not approved" in r.json()["detail"]
-        assert community._community_detections[rule_id]["install_count"] == 0
+        assert catalog("detection", rule_id)["install_count"] == 0
 
     def test_once_approved_it_is_listed_viewable_and_installable(self, admin):
         rule_id, _ = submit_detection(admin)
@@ -136,7 +149,7 @@ class TestDetections:
         installed = admin.post(f"{PREFIX}/detections/{rule_id}/install")
         assert installed.status_code == 200  # this was a KeyError ('title') on every install
         assert installed.json()["title"] == "Suspicious PowerShell"
-        assert community._community_detections[rule_id]["install_count"] == 1
+        assert catalog("detection", rule_id)["install_count"] == 1
 
     def test_a_rejected_detection_stays_hidden_and_uninstallable(self, admin):
         rule_id, _ = submit_detection(admin)
@@ -150,8 +163,8 @@ class TestDetections:
         admin.put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "approve"})
         again = admin.post(f"{PREFIX}/detections/publish", content=SIGMA.format(rule_id=rule_id).replace("powershell", "evil"), headers={"content-type": "text/plain"})
         assert again.status_code == 409
-        assert community._community_detections[rule_id]["status"] == community.PublishStatus.APPROVED
-        assert "evil" not in community._community_detections[rule_id]["sigma_yaml"]
+        assert catalog("detection", rule_id)["status"] == "approved"
+        assert "evil" not in catalog("detection", rule_id)["sigma_yaml"]
 
     def test_curating_an_unknown_id_is_a_404(self, admin):
         assert admin.put(f"{PREFIX}/detections/nope/curate", json={"action": "approve"}).status_code == 404
@@ -161,7 +174,7 @@ class TestDetections:
         # tenant_admin and threat_hunter CAN submit (rules:write) but must not be able to curate: that is what separates "write" from "admin"
         for role in ("tenant_admin", "threat_hunter", "viewer"):
             assert client_as(role).put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "approve"}).status_code == 403, role
-        assert community._community_detections[rule_id]["status"] == community.PublishStatus.PENDING
+        assert catalog("detection", rule_id)["status"] == "pending"
 
 
 class TestPlaybooks:
@@ -178,7 +191,7 @@ class TestPlaybooks:
         pid = self.submit(admin).json()["id"]
         r = admin.post(f"{PREFIX}/playbooks/{pid}/install")
         assert r.status_code == 400 and "not approved" in r.json()["detail"]
-        assert community._community_playbooks[pid]["install_count"] == 0
+        assert catalog("playbook", pid)["install_count"] == 0
 
     def test_once_approved_it_is_listed_and_installable(self, admin):
         pid = self.submit(admin).json()["id"]
@@ -196,7 +209,7 @@ class TestPlaybooks:
         pid = self.submit(admin).json()["id"]
         for role in ("tenant_admin", "viewer"):  # tenant_admin can submit (playbooks:write) but must not curate (playbooks:admin)
             assert client_as(role).put(f"{PREFIX}/playbooks/{pid}/curate", json={"action": "approve"}).status_code == 403, role
-        assert community._community_playbooks[pid]["status"] == community.PublishStatus.PENDING
+        assert catalog("playbook", pid)["status"] == "pending"
 
 
 class TestInstallingReallyInstalls:
@@ -206,7 +219,7 @@ class TestInstallingReallyInstalls:
         admin = client_as("admin")
         rule_id, _ = submit_detection(admin)
         if level:
-            community._community_detections[rule_id]["level"] = level
+            set_catalog("detection", rule_id, level=level)
         admin.put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "approve"})
         return rule_id
 
@@ -227,7 +240,7 @@ class TestInstallingReallyInstalls:
         assert rule.status == "testing", "an installed community rule must not start firing"
         assert rule.provenance["source"] == "community"
         assert rule.provenance["community_detection_id"] == rule_id
-        assert community._community_detections[rule_id]["install_count"] == 1
+        assert catalog("detection", rule_id)["install_count"] == 1
 
     def test_installing_twice_in_one_tenant_does_not_duplicate_the_rule(self):
         rule_id = self.approved_detection()
@@ -237,7 +250,7 @@ class TestInstallingReallyInstalls:
         again = client.post(f"{PREFIX}/detections/{rule_id}/install")
         assert again.status_code == 409 and "already installed" in again.json()["detail"]
         assert len(installed_rules()) == 1
-        assert community._community_detections[rule_id]["install_count"] == 1
+        assert catalog("detection", rule_id)["install_count"] == 1
 
     def test_two_tenants_each_get_their_own_rule(self):
         rule_id = self.approved_detection()
@@ -270,8 +283,8 @@ class TestInstallingReallyInstalls:
         assert (method, path) == ("POST", "")
         assert kwargs["json"]["name"] == "Isolate host" and kwargs["json"]["steps"] == [{"action": "isolate_host"}]
         assert kwargs["json"]["enabled"] is False, "an installed community playbook must not start live"
-        assert community._community_playbooks[pid]["definition"]["enabled"] is True  # the catalog entry itself is not altered
-        assert community._community_playbooks[pid]["install_count"] == 1
+        assert catalog("playbook", pid)["definition"]["enabled"] is True  # the catalog entry itself is not altered
+        assert catalog("playbook", pid)["install_count"] == 1
 
     @pytest.mark.parametrize("status_code", [422, 503])
     def test_when_the_engine_refuses_the_install_fails_and_is_not_counted(self, status_code):
@@ -281,17 +294,16 @@ class TestInstallingReallyInstalls:
         PROXY.error = HTTPException(status_code=status_code, detail="engine said no")
         response = admin.post(f"{PREFIX}/playbooks/{pid}/install")
         assert response.status_code == status_code
-        assert community._community_playbooks[pid]["install_count"] == 0
+        assert catalog("playbook", pid)["install_count"] == 0
 
     def test_a_community_plugin_cannot_be_installed_because_no_package_is_stored(self):
-        community._community_plugins["plug-1"] = {"id": "plug-1", "status": community.PublishStatus.APPROVED, "install_count": 0, "version": "1.0.0"}
+        seed_catalog("plugin", "plug-1", {"id": "plug-1", "status": "approved", "install_count": 0, "version": "1.0.0"})
         response = client_as("admin").post(f"{PREFIX}/plugins/plug-1/install")
         assert response.status_code == 501
         assert "cannot be installed yet" in response.json()["detail"]
-        assert community._community_plugins["plug-1"]["install_count"] == 0
-        community._community_plugins.pop("plug-1")
+        assert "SHA-256" in response.json()["detail"]  # says what IS recorded
+        assert catalog("plugin", "plug-1")["install_count"] == 0
 
     def test_an_unapproved_plugin_is_still_refused_as_before(self):
-        community._community_plugins["plug-2"] = {"id": "plug-2", "status": community.PublishStatus.PENDING, "install_count": 0, "version": "1.0.0"}
+        seed_catalog("plugin", "plug-2", {"id": "plug-2", "status": "pending", "install_count": 0, "version": "1.0.0"})
         assert client_as("admin").post(f"{PREFIX}/plugins/plug-2/install").status_code == 400
-        community._community_plugins.pop("plug-2")

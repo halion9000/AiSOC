@@ -40,17 +40,20 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from app.api.v1.deps import AuthUser, CurrentUser, DBSession, require_permission
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.v1.deps import AuthUser, CurrentUser, DBSession, get_db, require_permission
+from app.services.community_catalog import CatalogStore, ItemExists
 from app.db.rls import TenantDBSession
 from app.core.security import verify_ed25519_signature
 
 router = APIRouter(prefix="/community", tags=["community"])
 
-# ── In-memory stores (replace with DB in production) ─────────────────────────
+# -- Community catalog (database: table community_catalog_items; see app/services/community_catalog.py) --
 
-_community_plugins: dict[str, dict[str, Any]] = {}
-_community_detections: dict[str, dict[str, Any]] = {}
-_community_playbooks: dict[str, dict[str, Any]] = {}
+PLUGINS = CatalogStore("plugin")
+DETECTIONS = CatalogStore("detection")
+PLAYBOOKS = CatalogStore("playbook")
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -174,13 +177,18 @@ async def publish_plugin(
         "rating": 0.0,
         "rating_count": 0,
         "verified": verified,
-        "submitted_by": current_user.user_id,
+        "submitted_by": str(current_user.user_id),
         "submitted_at": datetime.now(UTC).isoformat(),
         "approved_at": None,
+        # Only the SHA-256 is recorded. The package bytes used to be kept in process memory under "_tarball" (never served, never used, lost on restart) and are not kept at all now:
+        # persisting arbitrary-size binaries is a separate decision, and installing community plugins is not implemented.
         "tarball_sha256": hashlib.sha256(tarball).hexdigest(),
-        "_tarball": tarball,
     }
-    _community_plugins[plugin_id] = entry
+    # Never replace an existing entry: resubmitting an id used to overwrite it, so anyone could replace an existing plugin's entry (including an approved one).
+    try:
+        await PLUGINS.create(db, plugin_id, entry, submitter_tenant_id=current_user.tenant_id)
+    except ItemExists as exc:
+        raise HTTPException(status_code=409, detail=f"A community plugin with id {plugin_id} already exists") from exc
 
     return {"id": plugin_id, "status": "pending", "message": "Plugin submitted for review"}
 
@@ -194,9 +202,10 @@ async def list_community_plugins(
     order: str = Query("desc", pattern="^(asc|desc)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
 ) -> CommunityPluginListOut:
     """Browse approved community plugins."""
-    items = list(_community_plugins.values())
+    items = await PLUGINS.list(db)
 
     # Filter
     if status_filter:
@@ -219,26 +228,27 @@ async def list_community_plugins(
 
     return CommunityPluginListOut(
         total=total,
-        items=[CommunityPluginOut(**{k: v for k, v in p.items() if k != "_tarball"}) for p in page_items],
+        items=[CommunityPluginOut(**p) for p in page_items],
     )
 
 
 @router.get("/plugins/{plugin_id}", response_model=CommunityPluginOut)
-async def get_community_plugin(plugin_id: str) -> CommunityPluginOut:
+async def get_community_plugin(plugin_id: str, db: AsyncSession = Depends(get_db)) -> CommunityPluginOut:
     """Get community plugin detail."""
-    p = _community_plugins.get(plugin_id)
+    p = await PLUGINS.get(db, plugin_id)
     if not p:
         raise HTTPException(status_code=404, detail="Plugin not found")
-    return CommunityPluginOut(**{k: v for k, v in p.items() if k != "_tarball"})
+    return CommunityPluginOut(**p)
 
 
 @router.post("/plugins/{plugin_id}/install", dependencies=[Depends(require_permission("settings:write"))])
 async def install_community_plugin(
     plugin_id: str,
     current_user: AuthUser,
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Install a community plugin to the current instance."""
-    p = _community_plugins.get(plugin_id)
+    p = await PLUGINS.get(db, plugin_id)
     if not p:
         raise HTTPException(status_code=404, detail="Plugin not found")
     if p["status"] != PublishStatus.APPROVED:
@@ -248,7 +258,7 @@ async def install_community_plugin(
     # answer "installed successfully".
     raise HTTPException(
         status_code=501,
-        detail="Community plugins cannot be installed yet: the submitted package is not stored. Plugins are installed by an administrator.",
+        detail="Community plugins cannot be installed yet: only the submitted package's SHA-256 is recorded, not the package itself. Plugins are installed by an administrator.",
     )
 
 
@@ -257,9 +267,10 @@ async def rate_community_plugin(
     plugin_id: str,
     rating: RatingIn,
     current_user: AuthUser,
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Rate a community plugin."""
-    p = _community_plugins.get(plugin_id)
+    p = await PLUGINS.get(db, plugin_id, lock=True)  # read-modify-write: lock the row so two ratings cannot both read the same average
     if not p:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
@@ -268,6 +279,7 @@ async def rate_community_plugin(
     new_rating = (current_rating * count + rating.score) / (count + 1)
     p["rating"] = round(new_rating, 2)
     p["rating_count"] = count + 1
+    await PLUGINS.save(db, plugin_id, p)
 
     return {"rating": p["rating"], "rating_count": p["rating_count"]}
 
@@ -277,9 +289,10 @@ async def review_community_plugin(
     plugin_id: str,
     review: ReviewAction,
     current_user: Annotated[CurrentUser, Depends(require_permission("plugins:admin"))],
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Admin: approve or reject a plugin submission."""
-    p = _community_plugins.get(plugin_id)
+    p = await PLUGINS.get(db, plugin_id, lock=True)
     if not p:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
@@ -290,6 +303,7 @@ async def review_community_plugin(
         p["status"] = PublishStatus.REJECTED
         p["review_notes"] = review.notes
 
+    await PLUGINS.save(db, plugin_id, p)
     return {"id": plugin_id, "status": p["status"]}
 
 
@@ -300,6 +314,7 @@ async def review_community_plugin(
 async def publish_detection(
     content: str = Body(..., media_type="text/plain"),
     current_user: AuthUser = None,  # type: ignore[assignment]
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Submit a Sigma detection rule for community review."""
     import yaml as _yaml
@@ -315,7 +330,7 @@ async def publish_detection(
         raise HTTPException(status_code=400, detail=f"Missing required Sigma fields: {missing}")
 
     detection_id = rule.get("id", str(uuid.uuid4()))
-    if detection_id in _community_detections:
+    if await DETECTIONS.get(db, detection_id) is not None:
         # Never replace an existing entry: with auto-approval, anyone could overwrite an approved rule by re-submitting its id.
         raise HTTPException(status_code=409, detail=f"A community detection with id {detection_id} already exists")
     logsource = rule.get("logsource", {})
@@ -335,7 +350,10 @@ async def publish_detection(
         "submitted_at": datetime.now(UTC).isoformat(),
         "sigma_yaml": content,
     }
-    _community_detections[detection_id] = entry
+    try:
+        await DETECTIONS.create(db, detection_id, entry, submitter_tenant_id=current_user.tenant_id)
+    except ItemExists as exc:  # lost a race with a concurrent submission of the same id
+        raise HTTPException(status_code=409, detail=f"A community detection with id {detection_id} already exists") from exc
 
     return {"id": detection_id, "status": entry["status"], "message": "Detection submitted for review"}
 
@@ -349,9 +367,10 @@ async def list_community_detections(
     logsource_product: str | None = Query(None),
     level: str | None = Query(None),
     sort_by: str = Query("install_count", pattern="^(install_count|rating|name)$"),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Browse community Sigma detection rules with pagination and filtering."""
-    items = list(_community_detections.values())
+    items = await DETECTIONS.list(db)
 
     # filter by status: only approved submissions are shown
     items = [d for d in items if d["status"] in (PublishStatus.APPROVED, "approved")]
@@ -387,9 +406,9 @@ async def list_community_detections(
 
 
 @router.get("/detections/{detection_id}")
-async def get_community_detection(detection_id: str) -> dict[str, Any]:
+async def get_community_detection(detection_id: str, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """Get Sigma rule detail including full YAML content (sigma_yaml field)."""
-    d = _community_detections.get(detection_id)
+    d = await DETECTIONS.get(db, detection_id)
     if not d or d["status"] != PublishStatus.APPROVED:
         # An unreviewed (or rejected) submission is not visible to other users.
         raise HTTPException(status_code=404, detail="Detection not found")
@@ -403,7 +422,7 @@ async def install_community_detection(
     db: DBSession,
 ) -> dict[str, str]:
     """Install a community detection rule to the tenant."""
-    d = _community_detections.get(detection_id)
+    d = await DETECTIONS.get(db, detection_id, lock=True)  # the install count is read-modify-write
     if not d:
         raise HTTPException(status_code=404, detail="Detection not found")
     if d["status"] != PublishStatus.APPROVED:
@@ -436,9 +455,10 @@ async def install_community_detection(
         created_by_id=current_user.user_id,
     )
     db.add(rule)
-    await db.commit()
-    await db.refresh(rule)
     d["install_count"] += 1
+    await DETECTIONS.save(db, detection_id, d, commit=False)
+    await db.commit()  # the rule and the count are committed together
+    await db.refresh(rule)
     return {
         "message": f"Detection {detection_id} installed as rule {rule.id} in testing status; it does not fire until you promote it",
         "title": d["name"],
@@ -454,9 +474,10 @@ async def curate_community_detection(
     detection_id: str,
     review: ReviewAction,
     current_user: Annotated[CurrentUser, Depends(require_permission("rules:admin"))],
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Admin: approve or reject a detection submission."""
-    d = _community_detections.get(detection_id)
+    d = await DETECTIONS.get(db, detection_id, lock=True)
     if not d:
         raise HTTPException(status_code=404, detail="Detection not found")
 
@@ -466,6 +487,7 @@ async def curate_community_detection(
         d["status"] = PublishStatus.REJECTED
         d["review_notes"] = review.notes
 
+    await DETECTIONS.save(db, detection_id, d)
     return {"id": detection_id, "status": d["status"]}
 
 
@@ -473,6 +495,7 @@ async def curate_community_detection(
 async def submit_playbook(
     definition: dict[str, Any] = Body(...),
     current_user: AuthUser = None,  # type: ignore[assignment]
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Submit a community playbook."""
     name = definition.get("name", "")
@@ -493,7 +516,7 @@ async def submit_playbook(
         "submitted_at": datetime.now(UTC).isoformat(),
         "definition": definition,
     }
-    _community_playbooks[playbook_id] = entry
+    await PLAYBOOKS.create(db, playbook_id, entry, submitter_tenant_id=current_user.tenant_id)
 
     return {"id": playbook_id, "status": entry["status"], "message": "Playbook submitted for review"}
 
@@ -504,9 +527,10 @@ async def list_community_playbooks(
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
     sort_by: str = Query("install_count", pattern="^(install_count|rating|name)$"),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Browse approved community playbooks with optional search and sort."""
-    items = [p for p in _community_playbooks.values() if p["status"] in (PublishStatus.APPROVED, "approved")]
+    items = [p for p in await PLAYBOOKS.list(db) if p["status"] in (PublishStatus.APPROVED, "approved")]
 
     if search:
         q = search.lower()
@@ -535,9 +559,10 @@ async def list_community_playbooks(
 async def install_community_playbook(
     playbook_id: str,
     current_user: AuthUser,
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Install a community playbook to the tenant."""
-    p = _community_playbooks.get(playbook_id)
+    p = await PLAYBOOKS.get(db, playbook_id)
     if not p:
         raise HTTPException(status_code=404, detail="Playbook not found")
     if p["status"] != PublishStatus.APPROVED:
@@ -547,7 +572,10 @@ async def install_community_playbook(
     from app.api.v1.endpoints import playbooks as playbooks_api
 
     created = await playbooks_api._proxy("POST", "", json={**p["definition"], "enabled": False})
+    # Re-read WITH the row lock only now, after the (slow) engine call, so the lock is never held across a network round trip.
+    p = await PLAYBOOKS.get(db, playbook_id, lock=True) or p
     p["install_count"] += 1
+    await PLAYBOOKS.save(db, playbook_id, p)
     new_id = str(created.get("id", "")) if isinstance(created, dict) else ""
     return {
         "message": f"Playbook {playbook_id} installed (disabled until you enable it)",
@@ -561,9 +589,10 @@ async def curate_community_playbook(
     playbook_id: str,
     review: ReviewAction,
     current_user: Annotated[CurrentUser, Depends(require_permission("playbooks:admin"))],
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Admin: approve or reject a playbook submission."""
-    p = _community_playbooks.get(playbook_id)
+    p = await PLAYBOOKS.get(db, playbook_id, lock=True)
     if not p:
         raise HTTPException(status_code=404, detail="Playbook not found")
 
@@ -573,6 +602,7 @@ async def curate_community_playbook(
         p["status"] = PublishStatus.REJECTED
         p["review_notes"] = review.notes
 
+    await PLAYBOOKS.save(db, playbook_id, p)
     return {"id": playbook_id, "status": p["status"]}
 
 
@@ -588,17 +618,9 @@ def _rule_severity(level: Any) -> str:
 
 
 async def _get_registered_pub_key(user_id: str, db: Any) -> bytes | None:
-    """Retrieve user's registered Ed25519 public key from the responders table."""
-    from sqlalchemy import select, text
-    from app.models.responder import Responder
+    """The author's registered Ed25519 plugin-signing key, if there is one. THERE IS NOT YET A REGISTRY, so this is always None and every submission is recorded as unverified.
 
-    try:
-        result = await db.execute(
-            select(Responder.public_key).where(Responder.user_id == user_id)
-        )
-        key_b64 = result.scalar_one_or_none()
-        if key_b64:
-            return base64.b64decode(key_b64)
-    except Exception:
-        pass
+    This used to import `Responder` from app.models.responder, a class that does not exist (the only public_key in the codebase belongs to passkeys, WebAuthn credentials, which cannot
+    verify an Ed25519 package signature), and the import sat outside the try block: publishing a plugin raised ImportError (HTTP 500) every time, so it has never worked.
+    """
     return None
