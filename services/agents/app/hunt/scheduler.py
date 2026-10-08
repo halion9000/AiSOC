@@ -10,15 +10,17 @@ Runs the YAML hunt corpus on the cadence declared per hunt. Each tick:
 
 Telemetry source resolution — in priority order:
 
-* ``HUNT_TELEMETRY_PROVIDER`` env var set to ``synthetic`` (the default in
-  dev/CI) reads from
-  ``services/agents/tests/eval_data/synthetic_telemetry.jsonl`` and treats
-  each line as a discrete event. This is what the substrate eval uses and
-  is what the public benchmark scoreboard scores against.
-* ``ingest`` is a placeholder for the live event warehouse path; it
-  returns an empty stream until the federated-search layer (Wave 3 —
+* ``ingest`` (the DEFAULT) is a placeholder for the live event warehouse
+  path; it returns an empty stream until the federated-search layer (Wave 3 —
   w3-fed) lands. This keeps the scheduler safe to leave running in
-  production: it records an empty run rather than crashing.
+  production: it records an empty run rather than crashing, and never
+  records findings that did not happen.
+* ``HUNT_TELEMETRY_PROVIDER=synthetic`` must be asked for explicitly. It reads
+  ``services/agents/tests/eval_data/synthetic_telemetry.jsonl`` and treats each
+  line as a discrete event: the substrate eval and the public benchmark
+  scoreboard use it. It used to be the DEFAULT, so any checkout that had the
+  tests folder recorded hunt findings from benchmark data as if they were this
+  tenant's.
 
 The scheduler is feature-flagged via ``AISOC_FEATURE_HUNT_AS_CODE``. The
 caller (``app/main.py``) wires it into the FastAPI lifespan so it starts
@@ -180,10 +182,12 @@ class HuntScheduler:
 def _load_telemetry() -> list[dict[str, Any]]:
     """Resolve and load events according to ``HUNT_TELEMETRY_PROVIDER``.
 
-    Defaults to ``synthetic`` so the scheduler is useful out of the box —
-    that's also what the public benchmark scoreboard scores hunts against.
+    Defaults to ``ingest`` (the live path, not wired yet: an empty stream, so an
+    empty run). ``synthetic`` (the benchmark dataset) is only used when it is
+    asked for by name; a default that quietly reads benchmark data would record
+    findings that never happened.
     """
-    provider = os.environ.get("HUNT_TELEMETRY_PROVIDER", "synthetic").strip().lower()
+    provider = os.environ.get("HUNT_TELEMETRY_PROVIDER", "ingest").strip().lower()
     if provider == "synthetic":
         return _load_synthetic_events()
     if provider == "ingest":

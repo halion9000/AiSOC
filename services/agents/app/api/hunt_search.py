@@ -79,59 +79,6 @@ class SavedSearch(BaseModel):
 _SAVED_SEARCHES: dict[str, SavedSearch] = {}
 
 
-def _synthetic_hits(query: str, limit: int) -> list[dict[str, Any]]:
-    """Return plausible-looking synthetic telemetry hits for demo mode."""
-    templates = [
-        {
-            "source": "crowdstrike",
-            "event_type": "ProcessCreation",
-            "raw": {
-                "process_name": "cmd.exe",
-                "parent_name": "explorer.exe",
-                "cmdline": f"cmd.exe /c {query}",
-                "user": "DOMAIN\\analyst",
-                "host": "WS-DEV-01",
-            },
-        },
-        {
-            "source": "azure_ad",
-            "event_type": "SignInLog",
-            "raw": {
-                "userPrincipalName": "user@corp.example",
-                "ipAddress": "192.0.2.42",
-                "location": "US",
-                "appDisplayName": "Microsoft 365",
-                "resultType": "0",
-            },
-        },
-        {
-            "source": "aws_cloudtrail",
-            "event_type": "AssumeRole",
-            "raw": {
-                "eventName": "AssumeRole",
-                "sourceIPAddress": "10.0.0.100",
-                "userAgent": "aws-sdk-python",
-                "requestParameters": {"roleArn": "arn:aws:iam::123456789:role/Admin"},
-            },
-        },
-    ]
-    now = datetime.now(UTC)
-    hits = []
-    for i in range(min(limit, 5)):
-        t = templates[i % len(templates)]
-        hits.append(
-            {
-                "id": str(uuid.uuid4()),
-                "timestamp": now.isoformat(),
-                "source": t["source"],
-                "event_type": t["event_type"],
-                "raw": t["raw"],
-                "highlights": [query] if query else [],
-            }
-        )
-    return hits
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -139,19 +86,15 @@ def _synthetic_hits(query: str, limit: int) -> list[dict[str, Any]]:
 
 @router.post("/search", response_model=HuntResponse)
 async def hunt_search(query: HuntQuery) -> HuntResponse:
-    """Execute a hunt query and return matching telemetry events."""
-    import time
+    """Execute a hunt query against telemetry.
 
-    start = time.monotonic()
-
-    hits_raw = _synthetic_hits(query.query, query.limit)
-
-    took_ms = int((time.monotonic() - start) * 1000)
-    return HuntResponse(
-        query=query.query,
-        total=len(hits_raw),
-        took_ms=took_ms,
-        hits=[HuntHit(**h) for h in hits_raw],
+    No event store is connected to this endpoint yet (the federated search work it waits on has not landed), so it cannot return results and says so.
+    It used to return invented events for EVERY query, unconditionally: a ``cmd.exe /c <your query>`` process on "WS-DEV-01", a sign-in for
+    ``user@corp.example``, an AWS ``AssumeRole`` on an ``Admin`` role. A hunter could not tell them from real telemetry.
+    """
+    raise HTTPException(
+        status_code=501,
+        detail="Hunt search is not connected to an event store yet, so it cannot return results.",
     )
 
 
