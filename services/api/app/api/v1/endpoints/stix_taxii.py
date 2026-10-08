@@ -25,7 +25,7 @@ from app.services.misp_push import (
     stix_bundle_to_misp_event,
     stix_indicator_to_misp_event,
 )
-from app.api.v1.deps import require_permission
+from app.api.v1.deps import CurrentUser, get_current_user, require_permission
 
 logger = logging.getLogger("aisoc.stix_taxii")
 
@@ -158,99 +158,21 @@ class MispDryRunResponse(BaseModel):
     airgap_message: str | None = None
 
 
-# ── Demo data ────────────────────────────────────────────────────────────────
+# ── Published STIX store (in memory, one per tenant) ───────────────────────────────────────────────────
+#
+# These lists used to be module-level and SEEDED with invented indicators ("Malicious IP - C2 Server ... associated with APT-42", a "LockBit 3.0 ransomware"
+# hash that is actually the SHA-256 of an empty file, confidence 95), shared by every tenant, and listed three TAXII collections that had no endpoints behind them.
+# A feed that serves invented indicators as threat intelligence is dangerous: pasted into a blocklist, the empty-file hash blocks every zero-byte file.
+#
+# Now a tenant sees only what it published itself, and nothing is pre-loaded. The store is still in memory: published indicators and bundles are LOST WHEN THE
+# API RESTARTS. Persisting them (a table + migration) is the missing piece; until then that is the honest limitation.
 
-_now = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC).isoformat()
+_INDICATORS: dict[str, list[STIXIndicator]] = {}
+_BUNDLES: dict[str, list[STIXBundle]] = {}
 
-DEMO_INDICATORS: list[STIXIndicator] = [
-    STIXIndicator(
-        id="indicator--a1b2c3d4-0001-4000-8000-000000000001",
-        created=_now,
-        modified=_now,
-        name="Malicious IP - C2 Server",
-        description="Known command-and-control server associated with APT-42 campaigns.",
-        indicator_types=["malicious-activity"],
-        pattern="[ipv4-addr:value = '198.51.100.47']",
-        valid_from=_now,
-        confidence=92,
-        labels=["c2", "apt-42"],
-    ),
-    STIXIndicator(
-        id="indicator--a1b2c3d4-0002-4000-8000-000000000002",
-        created=_now,
-        modified=_now,
-        name="Phishing Domain",
-        description="Domain used in credential-harvesting campaign targeting financial sector.",
-        indicator_types=["malicious-activity"],
-        pattern="[domain-name:value = 'secure-login.example-phish.com']",
-        valid_from=_now,
-        confidence=88,
-        labels=["phishing", "credential-harvesting"],
-    ),
-    STIXIndicator(
-        id="indicator--a1b2c3d4-0003-4000-8000-000000000003",
-        created=_now,
-        modified=_now,
-        name="Ransomware Hash - LockBit Variant",
-        description="SHA-256 hash of a LockBit 3.0 ransomware payload.",
-        indicator_types=["malicious-activity"],
-        pattern="[file:hashes.'SHA-256' = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855']",
-        valid_from=_now,
-        confidence=95,
-        labels=["ransomware", "lockbit"],
-    ),
-    STIXIndicator(
-        id="indicator--a1b2c3d4-0004-4000-8000-000000000004",
-        created=_now,
-        modified=_now,
-        name="Exfiltration URL",
-        description="URL used for data exfiltration via HTTPS tunnel.",
-        indicator_types=["malicious-activity"],
-        pattern="[url:value = 'https://drop.evil-cdn.example/upload']",
-        valid_from=_now,
-        confidence=78,
-        labels=["exfiltration", "data-theft"],
-    ),
-    STIXIndicator(
-        id="indicator--a1b2c3d4-0005-4000-8000-000000000005",
-        created=_now,
-        modified=_now,
-        name="Suspicious Email Sender",
-        description="Email address associated with BEC campaigns targeting executives.",
-        indicator_types=["anomalous-activity"],
-        pattern="[email-addr:value = 'cfo-urgent@spoofed-corp.example']",
-        valid_from=_now,
-        confidence=70,
-        labels=["bec", "social-engineering"],
-    ),
-]
 
-DEMO_BUNDLES: list[STIXBundle] = [
-    STIXBundle(
-        id="bundle--f47ac10b-58cc-4372-a567-0e02b2c3d479",
-        created=_now,
-        objects=[ind.model_dump() for ind in DEMO_INDICATORS[:3]],
-    ),
-]
-
-DEMO_TAXII_COLLECTIONS: list[TAXIICollection] = [
-    TAXIICollection(
-        id="collection--01",
-        title="AiSOC Threat Feed",
-        description="Curated indicators from AiSOC automated threat intelligence pipeline.",
-    ),
-    TAXIICollection(
-        id="collection--02",
-        title="Community IOCs",
-        description="Community-contributed indicators of compromise.",
-        can_write=True,
-    ),
-    TAXIICollection(
-        id="collection--03",
-        title="MITRE ATT&CK Mapping",
-        description="Indicators mapped to MITRE ATT&CK techniques.",
-    ),
-]
+def _tenant_key(user: CurrentUser) -> str:
+    return str(user.tenant_id)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -261,9 +183,10 @@ async def list_indicators(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=200),
     label: str | None = Query(default=None),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> IndicatorListResponse:
-    """List STIX 2.1 indicators from the threat intelligence store."""
-    items = list(DEMO_INDICATORS)
+    """List the STIX 2.1 indicators THIS tenant has published (none until it publishes some)."""
+    items = list(_INDICATORS.get(_tenant_key(current_user), []))
     if label:
         items = [i for i in items if label in i.labels]
     return IndicatorListResponse(items=items, total=len(items))
@@ -351,6 +274,7 @@ async def create_indicator(
         default=None,
         description=("Mirror this indicator to the configured MISP instance. Defaults to the value of MISP_PUSH_AUTO."),
     ),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> STIXIndicatorWithPush:
     """Publish a new STIX 2.1 indicator and optionally mirror it to MISP."""
     now_iso = datetime.now(UTC).isoformat()
@@ -368,7 +292,7 @@ async def create_indicator(
         confidence=body.confidence,
         labels=body.labels,
     )
-    DEMO_INDICATORS.append(indicator)
+    _INDICATORS.setdefault(_tenant_key(current_user), []).append(indicator)
 
     push_result: MispPushResult | None = None
     if _should_push(push_to_misp):
@@ -378,9 +302,10 @@ async def create_indicator(
 
 
 @router.get("/bundles", response_model=BundleListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
-async def list_bundles() -> BundleListResponse:
-    """List STIX 2.1 bundles."""
-    return BundleListResponse(items=DEMO_BUNDLES, total=len(DEMO_BUNDLES))
+async def list_bundles(current_user: CurrentUser = Depends(get_current_user)) -> BundleListResponse:
+    """List the STIX 2.1 bundles THIS tenant has published (none until it publishes some)."""
+    items = list(_BUNDLES.get(_tenant_key(current_user), []))
+    return BundleListResponse(items=items, total=len(items))
 
 
 @router.post(
@@ -399,6 +324,7 @@ async def create_bundle(
             "to MISP_PUSH_AUTO."
         ),
     ),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> STIXBundleWithPush:
     """Create a new STIX 2.1 bundle and optionally mirror it to MISP."""
     if not body.objects:
@@ -411,7 +337,7 @@ async def create_bundle(
         created=datetime.now(UTC).isoformat(),
         objects=body.objects,
     )
-    DEMO_BUNDLES.append(bundle)
+    _BUNDLES.setdefault(_tenant_key(current_user), []).append(bundle)
 
     push_result: MispPushResult | None = None
     if _should_push(push_to_misp):
@@ -422,11 +348,11 @@ async def create_bundle(
 
 @router.get("/taxii/collections", response_model=TAXIICollectionListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
 async def list_taxii_collections() -> TAXIICollectionListResponse:
-    """List TAXII 2.1 collections for server compatibility."""
-    return TAXIICollectionListResponse(
-        items=DEMO_TAXII_COLLECTIONS,
-        total=len(DEMO_TAXII_COLLECTIONS),
-    )
+    """List TAXII 2.1 collections. No TAXII collection is served yet (there is no per-collection objects endpoint), so there are none to list.
+
+    It used to list three that did not exist ("AiSOC Threat Feed", "Community IOCs", "MITRE ATT&CK Mapping"), which a TAXII client would try to read and fail.
+    """
+    return TAXIICollectionListResponse(items=[], total=0)
 
 
 # ── MISP push admin endpoints ───────────────────────────────────────────────
