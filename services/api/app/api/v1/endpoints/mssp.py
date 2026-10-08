@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from app.core.security import ROLE_PERMISSIONS
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.auth import get_current_user
@@ -645,27 +645,38 @@ async def count_effective_rules_for_child(
 
 
 class MSSPKpiOverview(BaseModel):
+    """Cross-tenant totals for the parent dashboard.
+
+    Every figure comes from the latest metrics snapshot of the tenants that HAVE one. A figure no tenant has reported is ``None``, never a
+    made-up number: this used to return hard-coded values (a fixed 23.4-minute MTTR, "3 connectors online") for tenants that did not exist.
+    """
+
     total_tenants: int
-    total_open_alerts: int
-    total_critical_incidents: int
-    avg_health_score: float
-    avg_mttr_minutes: float
-    sla_breach_count: int
-    connectors_online: int
-    connectors_degraded: int
+    tenants_reporting: int
+    total_open_alerts: int | None = None
+    total_critical_alerts: int | None = None
+    total_open_cases: int | None = None
+    avg_health_score: float | None = None
+    avg_mttr_minutes: float | None = None
+    sla_breach_count: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ManagedTenantRow(BaseModel):
+    """One REAL child tenant of the caller, with its latest metrics snapshot if any (``has_metrics`` is False and every metric ``None`` otherwise)."""
+
     tenant_id: str
     name: str
-    health_score: float
-    open_alerts: int
-    critical_alerts: int
-    sla_breaches: int
-    connector_status: str
-    last_event_at: str
+    has_metrics: bool
+    snapshot_at: str | None = None
+    health_score: float | None = None
+    open_alerts: int | None = None
+    critical_alerts: int | None = None
+    open_cases: int | None = None
+    mttr_minutes: float | None = None
+    sla_breaches: int | None = None
+    connector_count: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -682,106 +693,33 @@ class CrossTenantIncident(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-_MSSP_TENANTS_MOCK = [
-    ManagedTenantRow(
-        tenant_id="t-acme",
-        name="Acme Corp",
-        health_score=92.4,
-        open_alerts=12,
-        critical_alerts=1,
-        sla_breaches=0,
-        connector_status="healthy",
-        last_event_at="2026-05-07T20:31:00Z",
-    ),
-    ManagedTenantRow(
-        tenant_id="t-globex",
-        name="Globex Industries",
-        health_score=78.1,
-        open_alerts=34,
-        critical_alerts=3,
-        sla_breaches=2,
-        connector_status="degraded",
-        last_event_at="2026-05-07T20:28:00Z",
-    ),
-    ManagedTenantRow(
-        tenant_id="t-initech",
-        name="Initech LLC",
-        health_score=95.7,
-        open_alerts=5,
-        critical_alerts=0,
-        sla_breaches=0,
-        connector_status="healthy",
-        last_event_at="2026-05-07T20:30:00Z",
-    ),
-    ManagedTenantRow(
-        tenant_id="t-wayne",
-        name="Wayne Enterprises",
-        health_score=64.3,
-        open_alerts=58,
-        critical_alerts=7,
-        sla_breaches=4,
-        connector_status="degraded",
-        last_event_at="2026-05-07T20:25:00Z",
-    ),
-    ManagedTenantRow(
-        tenant_id="t-stark",
-        name="Stark Solutions",
-        health_score=88.9,
-        open_alerts=9,
-        critical_alerts=1,
-        sla_breaches=0,
-        connector_status="healthy",
-        last_event_at="2026-05-07T20:29:00Z",
-    ),
-]
+async def _managed_children(db: AsyncSession, parent_id: uuid.UUID) -> list[Tenant]:
+    """The REAL child tenants of ``parent_id`` (what /mssp/children returns), name-ordered."""
+    result = await db.execute(select(Tenant).where(Tenant.parent_tenant_id == parent_id).order_by(Tenant.name))
+    return list(result.scalars().all())
 
-_MSSP_INCIDENTS_MOCK = [
-    CrossTenantIncident(
-        incident_id="INC-4201",
-        tenant_name="Wayne Enterprises",
-        title="Ransomware lateral movement detected",
-        severity="high",
-        status="investigating",
-        created_at="2026-05-07T19:45:00Z",
-        assignee="Jordan Lee",
-    ),
-    CrossTenantIncident(
-        incident_id="INC-4198",
-        tenant_name="Globex Industries",
-        title="Suspicious OAuth token abuse in Azure AD",
-        severity="high",
-        status="investigating",
-        created_at="2026-05-07T18:12:00Z",
-        assignee="Morgan Chen",
-    ),
-    CrossTenantIncident(
-        incident_id="INC-4195",
-        tenant_name="Wayne Enterprises",
-        title="Data exfiltration via DNS tunneling",
-        severity="high",
-        status="contained",
-        created_at="2026-05-07T16:30:00Z",
-        assignee="Alex Rivera",
-    ),
-    CrossTenantIncident(
-        incident_id="INC-4192",
-        tenant_name="Acme Corp",
-        title="Brute-force against VPN gateway",
-        severity="medium",
-        status="resolved",
-        created_at="2026-05-07T14:20:00Z",
-        assignee="Taylor Kim",
-    ),
-    CrossTenantIncident(
-        incident_id="INC-4189",
-        tenant_name="Globex Industries",
-        title="Compromised service account in GCP",
-        severity="high",
-        status="investigating",
-        created_at="2026-05-07T12:55:00Z",
-        assignee=None,
-    ),
-]
+
+async def _latest_snapshots(db: AsyncSession, child_ids: list[uuid.UUID]) -> dict[uuid.UUID, MSSPTenantMetrics]:
+    """The most recent metrics snapshot per tenant. Portable SQL (max + join), so it runs on SQLite as well as Postgres."""
+    if not child_ids:
+        return {}
+    newest = (
+        select(MSSPTenantMetrics.tenant_id, func.max(MSSPTenantMetrics.snapshot_at).label("newest"))
+        .where(MSSPTenantMetrics.tenant_id.in_(child_ids))
+        .group_by(MSSPTenantMetrics.tenant_id)
+        .subquery()
+    )
+    rows = await db.execute(
+        select(MSSPTenantMetrics).join(
+            newest,
+            and_(MSSPTenantMetrics.tenant_id == newest.c.tenant_id, MSSPTenantMetrics.snapshot_at == newest.c.newest),
+        )
+    )
+    return {row.tenant_id: row for row in rows.scalars().all()}  # a tie on the same instant keeps one row per tenant
+
+
+def _mean(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 1) if values else None
 
 
 @router.get("/overview", response_model=MSSPKpiOverview, dependencies=[Depends(require_permission("mssp:read"))])
@@ -789,17 +727,18 @@ async def mssp_overview(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MSSPKpiOverview:
-    """Cross-tenant KPI summary for the MSSP parent dashboard."""
-    tenants = _MSSP_TENANTS_MOCK
+    """Cross-tenant KPI summary for the MSSP parent dashboard: real children, latest snapshot each, ``None`` where nothing is reported."""
+    children = await _managed_children(db, current_user.tenant_id)
+    snaps = list((await _latest_snapshots(db, [c.id for c in children])).values())
     return MSSPKpiOverview(
-        total_tenants=len(tenants),
-        total_open_alerts=sum(t.open_alerts for t in tenants),
-        total_critical_incidents=sum(t.critical_alerts for t in tenants),
-        avg_health_score=round(sum(t.health_score for t in tenants) / len(tenants), 1),
-        avg_mttr_minutes=23.4,
-        sla_breach_count=sum(t.sla_breaches for t in tenants),
-        connectors_online=3,
-        connectors_degraded=2,
+        total_tenants=len(children),
+        tenants_reporting=len(snaps),
+        total_open_alerts=sum(s.open_alerts for s in snaps) if snaps else None,
+        total_critical_alerts=sum(s.critical_alerts for s in snaps) if snaps else None,
+        total_open_cases=sum(s.open_cases for s in snaps) if snaps else None,
+        avg_health_score=_mean([s.health_score for s in snaps if s.health_score is not None]),
+        avg_mttr_minutes=_mean([s.mttr_minutes for s in snaps if s.mttr_minutes is not None]),
+        sla_breach_count=sum(s.sla_breaches for s in snaps) if snaps else None,
     )
 
 
@@ -808,8 +747,28 @@ async def list_managed_tenants(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ManagedTenantRow]:
-    """List managed tenants with health scores for the parent dashboard."""
-    return _MSSP_TENANTS_MOCK
+    """The caller's real child tenants with their latest metrics snapshot. A tenant that is not an MSSP parent has no children: an empty list."""
+    children = await _managed_children(db, current_user.tenant_id)
+    snaps = await _latest_snapshots(db, [c.id for c in children])
+    rows: list[ManagedTenantRow] = []
+    for child in children:
+        snap = snaps.get(child.id)
+        rows.append(
+            ManagedTenantRow(
+                tenant_id=str(child.id),
+                name=child.name,
+                has_metrics=snap is not None,
+                snapshot_at=snap.snapshot_at.isoformat() if snap is not None and snap.snapshot_at else None,
+                health_score=snap.health_score if snap is not None else None,
+                open_alerts=snap.open_alerts if snap is not None else None,
+                critical_alerts=snap.critical_alerts if snap is not None else None,
+                open_cases=snap.open_cases if snap is not None else None,
+                mttr_minutes=snap.mttr_minutes if snap is not None else None,
+                sla_breaches=snap.sla_breaches if snap is not None else None,
+                connector_count=snap.connector_count if snap is not None else None,
+            )
+        )
+    return rows
 
 
 @router.get("/incidents", response_model=list[CrossTenantIncident], dependencies=[Depends(require_permission("mssp:read"))])
@@ -818,8 +777,10 @@ async def list_cross_tenant_incidents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[CrossTenantIncident]:
-    """Critical incidents across all managed tenants."""
-    incidents = _MSSP_INCIDENTS_MOCK
-    if severity:
-        incidents = [i for i in incidents if i.severity == severity]
-    return incidents
+    """Critical incidents across managed tenants.
+
+    There is no cross-tenant incident feed yet: reading a child's incidents needs a delegation-checked, tenant-scoped read (alerts and cases are
+    row-level-security FORCED), which has not been built. This used to return five invented incidents for tenants that did not exist; it now
+    returns an empty list rather than anything made up.
+    """
+    return []
