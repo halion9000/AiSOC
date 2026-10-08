@@ -311,6 +311,9 @@ async def publish_detection(
         raise HTTPException(status_code=400, detail=f"Missing required Sigma fields: {missing}")
 
     detection_id = rule.get("id", str(uuid.uuid4()))
+    if detection_id in _community_detections:
+        # Never replace an existing entry: with auto-approval, anyone could overwrite an approved rule by re-submitting its id.
+        raise HTTPException(status_code=409, detail=f"A community detection with id {detection_id} already exists")
     logsource = rule.get("logsource", {})
     entry = {
         "id": detection_id,
@@ -321,7 +324,7 @@ async def publish_detection(
         "logsource_category": logsource.get("category", ""),
         "logsource_product": logsource.get("product", ""),
         "level": rule.get("level", "medium"),
-        "status": PublishStatus.APPROVED,  # auto-approve for demo; change to PENDING in prod
+        "status": PublishStatus.PENDING,  # submissions are reviewed before anyone can see or install them
         "install_count": 0,
         "rating": 0.0,
         "rating_count": 0,
@@ -330,7 +333,7 @@ async def publish_detection(
     }
     _community_detections[detection_id] = entry
 
-    return {"id": detection_id, "status": entry["status"]}
+    return {"id": detection_id, "status": entry["status"], "message": "Detection submitted for review"}
 
 
 @router.get("/detections")
@@ -346,7 +349,7 @@ async def list_community_detections(
     """Browse community Sigma detection rules with pagination and filtering."""
     items = list(_community_detections.values())
 
-    # filter by status — show approved + auto-approved
+    # filter by status: only approved submissions are shown
     items = [d for d in items if d["status"] in (PublishStatus.APPROVED, "approved")]
 
     if search:
@@ -383,7 +386,8 @@ async def list_community_detections(
 async def get_community_detection(detection_id: str) -> dict[str, Any]:
     """Get Sigma rule detail including full YAML content (sigma_yaml field)."""
     d = _community_detections.get(detection_id)
-    if not d:
+    if not d or d["status"] != PublishStatus.APPROVED:
+        # An unreviewed (or rejected) submission is not visible to other users.
         raise HTTPException(status_code=404, detail="Detection not found")
     return d
 
@@ -397,11 +401,34 @@ async def install_community_detection(
     d = _community_detections.get(detection_id)
     if not d:
         raise HTTPException(status_code=404, detail="Detection not found")
+    if d["status"] != PublishStatus.APPROVED:
+        raise HTTPException(status_code=400, detail="Detection is not approved for installation")
     d["install_count"] += 1
-    return {"message": f"Detection {detection_id} installed", "title": d["title"]}
+    # Entries store the rule's title under "name"; this used to read d["title"], a KeyError (HTTP 500) on every install.
+    return {"message": f"Detection {detection_id} installed", "title": d["name"]}
 
 
 # ── Playbook endpoints ────────────────────────────────────────────────────────
+
+
+@router.put("/detections/{detection_id}/curate")
+async def curate_community_detection(
+    detection_id: str,
+    review: ReviewAction,
+    current_user: Annotated[CurrentUser, Depends(require_permission("rules:admin"))],
+) -> dict[str, str]:
+    """Admin: approve or reject a detection submission."""
+    d = _community_detections.get(detection_id)
+    if not d:
+        raise HTTPException(status_code=404, detail="Detection not found")
+
+    if review.action == "approve":
+        d["status"] = PublishStatus.APPROVED
+    else:
+        d["status"] = PublishStatus.REJECTED
+        d["review_notes"] = review.notes
+
+    return {"id": detection_id, "status": d["status"]}
 
 
 @router.post("/playbooks/submit", status_code=201, dependencies=[Depends(require_permission("playbooks:write"))])
@@ -421,7 +448,7 @@ async def submit_playbook(
         "description": definition.get("description", ""),
         "author": definition.get("author", ""),
         "tags": definition.get("tags", []),
-        "status": PublishStatus.APPROVED,  # auto-approve for demo; change to PENDING in prod
+        "status": PublishStatus.PENDING,  # submissions are reviewed before anyone can see or install them
         "install_count": 0,
         "rating": 0.0,
         "rating_count": 0,
@@ -430,7 +457,7 @@ async def submit_playbook(
     }
     _community_playbooks[playbook_id] = entry
 
-    return {"id": playbook_id, "status": entry["status"]}
+    return {"id": playbook_id, "status": entry["status"], "message": "Playbook submitted for review"}
 
 
 @router.get("/playbooks")
@@ -475,6 +502,8 @@ async def install_community_playbook(
     p = _community_playbooks.get(playbook_id)
     if not p:
         raise HTTPException(status_code=404, detail="Playbook not found")
+    if p["status"] != PublishStatus.APPROVED:
+        raise HTTPException(status_code=400, detail="Playbook is not approved for installation")
     p["install_count"] += 1
     return {"message": f"Playbook {playbook_id} installed", "name": p["name"]}
 
