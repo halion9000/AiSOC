@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { formatDistanceToNow } from 'date-fns';
 import {
   entityRiskApi,
@@ -399,11 +400,14 @@ function EntityDetailDrawer({
 
 // ─── Main view ───────────────────────────────────────────────────────────────
 
+/** Shown instead of a number we do not know. */
+const UNKNOWN = '\u2014';
+
 export function EntityRiskQueue() {
   const [promotedOnly, setPromotedOnly] = useState(false);
   const [selected, setSelected] = useState<EntityRiskRecord | null>(null);
 
-  const { data: queue, error: queueError, isLoading: queueLoading } = useSWR(
+  const { data: queue, error: queueError, isLoading: queueLoading, mutate: mutateQueue } = useSWR(
     ['entity-risk-queue', promotedOnly],
     () => entityRiskApi.queue({ limit: 50, promotedOnly }),
     { refreshInterval: 30000 },
@@ -422,13 +426,19 @@ export function EntityRiskQueue() {
   const total = stats?.total ?? entities.length;
   const alertCount = stats?.alert_count ?? entities.reduce((sum, e) => sum + e.alert_count, 0);
 
+  // The queue could not be loaded and nothing earlier is on screen. If the stats failed too there is nothing real to compute any figure from, and every number below would be a
+  // made-up zero ("0 entities tracked", an alert:incident ratio of 0:0 below the bar). Show a dash for what is unknown, and an error instead of "No entities are currently being tracked".
+  const queueFailed = Boolean(queueError) && !queue;
+  const unknown = queueFailed && !stats;
+  const show = (n: number) => (unknown ? UNKNOWN : n);
+
   return (
     <div className="space-y-4">
       {/* Stats strip — anchored on the 2026 KPI bar */}
       <div className="grid grid-cols-4 gap-3">
         <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl px-4 py-3">
           <p className="text-xs text-gray-500">Active entities</p>
-          <p className="text-2xl font-bold mt-1 text-gray-200">{total}</p>
+          <p className="text-2xl font-bold mt-1 text-gray-200">{show(total)}</p>
           <p className="text-[10px] text-gray-600 mt-0.5">
             threshold {Math.round(threshold)} pts
           </p>
@@ -436,7 +446,7 @@ export function EntityRiskQueue() {
         <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl px-4 py-3">
           <p className="text-xs text-gray-500">Promoted</p>
           <p className="text-2xl font-bold mt-1 text-red-400">
-            {promotedCount}
+            {show(promotedCount)}
           </p>
           <p className="text-[10px] text-gray-600 mt-0.5">
             entity-incidents
@@ -444,12 +454,20 @@ export function EntityRiskQueue() {
         </div>
         <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl px-4 py-3">
           <p className="text-xs text-gray-500">Contributing alerts</p>
-          <p className="text-2xl font-bold mt-1 text-gray-200">{alertCount}</p>
+          <p className="text-2xl font-bold mt-1 text-gray-200">{show(alertCount)}</p>
           <p className="text-[10px] text-gray-600 mt-0.5">
             current decay window
           </p>
         </div>
-        <RatioStat alertCount={alertCount} incidentCount={promotedCount} />
+        {unknown ? (
+          <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl px-4 py-3">
+            <p className="text-xs text-gray-500">Alert → Incident</p>
+            <p className="text-2xl font-bold mt-1 text-gray-500">{UNKNOWN}</p>
+            <p className="text-[10px] text-gray-600 mt-0.5">2026 bar ≥ 50:1</p>
+          </div>
+        ) : (
+          <RatioStat alertCount={alertCount} incidentCount={promotedCount} />
+        )}
       </div>
 
       {/* Filters */}
@@ -479,13 +497,14 @@ export function EntityRiskQueue() {
           </button>
         </div>
         <span className="ml-auto text-xs text-gray-600">
-          {entities.length} shown
+          {queueFailed ? UNKNOWN : entities.length} shown
         </span>
       </div>
 
-      {queueError && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
-          Fusion service unreachable — showing demo entity queue so you can explore Risk-Based Alerting.
+      {/* There is no demo queue: the old banner said "showing demo entity queue so you can explore Risk-Based Alerting" while showing an empty one. */}
+      {queueError && queue && (
+        <div role="alert" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
+          Couldn&rsquo;t refresh the entity queue; showing what was last loaded.
         </div>
       )}
 
@@ -501,6 +520,14 @@ export function EntityRiskQueue() {
           <div className="flex items-center justify-center h-32">
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : queueFailed ? (
+          <ErrorState
+            title="Couldn't load the entity queue"
+            description="The fusion service didn't respond."
+            error={queueError}
+            onRetry={() => void mutateQueue()}
+            className="m-4"
+          />
         ) : entities.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-gray-500 gap-1">
             <p className="text-sm">
