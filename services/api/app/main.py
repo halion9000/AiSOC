@@ -32,6 +32,7 @@ from app.middleware.demo_mode import DemoModeMiddleware
 from app.models import Base
 from app.services.plugin_manager import get_plugin_manager
 from app.workers.hunt_scheduler import run_forever as run_hunt_scheduler
+from app.workers.retention_sweeper import run_retention_sweeper
 from app.workers.oauth_refresh import run_forever as run_oauth_refresh
 from app.workers.weekly_digest_task import run_forever as run_weekly_digest
 
@@ -50,6 +51,7 @@ _WEEKLY_DIGEST_LOCK_TTL_SECONDS = 5400
 # Hunt sweep can execute multiple saved hunts + case opens in one tick; 5m
 # covers slow sweeps while still recovering quickly after replica loss.
 _HUNT_SCHEDULER_LOCK_TTL_SECONDS = 300
+_RETENTION_LOCK_TTL_SECONDS = 600
 
 
 async def _run_guarded_scheduler_worker(
@@ -398,6 +400,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             logger.warning("hunt_scheduler worker failed to start", error=str(exc))
 
+    # Retention sweeper: deletes copilot conversations, detection suggestions and FINISHED response actions that have outlived their window. On by default (conservative windows); see the RETENTION_* settings.
+    retention_task: asyncio.Task | None = None
+    if settings.RETENTION_SWEEPER_ENABLED:
+        try:
+            retention_task = asyncio.create_task(
+                _run_guarded_scheduler_worker(
+                    job_name="retention_sweeper",
+                    ttl_seconds=_RETENTION_LOCK_TTL_SECONDS,
+                    worker=run_retention_sweeper,
+                ),
+                name="retention_sweeper_worker",
+            )
+            logger.info("retention_sweeper worker started")
+        except Exception as exc:
+            logger.warning("retention_sweeper worker failed to start", error=str(exc))
+
     # Phase 2.6 — flip /readyz to 200. All lifespan-managed
     # dependencies have been touched at this point (DB, Redis,
     # Neo4j, schedulers); the load balancer can route traffic
@@ -438,6 +456,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.debug("hunt_scheduler worker cancelled during shutdown")
         except Exception as exc:
             logger.warning("hunt_scheduler worker shutdown error", error=type(exc).__name__)
+
+    if retention_task is not None and not retention_task.done():
+        retention_task.cancel()
+        try:
+            await retention_task
+        except asyncio.CancelledError:
+            logger.debug("retention_sweeper worker cancelled during shutdown")
+        except Exception as exc:
+            logger.warning("retention_sweeper worker shutdown error", error=type(exc).__name__)
 
     if demo_bootstrap_task is not None and not demo_bootstrap_task.done():
         demo_bootstrap_task.cancel()

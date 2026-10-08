@@ -58,10 +58,21 @@ def build_lake_purge_sql(tenant_id: uuid.UUID, days: int) -> str:
     return "ALTER TABLE aisoc.raw_events DELETE " f"WHERE tenant_id = '{tid}' AND event_time < now() - INTERVAL {days} DAY"
 
 
-def build_alert_purge_sql(days: int) -> tuple[str, dict[str, int]]:
-    """Postgres purge of alerts older than ``days`` (RLS scopes the tenant).
+def build_alert_purge_sql(tenant_id: uuid.UUID, days: int) -> tuple[str, dict[str, object]]:
+    """Postgres purge of ONE tenant's alerts older than ``days``. NOT WIRED to anything (nothing enforces alert retention yet).
 
-    Returns parameterised SQL + params — never string-interpolate the cutoff."""
+    The tenant predicate is EXPLICIT. This used to say "RLS scopes the tenant" and filter on nothing else: but the services connect as the Postgres superuser by default, which bypasses RLS, so running it for one
+    tenant's window would have deleted EVERY tenant's old alerts. A purge must never depend on RLS for tenant scoping. Parameterised: never string-interpolate the cutoff or the tenant."""
     days = _clamp(days)
-    sql = "DELETE FROM alerts WHERE created_at < now() - make_interval(days => :days)"
-    return sql, {"days": days}
+    sql = "DELETE FROM alerts WHERE tenant_id = :tenant_id AND created_at < now() - make_interval(days => :days)"
+    return sql, {"tenant_id": tenant_id, "days": days}
+
+
+# Response actions in these states are finished: only these may ever be swept. An action that is pending, awaiting approval, approved or RUNNING is live (or may have executed without an outcome being recorded)
+# and must never be deleted by age.
+TERMINAL_ACTION_STATUSES = ("completed", "failed", "rejected", "rolled_back")
+
+
+def clamp_days(value: int) -> int:
+    """The same bounds as every retention window: 1 day to 10 years, so a misconfiguration can neither delete everything now nor keep everything forever."""
+    return _clamp(value)

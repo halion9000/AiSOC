@@ -45,8 +45,21 @@ def test_lake_purge_clamps_days():
 
 
 def test_alert_purge_sql_is_parameterised():
-    sql, params = build_alert_purge_sql(45)
-    assert ":days" in sql
-    assert params == {"days": 45}
-    # never string-interpolate the cutoff
-    assert "45" not in sql
+    tid = uuid.uuid4()
+    sql, params = build_alert_purge_sql(tid, 45)
+    assert ":days" in sql and ":tenant_id" in sql
+    assert params == {"tenant_id": tid, "days": 45}
+    # never string-interpolate the cutoff or the tenant
+    assert "45" not in sql and str(tid) not in sql
+
+
+def test_alert_purge_names_the_tenant_explicitly_and_never_relies_on_rls():
+    """It used to say "RLS scopes the tenant" and filter on nothing else. The services connect as the Postgres superuser by default, which bypasses RLS, so one tenant's window would have deleted EVERY tenant's old alerts."""
+    sql, _ = build_alert_purge_sql(uuid.uuid4(), 30)
+    assert "WHERE tenant_id = :tenant_id" in sql
+    assert sql.index("tenant_id") < sql.index("created_at")
+
+
+def test_alert_purge_is_still_clamped():
+    assert build_alert_purge_sql(uuid.uuid4(), 0)[1]["days"] == MIN_DAYS
+    assert build_alert_purge_sql(uuid.uuid4(), 10**6)[1]["days"] == MAX_DAYS

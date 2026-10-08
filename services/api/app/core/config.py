@@ -260,6 +260,22 @@ class Settings(BaseSettings):
     HUNT_SCHEDULER_POLL_INTERVAL_SECONDS: int = 30
 
     # ------------------------------------------------------------------
+    # Retention sweeper. Deletes data that has outlived its window from the tables that would otherwise grow without limit (copilot conversations, detection suggestions, finished response actions).
+    # ON by default with conservative windows; RETENTION_SWEEPER_ENABLED=false turns it off and RETENTION_DRY_RUN=true makes it COUNT and log what it would delete without deleting anything. The first sweep
+    # waits RETENTION_INITIAL_DELAY_SECONDS after startup. Every window is clamped to 1..3650 days. A finished response action follows its tenant's `audit_days` retention setting
+    # (RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS when the tenant has set none). Alerts and the raw-event lake are NOT swept: those windows are still configuration only.
+    # ------------------------------------------------------------------
+    RETENTION_SWEEPER_ENABLED: bool = True
+    RETENTION_DRY_RUN: bool = False
+    RETENTION_SWEEP_INTERVAL_SECONDS: int = 21600
+    RETENTION_INITIAL_DELAY_SECONDS: int = 300
+    RETENTION_BATCH_SIZE: int = 1000
+    RETENTION_MAX_BATCHES_PER_SWEEP: int = 100
+    RETENTION_COPILOT_CONVERSATIONS_DAYS: int = 90
+    RETENTION_DETECTION_SUGGESTIONS_DAYS: int = 180
+    RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS: int = 730
+
+    # ------------------------------------------------------------------
     # Event-warehouse credentials — one block per provider in
     # ``app.services.event_warehouse``. The scheduler above and the
     # ``/lake``-adjacent ES|QL runner both read these via
