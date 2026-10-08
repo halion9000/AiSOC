@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { authFetch } from '@/lib/auth-session';
 
 const fetcher = async (url: string) => {
@@ -418,7 +419,7 @@ export function SLADashboard() {
   const [editConfig, setEditConfig] = useState<SLAConfig | null>(null);
   const [editKpiTargets, setEditKpiTargets] = useState<KpiBarTargets | null>(null);
 
-  const { data: rawMetrics, error: metricsError } = useSWR<SLAMetrics>(
+  const { data: rawMetrics, error: metricsError, mutate: mutateMetrics } = useSWR<SLAMetrics>(
     `/api/v1/sla/metrics?days=${days}`,
     fetcher,
     {
@@ -434,6 +435,9 @@ export function SLADashboard() {
     typeof rawMetrics.overall?.total_alerts === 'number' &&
     typeof rawMetrics.per_severity === 'object';
   const metrics = isValidMetrics ? rawMetrics : null;
+  // Nothing readable to show. Either the request failed, or the server answered with something this page cannot read (which used to leave a silent blank).
+  const metricsFailed = Boolean(metricsError) && !metrics;
+  const metricsUnreadable = !metricsError && Boolean(rawMetrics) && !metrics;
 
   const { data: configs } = useSWR<SLAConfig[]>('/api/v1/sla/config', fetcher, {
     shouldRetryOnError: false,
@@ -469,9 +473,25 @@ export function SLADashboard() {
         </select>
       </div>
 
-      {metricsError && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
-          SLA API unreachable — showing demo metrics so you can explore the dashboard.
+      {/* There are no demo metrics: the old banner said "showing demo metrics so you can explore the dashboard" over a blank page. */}
+      {metricsFailed && (
+        <ErrorState
+          title="Couldn't load SLA metrics"
+          description="The SLA service didn't respond."
+          error={metricsError}
+          onRetry={() => void mutateMetrics()}
+        />
+      )}
+      {metricsUnreadable && (
+        <ErrorState
+          title="The SLA service returned data this page can't read"
+          description="The response was missing the expected overall or per-severity figures, so nothing is shown rather than guessing."
+          onRetry={() => void mutateMetrics()}
+        />
+      )}
+      {metricsError && metrics && (
+        <div role="alert" className="rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
+          Couldn&rsquo;t refresh SLA metrics; showing what was last loaded.
         </div>
       )}
 
