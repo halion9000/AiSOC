@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const pathnameMock = vi.fn(() => '/cases');
@@ -7,10 +7,28 @@ const replaceMock = vi.fn();
 // A plain function, NOT vi.fn(): a spy attaches its own handler to any promise it returns (to record settled results), so it could never
 // hand the component an unhandled rejection.
 const pushTeardown = { calls: 0, impl: (): Promise<boolean> => Promise.resolve(true) };
+// Stand-in for the server-side session end. It records whether the stored login STILL EXISTED when it was called (the whole point of the ordering).
+const serverSignOut = {
+  calls: 0,
+  tokenAtCall: null as string | null,
+  impl: (): Promise<{ ended: boolean; message: string | null }> => Promise.resolve({ ended: true, message: null }),
+};
+const toastError = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   usePathname: () => pathnameMock(),
   useRouter: () => ({ push: vi.fn(), replace: replaceMock }),
+}));
+
+vi.mock('react-hot-toast', () => ({ __esModule: true, default: Object.assign(vi.fn(), { error: toastError, success: vi.fn() }) }));
+
+vi.mock('@/lib/auth-session', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth-session')>()),
+  revokeServerSession: () => {
+    serverSignOut.calls += 1;
+    serverSignOut.tokenAtCall = window.localStorage.getItem('aisoc.responder.accessToken');
+    return serverSignOut.impl();
+  },
 }));
 
 // Keep every other export of the push module real; only the network teardown is stubbed.
@@ -115,6 +133,10 @@ describe('TopBar: who is signed in, and signing out', () => {
     replaceMock.mockReset();
     pushTeardown.calls = 0;
     pushTeardown.impl = () => Promise.resolve(true);
+    serverSignOut.calls = 0;
+    serverSignOut.tokenAtCall = null;
+    serverSignOut.impl = () => Promise.resolve({ ended: true, message: null });
+    toastError.mockReset();
     pathnameMock.mockReturnValue('/cases');
   });
 
@@ -129,6 +151,7 @@ describe('TopBar: who is signed in, and signing out', () => {
     window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
     renderTopBar();
     await userEvent.setup().click(screen.getByRole('button', { name: /sign out/i }));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
 
     expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull();
     expect(window.localStorage.getItem(AUTH_REFRESH_KEY)).toBeNull();
@@ -151,6 +174,7 @@ describe('TopBar: who is signed in, and signing out', () => {
     renderTopBar();
     await userEvent.setup().click(screen.getByRole('button', { name: /sign out/i }));
     await new Promise((resolve) => setTimeout(resolve, 0)); // let an async try/await/catch reach its catch
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
 
     expect(watched?.handled).toBe(true);
     expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull();
@@ -178,7 +202,84 @@ describe('TopBar: who is signed in, and signing out', () => {
     expect(screen.queryByText('SOC Analyst')).not.toBeInTheDocument();
     expect(screen.getByText('?')).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: /sign out/i }));
-    expect(replaceMock).toHaveBeenCalledWith('/login');
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
+  });
+
+  describe('ending the session on the server', () => {
+    const storeLogin = () => {
+      window.localStorage.setItem(AUTH_TOKEN_KEY, 'access');
+      window.localStorage.setItem(AUTH_REFRESH_KEY, 'refresh');
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    };
+
+    it('asks the server while the login still exists, after the push teardown, and before forgetting it', async () => {
+      storeLogin();
+      const order: string[] = [];
+      pushTeardown.impl = () => { order.push('push'); return Promise.resolve(true); };
+      serverSignOut.impl = () => { order.push('server'); return Promise.resolve({ ended: true, message: null }); };
+      renderTopBar();
+      await userEvent.setup().click(screen.getByRole('button', { name: /sign out/i }));
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
+
+      expect(serverSignOut.calls).toBe(1);
+      expect(serverSignOut.tokenAtCall).toBe('access'); // the token was still there to authorise the revocation
+      expect(order).toEqual(['push', 'server']);
+      expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull(); // and was forgotten afterwards
+    });
+
+    it('says nothing alarming when the server confirms', async () => {
+      storeLogin();
+      renderTopBar();
+      await userEvent.setup().click(screen.getByRole('button', { name: /sign out/i }));
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
+      expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it('still signs out here, and says honestly that the server did not end the session, when it could not', async () => {
+      storeLogin();
+      serverSignOut.impl = () => Promise.resolve({ ended: false, message: 'the server could not be reached' });
+      renderTopBar();
+      await userEvent.setup().click(screen.getByRole('button', { name: /sign out/i }));
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
+
+      expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull(); // signed out on this device regardless
+      expect(window.localStorage.getItem(AUTH_REFRESH_KEY)).toBeNull();
+      expect(toastError).toHaveBeenCalledTimes(1);
+      const message = toastError.mock.calls[0][0] as string;
+      expect(message).toContain('Signed out on this device');
+      expect(message).toContain('the server could not be reached');
+      expect(message).toContain('change your password');
+    });
+
+    it('does not repeat the sign-out when the button is clicked again while it is in progress', async () => {
+      storeLogin();
+      let release: (v: { ended: boolean; message: string | null }) => void = () => undefined;
+      serverSignOut.impl = () => new Promise((resolve) => { release = resolve; });
+      renderTopBar();
+      const user2 = userEvent.setup();
+      const button = screen.getByRole('button', { name: /sign out/i });
+      await user2.click(button);
+      expect(button).toBeDisabled();
+      await user2.click(button);
+      await act(async () => { release({ ended: true, message: null }); });
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'));
+      expect(serverSignOut.calls).toBe(1);
+      expect(replaceMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not let a push teardown that never answers keep the user from signing out', async () => {
+      // Real timers on purpose (fake ones fight testing-library's async helpers): the component gives the push teardown 3 seconds, so this test takes about that long.
+      storeLogin();
+      pushTeardown.impl = () => new Promise<boolean>(() => undefined); // never settles
+      renderTopBar();
+      await userEvent.setup().click(screen.getByRole('button', { name: /sign out/i }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(replaceMock).not.toHaveBeenCalled(); // still waiting on the push teardown, not yet given up on
+      expect(serverSignOut.calls).toBe(0);
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/login'), { timeout: 5000 });
+      expect(serverSignOut.calls).toBe(1); // it moved on and still asked the server
+      expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBeNull();
+    }, 10000);
   });
 });
 

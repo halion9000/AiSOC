@@ -71,6 +71,59 @@ export function clearSession(): void {
   }
 }
 
+const LOGOUT_PATH = '/api/v1/auth/logout';
+
+export interface ServerSignOut {
+  /** True when the server revoked the session (or there was no session to revoke). False when it could not, with `message` saying why. */
+  ended: boolean;
+  message: string | null;
+}
+
+/**
+ * Ask the server to END this session (revoke the access token and the refresh token), so that a copied or stolen token stops working. Call it BEFORE clearSession():
+ * afterwards there is no token left to authorise it with.
+ *
+ * Signing out used to only clear this browser's copy of the tokens, so a token that had been copied stayed valid until it expired.
+ *
+ * Never throws and never waits longer than `timeoutMs`, so a slow or unreachable server cannot trap anyone on a signed-in screen: the caller still signs out locally,
+ * and uses `ended`/`message` to say honestly that the server did not confirm. A 401 counts as ended (the token was already expired or revoked: nothing is left to end).
+ * Plain fetch, not authFetch: a 401 here must not start the refresh-and-redirect machinery.
+ */
+export async function revokeServerSession(timeoutMs = 4000): Promise<ServerSignOut> {
+  const access = getItem(AUTH_TOKEN_KEY);
+  if (!access) return { ended: true, message: null };
+  const refresh = getItem(AUTH_REFRESH_KEY);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(LOGOUT_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
+      body: JSON.stringify(refresh ? { refresh_token: refresh } : {}),
+      signal: controller.signal,
+    });
+    if (res.status === 401) return { ended: true, message: null };
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body && typeof body.detail === 'string' && body.detail) detail = body.detail;
+      } catch {
+        /* not JSON */
+      }
+      return { ended: false, message: detail };
+    }
+    const body = (await res.json().catch(() => null)) as { revoked?: boolean; detail?: string } | null;
+    if (body && body.revoked === false) return { ended: false, message: body.detail ?? 'the server did not revoke it' };
+    return { ended: true, message: null };
+  } catch (err) {
+    const timedOut = err instanceof DOMException && err.name === 'AbortError';
+    return { ended: false, message: timedOut ? 'the server did not respond in time' : 'the server could not be reached' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function urlOf(input: RequestInfo | URL): string {
   return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 }
