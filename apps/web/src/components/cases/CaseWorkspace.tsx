@@ -11,8 +11,10 @@
  *       Center:  timeline (audit + activity feed)
  *       Right:   tasks + notes
  *
- * Like the rest of the app, this gracefully falls back to demo data if the
- * backend hasn't been seeded.
+ * Everything here is the real case. If the case cannot be loaded the page says so,
+ * with a Retry; if a save or an investigation fails it says that and undoes what it
+ * showed. There is no sample data (it used to substitute an invented case, and to
+ * claim a failed save was "saved locally").
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -63,95 +65,9 @@ function isWorkspaceTab(value: string | null): value is WorkspaceTab {
   return value !== null && (VALID_TABS as readonly string[]).includes(value);
 }
 
-// ─── Demo case ────────────────────────────────────────────────────────────────
-
-function buildDemoCase(id: string): Case {
-  const now = new Date('2026-05-06T12:00:00Z').getTime();
-  return {
-    id,
-    title: 'Suspected lateral movement from finance subnet',
-    description:
-      "Multiple high-severity alerts indicate an attacker pivoted from " +
-      "WIN-FIN-DB01 to BACKUP-SRV-12 using compromised service account credentials. " +
-      "Behavior consistent with T1021.002 (SMB/Windows Admin Shares).",
-    status: 'in_progress',
-    severity: 'critical',
-    assignee: 'sasha.lin@example.com',
-    alertIds: ['alert-9012', 'alert-9013', 'alert-9019', 'alert-9024'],
-    alertCount: 4,
-    tags: ['lateral-movement', 'credential-access', 'finance-subnet'],
-    mitre: ['T1021.002', 'T1078', 'T1003.001'],
-    createdBy: 'system',
-    createdAt: new Date(now - 6 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date(now - 12 * 60 * 1000).toISOString(),
-    dueAt: new Date(now + 18 * 60 * 60 * 1000).toISOString(),
-    timeline: [
-      {
-        id: 'tl-1',
-        type: 'created',
-        timestamp: new Date(now - 6 * 60 * 60 * 1000).toISOString(),
-        title: 'Case created from correlation rule',
-        actor: 'system',
-        description:
-          'Rule "Lateral movement from privileged subnet" matched 3 alerts within 4 minutes.',
-      },
-      {
-        id: 'tl-2',
-        type: 'assigned',
-        timestamp: new Date(now - 5 * 60 * 60 * 1000).toISOString(),
-        title: 'Assigned to Sasha Lin',
-        actor: 'andre.k',
-      },
-      {
-        id: 'tl-3',
-        type: 'agent',
-        timestamp: new Date(now - 4 * 60 * 60 * 1000).toISOString(),
-        title: 'Auto-investigation completed',
-        actor: 'aisoc-agent',
-        description:
-          'Confirmed pivot via SMB. Recommend isolating WIN-FIN-DB01 and rotating service account creds.',
-      },
-      {
-        id: 'tl-4',
-        type: 'note',
-        timestamp: new Date(now - 90 * 60 * 1000).toISOString(),
-        title: 'Note added',
-        actor: 'sasha.lin',
-        description:
-          'IT confirmed the service account belongs to the legacy backup tool. ' +
-          'Proceeding to rotate creds and revoke session.',
-      },
-      {
-        id: 'tl-5',
-        type: 'status',
-        timestamp: new Date(now - 12 * 60 * 1000).toISOString(),
-        title: 'Status changed to In progress',
-        actor: 'sasha.lin',
-      },
-    ],
-    tasks: [
-      {
-        id: 'task-1',
-        title: 'Isolate WIN-FIN-DB01 from network',
-        status: 'done',
-        assignee: 'andre.k',
-        createdAt: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: 'task-2',
-        title: 'Rotate svc_backup credentials',
-        status: 'in_progress',
-        assignee: 'sasha.lin',
-        createdAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: 'task-3',
-        title: 'Forensic image of BACKUP-SRV-12',
-        status: 'todo',
-        createdAt: new Date(now - 60 * 60 * 1000).toISOString(),
-      },
-    ],
-  };
+/** What to tell the user when a call fails: the real reason, never a pretence that it worked. */
+function failureMessage(e: unknown): string {
+  return e instanceof Error && e.message ? e.message : 'the backend is unreachable';
 }
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
@@ -307,11 +223,8 @@ function TaskRow({ task, onChangeStatus }: TaskRowProps) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function CaseWorkspace({ caseId }: { caseId: string }) {
-  const [demoMode, setDemoMode] = useState(false);
-  // Honor `?tab=…` so the hosted demo deeplink
-  // (`/cases/INC-RT-001?tab=ledger`) lands visitors directly on the live
-  // agent decision feed for the LockBit 3.0 ransomware showcase. Falls back
-  // to the overview when the param is missing or unrecognized.
+  // Honor `?tab=…` (e.g. `/cases/INC-001?tab=ledger`) so a link can land directly on a tab. Falls back to the overview when the param is
+  // missing or unrecognized.
   const searchParams = useSearchParams();
   const initialTab: WorkspaceTab = useMemo(() => {
     const t = searchParams?.get('tab') ?? null;
@@ -324,19 +237,9 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
     { revalidateOnFocus: false, shouldRetryOnError: false },
   );
 
-  const useFallback = !!error;
-  const caseRecord: Case | undefined = useMemo(() => {
-    if (data) return data;
-    if (useFallback) return buildDemoCase(caseId);
-    return undefined;
-  }, [data, useFallback, caseId]);
-
-  // Track demo mode for the header banner. Calling setState during render is
-  // a React anti-pattern that can interact badly with hydration; defer to an
-  // effect so the first paint matches between server and client.
-  useEffect(() => {
-    if (useFallback && !demoMode) setDemoMode(true);
-  }, [useFallback, demoMode]);
+  // The case as the server has it. A failed load is NOT papered over: with no case the page shows its "Couldn't load case" state below, with a Retry.
+  // (It used to substitute an invented case, so a 404, a 500 or an expired login looked like a real incident labelled "Demo data".)
+  const caseRecord: Case | undefined = data;
 
   // ─── Investigation state ───────────────────────────────────────────────────
   const [investigating, setInvestigating] = useState(false);
@@ -475,18 +378,12 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
         }
       }, 5000);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Backend offline';
-      toast(`Demo mode: investigation not available (${message})`);
-      // Set demo investigation result
-      setInvestigationStatus('completed');
-      setInvestigationData({
-        status: 'completed',
-        recon: { iocs: [{ type: 'ip', value: '192.168.1.105' }, { type: 'domain', value: 'c2.evil-corp.io' }], mitre_techniques: ['T1021.002', 'T1078'], summary: 'Lateral movement via SMB with stolen credentials. C2 domain identified.' },
-        forensic: { timeline: [{ ts: new Date().toISOString(), event: 'SMB connection from FIN-DB01 to BACKUP-SRV-12' }], root_cause_hypothesis: 'Compromised svc_backup service account used for lateral movement.', confidence: 0.88, summary: 'High confidence lateral movement chain identified.' },
-        responder: { recommended_actions: ['Isolate WIN-FIN-DB01', 'Rotate svc_backup credentials', 'Block C2 domain at perimeter'], risk_level: 'high', dry_run: true, summary: 'Containment actions generated (dry-run only — review before executing).' },
-        audit_log: [{ kind: 'recon', agent: 'ReconAgent', summary: 'Found 2 IOCs, 2 MITRE techniques in 1200ms', ts: new Date().toISOString() }, { kind: 'forensic', agent: 'ForensicAgent', summary: 'Timeline: 1 events, confidence 88%', ts: new Date().toISOString() }, { kind: 'responder', agent: 'ResponderAgent', summary: 'Generated 3 recommended actions (risk=high, dry_run=True)', ts: new Date().toISOString() }, { kind: 'report', agent: 'ReportWriterAgent', summary: 'Report written (1240 chars)', ts: new Date().toISOString() }],
-      });
-      setReportMd(`# Incident Report — ${caseRecord.title}\n\n**Generated by AiSOC AI Investigator (demo mode)**\n\n## Executive Summary\nLateral movement confirmed from WIN-FIN-DB01 to BACKUP-SRV-12 via compromised service account credentials.\n\n## IOCs\n- 192.168.1.105 (internal pivot source)\n- c2.evil-corp.io (C2 domain)\n\n## MITRE ATT&CK\n- T1021.002 — SMB/Windows Admin Shares\n- T1078 — Valid Accounts\n\n## Recommended Actions\n1. Isolate WIN-FIN-DB01 from network\n2. Rotate svc_backup credentials immediately\n3. Block c2.evil-corp.io at perimeter firewall\n\n---\n*This is a demo report generated without a live backend.*`);
+      const message = failureMessage(e);
+      // This used to mark the investigation "completed" and fill in invented IOCs (192.168.1.105, c2.evil-corp.io), invented recommended actions
+      // ("Isolate WIN-FIN-DB01") and a written-up incident report, none of which any investigation produced.
+      toast.error(`Could not start the investigation: ${message}`);
+      setInvestigationStatus('failed');
+      setInvestigationData({ status: 'failed', error: message });
       setInvestigating(false);
     }
   }, [caseRecord, caseId, investigating, stopPolling]);
@@ -521,8 +418,9 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
     try {
       await casesApi.update(caseRecord.id, { status });
       toast.success(`Status set to ${STATUS_LABEL[status]}`);
-    } catch {
-      toast(`Demo: status set to ${STATUS_LABEL[status]} locally (writes disabled)`);
+    } catch (e: unknown) {
+      void mutate(); // put back what the server actually has
+      toast.error(`Could not set status to ${STATUS_LABEL[status]}: ${failureMessage(e)}`);
     } finally {
       setStatusUpdating(false);
     }
@@ -547,8 +445,10 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
     try {
       await casesApi.addComment(caseRecord.id, trimmed);
       toast.success('Comment added');
-    } catch {
-      toast('Saved locally (writes disabled in demo)');
+    } catch (e: unknown) {
+      void mutate(); // drop the comment that was shown optimistically
+      setNewComment(trimmed); // and give the text back so it is not lost
+      toast.error(`Could not add the comment: ${failureMessage(e)}`);
     }
   };
 
@@ -569,8 +469,10 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
     try {
       await casesApi.addTask(caseRecord.id, optimistic);
       toast.success('Task added');
-    } catch {
-      toast('Saved locally (writes disabled in demo)');
+    } catch (e: unknown) {
+      void mutate(); // drop the task that was shown optimistically
+      setNewTask(trimmed);
+      toast.error(`Could not add the task: ${failureMessage(e)}`);
     }
   };
 
@@ -585,8 +487,9 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
     void mutate({ ...caseRecord, tasks }, { revalidate: false });
     try {
       await casesApi.updateTask(caseRecord.id, taskId, { status });
-    } catch {
-      // already optimistically applied; nothing to do
+    } catch (e: unknown) {
+      void mutate(); // the change was shown optimistically but not saved: put back what the server has
+      toast.error(`Could not update the task: ${failureMessage(e)}`);
     }
   };
 
@@ -634,7 +537,7 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
 
   return (
     <div className="space-y-5">
-      {/* Breadcrumb + demo banner */}
+      {/* Breadcrumb */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs">
           <Link href="/cases" className="text-slate-500 hover:text-slate-300">
@@ -643,12 +546,6 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
           <span className="text-slate-600">/</span>
           <span className="font-mono text-slate-400">{caseRecord.id}</span>
         </div>
-        {demoMode && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300 ring-1 ring-amber-500/30">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-            Demo data — writes disabled
-          </span>
-        )}
       </div>
 
       {/* Header */}
@@ -1420,7 +1317,7 @@ const DEFAULT_CHAIN_WINDOW: AttackChainWindow = '24h';
 function AttackChainPanel({ caseId }: { caseId: string }) {
   // Mirror AttackPathPanel's guard: caseId can be empty during the brief window
   // between route hydration and the case fetch resolving. Calling the API with
-  // `undefined` returns a 5xx and confuses analysts during the demo flow.
+  // `undefined` returns a 5xx and confuses analysts.
   const hasCaseId = Boolean(caseId);
 
   // Honor `?window=…` so a deep-link like
