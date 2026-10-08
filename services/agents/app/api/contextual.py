@@ -11,9 +11,8 @@ Why a dedicated module instead of reusing the generic Copilot chat?
   • Determinism: each action has a fixed system prompt and known output shape,
     so the UI can render confidence + suggested follow-ups consistently.
   • Cheap: actions are single-shot calls, no conversation history to ship.
-  • Auditability: every contextual call logs to the investigation ledger if a
-    case_id is supplied, so analysts can replay why the agent suggested
-    something later.
+  • Auditability: every contextual call writes a structured log line (page, action, entity, case_id when supplied, and the caller's tenant and
+    user), so usage is queryable in observability tooling. It is NOT written to the investigation ledger.
 
 Endpoint surface (all under ``/api/v1/contextual``):
     POST /action          — one-shot call returning ``ContextualActionResponse``
@@ -26,8 +25,8 @@ Page → action matrix (kept in sync with ``ContextualActions.tsx``):
     detections   → why_noisy, tighten
     playbooks    → explain, improve
 
-Falls back to a deterministic synthetic response if ``OPENAI_API_KEY`` is
-unset, so the demo path never breaks.
+When no model can be used, the response is a clearly-labelled PLACEHOLDER (``fallback: true``, confidence 0) that says WHY: the key is not configured, the model
+client is not installed, or the request to the model failed. These are different problems with different fixes, so they are never reported as one another.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -68,20 +67,22 @@ class ContextualActionRequest(BaseModel):
     answer based on ``entity_id`` alone.
     """
 
-    page: str = Field(..., description="One of: alerts, cases, detections, playbooks")
-    action: str = Field(..., description="Action key. See /actions for the catalogue.")
-    entity_id: str = Field(..., description="ID of the alert / case / rule / playbook.")
+    page: str = Field(..., max_length=64, description="One of: alerts, cases, detections, playbooks")
+    action: str = Field(..., max_length=64, description="Action key. See /actions for the catalogue.")
+    entity_id: str = Field(..., max_length=200, description="ID of the alert / case / rule / playbook.")
     entity: dict[str, Any] | None = Field(
         default=None,
         description="Optional snapshot of the entity the user is looking at.",
     )
     question: str | None = Field(
         default=None,
+        max_length=4000,  # it goes straight into a paid model prompt: unbounded, one request could send an arbitrarily large one
         description="Optional free-form follow-up question from the user.",
     )
     case_id: str | None = Field(
         default=None,
-        description="If set, the call is logged to the investigation ledger.",
+        max_length=200,
+        description="If set, it is included in the structured log line for this call (it is not written to the investigation ledger).",
     )
 
 
@@ -358,21 +359,33 @@ def _build_messages(req: ContextualActionRequest) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def _unavailable_reason() -> str | None:
+    """Why no model can be used right now: "not_configured" (no OPENAI_API_KEY), "not_installed" (the model client library is missing), or None when one can."""
+    if not os.getenv("OPENAI_API_KEY"):
+        return "not_configured"
+    try:
+        import langchain_openai  # noqa: F401
+    except ImportError:
+        return "not_installed"
+    return None
+
+
+def _placeholder_for(reason: str) -> str:
+    return _fallback_response("", "") if reason == "not_configured" else _not_installed_response()
+
+
 async def _call_llm(system: str, user: str, model: str) -> tuple[str, int]:
     """Invoke the configured LLM. Returns (markdown, tokens_used).
 
     Falls back to a deterministic stub response when ``OPENAI_API_KEY`` is
     missing so the demo never hard-fails.
     """
-    if not os.getenv("OPENAI_API_KEY"):
-        return _fallback_response(system, user), 0
+    reason = _unavailable_reason()
+    if reason is not None:
+        return _placeholder_for(reason), 0
 
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-        from langchain_openai import ChatOpenAI
-    except ImportError as exc:
-        logger.warning("contextual.llm.import_failed", error=str(exc))
-        return _fallback_response(system, user), 0
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_openai import ChatOpenAI
 
     llm = ChatOpenAI(model=model, temperature=0.2)
     response = await safe_ainvoke(llm, [SystemMessage(content=system), HumanMessage(content=user)])
@@ -385,22 +398,16 @@ async def _call_llm(system: str, user: str, model: str) -> tuple[str, int]:
 
 async def _stream_llm(system: str, user: str, model: str) -> AsyncIterator[str]:
     """Yield response delta chunks. Used by the NDJSON streaming endpoint."""
-    if not os.getenv("OPENAI_API_KEY"):
-        # Fake-stream the fallback in 8-character chunks for a nice UX in the
-        # demo path.
-        text = _fallback_response(system, user)
+    reason = _unavailable_reason()
+    if reason is not None:
+        # Stream the placeholder in 8-character chunks so the panel fills in like a real answer (it is labelled as a placeholder in the header frame).
+        text = _placeholder_for(reason)
         for i in range(0, len(text), 8):
             yield text[i : i + 8]
         return
 
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        text = _fallback_response(system, user)
-        for i in range(0, len(text), 8):
-            yield text[i : i + 8]
-        return
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_openai import ChatOpenAI
 
     llm = ChatOpenAI(model=model, temperature=0.2, streaming=True)
     async for chunk in safe_astream(llm, [SystemMessage(content=system), HumanMessage(content=user)]):
@@ -408,8 +415,25 @@ async def _stream_llm(system: str, user: str, model: str) -> AsyncIterator[str]:
             yield chunk.content if isinstance(chunk.content, str) else str(chunk.content)
 
 
+def _failure_response(exc: BaseException) -> str:
+    """The model IS configured but this request to it failed. Only the exception's CLASS is shown: its message can carry internal URLs or key fragments (the full error is logged)."""
+    return (
+        "## The language model request failed\n\n"
+        f"The request to the model did not complete (`{type(exc).__name__}`), so nothing was analysed. "
+        "This is not a configuration problem. Try again in a moment; if it keeps failing, check the LLM gateway and the provider's status.\n"
+    )
+
+
+def _not_installed_response() -> str:
+    return (
+        "## Heads up: model client not installed\n\n"
+        "`OPENAI_API_KEY` is set, but the model client library (`langchain-openai`) is not installed in this deployment, so the contextual Copilot cannot reach a language model. "
+        "You're seeing a placeholder response. Rebuild the `aisoc-agents` image with its dependencies installed.\n"
+    )
+
+
 def _fallback_response(system: str, user: str) -> str:
-    """Deterministic offline response so the contextual UI works without an LLM."""
+    """The placeholder for the case where NO key is configured (and only that case: see _failure_response / _not_installed_response)."""
     # Keep this short and obviously synthetic so it doesn't get mistaken for
     # genuine analysis in a screenshot.
     return (
@@ -438,17 +462,23 @@ async def list_actions() -> ContextualActionsCatalogue:
     )
 
 
+def _caller_fields(request: Request) -> dict[str, str | None]:
+    """Who made the call, for the log line (an authenticated caller's tenant and user; None in development or for the API's own proxy)."""
+    caller = getattr(request.state, "caller", None) or {}
+    return {"tenant_id": caller.get("tenant_id"), "user_id": caller.get("user_id")}
+
+
 @router.post(
     "/action",
     response_model=ContextualActionResponse,
     summary="One-shot contextual AI action",
 )
-async def run_action(req: ContextualActionRequest) -> ContextualActionResponse:
+async def run_action(req: ContextualActionRequest, request: Request) -> ContextualActionResponse:
     started = time.monotonic()
     system, user = _build_messages(req)
     model = resolve_model_alias("copilot")
 
-    fallback = not bool(os.getenv("OPENAI_API_KEY"))
+    fallback = _unavailable_reason() is not None
     try:
         content, tokens = await _call_llm(system, user, model)
     except Exception as exc:  # noqa: BLE001
@@ -458,8 +488,11 @@ async def run_action(req: ContextualActionRequest) -> ContextualActionResponse:
             action=req.action,
             entity_id=req.entity_id,
             error=str(exc),
+            **_caller_fields(request),
         )
-        content = _fallback_response(system, user)
+        # Say what actually happened. This used to return the "OPENAI_API_KEY is not configured" placeholder, which is FALSE here (the key is set; the request failed) and sent operators to fix
+        # configuration that was not broken, while the real error was only in the log.
+        content = _failure_response(exc)
         tokens = 0
         fallback = True
 
@@ -494,6 +527,7 @@ async def run_action(req: ContextualActionRequest) -> ContextualActionResponse:
         elapsed_ms=elapsed_ms,
         tokens=tokens,
         fallback=fallback,
+        **_caller_fields(request),
     )
     return response
 
@@ -502,12 +536,14 @@ async def run_action(req: ContextualActionRequest) -> ContextualActionResponse:
     "/action/stream",
     summary="Streaming variant — emits NDJSON lines: {delta} until {done:true}",
 )
-async def run_action_stream(req: ContextualActionRequest) -> StreamingResponse:
+async def run_action_stream(req: ContextualActionRequest, request: Request) -> StreamingResponse:
     system, user = _build_messages(req)
     model = resolve_model_alias("copilot")
     title = _TITLES.get((req.page, req.action), f"{req.page} · {req.action}")
     suggestions = _FOLLOW_UPS.get((req.page, req.action), [])
-    fallback = not bool(os.getenv("OPENAI_API_KEY"))
+    # A placeholder is flagged whenever NO model can be used (key unset OR client library missing): it used to be flagged only for an unset key, so a placeholder could stream as a 70%-confidence answer.
+    fallback = _unavailable_reason() is not None
+    caller = _caller_fields(request)
 
     async def gen() -> AsyncIterator[bytes]:
         # Header frame so the UI can render the title before tokens arrive.
@@ -525,11 +561,13 @@ async def run_action_stream(req: ContextualActionRequest) -> StreamingResponse:
             + "\n"
         ).encode()
 
+        failed = False
         try:
             async for chunk in _stream_llm(system, user, model):
                 yield (json.dumps({"delta": chunk}) + "\n").encode()
         except Exception:  # noqa: BLE001
-            logger.exception("contextual.stream.error")
+            failed = True
+            logger.exception("contextual.stream.error", page=req.page, action=req.action, entity_id=req.entity_id, **caller)
             yield (json.dumps({"error": "Streaming failed. Please try again."}) + "\n").encode()
 
         # Footer frame with metadata + suggested follow-ups.
@@ -537,8 +575,9 @@ async def run_action_stream(req: ContextualActionRequest) -> StreamingResponse:
             json.dumps(
                 {
                     "done": True,
-                    "suggestions": [s.model_dump() for s in suggestions],
-                    "confidence": 0.0 if fallback else 0.7,
+                    # After a failure the footer must not claim success: it used to follow the error frame with confidence 0.7 and the follow-up suggestions, as if the answer had completed.
+                    "suggestions": [] if failed else [s.model_dump() for s in suggestions],
+                    "confidence": 0.0 if (fallback or failed) else 0.7,
                 }
             )
             + "\n"
