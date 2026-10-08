@@ -11,8 +11,8 @@ This module exposes four endpoints under ``/api/v1/push/*`` that mirror the
 realtime service's ``/v1/push/*`` surface and forward authorized requests
 to ``REALTIME_BASE_URL``. The gateway:
 
-* Authenticates the caller (JWT or API key) using the standard ``AuthUser``
-  dependency, so unauthenticated PWAs cannot subscribe.
+* Authenticates the caller as a SIGNED-IN USER (a JWT session) using ``SessionUser``, so unauthenticated PWAs cannot subscribe. A push subscription belongs to a
+  person's device, so an API key is refused with 403 (it used to be accepted, acting as the key's owner).
 * Stamps the realtime call with ``X-AiSOC-User-Id``, ``X-AiSOC-Tenant-Id``
   and ``X-AiSOC-Internal-Token`` so the realtime side can attribute
   subscriptions to a real user without re-doing JWT verification.
@@ -28,7 +28,7 @@ from typing import Annotated, Any
 import httpx
 from fastapi import APIRouter, Body, HTTPException, status
 
-from app.api.v1.deps import AuthUser
+from app.api.v1.deps import SessionUser
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ async def _proxy(
     method: str,
     path: str,
     *,
-    user: AuthUser | None,
+    user: SessionUser | None,
     json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Forward a request to the realtime push API and return its JSON body.
@@ -101,7 +101,7 @@ async def get_public_key() -> dict[str, Any]:
 
 @router.post("/subscribe")
 async def subscribe(
-    user: AuthUser,
+    user: SessionUser,
     body: Annotated[dict[str, Any], Body(...)],
 ) -> dict[str, Any]:
     """Register a PushSubscription for the authenticated user."""
@@ -110,7 +110,7 @@ async def subscribe(
 
 @router.post("/unsubscribe")
 async def unsubscribe(
-    user: AuthUser,
+    user: SessionUser,
     body: Annotated[dict[str, Any], Body(...)],
 ) -> dict[str, Any]:
     """Remove a PushSubscription for the authenticated user."""
@@ -119,7 +119,7 @@ async def unsubscribe(
 
 @router.post("/test")
 async def test_notify(
-    user: AuthUser,
+    user: SessionUser,
     body: Annotated[dict[str, Any] | None, Body()] = None,
 ) -> dict[str, Any]:
     """Send a test notification to the authenticated user's devices.

@@ -258,6 +258,23 @@ async def get_current_user(
     )
 
 
+async def require_signed_in_session(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    """Account-level actions (passkeys, push subscriptions, profile preferences) belong to a signed-in person, not to an API key acting as them.
+
+    An API key resolves to the user who owns it, and routes that only ask "who is this?" never look at its scopes, so a key with ANY scopes (even read-only) could manage that
+    user's passkeys and notifications. ``scopes`` is None for a session (JWT) and a list, possibly empty, for an API key, so this tests ``is not None``, never truthiness.
+    Used as a dependency on the user parameter, so it runs before the database dependency and before body validation.
+    """
+    if current_user.scopes is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action is only available to a signed-in user, not an API key.",
+        )
+    return current_user
+
+
 async def get_current_active_user(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> CurrentUser:
@@ -277,6 +294,7 @@ def require_permission(permission: str):
 # Type aliases
 DBSession = Annotated[AsyncSession, Depends(get_db)]
 AuthUser = Annotated[CurrentUser, Depends(get_current_user)]
+SessionUser = Annotated[CurrentUser, Depends(require_signed_in_session)]
 
 
 # Re-export TenantDBSession for convenience so endpoints can import from one place

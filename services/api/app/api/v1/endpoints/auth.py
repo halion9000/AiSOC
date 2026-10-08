@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, update
 
-from app.api.v1.deps import AuthUser, DBSession, bearer_scheme, get_current_user
+from app.api.v1.deps import AuthUser, DBSession, SessionUser, bearer_scheme, get_current_user
 
 __all__ = ["router", "get_current_user"]
 from app.core.config import settings
@@ -220,7 +220,7 @@ async def get_me(current_user: AuthUser, db: DBSession) -> UserMeResponse:
 @router.patch("/me/preferences", response_model=UserMeResponse)
 async def patch_me_preferences(
     body: PreferencesPatch,
-    current_user: AuthUser,
+    current_user: SessionUser,
     db: DBSession,
 ) -> UserMeResponse:
     """Merge user preferences (e.g. theme) into the stored JSONB column.

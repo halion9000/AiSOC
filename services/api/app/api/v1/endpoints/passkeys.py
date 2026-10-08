@@ -44,7 +44,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import and_, select, update
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import SessionUser, DBSession
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token
 from app.db.rls import TenantDBSession
@@ -190,7 +190,7 @@ class AuthenticateFinishResponse(BaseModel):
 @router.post("/register/begin")
 async def passkey_register_begin(
     body: RegisterBeginRequest,
-    user: AuthUser,
+    user: SessionUser,
     db: TenantDBSession,
 ) -> dict[str, Any]:
     """Start passkey enrollment for the currently logged-in user.
@@ -251,7 +251,7 @@ async def passkey_register_begin(
 @router.post("/register/finish", response_model=PasskeyCredentialOut)
 async def passkey_register_finish(
     body: FinishRequest,
-    user: AuthUser,
+    user: SessionUser,
     db: TenantDBSession,
 ) -> PasskeyCredentialOut:
     """Verify the attestation response and persist the new credential."""
@@ -454,7 +454,7 @@ async def passkey_authenticate_finish(
 
 @router.get("/credentials", response_model=CredentialsListResponse)
 async def list_my_credentials(
-    user: AuthUser,
+    user: SessionUser,
     db: TenantDBSession,
 ) -> CredentialsListResponse:
     """List the current user's active passkeys."""
@@ -480,7 +480,7 @@ async def list_my_credentials(
 @router.delete("/credentials/{credential_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def revoke_credential(
     credential_id: uuid.UUID,
-    user: AuthUser,
+    user: SessionUser,
     db: TenantDBSession,
 ) -> None:
     """Revoke (soft-delete) one of the current user's passkeys."""
