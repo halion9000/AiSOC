@@ -23,6 +23,7 @@ import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import { DraftFromPromptDialog } from './DraftFromPromptDialog';
 import { authFetch } from '@/lib/auth-session';
+import { installCommunityItem } from '@/lib/communityInstall';
 
 /** Filter snapshot stored by the backend as a saved-view preset. */
 type PlaybookFilterSnapshot = PlaybookGalleryFilters;
@@ -337,13 +338,18 @@ function CommunityPlaybooksTab() {
 function CommunityPlaybookCard({ playbook }: { playbook: CommunityPlaybook }) {
   const [installing, setInstalling] = useState(false);
   const [installed, setInstalled] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   const handleInstall = async () => {
     setInstalling(true);
+    setInstallError(null);
     try {
-      await authFetch(`/api/v1/community/playbooks/${playbook.id}/install`, { method: 'POST' });
+      // Marked installed only when the server says it is (or already was). It used to be marked installed whenever the request merely completed.
+      await installCommunityItem('playbooks', playbook.id);
       setInstalled(true);
-    } catch { /* ignore */ } finally {
+    } catch (err) {
+      setInstallError(err instanceof Error ? err.message : 'Install failed');
+    } finally {
       setInstalling(false);
     }
   };
@@ -377,6 +383,11 @@ function CommunityPlaybookCard({ playbook }: { playbook: CommunityPlaybook }) {
           {installed ? 'Installed' : installing ? '…' : 'Install'}
         </button>
       </div>
+      {installError && (
+        <p role="alert" className="text-xs text-red-300">
+          Could not install: {installError}
+        </p>
+      )}
     </div>
   );
 }

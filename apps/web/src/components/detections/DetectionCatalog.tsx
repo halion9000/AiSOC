@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { authFetch } from '@/lib/auth-session';
+import { installCommunityItem } from '@/lib/communityInstall';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -77,17 +78,20 @@ function StarRating({ rating, count }: { rating: number; count: number }) {
 function DetectionCard({ rule }: { rule: DetectionRule }) {
   const [installing, setInstalling] = useState(false);
   const [installed, setInstalled] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const handleInstall = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setInstalling(true);
+    setInstallError(null);
     try {
-      await authFetch(`/api/v1/community/detections/${rule.id}/install`, { method: 'POST' });
+      // Marked installed only when the server says it is (or already was). It used to be marked installed whenever the request merely completed.
+      await installCommunityItem('detections', rule.id);
       setInstalled(true);
-    } catch {
-      // ignore
+    } catch (err) {
+      setInstallError(err instanceof Error ? err.message : 'Install failed');
     } finally {
       setInstalling(false);
     }
@@ -183,6 +187,12 @@ function DetectionCard({ rule }: { rule: DetectionRule }) {
           {installed ? '✓ Installed' : installing ? '…' : 'Install Rule'}
         </button>
       </div>
+
+      {installError && (
+        <p role="alert" className="text-xs text-red-300" onClick={(e) => e.stopPropagation()}>
+          Could not install: {installError}
+        </p>
+      )}
 
       {/* Expandable YAML */}
       {(loadingDetail || detail !== null) && (
