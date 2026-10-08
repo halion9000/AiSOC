@@ -8,13 +8,16 @@ Endpoints (all under ``/api/v1/copilot``):
     POST /chat                      — one-shot chat (creates / continues conv.)
     POST /chat/stream               — streaming NDJSON variant
 
-Falls back to synthetic deterministic replies when ``OPENAI_API_KEY`` is
-unset so the demo path never breaks.
+When the language model cannot answer (no ``OPENAI_API_KEY``, or the call
+fails) the endpoints answer HTTP 503 and say why. They used to return one of
+five canned paragraphs, cycling in order and unrelated to the question ("this
+IP was seen in 3 other alerts", "attacker dwell time appears short"), as if
+the copilot had analysed the analyst's case. Nothing is stored for a failed
+turn, so a retry does not duplicate the question.
 """
 
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import uuid
@@ -23,7 +26,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -68,39 +71,8 @@ class CopilotConversation(BaseModel):
 
 _CONVERSATIONS: dict[str, dict[str, Any]] = {}
 
-_SYNTHETIC_REPLIES = [
-    (
-        "I've analysed the alert context. The activity matches T1078 (Valid Accounts) combined"
-        " with T1021.002 (SMB/Windows Admin Shares) lateral movement. Recommend isolating the"
-        " host and reviewing recent authentication logs."
-    ),
-    (
-        "Based on the indicators, this looks like credential-access activity. The parent process"
-        " chain suggests a LOLBin pattern. Consider adding a detection rule for this specific"
-        " chain."
-    ),
-    (
-        "The entity risk score is elevated due to multiple failed authentications followed by a"
-        " successful login from an unusual geolocation. I recommend triggering a step-up MFA"
-        " challenge."
-    ),
-    (
-        "Correlation across the last 24 hours shows this IP was seen in 3 other alerts. The MITRE"
-        " mapping points to T1110 (Brute Force). Blocking the IP at the perimeter is the fastest"
-        " remediation."
-    ),
-    (
-        "I've reviewed the case timeline. The attacker dwell time appears short (< 2 hours),"
-        " suggesting this may be an automated credential-stuffing campaign rather than a targeted"
-        " intrusion."
-    ),
-]
-
-_reply_cycle = itertools.cycle(_SYNTHETIC_REPLIES)
-
-
-def _synthetic_reply(user_msg: str) -> str:
-    return next(_reply_cycle)
+class CopilotUnavailable(Exception):
+    """The language model could not produce an answer. The message is safe to show the analyst."""
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +90,7 @@ async def _get_openai_reply(
 ) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
-        return _synthetic_reply(user_message)
+        raise CopilotUnavailable("no language-model API key is configured for the copilot")
 
     try:
         from app.llm.contract import safe_chat_completions_request
@@ -149,7 +121,18 @@ async def _get_openai_reply(
         return body["choices"][0]["message"]["content"]
     except Exception as exc:
         logger.warning("copilot.openai_error", error=str(exc))
-        return _synthetic_reply(user_message)
+        raise CopilotUnavailable(f"the language model could not be reached ({type(exc).__name__})") from exc
+
+
+def _discard_failed_turn(conv_id: str, created: bool) -> None:
+    """Undo a turn that got no answer: drop the question just recorded, and the conversation too if this turn created it."""
+    conv = _CONVERSATIONS.get(conv_id)
+    if conv is None:
+        return
+    if created:
+        del _CONVERSATIONS[conv_id]
+    elif conv["messages"] and conv["messages"][-1]["role"] == "user":
+        conv["messages"].pop()
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +177,8 @@ async def chat(req: CopilotChatRequest) -> CopilotChatResponse:
     conv_id = req.conversationId or str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
 
-    if conv_id not in _CONVERSATIONS:
+    created = conv_id not in _CONVERSATIONS
+    if created:
         _CONVERSATIONS[conv_id] = {
             "id": conv_id,
             "title": _title_from_message(req.message),
@@ -212,7 +196,12 @@ async def chat(req: CopilotChatRequest) -> CopilotChatResponse:
     }
     conv["messages"].append(user_msg)
 
-    reply_text = await _get_openai_reply(conv, req.message)
+    # Obtained BEFORE anything is streamed or stored, so a failure is a real HTTP error and not a 200 full of invented words.
+    try:
+        reply_text = await _get_openai_reply(conv, req.message)
+    except CopilotUnavailable as exc:
+        _discard_failed_turn(conv_id, created)
+        raise HTTPException(status_code=503, detail=f"The copilot cannot answer right now: {exc}.") from exc
 
     assistant_msg: dict[str, Any] = {
         "id": str(uuid.uuid4()),
@@ -236,7 +225,8 @@ async def chat_stream(req: CopilotChatRequest) -> StreamingResponse:
     conv_id = req.conversationId or str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
 
-    if conv_id not in _CONVERSATIONS:
+    created = conv_id not in _CONVERSATIONS
+    if created:
         _CONVERSATIONS[conv_id] = {
             "id": conv_id,
             "title": _title_from_message(req.message),
@@ -253,7 +243,12 @@ async def chat_stream(req: CopilotChatRequest) -> StreamingResponse:
     }
     conv["messages"].append(user_msg)
 
-    reply_text = await _get_openai_reply(conv, req.message)
+    # Obtained BEFORE anything is streamed or stored, so a failure is a real HTTP error and not a 200 full of invented words.
+    try:
+        reply_text = await _get_openai_reply(conv, req.message)
+    except CopilotUnavailable as exc:
+        _discard_failed_turn(conv_id, created)
+        raise HTTPException(status_code=503, detail=f"The copilot cannot answer right now: {exc}.") from exc
     msg_id = str(uuid.uuid4())
 
     async def _stream() -> AsyncIterator[bytes]:
