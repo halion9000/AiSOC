@@ -2,17 +2,19 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Security, status
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, update
 
-from app.api.v1.deps import AuthUser, DBSession, get_current_user
+from app.api.v1.deps import AuthUser, DBSession, bearer_scheme, get_current_user
 
 __all__ = ["router", "get_current_user"]
 from app.core.config import settings
 from app.core.security import known_permissions
+from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -38,6 +40,17 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    """Optionally also revoke the refresh token that goes with this session."""
+
+    refresh_token: str | None = None
+
+
+class LogoutResponse(BaseModel):
+    revoked: bool
+    detail: str
 
 
 class UserMeResponse(BaseModel):
@@ -89,6 +102,55 @@ async def login(request: LoginRequest, db: DBSession) -> TokenResponse:
     )
 
 
+@router.post("/logout", response_model=LogoutResponse)
+async def logout(
+    current_user: AuthUser,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Security(bearer_scheme)],
+    body: LogoutRequest | None = None,
+) -> LogoutResponse:
+    """End this session on the server: revoke the access token (and the refresh token, if given) so neither works again, even if copied.
+
+    Honest about what it did: ``revoked`` is false, with the reason, when there was nothing it could revoke (an API key, or a token issued before revocation existed);
+    and if the revocation store is down it answers 503 rather than claiming the session ended.
+    """
+    token = credentials.credentials if credentials else None
+    if token is None:
+        return LogoutResponse(revoked=False, detail="There is no session token to revoke.")
+    if token.startswith("aisoc_"):
+        return LogoutResponse(revoked=False, detail="API keys are not sessions; revoke the key from the API keys page.")
+    try:
+        access = decode_token(token)
+    except Exception as e:  # get_current_user already accepted it, so this is only a race with expiry
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from e
+
+    to_revoke: list[tuple[str, Any]] = []
+    if access.get("jti"):
+        to_revoke.append((access["jti"], access["exp"]))
+    if body and body.refresh_token:
+        try:
+            refresh = decode_token(body.refresh_token)
+        except Exception:
+            refresh = {}
+        # Only this user's own refresh token: a body must not be a way to sign someone else out.
+        if refresh.get("type") == "refresh" and refresh.get("sub") == str(current_user.user_id) and refresh.get("jti"):
+            to_revoke.append((refresh["jti"], refresh["exp"]))
+
+    if not to_revoke:
+        return LogoutResponse(
+            revoked=False,
+            detail="This session was issued before server-side revocation existed, so it cannot be revoked and will end when it expires.",
+        )
+    try:
+        for jti, exp in to_revoke:
+            await revoke(jti, exp)
+    except RevocationUnavailable as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not end the session: the revocation store is unavailable. Try again.",
+        ) from e
+    return LogoutResponse(revoked=True, detail="Session ended.")
+
+
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(request: RefreshRequest, db: DBSession) -> TokenResponse:
     """Refresh access token using a valid refresh token."""
@@ -99,6 +161,9 @@ async def refresh_token(request: RefreshRequest, db: DBSession) -> TokenResponse
         user_id = payload.get("sub")
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from e
+
+    if await is_revoked(payload.get("jti")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has been revoked")
 
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id), User.is_active.is_(True)))
     user = result.scalar_one_or_none()

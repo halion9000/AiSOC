@@ -31,6 +31,7 @@ from jose import JWTError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.token_revocation import is_revoked
 from app.api.v1.dev_auth import (
     DEMO_TENANT_ID,
     DEMO_USER_EMAIL,
@@ -218,6 +219,13 @@ async def get_current_user(
         token_type: str = payload.get("type", "access")
         if user_id is None or token_type != "access":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        # A token that was signed out (revoked) is refused even though its signature and expiry are still good.
+        if await is_revoked(payload.get("jti")):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     except JWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
