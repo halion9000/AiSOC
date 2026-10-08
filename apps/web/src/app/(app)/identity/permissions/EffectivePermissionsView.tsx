@@ -5,8 +5,8 @@
  *
  * Five-column layout: Identity → Role → Policy → Action → Resource. The
  * graph is hydrated from `GET /api/v1/identity/{principal_id}/effective-permissions`
- * and falls back to a deterministic demo dataset so the screenshot tour and
- * the smoke test always render.
+ * and shows only what the resolver returns. If the lookup fails it says so (it
+ * does not substitute sample data: a failed lookup is not an empty result).
  *
  * Deep-linking
  * ------------
@@ -213,6 +213,11 @@ function countDenyActions(decisions: Decision[]): number {
 function isScaffold501(error: unknown): boolean {
   // safeFetcher throws `HTTP 501 …` strings on coverage=scaffold providers.
   return error instanceof Error && error.message.startsWith('HTTP 501');
+}
+
+/** What to tell an administrator when a lookup fails: the real reason. (It used to say "falling back to demo data", but nothing ever fell back.) */
+export function resolveFailure(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : 'the resolver is unreachable';
 }
 
 function syncUrl(provider: SupportedProvider, principalId: string, denyOnly: boolean) {
@@ -485,6 +490,17 @@ export function EffectivePermissionsView() {
                 for the next provider rollout.
               </p>
             </div>
+          ) : error ? (
+            <div role="alert" className="flex h-full flex-col items-center justify-center px-8 text-center text-gray-400">
+              <p className="text-base font-semibold text-gray-200">
+                {isScaffold501(error) ? 'This resolver is scaffolded: no live data yet' : "Couldn't resolve this principal's permissions"}
+              </p>
+              <p className="mt-2 max-w-md text-sm">
+                {isScaffold501(error)
+                  ? 'The backend resolver for this provider is not wired up to a live snapshot store yet.'
+                  : 'The lookup failed, so nothing is shown. This is not an empty result: the principal may well have permissions. Try again, or check the resolver service.'}
+              </p>
+            </div>
           ) : showEmptyState ? (
             <div className="flex h-full flex-col items-center justify-center px-8 text-center text-gray-400">
               <p className="text-base font-semibold text-gray-200">
@@ -511,7 +527,7 @@ export function EffectivePermissionsView() {
             </p>
           ) : error ? (
             <p className="text-red-400">
-              Failed to resolve — falling back to demo data.
+              Failed to resolve: {resolveFailure(error)}.
             </p>
           ) : result ? (
             <dl className="space-y-1 text-gray-300">
