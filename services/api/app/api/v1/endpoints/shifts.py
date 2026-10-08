@@ -1,8 +1,9 @@
 """SOC Shift Management endpoints.
 
 Backed by the ``aisoc_shifts`` table (migration 050). Tenant-scoped via
-RLS — every query is automatically filtered to the current tenant by
-Postgres row-level security, so analysts can only see their own tenant's
+RLS — every query is ALSO filtered to the current tenant explicitly (`tenant_id = :tenant_id`). It used to rely on Postgres row-level security alone, which a
+superuser connection (the default deployment) bypasses: any tenant could list, close and overwrite every other tenant's shifts, and read their open alerts. Row-level security
+filters the same rows, so analysts can only see their own tenant's
 shift history.
 """
 
@@ -108,7 +109,7 @@ async def list_shifts(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Return shift summaries, newest first."""
-    params: dict = {"limit": limit}
+    params: dict = {"limit": limit, "tenant_id": str(current_user.tenant_id)}
     where_clause = ""
     if status_filter:
         where_clause = "AND status = :status"
@@ -120,7 +121,7 @@ async def list_shifts(
                    analyst_count, alerts_handled, escalations,
                    handoff_notes, started_at, ended_at
             FROM aisoc_shifts
-            WHERE 1=1 {where_clause}
+            WHERE tenant_id = :tenant_id {where_clause}
             ORDER BY started_at DESC
             LIMIT :limit
         """),
@@ -142,10 +143,11 @@ async def get_current_shift(
                    analyst_count, alerts_handled, escalations,
                    handoff_notes, started_at, ended_at
             FROM aisoc_shifts
-            WHERE status = 'active'
+            WHERE tenant_id = :tenant_id AND status = 'active'
             ORDER BY started_at DESC
             LIMIT 1
         """),
+        {"tenant_id": str(current_user.tenant_id)},
     )
     row = result.fetchone()
     if row is None:
@@ -169,8 +171,9 @@ async def create_shift(
         text("""
             UPDATE aisoc_shifts
             SET status = 'completed', ended_at = now(), updated_at = now()
-            WHERE status = 'active'
+            WHERE status = 'active' AND tenant_id = :tenant_id
         """),
+        {"tenant_id": str(current_user.tenant_id)},
     )
 
     new_id = str(uuid.uuid4())
@@ -239,16 +242,17 @@ async def list_handoff_items(
     false positive, not closed - the actual candidates for handoff to the
     next shift.
     """
+    tenant_params = {"tenant_id": str(current_user.tenant_id)}
     priority_clause = "AND severity = :priority" if priority else ""
     alert_rows = (await db.execute(
         text(f"""
             SELECT id, title, severity AS priority, status, assigned_to_id, ai_summary AS notes
             FROM alerts
-            WHERE status NOT IN ('resolved', 'fp', 'closed') {priority_clause}
+            WHERE tenant_id = :tenant_id AND status NOT IN ('resolved', 'fp', 'closed') {priority_clause}
             ORDER BY created_at DESC
             LIMIT :limit
         """),
-        {"priority": priority, "limit": limit} if priority else {"limit": limit},
+        {**tenant_params, "priority": priority, "limit": limit} if priority else {**tenant_params, "limit": limit},
     )).fetchall()
 
     case_priority_clause = "AND priority = :priority" if priority else ""
@@ -256,11 +260,11 @@ async def list_handoff_items(
         text(f"""
             SELECT id, title, priority, status, assigned_to_id, description AS notes
             FROM cases
-            WHERE status NOT IN ('resolved', 'closed') {case_priority_clause}
+            WHERE tenant_id = :tenant_id AND status NOT IN ('resolved', 'closed') {case_priority_clause}
             ORDER BY created_at DESC
             LIMIT :limit
         """),
-        {"priority": priority, "limit": limit} if priority else {"limit": limit},
+        {**tenant_params, "priority": priority, "limit": limit} if priority else {**tenant_params, "limit": limit},
     )).fetchall()
 
     items = [
@@ -308,7 +312,7 @@ async def add_handoff_notes(
                 status = 'completed',
                 ended_at = now(),
                 updated_at = now()
-            WHERE id::text = :shift_id
+            WHERE id::text = :shift_id AND tenant_id = :tenant_id
             RETURNING id, name, status, lead_id, lead_name, lead_role,
                       analyst_count, alerts_handled, escalations,
                       handoff_notes, started_at, ended_at
@@ -317,6 +321,7 @@ async def add_handoff_notes(
             "notes": body.notes,
             "pending": body.pending_items,
             "shift_id": shift_id,
+            "tenant_id": str(current_user.tenant_id),
         },
     )
     row = result.fetchone()

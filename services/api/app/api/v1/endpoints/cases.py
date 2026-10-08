@@ -642,6 +642,15 @@ async def update_case(case_id: str, body: UpdateCaseRequest, db: DBSession, user
 async def add_alerts(case_id: str, body: AddAlertsRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     ids_str = [str(a) for a in body.alert_ids]
+    # The CASE was always checked against the caller's tenant; the ALERTS never were, so a tenant could plant references to alerts it does not own (or that do not exist) in its own cases.
+    # Foreign and nonexistent ids get the same answer, so this cannot be used to probe which alert ids exist.
+    owned = (
+        await db.execute(
+            text("SELECT id FROM alerts WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id").bindparams(ids=ids_str, tenant_id=user.tenant_id)
+        )
+    ).fetchall()
+    if {str(r[0]) for r in owned} != set(ids_str):
+        raise HTTPException(status_code=404, detail="One or more alerts were not found.")
     q = text("""
         UPDATE aisoc_cases
         SET alert_ids = array(SELECT DISTINCT unnest(alert_ids || CAST(:new_ids AS UUID[]))),

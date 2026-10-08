@@ -335,17 +335,97 @@ async def test_update_case_scopes_update_statement() -> None:
 
 @pytest.mark.asyncio
 async def test_add_alerts_cross_tenant_returns_404() -> None:
+    """A case that is not the caller's: the alerts are the caller's, so the ownership query passes and it is the UPDATE ... RETURNING that yields nothing.
+    (Before alert ownership was checked this test's single scripted result answered the UPDATE; scripting both keeps it exercising the UPDATE path.)"""
     user = _user()
-    db = _mk_db([None])  # UPDATE ... RETURNING * yields nothing.
+    alert_id = uuid.uuid4()
+    db = _mk_db([[(alert_id,)], None])  # 1) the alerts are owned  2) UPDATE ... RETURNING * yields nothing.
     with pytest.raises(HTTPException) as exc:
         await add_alerts(
             case_id=str(uuid.uuid4()),
-            body=AddAlertsRequest(alert_ids=[uuid.uuid4()]),
+            body=AddAlertsRequest(alert_ids=[alert_id]),
             db=db,
             user=user,
         )
-    assert exc.value.status_code == 404
+    assert exc.value.status_code == 404 and exc.value.detail == "Case not found."
+    assert len(db.executed) == 2 and "update aisoc_cases" in re.sub(r"\s+", " ", db.executed[1][0]).lower()
     _assert_tenant_scoped(db.executed, user.tenant_id)
+
+
+# ---- alert ownership: a tenant may only link ITS OWN alerts to its cases ----
+# The case was always checked against the caller's tenant; the alerts never were, so a tenant could plant references to alerts it does not own (or that do not exist) in its own cases.
+# Found by a two-tenant flow test run against the real API as the superuser AND as the non-superuser role: the only step of 70 that failed in BOTH.
+
+
+def _executed_sql(db: Any, n: int) -> str:
+    return re.sub(r"\s+", " ", db.executed[n][0]).lower()
+
+
+@pytest.mark.asyncio
+async def test_add_alerts_refuses_a_foreign_alert_and_never_updates_the_case() -> None:
+    user = _user()
+    foreign = uuid.uuid4()
+    db = _mk_db([[]])  # the ownership query finds none of the ids for THIS tenant
+    with pytest.raises(HTTPException) as exc:
+        await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[foreign]), db=db, user=user)
+    assert exc.value.status_code == 404
+    assert len(db.executed) == 1, "the case must not be updated when an alert is not the caller's"
+    assert "from alerts" in _executed_sql(db, 0) and "update" not in _executed_sql(db, 0)
+    db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_alerts_refuses_the_whole_request_if_any_one_alert_is_not_the_callers() -> None:
+    user = _user()
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+    db = _mk_db([[(mine,)]])  # only one of the two is owned
+    with pytest.raises(HTTPException) as exc:
+        await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[mine, theirs]), db=db, user=user)
+    assert exc.value.status_code == 404 and len(db.executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_foreign_alert_and_a_nonexistent_one_get_the_identical_answer() -> None:
+    """So the endpoint cannot be used to probe which alert ids exist in other tenants."""
+    user = _user()
+    answers = []
+    for _ in range(2):
+        db = _mk_db([[]])
+        with pytest.raises(HTTPException) as exc:
+            await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[uuid.uuid4()]), db=db, user=user)
+        answers.append((exc.value.status_code, exc.value.detail))
+    assert answers[0] == answers[1] == (404, "One or more alerts were not found.")
+
+
+@pytest.mark.asyncio
+async def test_the_ownership_query_is_bound_to_the_callers_tenant_and_the_requested_ids() -> None:
+    user = _user()
+    a, b = uuid.uuid4(), uuid.uuid4()
+    db = _mk_db([[(a,), (b,)], _case_row(alert_ids=[a, b])])
+    await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[a, b]), db=db, user=user)
+    sql, params = db.executed[0]
+    assert "tenant_id = :tenant_id" in re.sub(r"\s+", " ", sql).lower() and "id = any(" in re.sub(r"\s+", " ", sql).lower()
+    assert params["tenant_id"] == user.tenant_id and params["ids"] == [str(a), str(b)]
+
+
+@pytest.mark.asyncio
+async def test_owned_alerts_are_linked_and_the_update_is_still_tenant_scoped() -> None:
+    user = _user()
+    a = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
+    out = await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[a]), db=db, user=user)
+    assert out.alert_ids == [a] and len(db.executed) == 2
+    assert "update aisoc_cases" in _executed_sql(db, 1) and db.executed[1][1]["tenant_id"] == user.tenant_id
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_the_same_alert_listed_twice_is_fine() -> None:
+    user = _user()
+    a = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
+    await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[a, a]), db=db, user=user)
+    assert len(db.executed) == 2
 
 
 @pytest.mark.asyncio
