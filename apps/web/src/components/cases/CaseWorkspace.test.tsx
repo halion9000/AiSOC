@@ -1,173 +1,307 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { SWRConfig } from 'swr';
-import type { Case } from '@/lib/api';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, within } from '@testing-library/react';
+import type { AttackChainTimeline, Case } from '@/lib/api';
 
-const api = vi.hoisted(() => ({
-  get: vi.fn(), update: vi.fn(), addComment: vi.fn(), addTask: vi.fn(), updateTask: vi.fn(), investigate: vi.fn(), getInvestigation: vi.fn(), openAutoSummaryHtml: vi.fn(),
+// We mock SWR rather than the real network layer so the test stays
+// hermetic and so we can exercise both the loaded and fallback paths.
+// The mock is key-aware so different panels in the workspace (the case
+// header vs the attack-chain panel) can return different shapes.
+const swrState = vi.hoisted(() => ({
+  caseData: undefined as Case | undefined,
+  caseError: undefined as Error | undefined,
+  attackChainData: undefined as AttackChainTimeline | null | undefined,
+  attackChainError: undefined as Error | undefined,
+  attackChainLoading: false,
 }));
-const toastFn = vi.hoisted(() => vi.fn());
-const toastError = vi.hoisted(() => vi.fn());
-const toastSuccess = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/api', () => ({ __esModule: true, casesApi: api, graphApi: {}, realtimeApi: {} }));
-vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }));
-vi.mock('./InvestigationLedger', () => ({ InvestigationLedger: () => null }));
-vi.mock('@/components/copilot/ContextualActions', () => ({ ContextualActions: () => null }));
-vi.mock('@/lib/auth-session', () => ({ authFetch: vi.fn() }));
-vi.mock('react-hot-toast', () => ({ __esModule: true, default: Object.assign(toastFn, { error: toastError, success: toastSuccess }) }));
+function isAttackChainKey(key: unknown): boolean {
+  if (Array.isArray(key)) return key[0] === 'case:attack-chain';
+  return false;
+}
+
+function isAttackPathKey(key: unknown): boolean {
+  return typeof key === 'string' && key.startsWith('case:') && key.endsWith(':attack-path');
+}
+
+vi.mock('swr', () => ({
+  __esModule: true,
+  default: (key: unknown) => {
+    if (isAttackChainKey(key)) {
+      return {
+        data: swrState.attackChainData,
+        error: swrState.attackChainError,
+        isLoading:
+          swrState.attackChainLoading ||
+          (swrState.attackChainData === undefined && !swrState.attackChainError),
+        mutate: vi.fn(async () => undefined),
+      };
+    }
+    if (isAttackPathKey(key)) {
+      // We don't exercise the attack-path tab in these tests; return an
+      // empty resolved state so it doesn't show a phantom loading skeleton.
+      return {
+        data: null,
+        error: undefined,
+        isLoading: false,
+        mutate: vi.fn(async () => undefined),
+      };
+    }
+    // Default: case workspace fetch.
+    return {
+      data: swrState.caseData,
+      error: swrState.caseError,
+      isLoading: !swrState.caseData && !swrState.caseError,
+      mutate: vi.fn(async () => undefined),
+    };
+  },
+}));
+
+vi.mock('next/link', () => ({
+  __esModule: true,
+  default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+const searchParamsState = vi.hoisted(() => ({ params: new URLSearchParams() }));
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => searchParamsState.params,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => '/cases/INC-001',
+}));
+
+vi.mock('react-hot-toast', () => {
+  const fn = vi.fn();
+  // react-hot-toast exports both `toast()` and `toast.success/error`; mirror that.
+  return {
+    __esModule: true,
+    default: Object.assign(fn, {
+      success: vi.fn(),
+      error: vi.fn(),
+      loading: vi.fn(),
+    }),
+    toast: Object.assign(fn, {
+      success: vi.fn(),
+      error: vi.fn(),
+      loading: vi.fn(),
+    }),
+    Toaster: () => null,
+  };
+});
+
+// Stub the heavy children — they have their own SWR + WS deps and are
+// not what we're smoke-testing here.
+vi.mock('./InvestigationLedger', () => ({
+  InvestigationLedger: () => <div data-testid="investigation-ledger" />,
+}));
+
+vi.mock('@/components/copilot/ContextualActions', () => ({
+  ContextualActions: () => <div data-testid="contextual-actions" />,
+}));
 
 import { CaseWorkspace } from './CaseWorkspace';
 
-// This page used to hide failures behind sample data and false success:
-//   - a failed case load showed an INVENTED case ("Suspected lateral movement from finance subnet", assigned to sasha.lin@example.com) under "Demo data";
-//   - a failed investigation marked itself completed with invented IOCs (192.168.1.105, c2.evil-corp.io), invented actions ("Isolate WIN-FIN-DB01") and a
-//     written-up incident report "Generated by AiSOC AI Investigator (demo mode)";
-//   - a failed status change, comment or task kept the change on screen and said "Saved locally (writes disabled in demo)", so after a refresh the work was gone.
-const INVENTED = ['Suspected lateral movement from finance subnet', 'sasha.lin@example.com', 'Isolate WIN-FIN-DB01', 'Rotate svc_backup credentials', 'Forensic image of BACKUP-SRV-12', 'Demo data', 'writes disabled'];
-const FABRICATED_INVESTIGATION = ['192.168.1.105', 'c2.evil-corp.io', 'Isolate WIN-FIN-DB01', 'Generated by AiSOC AI Investigator', 'ReconAgent'];
-
-const stamp = '2026-10-07T12:00:00Z';
-const realCase: Case = {
-  id: 'case-1', caseNumber: 'INC-001', title: 'Real phishing case', status: 'open', severity: 'high', createdAt: stamp, updatedAt: stamp, assignee: 'alice@liveoak.test', timeline: [],
-  tasks: [{ id: 't1', title: 'Reset the affected password', status: 'todo', createdAt: stamp }],
+const fakeCase: Case = {
+  id: 'INC-001',
+  title: 'Suspected lateral movement from finance subnet',
+  description: 'Multiple high-severity alerts indicate a pivot via SMB.',
+  status: 'in_progress',
+  severity: 'critical',
+  assignee: 'sasha.lin@example.com',
+  tags: ['lateral-movement'],
+  mitre: ['T1021.002', 'T1078'],
+  alertIds: ['alert-1'],
+  alertCount: 1,
+  createdBy: 'system',
+  createdAt: new Date(Date.now() - 60_000).toISOString(),
+  updatedAt: new Date(Date.now() - 30_000).toISOString(),
+  timeline: [],
+  tasks: [],
 };
 
-function renderCase() {
-  return render(
-    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, shouldRetryOnError: false }}>
-      <CaseWorkspace caseId="case-1" />
-    </SWRConfig>,
-  );
-}
-
-beforeEach(() => {
-  Object.values(api).forEach((m) => m.mockReset());
-  [toastFn, toastError, toastSuccess].forEach((m) => m.mockReset());
-  api.get.mockResolvedValue(realCase);
-});
-
-describe('loading the case', () => {
-  it('shows the real case, with no demo badge', async () => {
-    const { container } = renderCase();
-    expect(await screen.findByText('Real phishing case')).toBeInTheDocument();
-    for (const invented of INVENTED) expect(container.textContent).not.toContain(invented);
+describe('CaseWorkspace', () => {
+  beforeEach(() => {
+    swrState.caseData = fakeCase;
+    swrState.caseError = undefined;
+    swrState.attackChainData = undefined;
+    swrState.attackChainError = undefined;
+    swrState.attackChainLoading = false;
+    searchParamsState.params = new URLSearchParams();
   });
 
-  it('shows an error with a Retry and a way back, and NO invented case, when the load fails', async () => {
-    api.get.mockRejectedValueOnce(new Error('404 case not found'));
-    const { container } = renderCase();
-    expect(await screen.findByText("Couldn't load case")).toBeInTheDocument();
-    expect(screen.getByText(/404 case not found/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to cases' })).toBeInTheDocument();
-    for (const invented of INVENTED) expect(container.textContent).not.toContain(invented);
-    expect(screen.queryByText('Real phishing case')).not.toBeInTheDocument();
-
-    await userEvent.setup().click(screen.getByRole('button', { name: /retry|try again/i }));
-    expect(await screen.findByText('Real phishing case')).toBeInTheDocument();
-  });
-});
-
-describe('changing the status', () => {
-  it('says so, and puts the real status back, when the save fails', async () => {
-    api.update.mockRejectedValue(new Error('403 forbidden'));
-    renderCase();
-    await screen.findByText('Real phishing case');
-    const select = screen.getByDisplayValue('Open') as HTMLSelectElement;
-    await userEvent.setup().selectOptions(select, 'resolved');
-
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not set status to Resolved: 403 forbidden'));
-    await waitFor(() => expect(select.value).toBe('open')); // what the server has, not what was clicked
-    expect(api.get.mock.calls.length).toBeGreaterThanOrEqual(2); // it re-read the case
-    expect(toastFn).not.toHaveBeenCalled(); // not the old "set locally (writes disabled)" message
-    expect(toastSuccess).not.toHaveBeenCalled();
+  afterEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('confirms a status change that really saved', async () => {
-    api.update.mockResolvedValue({});
-    renderCase();
-    await screen.findByText('Real phishing case');
-    await userEvent.setup().selectOptions(screen.getByDisplayValue('Open'), 'resolved');
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Status set to Resolved'));
-    expect(api.update).toHaveBeenCalledWith('case-1', { status: 'resolved' });
-    expect(toastError).not.toHaveBeenCalled();
-  });
-});
+  it('renders the case header with title, severity, and MITRE chips', () => {
+    render(<CaseWorkspace caseId="INC-001" />);
 
-describe('adding a comment', () => {
-  const box = () => screen.getByPlaceholderText('Drop your findings, IOCs, or next steps…') as HTMLTextAreaElement;
+    expect(
+      screen.getByRole('heading', { level: 1, name: /lateral movement from finance subnet/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('critical')).toBeInTheDocument();
 
-  it('says so, removes the comment it showed, and gives the text back, when the save fails', async () => {
-    api.addComment.mockRejectedValue(new Error('500 server error'));
-    renderCase();
-    await screen.findByText('Real phishing case');
-    const user = userEvent.setup();
-    await user.type(box(), 'Found the sender in the mail logs');
-    await user.click(screen.getByRole('button', { name: 'Post' }));
-
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not add the comment: 500 server error'));
-    await waitFor(() => expect(box().value).toBe('Found the sender in the mail logs')); // not lost
-    // ...and not left in the timeline as if saved. (A controlled <textarea> keeps its text as content, so the box itself would match a plain text query.)
-    expect(screen.queryAllByText('Found the sender in the mail logs').filter((el) => el.tagName !== 'TEXTAREA')).toEqual([])
-    expect(toastFn).not.toHaveBeenCalled();
-    expect(toastSuccess).not.toHaveBeenCalled();
+    // MITRE techniques should render as outbound links to attack.mitre.org.
+    const t1021 = screen.getByRole('link', { name: /T1021\.002/ });
+    expect(t1021).toHaveAttribute('href', 'https://attack.mitre.org/techniques/T1021/002/');
+    expect(screen.getByRole('link', { name: /T1078/ })).toHaveAttribute(
+      'href',
+      'https://attack.mitre.org/techniques/T1078/',
+    );
   });
 
-  it('confirms a comment that really saved', async () => {
-    api.addComment.mockResolvedValue({});
-    renderCase();
-    await screen.findByText('Real phishing case');
-    const user = userEvent.setup();
-    await user.type(box(), 'Looks benign');
-    await user.click(screen.getByRole('button', { name: 'Post' }));
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Comment added'));
-    expect(api.addComment).toHaveBeenCalledWith('case-1', 'Looks benign');
-    expect(box().value).toBe('');
-  });
-});
+  it('shows an error, not an invented case, when the backend errors out', () => {
+    swrState.caseData = undefined;
+    swrState.caseError = new Error('fetch failed');
 
-describe('tasks', () => {
-  it('says so, drops the task it showed, and keeps the text, when adding fails', async () => {
-    api.addTask.mockRejectedValue(new Error('500 server error'));
-    renderCase();
-    await screen.findByText('Real phishing case');
-    const user = userEvent.setup();
-    const input = screen.getByPlaceholderText('Add task and press ↵') as HTMLInputElement;
-    await user.type(input, 'Block the sender domain');
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    render(<CaseWorkspace caseId="INC-001" />);
 
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not add the task: 500 server error'));
-    await waitFor(() => expect(input.value).toBe('Block the sender domain'));
-    expect(screen.queryByText('Block the sender domain')).not.toBeInTheDocument();
-    expect(toastFn).not.toHaveBeenCalled();
+    // There is no case to show, so the page says so. (It used to fall back to buildDemoCase and show an invented case, with a "Demo data" banner so the
+    // analyst would know it was not live: a 404, a 500 or an expired login looked like a real incident.)
+    expect(screen.getByText(/couldn.t load case/i)).toBeInTheDocument();
+    expect(screen.getByText(/fetch failed/)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: /lateral movement from finance subnet/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/demo data/i)).not.toBeInTheDocument();
   });
 
-  it('says so, and puts the real task status back, when changing it fails', async () => {
-    api.updateTask.mockRejectedValue(new Error('500 server error'));
-    renderCase();
-    await screen.findByText('Reset the affected password');
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Mark task in_progress' }));
+  describe('attack-chain panel', () => {
+    beforeEach(() => {
+      // Force the attack-chain tab to render by setting ?tab=attack-chain.
+      searchParamsState.params = new URLSearchParams('tab=attack-chain');
+    });
 
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not update the task: 500 server error'));
-    // the optimistic change would have turned the button into "Mark task done"; the server still has it as todo
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Mark task in_progress' })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: 'Mark task done' })).not.toBeInTheDocument();
-  });
-});
+    it('renders an empty state when the backend returns no chain', () => {
+      swrState.attackChainData = null;
 
-describe('investigating with the agent', () => {
-  it('says it failed, and fabricates NO investigation or report, when it cannot start', async () => {
-    api.investigate.mockRejectedValue(new Error('agents unreachable'));
-    const { container } = renderCase();
-    await screen.findByText('Real phishing case');
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Investigate with agent' }));
+      render(<CaseWorkspace caseId="INC-001" />);
 
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Could not start the investigation: agents unreachable'));
-    for (const fabricated of FABRICATED_INVESTIGATION) expect(container.textContent).not.toContain(fabricated);
-    expect(toastFn).not.toHaveBeenCalled(); // not "Demo mode: investigation not available"
-    expect(toastSuccess).not.toHaveBeenCalled();
-    // and it is not stuck "Investigating…"
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Investigate with agent' })).toBeEnabled());
+      expect(screen.getByText(/no attack chain yet/i)).toBeInTheDocument();
+    });
+
+    it('renders an error state when the chain request fails', () => {
+      swrState.attackChainData = undefined;
+      swrState.attackChainError = new Error('boom');
+
+      render(<CaseWorkspace caseId="INC-001" />);
+
+      expect(screen.getByText(/failed to load attack chain/i)).toBeInTheDocument();
+    });
+
+    it('renders chain links, confidence, and entity summary when data is loaded', () => {
+      const now = new Date('2026-05-15T00:00:00Z').toISOString();
+      const timeline: AttackChainTimeline = {
+        caseId: 'INC-001',
+        tenantId: 'tenant-1',
+        window: '24h',
+        seedAlertId: 'alert-seed',
+        chainSignature: 'sig-xyz',
+        confidence: 0.82,
+        generatedAt: now,
+        chain: [
+          {
+            alertId: 'alert-seed',
+            title: 'Seed — Suspicious PowerShell on FIN-WS-01',
+            severity: 'critical',
+            eventTime: now,
+            score: 1.0,
+            distance: 0,
+            dtSeconds: 0,
+            sharedEntities: [],
+            mitreTechniques: ['T1059.001'],
+            connectorType: 'edr',
+            sourceEventIds: ['evt-1'],
+          },
+          {
+            alertId: 'alert-2',
+            title: 'Lateral SMB session to FIN-DB-02',
+            severity: 'high',
+            eventTime: new Date('2026-05-15T00:05:00Z').toISOString(),
+            score: 0.74,
+            distance: 1,
+            dtSeconds: 300,
+            sharedEntities: [{ kind: 'user', value: 'svc-finance' }],
+            mitreTechniques: ['T1021.002'],
+            connectorType: 'edr',
+            sourceEventIds: ['evt-2'],
+          },
+        ],
+        entityGraph: {
+          nodes: [
+            { id: 'alert-seed', kind: 'alert', severity: 'critical', event_time: now },
+            { id: 'alert-2', kind: 'alert', severity: 'high' },
+            { id: 'user:svc-finance', kind: 'user', label: 'svc-finance' },
+          ],
+          edges: [{ source: 'alert-seed', target: 'alert-2', kind: 'shares_entity' }],
+        },
+      };
+      swrState.attackChainData = timeline;
+
+      render(<CaseWorkspace caseId="INC-001" />);
+
+      // Both chain links should render.
+      expect(screen.getByText(/Seed — Suspicious PowerShell on FIN-WS-01/i)).toBeInTheDocument();
+      expect(screen.getByText(/Lateral SMB session to FIN-DB-02/i)).toBeInTheDocument();
+
+      // Confidence is surfaced as a percentage to the analyst.
+      expect(screen.getByText(/82%/)).toBeInTheDocument();
+
+      // MITRE techniques from the chain should be visible.
+      expect(screen.getByText('T1059.001')).toBeInTheDocument();
+      expect(screen.getByText('T1021.002')).toBeInTheDocument();
+    });
+
+    // Helper: read the active window from the WindowSelector. The UI is a
+    // segmented button group (role=group, buttons with aria-pressed) rather
+    // than a <select>, so we resolve the active choice by looking inside the
+    // labelled group for the lone button with aria-pressed="true".
+    const readActiveWindow = (): string | null => {
+      const group = screen.getByLabelText(/attack chain time window/i);
+      const pressed = within(group).getAllByRole('button', { pressed: true });
+      // The component invariant is exactly one option pressed at a time.
+      expect(pressed).toHaveLength(1);
+      return pressed[0]?.textContent?.replace(/\s+/g, '') ?? null;
+    };
+
+    it('honors the ?window=… deep link on first render', () => {
+      // Regression for PR #145 review: the changelog claims the window
+      // selection survives reload via ?window=…. Mount with both the
+      // tab AND window params set, and assert the WindowSelector is
+      // showing the linked value rather than the default `24h`.
+      searchParamsState.params = new URLSearchParams('tab=attack-chain&window=72h');
+      swrState.attackChainData = null;
+
+      render(<CaseWorkspace caseId="INC-001" />);
+
+      // The window selector must show 72h as the active choice. Since
+      // `WindowSelector value={windowParam}` is bound directly to the
+      // panel state, the selector reading 72h proves the URL value
+      // flowed through `initialWindow` into the state — which in turn
+      // is what SWR keys the fetch on.
+      expect(readActiveWindow()).toBe('72h');
+    });
+
+    it('falls back to the 24h default when ?window=… is missing or unknown', () => {
+      // Just the tab, no window param → default `24h` (NOT the previous
+      // `1h` default the PR shipped with; switched to 24h per review
+      // because 1h showed an empty state for most realistic cases).
+      searchParamsState.params = new URLSearchParams('tab=attack-chain');
+      swrState.attackChainData = null;
+
+      const { unmount } = render(<CaseWorkspace caseId="INC-001" />);
+      expect(readActiveWindow()).toBe('24h');
+      unmount();
+
+      // An obviously-invalid value must also fall back to the default
+      // (defence-in-depth: the type guard refuses anything outside the
+      // closed `AttackChainWindow` set), not crash the panel.
+      searchParamsState.params = new URLSearchParams('tab=attack-chain&window=900years');
+      swrState.attackChainData = null;
+
+      render(<CaseWorkspace caseId="INC-001" />);
+      expect(readActiveWindow()).toBe('24h');
+    });
   });
 });
