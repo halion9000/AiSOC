@@ -18,6 +18,8 @@ _ANY = None
 RULES: list[tuple[re.Pattern[str], frozenset[str] | None, str]] = [
     # playbooks
     (re.compile(r"^/api/v1/playbooks/draft-from-nl$"), frozenset({"POST"}), "playbooks:write"),
+    # Cloning a library playbook into the caller's tenant creates a tenant playbook, so it needs the same permission as creating one.
+    (re.compile(r"^/api/v1/playbooks/[^/]+/clone$"), frozenset({"POST"}), "playbooks:write"),
     (re.compile(r"^/api/v1/playbooks/[^/]+/run$"), frozenset({"POST"}), "playbooks:execute"),
     (re.compile(r"^/api/v1/playbooks(/runs(/[^/]+)?|/[^/]+)?$"), frozenset({"GET"}), "playbooks:read"),
     (re.compile(r"^/api/v1/playbooks(/[^/]+)?$"), _WRITE, "playbooks:write"),

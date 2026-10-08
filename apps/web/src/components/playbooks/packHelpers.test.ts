@@ -13,7 +13,6 @@ import {
   filterPlaybooks,
   countBySource,
   countByCategory,
-  buildForkBody,
 } from './packHelpers';
 
 function makePlaybook(overrides: Partial<Playbook> = {}): Playbook {
@@ -140,41 +139,5 @@ describe('counts', () => {
     expect(out.ransomware).toBe(2);
     expect(out['data-exfil']).toBe(1);
     expect(out['account-takeover']).toBe(0);
-  });
-});
-
-describe('buildForkBody', () => {
-  it('clears id, marks fork in name + tags, disables, and sets author', () => {
-    const original = makePlaybook({
-      id: 'ransomware-pack-v1',
-      name: 'Ransomware Triage',
-      tags: ['ransomware'],
-      enabled: true,
-    });
-    const body = buildForkBody(original, { author: 'alice' });
-
-    expect(body.id).toBe('');
-    expect(body.name).toBe('Ransomware Triage (fork)');
-    expect(body.author).toBe('alice');
-    expect(body.enabled).toBe(false);
-    expect(body.tags).toContain('fork-of:ransomware-pack-v1');
-    expect(body.tags).toContain('ransomware');
-    expect(body.created_at).toBe('');
-    expect(body.updated_at).toBe('');
-  });
-
-  it('falls back to author "you" when not provided', () => {
-    const body = buildForkBody(makePlaybook({ id: 'pack-x-v1' }));
-    expect(body.author).toBe('you');
-  });
-
-  it('does not duplicate the fork-of marker on chained forks', () => {
-    const original = makePlaybook({
-      id: 'pack-y-v1',
-      tags: ['ransomware', 'fork-of:pack-y-v1'],
-    });
-    const body = buildForkBody(original);
-    const occurrences = body.tags.filter((t) => t === 'fork-of:pack-y-v1').length;
-    expect(occurrences).toBe(1);
   });
 });

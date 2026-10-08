@@ -69,6 +69,8 @@ const CATEGORY_COLORS: Record<PackCategory, string> = {
  * under `playbooks/packs/v1/`. Heuristic: author "AiSOC" + non-UUID id.
  */
 export function isShippedPack(pb: Playbook): boolean {
+  // The server says which it is; the heuristic below is only for responses that predate that field.
+  if (pb.scope) return pb.scope === 'library';
   if (pb.author !== 'AiSOC') return false;
   if (!pb.id) return false;
   return !UUID_REGEX.test(pb.id);
@@ -340,41 +342,26 @@ export function countByCategory(playbooks: Playbook[]): Record<PackCategory, num
 }
 
 /**
- * Build the JSON body for forking a shipped pack into a user-owned copy.
- * The agents service generates a fresh UUID when `id` is empty (see
- * PlaybookStore.create). We disable the fork by default so it doesn't
- * fire on the next matching alert before the operator reviews it.
+ * Fork (clone) a playbook into the caller's tenant so it can be customised. Done by the SERVER (POST /api/v1/playbooks/<id>/clone): it copies the playbook, records where it came from
+ * (`cloned_from`), and starts the copy DISABLED so it cannot go live before the operator has reviewed it. The shared library itself is read-only and is never changed.
+ * Returns the created copy (with a freshly assigned id) or throws with the server's explanation.
  */
-export function buildForkBody(original: Playbook, opts?: { author?: string }): Playbook {
-  return {
-    ...original,
-    id: '',
-    name: `${original.name} (fork)`,
-    author: opts?.author ?? 'you',
-    enabled: false,
-    tags: Array.from(new Set([...(original.tags ?? []), `fork-of:${original.id}`])),
-    created_at: '',
-    updated_at: '',
-  };
-}
-
-/**
- * POST a forked playbook to the agents API. Returns the created Playbook
- * (with a freshly assigned UUID) or throws on failure.
- */
-export async function forkPlaybook(
-  original: Playbook,
-  opts?: { author?: string },
-): Promise<Playbook> {
-  const body = buildForkBody(original, opts);
-  const res = await authFetch('/api/v1/playbooks', {
+export async function forkPlaybook(original: Playbook): Promise<Playbook> {
+  const res = await authFetch(`/api/v1/playbooks/${encodeURIComponent(original.id)}/clone`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ name: `${original.name} (fork)` }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Fork failed: HTTP ${res.status}${text ? ` — ${text}` : ''}`);
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed?.detail === 'string') detail = parsed.detail;
+    } catch {
+      /* not JSON: show it as is */
+    }
+    throw new Error(`Fork failed: HTTP ${res.status}${detail ? ` \u2014 ${detail}` : ''}`);
   }
   return (await res.json()) as Playbook;
 }

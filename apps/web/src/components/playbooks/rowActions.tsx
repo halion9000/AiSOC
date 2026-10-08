@@ -11,41 +11,73 @@
 import React, { useState } from 'react';
 import { mutate } from 'swr';
 import type { Playbook } from './types';
+import { isShippedPack } from './packHelpers';
 import { authFetch } from '@/lib/auth-session';
 
-/** Small toggle that flips Playbook.enabled via PUT /api/v1/playbooks/<id>. */
+/**
+ * Small toggle that flips Playbook.enabled via PUT /api/v1/playbooks/<id>.
+ *
+ * A shared LIBRARY playbook is read-only: its toggle is locked (the server would answer 403), with the reason in the tooltip. To run your own version, fork it, then enable the copy. A failed request is
+ * shown, not swallowed: the toggle used to ignore the response, so a refusal looked like the switch silently flipping back.
+ */
 export function EnabledToggle({ playbook }: { playbook: Playbook }) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const locked = isShippedPack(playbook);
   async function toggle() {
     setLoading(true);
+    setError(null);
     try {
-      await authFetch(`/api/v1/playbooks/${playbook.id}`, {
+      const res = await authFetch(`/api/v1/playbooks/${encodeURIComponent(playbook.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !playbook.enabled }),
       });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed?.detail === 'string') detail = parsed.detail;
+        } catch {
+          /* not JSON */
+        }
+        setError(detail || `Could not change this playbook (HTTP ${res.status}).`);
+        return;
+      }
       await mutate('/api/v1/playbooks');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not change this playbook.');
     } finally {
       setLoading(false);
     }
   }
+  const lockedReason = 'Shared library playbook (read-only). Fork it to run your own version, then enable the copy.';
   return (
-    <button
-      onClick={toggle}
-      disabled={loading}
-      title={playbook.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
-      aria-label={`${playbook.enabled ? 'Disable' : 'Enable'} ${playbook.name}`}
-      aria-pressed={playbook.enabled}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:ring-offset-gray-900 disabled:opacity-50 ${
-        playbook.enabled ? 'bg-green-600' : 'bg-gray-700'
-      }`}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-          playbook.enabled ? 'translate-x-4' : 'translate-x-1'
-        }`}
-      />
-    </button>
+    <>
+      <button
+        onClick={toggle}
+        disabled={loading || locked}
+        title={locked ? lockedReason : playbook.enabled ? 'Enabled \u2014 click to disable' : 'Disabled \u2014 click to enable'}
+        aria-label={`${playbook.enabled ? 'Disable' : 'Enable'} ${playbook.name}`}
+        aria-pressed={playbook.enabled}
+        aria-disabled={locked || undefined}
+        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          locked ? 'cursor-not-allowed opacity-50 ' : ''
+        }${playbook.enabled ? 'bg-green-600' : 'bg-gray-700'}`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+            playbook.enabled ? 'translate-x-4' : 'translate-x-1'
+          }`}
+        />
+      </button>
+      {error && (
+        <span role="alert" className="ml-2 text-[10px] text-red-400">
+          {error}
+        </span>
+      )}
+    </>
   );
 }
 

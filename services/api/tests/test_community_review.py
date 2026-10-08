@@ -286,6 +286,17 @@ class TestInstallingReallyInstalls:
         assert catalog("playbook", pid)["definition"]["enabled"] is True  # the catalog entry itself is not altered
         assert catalog("playbook", pid)["install_count"] == 1
 
+    def test_a_playbook_is_installed_into_the_INSTALLING_tenant_not_the_submitters(self):
+        """The call to the agents service carries no tenant of its own, so the install must name one. Playbooks are a shared read-only library plus each tenant's own: without it the playbook has nowhere to go."""
+        submitter, installer = uuid.uuid4(), uuid.uuid4()
+        sub = client_as("admin", submitter)
+        pid = sub.post(f"{PREFIX}/playbooks/submit", json={"name": "Isolate host", "steps": []}).json()["id"]
+        sub.put(f"{PREFIX}/playbooks/{pid}/curate", json={"action": "approve"})
+        client_as("admin", installer).post(f"{PREFIX}/playbooks/{pid}/install")
+        (_method, _path, kwargs), = PROXY.calls
+        assert kwargs["params"] == {"tenant_id": str(installer)}
+        assert str(submitter) not in str(kwargs)
+
     @pytest.mark.parametrize("status_code", [422, 503])
     def test_when_the_engine_refuses_the_install_fails_and_is_not_counted(self, status_code):
         admin = client_as("admin")

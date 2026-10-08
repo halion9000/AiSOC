@@ -54,6 +54,15 @@ export interface Playbook {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+  /**
+   * Set by the server. "library" = a shared, read-only playbook shipped with the platform (every tenant sees the same ones); "tenant" = this tenant's own (created here or cloned from the library).
+   * Older responses omit these; isShippedPack() then falls back to its heuristic.
+   */
+  scope?: 'library' | 'tenant';
+  /** False for library playbooks: they cannot be edited or deleted, only cloned. */
+  editable?: boolean;
+  /** For a tenant's copy: the id of the playbook it was cloned from. */
+  cloned_from?: string | null;
 }
 
 export type PlaybookRunStatus =

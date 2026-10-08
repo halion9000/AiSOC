@@ -114,5 +114,7 @@ class Playbook(BaseModel):
     # Metadata
     author: str = "AiSOC"
     enabled: bool = True
+    # Provenance for a tenant's custom copy: the id of the playbook it was cloned from (None for the shipped library and for playbooks written from scratch).
+    cloned_from: str | None = None
     created_at: str = ""
     updated_at: str = ""

@@ -571,7 +571,9 @@ async def install_community_playbook(
     # fails with that error (and is not counted). It used to only bump a counter and report "installed".
     from app.api.v1.endpoints import playbooks as playbooks_api
 
-    created = await playbooks_api._proxy("POST", "", json={**p["definition"], "enabled": False})
+    # The playbook is created in the INSTALLING tenant's own playbooks (disabled until they enable it). The internal call carries no tenant of its own, so it must be named: without it the agents service has
+    # nowhere to put the playbook (playbooks are a shared read-only library plus each tenant's own).
+    created = await playbooks_api._proxy("POST", "", json={**p["definition"], "enabled": False}, params={"tenant_id": str(current_user.tenant_id)})
     # Re-read WITH the row lock only now, after the (slow) engine call, so the lock is never held across a network round trip.
     p = await PLAYBOOKS.get(db, playbook_id, lock=True) or p
     p["install_count"] += 1
