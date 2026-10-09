@@ -295,7 +295,14 @@ async def revoke_role(
     current_user: Annotated[AuthUser, Depends(require_permission("users:write"))],
     db: TenantDBSession,
 ) -> None:
-    """Revoke a role from a user."""
+    """Revoke a role from a user.
+
+    Both the role and the user must belong to the caller's tenant, exactly as assign_role requires. This used to delete the assignment by the two ids alone (user_roles has no tenant column to filter on), so any tenant admin with users:write could strip any role from any user of ANY tenant, shown on real
+    Postgres by the two-tenant flows (tenant B removed tenant A's role assignment, HTTP 204). A role or user that is not this tenant's is the same 404 as one that does not exist."""
+    await _get_role_or_404(db, role_id, current_user.tenant_id)
+    user_res = await db.execute(select(User).where(User.id == user_id, User.tenant_id == current_user.tenant_id))
+    if user_res.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in tenant")
     await db.execute(delete(UserRole).where(UserRole.user_id == user_id, UserRole.role_id == role_id))
     await db.commit()
 

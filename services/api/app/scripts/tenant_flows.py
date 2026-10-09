@@ -130,6 +130,11 @@ def _has(resp: Any, needle: str) -> bool:
     return needle in resp.text
 
 
+def _lacks(resp: Any, needle: str) -> bool:
+    """The response does not contain `needle`. Only ever combine this with a `_has` on the SAME response (see the rbac flow): on its own it passes for an empty or failing answer, which is why bare exclusion checks are guarded against."""
+    return needle not in resp.text
+
+
 def _top_field_is(resp: Any, key: str, want: str) -> bool:
     """True if the response's TOP-LEVEL JSON object has `key` equal to `want`. Not a search: the same id can appear elsewhere in a response (the alert detail repeats its case_id inside a rail event's payload), and a step that matches that
     passes whether or not the field under test is right (a recursive version of this helper did exactly that and failed to notice the link being removed)."""
@@ -251,6 +256,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_more_flows())
     flows.update(_third_batch())
     flows.update(_fourth_batch())
+    flows.update(_fifth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -454,6 +460,46 @@ def _fourth_batch() -> dict[str, list[Step]]:
     }
 
 
+def _fifth_batch() -> dict[str, list[Step]]:
+    """RBAC roles and role assignments, phishing submissions and data-lifecycle parsers."""
+    return {
+        "rbac": [
+            S("A creates a role", "A", "post", "/api/v1/rbac/roles", over={"name": "flow-role-a"}, capture=("ra", "id")),
+            S("B creates a role", "B", "post", "/api/v1/rbac/roles", over={"name": "flow-role-b"}, capture=("rb", "id")),
+            S("A learns its own user id", "A", "get", "/api/v1/auth/me", expect=(200,), capture=("ua", "id")),
+            S("B learns its own user id", "B", "get", "/api/v1/auth/me", expect=(200,), capture=("ub", "id")),
+            S("A reads its role", "A", "get", "/api/v1/rbac/roles/{ra}", expect=(200,)),
+            S("B cannot read A's role", "B", "get", "/api/v1/rbac/roles/{ra}", expect=ISO),
+            S("B cannot change A's role", "B", "patch", "/api/v1/rbac/roles/{ra}", over={"name": "pwned"}, expect=ISO),
+            S("B's role list excludes A's role", "B", "get", "/api/v1/rbac/roles", expect=(200,), absent="ra"),
+            S("A gives its own user A's role", "A", "post", "/api/v1/rbac/users/{ua}/roles", expect=(200, 201, 204)),
+            S("A reads its user's roles", "A", "get", "/api/v1/rbac/users/{ua}/roles", expect=(200,), check=lambda r, c: _has(r, c["ra"])),
+            S("B cannot read A's user's roles", "B", "get", "/api/v1/rbac/users/{ua}/roles", expect=(404, 403, 200), absent="ra"),
+            S("B cannot give A's user B's role", "B", "post", "/api/v1/rbac/users/{ua}/roles", expect=NOT_YOURS),
+            S("B cannot give its own user A's role", "B", "post", "/api/v1/rbac/users/{ub}/roles", expect=NOT_YOURS),
+            S("B cannot remove A's role from A's user", "B", "delete", "/api/v1/rbac/users/{ua}/roles/{ra}", expect=ISO, nobody=True),
+            S("B gives its own user B's role", "B", "post", "/api/v1/rbac/users/{ub}/roles", expect=(200, 201, 204)),
+            # Positive and negative in ONE response: B's own role must be there (so an empty or failing answer cannot pass) and A's must not.
+            S("B's own user has B's role and not A's", "B", "get", "/api/v1/rbac/users/{ub}/roles", expect=(200,), check=lambda r, c: _has(r, c["rb"]) and _lacks(r, c["ra"])),
+            S("A's assignment is intact", "A", "get", "/api/v1/rbac/users/{ua}/roles", expect=(200,), check=lambda r, c: _has(r, c["ra"])),
+            S("B cannot delete A's role", "B", "delete", "/api/v1/rbac/roles/{ra}", expect=ISO, nobody=True),
+            S("A's role is intact", "A", "get", "/api/v1/rbac/roles/{ra}", expect=(200,)),
+        ],
+        "phishing_submissions": [
+            S("A submits a phishing artifact", "A", "post", "/api/v1/phishing/submit", capture=("ps", "id")),
+            S("A reads it", "A", "get", "/api/v1/phishing/{ps}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/phishing/{ps}", expect=ISO),
+            S("B cannot re-triage it", "B", "post", "/api/v1/phishing/{ps}/retriage", expect=ISO, nobody=True),
+        ],
+        "parsers": [
+            S("A creates a parser", "A", "post", "/api/v1/data-lifecycle/parsers", over={"name": "flow-parser-a"}, capture=("pa", "id")),
+            S("B's parser list excludes it", "B", "get", "/api/v1/data-lifecycle/parsers", expect=(200,), absent="pa"),
+            S("B cannot delete it", "B", "delete", "/api/v1/data-lifecycle/parsers/{pa}", expect=ISO, nobody=True),
+            S("A's parser is intact", "A", "get", "/api/v1/data-lifecycle/parsers", expect=(200,), check=lambda r, c: _has(r, c["pa"])),
+        ],
+    }
+
+
 def _more_fresh() -> list[Step]:
     return [
         S("A creates a fresh asset", "A", "post", "/api/v1/assets", capture=("f_asset", "id")),
@@ -507,6 +553,14 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                     over = dict(st.over)
                     if flow == "alerts" and st.name in ("A links the alert", "B cannot attach A's alert", "B cannot create a case citing A's alert", "A can create a case citing its OWN alert"):
                         over = {"alert_ids": [ctx.get("alert")]}
+                    if flow == "rbac" and st.name == "B cannot give A's user B's role":
+                        over = {"user_id": ctx.get("ua"), "role_id": ctx.get("rb")}
+                    if flow == "rbac" and st.name == "B cannot give its own user A's role":
+                        over = {"user_id": ctx.get("ub"), "role_id": ctx.get("ra")}
+                    if flow == "rbac" and st.name == "B gives its own user B's role":
+                        over = {"user_id": ctx.get("ub"), "role_id": ctx.get("rb")}
+                    if flow == "rbac" and st.name == "A gives its own user A's role":
+                        over = {"user_id": ctx.get("ua"), "role_id": ctx.get("ra")}
                     if flow == "explain_lineage" and st.name in ("A submits an alert naming its own rule", "B submits an alert naming A's rule"):
                         over = {**over, "tags": [f"rule:{ctx.get('rl2')}"]}
                     if flow == "assets" and st.name == "A adds a vulnerability to it":
