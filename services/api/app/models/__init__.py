@@ -28,6 +28,7 @@ from app.models.mssp import (
     MSSPTenantMetrics,
     MSSPTenantNote,
 )
+from app.models.login_failure import LoginFailure
 from app.models.marketplace import MarketplaceInstall
 from app.models.oauth import OAuthAppCredential, OAuthState
 from app.models.posture import PostureDriftEvent, PostureFinding, PostureScanRun
@@ -84,6 +85,7 @@ __all__ = [
     "MSSPRulePackRule",
     "MSSPTenantMetrics",
     "MSSPTenantNote",
+    "LoginFailure",
     "MarketplaceInstall",
     "OAuthAppCredential",
     "OAuthState",

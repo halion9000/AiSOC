@@ -144,6 +144,11 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "change-me-in-production-at-least-32-chars"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # Login throttling (app/services/login_throttle.py): after this many FAILED sign-ins for one address, or from one client address, within the window, further attempts are refused (429) until the oldest
+    # of those failures leaves the window. The address count applies to made-up addresses exactly as to real ones. Each must be at least 1.
+    LOGIN_MAX_FAILURES_PER_ACCOUNT: int = Field(default=5, ge=1)
+    LOGIN_MAX_FAILURES_PER_IP: int = Field(default=20, ge=1)
+    LOGIN_FAILURE_WINDOW_MINUTES: int = Field(default=15, ge=1)
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
 

@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Security, status
+from fastapi import APIRouter, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, update
@@ -13,6 +13,8 @@ from app.api.v1.deps import AuthUser, DBSession, SessionUser, bearer_scheme, get
 
 __all__ = ["router", "get_current_user"]
 from app.core.config import settings
+from app.core.trusted_proxy import resolve_client_ip
+from app.services import login_throttle
 from app.core.security import known_permissions
 from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
 from app.core.security import (
@@ -72,19 +74,39 @@ class PreferencesPatch(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest, db: DBSession) -> TokenResponse:
-    """Authenticate with email/password, return JWT tokens."""
+async def login(
+    request: LoginRequest,
+    db: DBSession,
+    http_request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; None for a direct call
+) -> TokenResponse:
+    """Authenticate with email/password, return JWT tokens.
+
+    Failed attempts are counted (app.services.login_throttle): too many for one address, or from one client address, in the window and further attempts are refused (429) until it passes, even with the right password.
+    The count is by address AS TYPED whether or not an account exists, and the refusal is the same for every case, so the lock cannot be used to find out which addresses are registered.
+    """
+    client_ip: str | None = None
+    if http_request is not None:
+        try:
+            client_ip = resolve_client_ip(http_request)
+        except Exception:  # noqa: BLE001  # an unattributable client is limited by address only, never allowed to break sign-in
+            client_ip = None
+    await login_throttle.ensure_not_locked(db, request.email, client_ip)
+
     result = await db.execute(select(User).where(User.email == request.email, User.is_active.is_(True)))
     user = result.scalar_one_or_none()
 
     # The password is checked whether or not the account exists (or is active), so "no such account" takes as long as "wrong password": the answer and its timing must not reveal which email addresses are registered.
     password_ok = verify_password_or_equalise(request.password, None if user is None else user.hashed_password)
     if user is None or not password_ok:
+        # Committed here: raising below rolls the session back, and a failure that is not stored is not counted.
+        await login_throttle.record_failure(db, request.email, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    await login_throttle.clear_failures(db, request.email)  # this address starts again (the client address's count stays)
 
     # Update last login
     await db.execute(update(User).where(User.id == user.id).values(last_login=datetime.now(UTC)))

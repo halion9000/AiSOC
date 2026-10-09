@@ -31,6 +31,7 @@ from app.api.v1.endpoints import tenants as tn
 from app.core import security
 from app.core.security import get_password_hash, verify_password, verify_password_or_equalise
 from app.db.database import Base
+from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
 
 PASSWORD = "correct horse battery staple"
@@ -42,7 +43,7 @@ def world(tmp_path):
     """A real database with two tenants: A has an active and an inactive user, B has one. And an app exposing the real auth router."""
     path = tmp_path / "enum.db"
     sync = create_engine(f"sqlite:///{path}")
-    Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__])
+    Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__, LoginFailure.__table__])
     ta, tb = (Tenant(id=uuid.uuid4(), name=n, slug=n.lower() + "-" + uuid.uuid4().hex[:6]) for n in ("A", "B"))
     def user(tenant, email, active=True, role="admin"):
         return User(id=uuid.uuid4(), tenant_id=tenant.id, email=email, username=email.split("@")[0], hashed_password=get_password_hash(PASSWORD), role=role, is_active=active)

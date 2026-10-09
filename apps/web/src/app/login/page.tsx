@@ -14,6 +14,22 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { authApi } from '@/lib/api';
 
+/**
+ * The server refuses further sign-ins (429) after too many failed attempts, and says how long to wait in its own sentence ("Too many failed sign-in attempts. Try again in about
+ * 12 minutes."). Show that, not "API 429 Too Many Requests". Recognised by its fields rather than by class so this page does not depend on how the API client builds errors.
+ */
+function tooManyAttemptsMessage(err: unknown): string | null {
+  const e = err as { status?: unknown; body?: unknown } | null;
+  if (!e || e.status !== 429) return null;
+  try {
+    const detail = (JSON.parse(String(e.body)) as { detail?: unknown }).detail;
+    if (typeof detail === 'string' && detail) return detail;
+  } catch {
+    /* not JSON: use the fallback */
+  }
+  return 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
+}
+
 type Phase = 'idle' | 'pending' | 'success' | 'error';
 
 export const dynamic = 'force-dynamic';
@@ -71,8 +87,11 @@ function LoginInner() {
       console.error('[login] failed', err);
       setPhase('error');
       const message = err instanceof Error ? err.message : 'Login failed.';
+      const locked = tooManyAttemptsMessage(err);
       // Map the common 401 to something a human understands.
-      if (/401|incorrect/i.test(message)) {
+      if (locked) {
+        setError(locked);
+      } else if (/401|incorrect/i.test(message)) {
         setError('Email or password incorrect.');
       } else {
         setError(message);

@@ -23,6 +23,7 @@ from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import tenants as tn
 from app.core.security import create_access_token, hash_api_key
 from app.db.database import Base
+from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
 from app.services import view_as
 from app.services.view_as import ERROR_HEADER, VIEW_AS_HEADER, VIEWING_HEADER
@@ -43,7 +44,7 @@ def world(tmp_path, monkeypatch):
     """P is an MSSP parent with two children (C1, C2); X is unrelated; PL holds a platform admin. Users are minted tokens directly (no password hashing)."""
     path = tmp_path / "viewas.db"
     sync = create_engine(f"sqlite:///{path}")
-    Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__])
+    Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__, LoginFailure.__table__])
     P, X, PL = tenant("P"), tenant("X"), tenant("PL")
     C1, C2 = tenant("C1", P), tenant("C2", P)
     users = {

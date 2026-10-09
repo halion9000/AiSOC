@@ -22,6 +22,7 @@ from app.core import token_revocation
 from app.core.config import settings
 from app.core.security import decode_token, get_password_hash, hash_api_key
 from app.db.database import Base
+from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
 
 PASSWORD = "correct horse battery staple"
@@ -32,7 +33,7 @@ def world(tmp_path):
     """A real database with one tenant and two users, and an app exposing the real auth router."""
     path = tmp_path / "auth.db"
     sync = create_engine(f"sqlite:///{path}")
-    Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__])
+    Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__, LoginFailure.__table__])
     tenant = Tenant(id=uuid.uuid4(), name="T", slug="t-" + uuid.uuid4().hex[:6])
     alice = User(id=uuid.uuid4(), tenant_id=tenant.id, email="alice@example.com", username="alice", hashed_password=get_password_hash(PASSWORD), role="admin")
     bob = User(id=uuid.uuid4(), tenant_id=tenant.id, email="bob@example.com", username="bob", hashed_password=get_password_hash(PASSWORD), role="admin")
