@@ -27,9 +27,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app._health import install_health_routes
 from app.api.router import public_router, router
 from app.security.service_auth import require_service_token
+from app.security.egress_guard import install_egress_guard
 from app.db.engine import dispose_engine
 from app.scheduler import ConnectorScheduler, scheduler_disabled
 from app.security.cors import build_cors_kwargs
+
+# Every httpx client this service creates from here on refuses loopback, link-local (cloud metadata) and other never-legitimate destinations (see app/security/egress_guard.py).
+install_egress_guard()
 
 logger = logging.getLogger("aisoc.connectors.main")
 

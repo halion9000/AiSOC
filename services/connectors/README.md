@@ -64,6 +64,21 @@ AISOC_CONNECTORS_DISABLE_SCHEDULER=1 pytest
 
 ---
 
+## Outbound request guard (SSRF)
+
+Connectors call hosts that come from the tenant's own configuration (a Jira or Splunk `base_url`, an Okta domain, ...), and `POST /api/v1/connectors/test` forwards that configuration here, so the service refuses destinations that are never legitimate. Every `httpx` client the service creates, **including each hop of a redirect**, is checked:
+
+* refused: a non-http(s) scheme, loopback, link-local (this contains the cloud metadata address `169.254.169.254`), the unspecified address, multicast, reserved ranges, and the metadata addresses outside link-local (`fd00:ec2::254`, `100.100.100.200`); a hostname is refused if **any** address it resolves to is refused;
+* allowed: private ranges (RFC1918, unique-local), because on-prem integrations live there; names that do not resolve (the request fails by itself).
+
+| Variable | Effect |
+| --- | --- |
+| `CONNECTORS_EGRESS_ALLOW_HOSTS` | Comma-separated hostnames or IPs that are always allowed. |
+| `CONNECTORS_EGRESS_ALLOW_LOOPBACK=1` | Allow loopback, for local development where the platform's services are on `localhost`. Metadata addresses stay blocked. |
+| `CONNECTORS_EGRESS_GUARD=0` | Turn the guard off. |
+
+The host of `INGEST_SERVICE_URL` (this service's own peer) is always allowed. Limits: resolve-then-connect leaves a DNS-rebinding window, so this narrows the surface but is not a network egress firewall; a network policy denying the metadata address from this service remains the stronger control. A blocked request surfaces as an `httpx.RequestError`, so connectors' existing network-error handling reports it.
+
 ## Writing a new connector
 
 1. Create `app/connectors/<name>.py` and subclass `BaseConnector`.
