@@ -76,6 +76,88 @@ class TestEveryRawInsertNamesRealColumns:
         assert skipped <= RUNNER_TABLES, f"INSERTs into tables no migration creates: {skipped - RUNNER_TABLES}"
 
 
+# ---- reads and updates --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Only forms that can be judged reliably: a single table (no JOIN / UNION / WITH), a plain column list (no function, cast, expression or `*`), and UPDATE ... SET col = ... . Anything else is not judged, never guessed at.
+IDENT = r"[a-z_][a-z0-9_]*"
+SELECT = re.compile(rf"\bSELECT\s+(?!DISTINCT\b)(?P<list>[^;()]*?)\s+FROM\s+(?:public\.)?(?P<t>{IDENT})(?:\s+(?:AS\s+)?(?P<alias>{IDENT}))?\s*(?=WHERE|ORDER|LIMIT|GROUP|$|\)|\n|;|FOR\s)", re.I | re.S)
+UPDATE = re.compile(rf"\bUPDATE\s+(?:public\.)?(?P<t>{IDENT})\s+SET\s+(?P<set>.*?)(?:\s+WHERE\b|\s+RETURNING\b|$)", re.I | re.S)
+NOT_COLUMNS = {"select", "from", "where", "null", "true", "false", "case", "when", "then", "else", "end", "and", "or", "not", "distinct", "as", "count", "now", "coalesce"}
+
+
+def select_columns(select_list: str) -> list[str] | None:
+    names = []
+    for part in select_list.split(","):
+        part = " ".join(part.split())
+        m = re.fullmatch(rf"(?:{IDENT}\.)?({IDENT})(?:\s+AS\s+{IDENT})?", part, re.I)
+        if part == "*" or not m:
+            return None
+        names.append(m.group(1).lower())
+    return names
+
+
+def raw_reads_and_updates(source: str) -> list[tuple[str, str, list[str], int]]:
+    """(kind, table, columns, line) for every judgeable single-table SELECT list and UPDATE ... SET in the file's string literals."""
+    tree = ast.parse(source)
+    docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0], "value", None), ast.Constant)}
+    out = []
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs and len(n.value) < 3000) or re.search(r"\bJOIN\b|\bUNION\b|\bWITH\b", n.value, re.I):
+            continue
+        for m in SELECT.finditer(n.value):
+            names = select_columns(m.group("list"))
+            if names is not None:
+                out.append(("SELECT", m.group("t").lower(), [c for c in names if c not in NOT_COLUMNS], n.lineno))
+        for m in UPDATE.finditer(n.value):
+            assigns = re.findall(rf"(?:^|,)\s*({IDENT})\s*=", re.sub(r"\([^()]*\)", "()", m.group("set")), re.I)
+            out.append(("UPDATE", m.group("t").lower(), [c.lower() for c in assigns], n.lineno))
+    return out
+
+
+class TestTheReadAndUpdateDetector:
+    def judge(self, sql):
+        (kind, table, names, _), = raw_reads_and_updates(f'x = "{sql}"')
+        cols = {"alerts": {"id", "title", "severity", "created_at", "tenant_id", "rule_id", "status", "updated_at"}}
+        return kind, [c for c in names if c not in cols[table]]
+
+    def test_the_old_detection_loop_query_is_flagged(self):
+        assert self.judge("SELECT rule_id, evidence, tenant_id FROM alerts WHERE id = :a") == ("SELECT", ["evidence"])
+
+    def test_a_correct_query_and_aliased_columns_are_clean(self):
+        assert self.judge("SELECT id, title, severity, created_at FROM alerts WHERE id = :i") == ("SELECT", [])
+        assert self.judge("SELECT a.id, a.title AS t FROM alerts a WHERE a.id = :i") == ("SELECT", [])
+
+    def test_an_update_naming_a_missing_column_is_flagged(self):
+        assert self.judge("UPDATE alerts SET status = :s, bogus_col = :b, updated_at = NOW() WHERE id = :i") == ("UPDATE", ["bogus_col"])
+        assert self.judge("UPDATE alerts SET status = :s, updated_at = NOW() WHERE id = :i") == ("UPDATE", [])
+
+    @pytest.mark.parametrize("sql", ["SELECT count(*) FROM alerts", "SELECT * FROM alerts", "SELECT lower(title) FROM alerts", "SELECT a.id FROM alerts a JOIN x ON x.id = a.id", "WITH q AS (SELECT 1) SELECT id FROM alerts"])
+    def test_shapes_it_cannot_judge_are_skipped_not_guessed(self, sql):
+        assert [r for r in raw_reads_and_updates(f'x = "{sql}"') if r[0] == "SELECT"] == []
+
+
+class TestEveryJudgeableReadAndUpdateNamesRealColumns:
+    def scan(self):
+        columns = migration_columns()
+        judged = {"SELECT": 0, "UPDATE": 0}
+        bad = []
+        for f in sorted(APP.rglob("*.py")):
+            if "scripts" in f.parts or "seed" in f.name:
+                continue
+            for kind, table, names, line in raw_reads_and_updates(f.read_text(encoding="utf-8", errors="replace")):
+                if table not in columns:
+                    continue
+                judged[kind] += 1
+                missing = [c for c in names if c not in columns[table]]
+                if missing:
+                    bad.append(f"{f.relative_to(APP)}:{line} {kind} {table}: no such column {missing}")
+        return judged, bad
+
+    def test_no_judgeable_select_or_update_names_a_missing_column(self):
+        judged, bad = self.scan()
+        assert judged["SELECT"] >= 25 and judged["UPDATE"] >= 10, f"the scan has gone blind: {judged}"
+        assert bad == [], "a SELECT or UPDATE naming a missing column fails on every call:\n" + "\n".join(bad)
+
+
 class TestMigration064:
     sql = (MIGRATIONS / "064_detection_proposal_source.sql").read_text(encoding="utf-8")
 
