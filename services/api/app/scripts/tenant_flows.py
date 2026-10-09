@@ -377,6 +377,14 @@ def _third_batch() -> dict[str, list[Step]]:
             S("A's rule is still there", "A", "get", "/api/v1/rules/{rl}", expect=(200,)),
             S("A deletes it", "A", "delete", "/api/v1/rules/{rl}", expect=(200, 204), nobody=True),
         ],
+        "explain_lineage": [
+            # An alert's explanation looks up "the rule that produced it" by an id the SUBMITTING tenant puts in the alert's tags. The control (A naming its own rule) proves the explanation does show a matched rule, so B's clean result is not vacuous.
+            S("A creates a rule", "A", "post", "/api/v1/rules", over={"name": "flow-secret-rule-name", "description": "flow-secret-rule-description", "rule_language": "sigma", "category": "custom", "rule_body": "title: flow\nlogsource:\n  product: windows\ndetection:\n  selection:\n    x: 1\n  condition: selection\n"}, capture=("rl2", "id")),
+            S("A submits an alert naming its own rule", "A", "post", "/api/v1/alerts/submit", over={"title": "flow alert", "severity": "high", "events": [{"message": "flow event", "host": "h1", "user": "u1"}]}, capture=("a_al", "id")),
+            S("A's explanation shows the rule (control)", "A", "post", "/api/v1/alerts/{a_al}/explain", nobody=True, expect=(200,), check=lambda r, c: _has(r, "flow-secret-rule-name")),
+            S("B submits an alert naming A's rule", "B", "post", "/api/v1/alerts/submit", over={"title": "flow alert", "severity": "high", "events": [{"message": "flow event", "host": "h1", "user": "u1"}]}, capture=("b_al", "id")),
+            S("B's explanation does not show A's rule", "B", "post", "/api/v1/alerts/{b_al}/explain", nobody=True, expect=(200,), check=lambda r, c: "flow-secret-rule-name" not in r.text and "flow-secret-rule-description" not in r.text),
+        ],
         "hunts": [
             S("A opens a hunt", "A", "post", "/api/v1/hunts", capture=("ht", "id")),
             S("A reads it", "A", "get", "/api/v1/hunts/{ht}", expect=(200,)),
@@ -456,6 +464,8 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                     over = dict(st.over)
                     if flow == "alerts" and st.name in ("A links the alert", "B cannot attach A's alert", "B cannot create a case citing A's alert", "A can create a case citing its OWN alert"):
                         over = {"alert_ids": [ctx.get("alert")]}
+                    if flow == "explain_lineage" and st.name in ("A submits an alert naming its own rule", "B submits an alert naming A's rule"):
+                        over = {**over, "tags": [f"rule:{ctx.get('rl2')}"]}
                     if flow == "assets" and st.name == "A adds a vulnerability to it":
                         over = {"asset_id": ctx.get("asset"), "title": "CVE-2026-0001", "source": "scanner"}
                     if flow == "identity_graph" and st.name == "A links them":

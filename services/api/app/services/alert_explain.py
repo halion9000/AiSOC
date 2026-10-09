@@ -230,7 +230,14 @@ async def _resolve_rule_lineage(db: AsyncSession, alert: Alert) -> tuple[Detecti
     # 1. Explicit reference in raw_event or tags.
     explicit_id = _explicit_rule_id_from_alert(alert)
     if explicit_id is not None:
-        result = await db.execute(select(DetectionRule).where(DetectionRule.id == explicit_id))
+        # The id comes from the ALERT's own raw_event or tags, which the submitting tenant controls: putting another tenant's rule id there used to make this lookup (by id alone) return THAT tenant's rule, and the explanation then showed its name, description, severity and language (shown on real Postgres via a `rule:<uuid>` tag).
+        # Same predicate as the category/technique match below: this tenant's own rule or a platform-wide one.
+        result = await db.execute(
+            select(DetectionRule).where(
+                DetectionRule.id == explicit_id,
+                (DetectionRule.tenant_id == alert.tenant_id) | DetectionRule.tenant_id.is_(None),
+            )
+        )
         rule = result.scalar_one_or_none()
         if rule is not None:
             # The raw_event probe wins over the tag probe; we don't
