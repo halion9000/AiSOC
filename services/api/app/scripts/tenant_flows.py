@@ -258,6 +258,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_fourth_batch())
     flows.update(_fifth_batch())
     flows.update(_sixth_batch())
+    flows.update(_seventh_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -519,6 +520,33 @@ def _sixth_batch() -> dict[str, list[Step]]:
             S("B cannot search all tenants", "B", "post", "/api/v1/nl-query/translate", over={**q, "all_tenants": True}, expect=(403,)),
             S("execute refuses another tenant too", "B", "post", "/api/v1/nl-query/execute", over={**q, "tenant_ids": ["aaaaaaaa-0000-0000-0000-000000000001"]}, expect=(403,)),
             S("B's selector lists only its own tenant", "B", "get", "/api/v1/nl-query/tenants", expect=(200,), check=lambda r, c: len(r.json()["tenants"]) == 1 and r.json()["tenants"][0]["id"] == "bbbbbbbb-0000-0000-0000-000000000002" and r.json()["cross_tenant_enabled"] is False and "tenant-a" not in r.text),
+        ],
+    }
+
+
+def _seventh_batch() -> dict[str, list[Step]]:
+    """Business-context rules. Rule ids are user-chosen slugs (not UUIDs), so the isolation question is a COLLISION: two tenants using the same slug must each see, change and delete only their own."""
+    rule = lambda marker, sev: f"id: flow-rule-a\ndescription: {marker}\nwhen:\n  field: alert.severity\n  op: eq\n  value: high\nthen:\n  set_severity: {sev}\n"  # noqa: E731
+    mine = lambda yes, no: (lambda r, c: _has(r, yes) and _lacks(r, no))  # noqa: E731  (the positive control and the exclusion are in the SAME response)
+    return {
+        "business_context_rules": [
+            # {rule_id} is captured from A's response: it is the slug both tenants will use.
+            S("A sets its rules (slug flow-rule-a)", "A", "post", "/api/v1/business-context/rules", over={"yaml": rule("marker-alpha", "critical")}, expect=(200,), capture=("rule_id", "rules.0.id")),
+            S("B sets ITS rules with the SAME slug", "B", "post", "/api/v1/business-context/rules", over={"yaml": rule("marker-bravo", "low")}, expect=(200,)),
+            S("A still sees only its own rule", "A", "get", "/api/v1/business-context/rules", expect=(200,), check=mine("marker-alpha", "marker-bravo")),
+            S("B sees only its own rule", "B", "get", "/api/v1/business-context/rules", expect=(200,), check=mine("marker-bravo", "marker-alpha")),
+            S("B updates ITS flow-rule-a", "B", "put", "/api/v1/business-context/rules/{rule_id}", over={"yaml": rule("marker-bravo-2", "medium")}, expect=(200,)),
+            S("A is unaffected by B's update", "A", "get", "/api/v1/business-context/rules", expect=(200,), check=mine("marker-alpha", "marker-bravo")),
+            S("B deletes ITS flow-rule-a", "B", "delete", "/api/v1/business-context/rules/{rule_id}", expect=(200, 204), nobody=True),
+            S("A's rule survives B's delete", "A", "get", "/api/v1/business-context/rules", expect=(200,), check=mine("marker-alpha", "marker-bravo")),
+            # B no longer has that slug: deleting it again finds nothing of B's (it must NOT find A's), so 404.
+            S("B deleting a slug it no longer has finds nothing", "B", "delete", "/api/v1/business-context/rules/{rule_id}", expect=(404,), nobody=True),
+            S("A's rule survives that too", "A", "get", "/api/v1/business-context/rules", expect=(200,), check=mine("marker-alpha", "marker-bravo")),
+            # PUT is documented as an upsert: for B it CREATES B's own rule, and only B's.
+            S("B's PUT of that slug creates B's OWN rule (upsert)", "B", "put", "/api/v1/business-context/rules/{rule_id}", over={"yaml": rule("marker-bravo-3", "low")}, expect=(200,), check=mine("marker-bravo-3", "marker-alpha")),
+            S("A is still untouched by B's upsert", "A", "get", "/api/v1/business-context/rules", expect=(200,), check=mine("marker-alpha", "marker-bravo")),
+            S("B cleans up its own rule", "B", "delete", "/api/v1/business-context/rules/{rule_id}", expect=(200, 204), nobody=True),
+            S("A removes its own rule", "A", "delete", "/api/v1/business-context/rules/{rule_id}", expect=(200, 204), nobody=True),
         ],
     }
 
