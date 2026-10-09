@@ -108,6 +108,35 @@ class CurrentUser:
                     detail=f"Permission denied: {permission}",
                 )
 
+    def holds(self, permission: str) -> bool:
+        """Does this principal hold `permission`? The same test require_permission applies, as a yes/no instead of a 403."""
+        try:
+            self.require_permission(permission)
+        except HTTPException:
+            return False
+        return True
+
+    def can_grant_role(self, target_role: str) -> bool:
+        """May this principal hand out `target_role`? Only a role whose every permission they hold themselves: nobody can grant more power than they have.
+
+        POST/PATCH /tenants/me/users took any `role` string from the request, so a tenant_admin (who holds users:write) could create a platform_admin user, or promote itself to one (shown live: one request each). An unknown role is never grantable."""
+        # Imported here: app.core.security imports nothing from the API layer, but keeping the lookup local avoids a module-level cycle.
+        from app.core.security import ROLE_PERMISSIONS  # noqa: PLC0415
+
+        perms = ROLE_PERMISSIONS.get(target_role)
+        if perms is None:
+            return False
+        if "*" in perms and not self._holds_wildcard():
+            return False
+        return all(self.holds(p) for p in perms if p != "*")
+
+    def _holds_wildcard(self) -> bool:
+        from app.core.security import ROLE_PERMISSIONS  # noqa: PLC0415
+
+        if self.scopes is not None:
+            return "*" in self.scopes
+        return "*" in ROLE_PERMISSIONS.get(self.role, [])
+
     async def has_permission_db(self, permission: str, db: AsyncSession) -> bool:
         """Check permission via RBAC tables (granular RBAC).
 

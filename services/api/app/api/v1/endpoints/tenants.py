@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
@@ -140,6 +140,16 @@ async def list_users(
     return [UserResponse.model_validate(u) for u in users]
 
 
+def _require_grantable_role(current_user: Any, role: str) -> None:
+    """422 for a role that does not exist, 403 for one the caller may not hand out (see CurrentUser.can_grant_role)."""
+    from app.core.security import ROLE_PERMISSIONS  # noqa: PLC0415
+
+    if role not in ROLE_PERMISSIONS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unknown role. Known roles: {', '.join(sorted(ROLE_PERMISSIONS))}.")
+    if not current_user.can_grant_role(role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot assign a role that grants more than your own.")
+
+
 @router.post("/me/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     request: CreateUserRequest,
@@ -147,6 +157,7 @@ async def create_user(
     db: DBSession,
 ) -> UserResponse:
     """Create a new user in the current tenant."""
+    _require_grantable_role(current_user, request.role)
     # Check email uniqueness
     existing = await db.execute(select(User).where(User.email == request.email))
     if existing.scalar_one_or_none() is not None:
@@ -180,6 +191,15 @@ async def update_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Nobody edits a user who holds more power than they do (a tenant_admin could otherwise deactivate or demote a platform_admin of the same tenant), and
+    # nobody changes their OWN role (a tenant_admin could otherwise promote itself with one request).
+    if not current_user.can_grant_role(user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot modify a user whose role grants more than your own.")
+    if request.role is not None:
+        if user.id == current_user.user_id and request.role != user.role:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot change your own role.")
+        _require_grantable_role(current_user, request.role)
 
     updates: dict = {}
     for field in ["username", "role", "is_active"]:
