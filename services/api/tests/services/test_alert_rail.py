@@ -89,6 +89,7 @@ def _mock_db_returning(*batches: list[Any]) -> MagicMock:
         scalars.all.return_value = batch
         result = MagicMock()
         result.scalars.return_value = scalars
+        result.fetchall.return_value = batch  # the case queries are text() statements read with fetchall()
         results.append(result)
     db.execute.side_effect = results
     return db
@@ -329,6 +330,10 @@ class TestBuildRecommendedActions:
 
 
 class TestBuildMiniTimeline:
+    """The rail's case activity comes from the cases the alert belongs to (aisoc_cases.alert_ids), not from alert.case_id (nothing ever set it) or the legacy case_timeline table.
+
+    Query order: cases containing the alert, then (only if there are any) their comments, then the audit log."""
+
     def _audit_row(self, **overrides: Any) -> SimpleNamespace:
         base = {
             "id": uuid.uuid4(),
@@ -345,103 +350,147 @@ class TestBuildMiniTimeline:
         return SimpleNamespace(**base)
 
     def _case_row(self, **overrides: Any) -> SimpleNamespace:
-        base = {
-            "id": uuid.uuid4(),
-            "event_type": "case_comment",
-            "content": "Looks like a real positive — escalating",
-            "event_metadata": {"channel": "slack"},
-            "is_automated": False,
-            "user_id": uuid.uuid4(),
-            "created_at": datetime.now(UTC),
-        }
+        now = datetime.now(UTC)
+        base = {"id": uuid.uuid4(), "title": "Suspected account takeover", "status": "new", "created_by": "dana@example.com", "opened_at": now - timedelta(hours=1), "triaged_at": None, "resolved_at": None, "closed_at": None}
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def _comment_row(self, case_id: uuid.UUID, **overrides: Any) -> SimpleNamespace:
+        base = {"id": uuid.uuid4(), "case_id": case_id, "author": "dana@example.com", "body": "Looks like a real positive, escalating", "is_system": False, "created_at": datetime.now(UTC)}
         base.update(overrides)
         return SimpleNamespace(**base)
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_case_and_no_audit(self) -> None:
-        alert = _alert(case_id=None)
-        # With no case_id we only hit the audit query (one execute call).
-        db = _mock_db_returning([])
-        events = await build_mini_timeline(db, alert)
+        db = _mock_db_returning([], [])  # cases (none), audit (none)
+        events = await build_mini_timeline(db, _alert())
         assert events == []
-        # Exactly one query — the audit one. The case query is skipped
-        # entirely when case_id is None.
-        assert db.execute.await_count == 1
-
-    @pytest.mark.asyncio
-    async def test_case_and_audit_events_are_merged(self) -> None:
-        alert = _alert(case_id=uuid.uuid4())
-        now = datetime.now(UTC)
-        case_row = self._case_row(created_at=now - timedelta(minutes=2))
-        audit_row = self._audit_row(created_at=now - timedelta(minutes=1))
-
-        # First execute → case rows; second → audit rows.
-        db = _mock_db_returning([case_row], [audit_row])
-        events = await build_mini_timeline(db, alert)
-
-        assert len(events) == 2
-        # Newest first.
-        assert events[0].id == str(audit_row.id)
-        assert events[1].id == str(case_row.id)
-        assert events[1].kind == "case_comment"
-        assert events[1].agent == str(case_row.user_id)
-        # Two queries — the case one and the audit one.
+        # No cases means no comments query: just the case lookup and the audit query.
         assert db.execute.await_count == 2
 
     @pytest.mark.asyncio
+    async def test_case_comment_and_audit_events_are_merged_newest_first(self) -> None:
+        now = datetime.now(UTC)
+        case = self._case_row(opened_at=now - timedelta(minutes=30))
+        comment = self._comment_row(case.id, created_at=now - timedelta(minutes=2))
+        audit = self._audit_row(created_at=now - timedelta(minutes=1))
+        db = _mock_db_returning([case], [comment], [audit])
+
+        events = await build_mini_timeline(db, _alert())
+
+        assert [e.kind for e in events] == ["status_change", "case_comment", "case_opened"]
+        assert events[0].id == str(audit.id) and events[1].id == str(comment.id) and events[2].id == f"case-{case.id}-opened"
+        assert events[1].agent == "dana@example.com" and events[1].payload == {"case_id": str(case.id)}
+        assert db.execute.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_the_case_opening_names_the_case_and_who_opened_it(self) -> None:
+        case = self._case_row(title="Phish at finance", created_by="sam@example.com", status="investigating")
+        events = await build_mini_timeline(_mock_db_returning([case], [], []), _alert())
+        (opened,) = [e for e in events if e.kind == "case_opened"]
+        assert opened.summary == "Case opened: Phish at finance" and opened.agent == "sam@example.com" and opened.payload == {"case_id": str(case.id), "status": "investigating"}
+
+    @pytest.mark.asyncio
+    async def test_a_case_with_no_recorded_creator_is_attributed_to_the_system(self) -> None:
+        events = await build_mini_timeline(_mock_db_returning([self._case_row(created_by=None)], [], []), _alert())
+        assert [e.agent for e in events if e.kind == "case_opened"] == ["system"]
+
+    @pytest.mark.asyncio
+    async def test_each_milestone_that_happened_is_a_status_change_and_the_others_are_not(self) -> None:
+        now = datetime.now(UTC)
+        case = self._case_row(opened_at=now - timedelta(hours=5), triaged_at=now - timedelta(hours=4), resolved_at=now - timedelta(hours=1), closed_at=None)
+        events = await build_mini_timeline(_mock_db_returning([case], [], []), _alert())
+        changes = {e.id: e for e in events if e.kind == "status_change"}
+        assert set(changes) == {f"case-{case.id}-triaged", f"case-{case.id}-resolved"}
+        assert changes[f"case-{case.id}-resolved"].summary == "Case resolved: Suspected account takeover" and changes[f"case-{case.id}-resolved"].payload["status"] == "resolved"
+        assert changes[f"case-{case.id}-triaged"].agent == "system"
+
+    @pytest.mark.asyncio
+    async def test_an_alert_in_several_cases_gets_the_activity_of_each(self) -> None:
+        c1, c2 = self._case_row(title="first"), self._case_row(title="second")
+        events = await build_mini_timeline(_mock_db_returning([c1, c2], [], []), _alert())
+        assert sorted(e.summary for e in events if e.kind == "case_opened") == ["Case opened: first", "Case opened: second"]
+
+    @pytest.mark.asyncio
+    async def test_comments_are_attributed_to_system_or_the_author(self) -> None:
+        case = self._case_row()
+        rows = [self._comment_row(case.id, is_system=True, author="bot"), self._comment_row(case.id, author="eve@example.com"), self._comment_row(case.id, author=None)]
+        events = await build_mini_timeline(_mock_db_returning([case], rows, []), _alert())
+        assert sorted(e.agent for e in events if e.kind == "case_comment") == ["eve@example.com", "system", "system"]
+
+    @pytest.mark.asyncio
+    async def test_a_long_comment_is_truncated_and_a_blank_one_is_labelled(self) -> None:
+        case = self._case_row()
+        rows = [self._comment_row(case.id, body="x" * 500), self._comment_row(case.id, body="   "), self._comment_row(case.id, body=None)]
+        events = await build_mini_timeline(_mock_db_returning([case], rows, []), _alert())
+        summaries = [e.summary for e in events if e.kind == "case_comment"]
+        assert sorted(summaries) == sorted(["x" * 280, "comment", "comment"])  # order is by timestamp, which this test does not control
+
+    @pytest.mark.asyncio
+    async def test_the_case_lookup_is_tenant_scoped_and_finds_the_alert_in_alert_ids(self) -> None:
+        alert = _alert()
+        db = _mock_db_returning([self._case_row()], [], [])
+        await build_mini_timeline(db, alert)
+        stmt, params = db.execute.await_args_list[0].args
+        sql = " ".join(str(stmt).split())
+        assert "FROM aisoc_cases" in sql and "tenant_id = :tid" in sql and ":aid = ANY(alert_ids)" in sql and "case_timeline" not in sql
+        assert params["tid"] == alert.tenant_id and params["aid"] == alert.id and params["n"] == 5
+
+    @pytest.mark.asyncio
+    async def test_the_comments_query_is_tenant_scoped_and_limited_to_those_cases(self) -> None:
+        alert = _alert()
+        c1, c2 = self._case_row(), self._case_row()
+        db = _mock_db_returning([c1, c2], [], [])
+        await build_mini_timeline(db, alert)
+        stmt, params = db.execute.await_args_list[1].args
+        sql = " ".join(str(stmt).split())
+        assert "FROM aisoc_case_comments" in sql and "tenant_id = :tid" in sql and "case_id = ANY(:cids)" in sql
+        assert params["tid"] == alert.tenant_id and params["cids"] == [c1.id, c2.id]
+
+    @pytest.mark.asyncio
+    async def test_alert_case_id_no_longer_decides_anything(self) -> None:
+        """Nothing sets alerts.case_id: an alert with one set but no case listing it shows no case events, and a case that lists an alert with no case_id still does."""
+        assert await build_mini_timeline(_mock_db_returning([], []), _alert(case_id=uuid.uuid4())) == []
+        events = await build_mini_timeline(_mock_db_returning([self._case_row()], [], []), _alert(case_id=None))
+        assert [e.kind for e in events] == ["case_opened"]
+
+    @pytest.mark.asyncio
     async def test_results_are_capped_at_max_events(self) -> None:
-        alert = _alert(case_id=uuid.uuid4())
-        many_cases = [self._case_row() for _ in range(MAX_TIMELINE_EVENTS + 3)]
+        case = self._case_row()
+        many_comments = [self._comment_row(case.id) for _ in range(MAX_TIMELINE_EVENTS + 3)]
         many_audits = [self._audit_row() for _ in range(MAX_TIMELINE_EVENTS + 3)]
-
-        db = _mock_db_returning(many_cases, many_audits)
-        events = await build_mini_timeline(db, alert)
-
+        events = await build_mini_timeline(_mock_db_returning([case], many_comments, many_audits), _alert())
         assert len(events) == MAX_TIMELINE_EVENTS
 
     @pytest.mark.asyncio
     async def test_audit_event_summary_includes_action_and_resource(self) -> None:
-        alert = _alert(case_id=None)
         audit_row = self._audit_row(action="assign", resource="alert")
-        db = _mock_db_returning([audit_row])
-
-        events = await build_mini_timeline(db, alert)
+        events = await build_mini_timeline(_mock_db_returning([], [audit_row]), _alert())
 
         assert len(events) == 1
         assert events[0].summary == "assign on alert"
         assert events[0].kind == "assign"
         assert events[0].agent == "alice@example.com"
-        # changes blob is surfaced as the payload so the rail row can
-        # expand on click.
+        # changes blob is surfaced as the payload so the rail row can expand on click.
         assert events[0].payload == {"status": ["new", "investigating"]}
 
     @pytest.mark.asyncio
     async def test_audit_event_falls_back_to_metadata_when_changes_empty(self) -> None:
-        alert = _alert(case_id=None)
         audit_row = self._audit_row(changes={}, metadata_={"source_ip": "10.0.0.1"})
-        db = _mock_db_returning([audit_row])
-
-        events = await build_mini_timeline(db, alert)
+        events = await build_mini_timeline(_mock_db_returning([], [audit_row]), _alert())
         assert events[0].payload == {"source_ip": "10.0.0.1"}
 
     @pytest.mark.asyncio
     async def test_audit_event_actor_id_fallback_when_email_missing(self) -> None:
-        alert = _alert(case_id=None)
         actor_id = uuid.uuid4()
-        audit_row = self._audit_row(actor_email=None, actor_id=actor_id)
-        db = _mock_db_returning([audit_row])
-
-        events = await build_mini_timeline(db, alert)
+        events = await build_mini_timeline(_mock_db_returning([], [self._audit_row(actor_email=None, actor_id=actor_id)]), _alert())
         assert events[0].agent == str(actor_id)
 
-    @pytest.mark.asyncio
-    async def test_automated_case_event_attributes_to_system(self) -> None:
-        alert = _alert(case_id=uuid.uuid4())
-        automated_row = self._case_row(is_automated=True, user_id=None)
-        db = _mock_db_returning([automated_row], [])
+    def test_the_legacy_case_timeline_model_is_no_longer_used(self) -> None:
+        import app.services.alert_rail as rail
 
-        events = await build_mini_timeline(db, alert)
-        assert events[0].agent == "system"
+        src = open(rail.__file__, encoding="utf-8").read()
+        assert "CaseTimeline" not in src.split('"""', 2)[2].replace("``CaseTimeline``", "") and "app.models.case" not in src
 
 
 # ─── build_rail_envelope ─────────────────────────────────────────────────────
@@ -455,7 +504,7 @@ class TestBuildRailEnvelope:
             ai_recommendations=[{"action": "Isolate", "priority": 1, "risk": "high"}],
             case_id=None,
         )
-        db = _mock_db_returning([])  # one execute call (audit only)
+        db = _mock_db_returning([], [])  # two execute calls: the case lookup (none) and the audit log
 
         envelope = await build_rail_envelope(db, alert)
 
@@ -473,7 +522,7 @@ class TestBuildRailEnvelope:
             ai_recommendations=[{"action": "Isolate", "priority": 1}],
             case_id=None,
         )
-        db = _mock_db_returning([])
+        db = _mock_db_returning([], [])
 
         envelope = await build_rail_envelope(db, alert)
         payload = envelope.model_dump(mode="json")

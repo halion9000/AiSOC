@@ -38,12 +38,11 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.alert import Alert
 from app.models.audit import AuditLog
-from app.models.case import CaseTimeline
 
 # ─── Tunables ────────────────────────────────────────────────────────────────
 
@@ -356,20 +355,51 @@ def _summarise_audit(row: AuditLog) -> str:
     return action
 
 
-def _case_event(row: CaseTimeline) -> MiniTimelineEvent:
-    """Project a ``CaseTimeline`` row into the rail's timeline shape."""
-    actor = "system" if row.is_automated else (str(row.user_id) if row.user_id else "system")
-    payload: dict[str, Any] | None = None
-    if isinstance(row.event_metadata, dict) and row.event_metadata:
-        payload = dict(row.event_metadata)
-    return MiniTimelineEvent(
-        id=str(row.id),
-        ts=row.created_at,
-        kind=row.event_type or "case_event",
-        agent=actor,
-        summary=row.content or row.event_type or "case event",
-        payload=payload,
-    )
+_MAX_CASES_PER_ALERT = 5
+
+
+async def _case_events_for_alert(db: AsyncSession, alert: Alert, limit: int) -> list[MiniTimelineEvent]:
+    """Case activity for the cases an alert belongs to, read from aisoc_cases / aisoc_case_comments (what the cases API writes).
+
+    The link lives on the CASE (`alert_id = ANY(aisoc_cases.alert_ids)`: creating a case or POST /cases/{id}/alerts records it there); nothing ever set `alerts.case_id`, so the old lookup (`if alert.case_id is not None`, reading the legacy
+    `case_timeline` table, which only the demo seed script writes) never ran for a real alert and the rail showed no case activity at all. Everything is scoped to the alert's tenant.
+    """
+    cases = (
+        await db.execute(
+            text(
+                "SELECT id, title, status, created_by, opened_at, triaged_at, resolved_at, closed_at FROM aisoc_cases "
+                "WHERE tenant_id = :tid AND :aid = ANY(alert_ids) ORDER BY opened_at DESC LIMIT :n"
+            ),
+            {"tid": alert.tenant_id, "aid": alert.id, "n": _MAX_CASES_PER_ALERT},
+        )
+    ).fetchall()
+    if not cases:
+        return []
+    events: list[MiniTimelineEvent] = []
+    for c in cases:
+        payload = {"case_id": str(c.id), "status": c.status}
+        events.append(MiniTimelineEvent(id=f"case-{c.id}-opened", ts=c.opened_at, kind="case_opened", agent=c.created_by or "system", summary=f"Case opened: {c.title}", payload=payload))
+        for label, ts in (("triaged", c.triaged_at), ("resolved", c.resolved_at), ("closed", c.closed_at)):
+            if ts is not None:
+                events.append(MiniTimelineEvent(id=f"case-{c.id}-{label}", ts=ts, kind="status_change", agent="system", summary=f"Case {label}: {c.title}", payload={"case_id": str(c.id), "status": label}))
+    comments = (
+        await db.execute(
+            text("SELECT id, case_id, author, body, is_system, created_at FROM aisoc_case_comments WHERE tenant_id = :tid AND case_id = ANY(:cids) ORDER BY created_at DESC LIMIT :n"),
+            {"tid": alert.tenant_id, "cids": [c.id for c in cases], "n": limit},
+        )
+    ).fetchall()
+    for r in comments:
+        events.append(
+            MiniTimelineEvent(
+                id=str(r.id),
+                ts=r.created_at,
+                kind="case_comment",
+                agent="system" if r.is_system else (r.author or "system"),
+                summary=(r.body or "").strip()[:280] or "comment",
+                payload={"case_id": str(r.case_id)},
+            )
+        )
+    return events
 
 
 async def build_mini_timeline(
@@ -382,25 +412,22 @@ async def build_mini_timeline(
 
     Sources, in priority order:
 
-    1. ``CaseTimeline`` rows for the alert's case (if any) — these are
-       the richest because they include analyst comments and agent
-       turn-by-turn decisions.
+    1. Activity on the cases the alert belongs to (``aisoc_cases`` whose
+       ``alert_ids`` contain the alert): the case being opened, its status
+       milestones, and its analyst/system comments (``aisoc_case_comments``).
     2. ``AuditLog`` rows whose ``resource == 'alert'`` and
        ``resource_id == str(alert.id)`` — covers status/assignment
        changes that don't go through a case.
 
     Both feeds are merged, sorted newest-first, and capped at
     ``limit``. The function is read-only and tenant-scoped at the
-    query level (case timeline already filters by case → tenant; audit
-    log we filter by ``tenant_id == alert.tenant_id`` defensively).
+    query level (the case lookups and the audit log both filter on
+    ``tenant_id == alert.tenant_id``).
     """
     events: list[MiniTimelineEvent] = []
 
     # ── Case timeline ───────────────────────────────────────────────────
-    if alert.case_id is not None:
-        case_q = select(CaseTimeline).where(CaseTimeline.case_id == alert.case_id).order_by(CaseTimeline.created_at.desc()).limit(limit)
-        case_rows = (await db.execute(case_q)).scalars().all()
-        events.extend(_case_event(row) for row in case_rows)
+    events.extend(await _case_events_for_alert(db, alert, limit))
 
     # ── Audit log ───────────────────────────────────────────────────────
     # We query a slightly larger window so the merge step has enough
