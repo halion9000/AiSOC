@@ -124,6 +124,21 @@ describe('uninstalling a marketplace item', () => {
     expect(deletes(fetchMock)[1][0]).toContain('id=okta-enricher');
   });
 
+  it('after one uninstall finishes, the NEXT dialog opens ready to use, not stuck on Working...', async () => {
+    const fetchMock = stubFetch();
+    render(<MarketplaceView />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Uninstall Cloudflare WAF' }));
+    await user.click(await screen.findByRole('button', { name: 'Uninstall' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Uninstall Okta Enricher' }));
+    const confirm = await screen.findByRole('button', { name: 'Uninstall' });
+    expect(confirm).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Working...' })).not.toBeInTheDocument();
+    await user.click(confirm);
+    await waitFor(() => expect(deletes(fetchMock)).toHaveLength(2));
+  });
+
   it('a failed uninstall closes the dialog and keeps the item installed, showing the error', async () => {
     stubFetch(async () => new Response('boom', { status: 500 }));
     render(<MarketplaceView />);

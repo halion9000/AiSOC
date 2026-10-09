@@ -17,7 +17,7 @@ These act on every tenant, so neither the `*` wildcard nor a resource wildcard s
 
 | Permission | What it allows |
 | --- | --- |
-| `plugins:admin` | Enable, disable, reload, unload and discover plugins in the shared plugin registry; install community plugins. |
+| `plugins:admin` | Enable, disable, reload, unload and discover plugins in the shared plugin registry, and approve or reject community plugin submissions. (Installing a community plugin into your own tenant needs only `settings:write`.) |
 | `mssp:onboard` | Onboard a new tenant. |
 | `platform:cross_tenant_query` | Search across tenants (reserved for the cross-tenant search feature). |
 
