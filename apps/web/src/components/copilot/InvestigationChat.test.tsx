@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 
 const authFetch = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth-session', () => ({ authFetch }));
+const confirmAction = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/api', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/api')>()), copilotApi: { confirmAction } }));
 
 import InvestigationChat from './InvestigationChat';
 
@@ -138,5 +140,40 @@ describe('closing the investigation', () => {
     // still open, and the confirm step is still there to retry
     expect(screen.getByRole('button', { name: 'Confirm Close' })).toBeEnabled();
     expect(screen.queryByText(/Artifact ID/)).not.toBeInTheDocument();
+  });
+});
+
+describe('when the copilot asks to delete something', () => {
+  const pending = { action: 'delete_alert', summary: 'Permanently delete alert "Beaconing host"? This cannot be undone.', token: 'tok-inv', expiresAt: Math.floor(Date.now() / 1000) + 300 };
+
+  beforeEach(() => {
+    confirmAction.mockReset();
+    chatResponse = async () => json(200, { reply: { content: 'I have asked you to confirm the deletion.' }, pendingActions: [pending] });
+  });
+
+  it('shows a confirmation prompt under the reply and has deleted nothing yet', async () => {
+    render(<InvestigationChat />);
+    await ask('delete that alert');
+    expect(await screen.findByRole('group', { name: 'Confirmation required' })).toBeInTheDocument();
+    expect(screen.getByText(/Permanently delete alert "Beaconing host"/)).toBeInTheDocument();
+    expect(confirmAction).not.toHaveBeenCalled();
+  });
+
+  it("deletes only when the analyst clicks, with that prompt's own token", async () => {
+    confirmAction.mockResolvedValue({ status: 'done', action: 'delete_alert', result: { deleted: true } });
+    render(<InvestigationChat />);
+    await ask('delete that alert');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Deleted.')).toBeInTheDocument();
+    expect(confirmAction).toHaveBeenCalledTimes(1);
+    expect(confirmAction).toHaveBeenCalledWith('tok-inv');
+  });
+
+  it('shows no prompt for an ordinary reply', async () => {
+    chatResponse = async () => json(200, { reply: { content: 'The sender domain was registered yesterday.' } });
+    render(<InvestigationChat />);
+    await ask('what is this domain?');
+    expect(await screen.findByText('The sender domain was registered yesterday.')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Confirmation required' })).not.toBeInTheDocument();
   });
 });

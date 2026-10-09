@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const copilotApi = vi.hoisted(() => ({ listConversations: vi.fn(), getConversation: vi.fn(), chat: vi.fn() }));
+const copilotApi = vi.hoisted(() => ({ listConversations: vi.fn(), getConversation: vi.fn(), chat: vi.fn(), confirmAction: vi.fn() }));
 vi.mock('@/lib/api', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/api')>()), copilotApi }));
 
 import { ApiError } from '@/lib/api';
@@ -60,5 +60,41 @@ describe('when it answers', () => {
     expect(await screen.findByText('The sender domain was registered yesterday.')).toBeInTheDocument();
     expect(screen.getByText('Connected')).toBeInTheDocument();
     expect(screen.queryByText(/could not answer/)).not.toBeInTheDocument();
+  });
+});
+
+describe('when the copilot asks to delete something', () => {
+  const asksToDelete = {
+    conversationId: 'c1',
+    reply: { id: 'a9', role: 'assistant' as const, content: 'I have asked you to confirm the deletion.', createdAt: '2026-10-08T00:00:00Z' },
+    pendingActions: [{ action: 'delete_alert', summary: 'Permanently delete alert "Beaconing host"? This cannot be undone.', token: 'tok-view', expiresAt: Math.floor(Date.now() / 1000) + 300 }],
+  };
+
+  it('shows a confirmation prompt under the reply and has deleted nothing yet', async () => {
+    copilotApi.chat.mockResolvedValue(asksToDelete);
+    render(<CopilotView />);
+    await ask('delete that alert');
+    expect(await screen.findByRole('group', { name: 'Confirmation required' })).toBeInTheDocument();
+    expect(screen.getByText(/Permanently delete alert "Beaconing host"/)).toBeInTheDocument();
+    expect(copilotApi.confirmAction).not.toHaveBeenCalled();
+  });
+
+  it("deletes only when the analyst clicks, with that prompt's own token", async () => {
+    copilotApi.chat.mockResolvedValue(asksToDelete);
+    copilotApi.confirmAction.mockResolvedValue({ status: 'done', action: 'delete_alert', result: { deleted: true } });
+    render(<CopilotView />);
+    await ask('delete that alert');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Deleted.')).toBeInTheDocument();
+    expect(copilotApi.confirmAction).toHaveBeenCalledTimes(1);
+    expect(copilotApi.confirmAction).toHaveBeenCalledWith('tok-view');
+  });
+
+  it('shows no prompt for an ordinary reply', async () => {
+    copilotApi.chat.mockResolvedValue({ conversationId: 'c1', reply });
+    render(<CopilotView />);
+    await ask('what is this domain?');
+    expect(await screen.findByText(/The sender domain was registered yesterday/)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Confirmation required' })).not.toBeInTheDocument();
   });
 });

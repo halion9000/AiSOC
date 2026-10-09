@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { copilotApi, type CopilotMessage } from '@/lib/api';
+import { PendingActionPrompt } from './PendingActionPrompt';
 import { copilotFailureText } from '@/lib/copilotFailure';
 import { authFetch } from '@/lib/auth-session';
 
@@ -122,7 +123,7 @@ export function CopilotDock() {
         context: { page: pathname },
       });
       setConversationId(res.conversationId);
-      setMessages((prev) => [...prev, res.reply]);
+      setMessages((prev) => [...prev, { ...res.reply, pendingActions: res.pendingActions }]);
       setConnectionStatus(res.degraded ? 'disconnected' : 'connected');
     } catch (err) {
       setMessages((prev) => [...prev, failureReply(err)]);
@@ -251,6 +252,9 @@ export function CopilotDock() {
                         )}
                       >
                         {m.content}
+                        {m.pendingActions?.map((a) => (
+                          <PendingActionPrompt key={a.token} action={a} />
+                        ))}
                         {m.suggestions && m.suggestions.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {m.suggestions.map((s, idx) =>

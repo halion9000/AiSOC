@@ -23,6 +23,7 @@ import {
   type CopilotMessage,
 } from '@/lib/api';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { PendingActionPrompt } from './PendingActionPrompt';
 import { copilotFailureText } from '@/lib/copilotFailure';
 
 // ─── Suggested prompts ───────────────────────────────────────────────────────
@@ -361,7 +362,7 @@ export function CopilotView() {
         context: { page: 'copilot' },
       });
       setConversationId(res.conversationId);
-      setMessages((prev) => [...prev, res.reply]);
+      setMessages((prev) => [...prev, { ...res.reply, pendingActions: res.pendingActions }]);
     } catch (err) {
       // Genuine failure only - the backend's own honest "LLM unreachable"
       // path already returns 200 with degraded:true and real content, so
@@ -519,6 +520,10 @@ export function CopilotView() {
                           {m.content}
                         </p>
                       )}
+
+                      {m.pendingActions?.map((a) => (
+                        <PendingActionPrompt key={a.token} action={a} />
+                      ))}
 
                       {m.citations && m.citations.length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1.5">

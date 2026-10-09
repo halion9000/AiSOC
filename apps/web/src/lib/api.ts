@@ -4055,6 +4055,8 @@ export interface CopilotMessage {
   id: string;
   role: CopilotRole;
   content: string;
+  /** Destructive actions this reply asked the analyst to confirm (set from the chat response, not from the model's text). */
+  pendingActions?: CopilotPendingAction[];
   /** When the message was created (ISO string). */
   createdAt: string;
   /** Optional citations to backend resources the assistant referenced. */
@@ -4086,10 +4088,28 @@ export interface CopilotChatRequest {
   };
 }
 
+/**
+ * A destructive action the Copilot ASKED for. Nothing has happened: it waits for the analyst, who confirms or ignores it. The token is signed and expires
+ * (`expiresAt`, epoch seconds); only the analyst's own confirm call can use it, the model never sees it.
+ */
+export interface CopilotPendingAction {
+  action: string;
+  summary: string;
+  token: string;
+  expiresAt: number;
+}
+
+export interface CopilotConfirmResponse {
+  status: 'done' | 'failed';
+  action: string;
+  result: Record<string, unknown>;
+}
+
 export interface CopilotChatResponse {
   conversationId: string;
   reply: CopilotMessage;
   degraded?: boolean;
+  pendingActions?: CopilotPendingAction[];
 }
 
 export const copilotApi = {
@@ -4108,6 +4128,13 @@ export const copilotApi = {
     request<CopilotChatResponse>('/api/v1/copilot/chat', {
       method: 'POST',
       body: JSON.stringify(req),
+    }),
+
+  /** The analyst approves a destructive action the Copilot asked for. Never call this without the analyst having clicked confirm. */
+  confirmAction: (token: string) =>
+    request<CopilotConfirmResponse>('/api/v1/copilot/actions/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
     }),
 
   /**

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authFetch } from '@/lib/auth-session';
 import { failureDetail } from '@/lib/communityInstall';
+import type { CopilotPendingAction } from '@/lib/api';
+import { PendingActionPrompt } from './PendingActionPrompt';
 
 type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -11,6 +13,8 @@ interface ChatMessage {
   role: MessageRole;
   content: string;
   timestamp: string;
+  /** Destructive actions this reply asked the analyst to confirm. Nothing has happened until they click. */
+  pendingActions?: CopilotPendingAction[];
 }
 
 interface SummaryArtifact {
@@ -88,6 +92,7 @@ export default function InvestigationChat({ runId, caseId, alertCount, iocsFound
     (async () => {
       let content: string;
       let role: MessageRole = 'assistant';
+      let pendingActions: CopilotPendingAction[] | undefined;
       try {
         const res = await authFetch('/api/v1/copilot/chat', {
           method: 'POST',
@@ -101,6 +106,7 @@ export default function InvestigationChat({ runId, caseId, alertCount, iocsFound
           const data = await res.json();
           if (data.reply?.content) {
             content = data.reply.content;
+            if (Array.isArray(data.pendingActions) && data.pendingActions.length > 0) pendingActions = data.pendingActions;
           } else {
             content = chatFailure('it returned an empty reply');
             role = 'system';
@@ -118,6 +124,7 @@ export default function InvestigationChat({ runId, caseId, alertCount, iocsFound
         role,
         content,
         timestamp: new Date().toISOString(),
+        pendingActions,
       };
       setMessages((prev) => [...prev, assistantMsg]);
       setIsTyping(false);
@@ -321,14 +328,19 @@ export default function InvestigationChat({ runId, caseId, alertCount, iocsFound
               const isUser = m.role === 'user';
               return (
                 <li key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm ${
-                      isUser
-                        ? 'bg-blue-600/20 text-white ring-1 ring-blue-500/30'
-                        : 'bg-slate-800/70 text-slate-100 ring-1 ring-slate-700/60'
-                    }`}
-                  >
-                    {m.content}
+                  <div className="max-w-[80%]">
+                    <div
+                      className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm ${
+                        isUser
+                          ? 'bg-blue-600/20 text-white ring-1 ring-blue-500/30'
+                          : 'bg-slate-800/70 text-slate-100 ring-1 ring-slate-700/60'
+                      }`}
+                    >
+                      {m.content}
+                    </div>
+                    {m.pendingActions?.map((a) => (
+                      <PendingActionPrompt key={a.token} action={a} />
+                    ))}
                   </div>
                 </li>
               );

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const copilotApi = vi.hoisted(() => ({ listConversations: vi.fn(), getConversation: vi.fn(), chat: vi.fn() }));
+const copilotApi = vi.hoisted(() => ({ listConversations: vi.fn(), getConversation: vi.fn(), chat: vi.fn(), confirmAction: vi.fn() }));
 vi.mock('@/lib/api', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/api')>()), copilotApi }));
 vi.mock('next/navigation', () => ({ usePathname: () => '/alerts' }));
 vi.mock('@/lib/auth-session', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/auth-session')>()), authFetch: vi.fn(async () => new Response('{}', { status: 200 })) }));
@@ -52,5 +52,42 @@ describe('the dock when it answers', () => {
     expect(await screen.findByText('Block the sender.')).toBeInTheDocument();
     expect(screen.queryByText(/could not answer/)).not.toBeInTheDocument();
     expect(await screen.findByText('Connected')).toBeInTheDocument();
+  });
+});
+
+describe('the dock when the copilot asks to delete something', () => {
+  const asksToDelete = {
+    conversationId: 'c1',
+    reply: { id: 'a1', role: 'assistant', content: 'I have asked you to confirm the deletion.', createdAt: new Date().toISOString() },
+    pendingActions: [{ action: 'delete_alert', summary: 'Permanently delete alert "Beaconing host"? This cannot be undone.', token: 'tok-1', expiresAt: Math.floor(Date.now() / 1000) + 300 }],
+  };
+
+  it('shows a confirmation prompt under the reply, and has deleted nothing yet', async () => {
+    copilotApi.chat.mockResolvedValue(asksToDelete);
+    render(<CopilotDock />);
+    await openAndAsk('delete that alert');
+    expect(await screen.findByText('I have asked you to confirm the deletion.')).toBeInTheDocument();
+    expect(await screen.findByRole('group', { name: 'Confirmation required' })).toBeInTheDocument();
+    expect(screen.getByText(/Permanently delete alert "Beaconing host"/)).toBeInTheDocument();
+    expect(copilotApi.confirmAction).not.toHaveBeenCalled();
+  });
+
+  it("deletes only when the analyst clicks, with that prompt's own token", async () => {
+    copilotApi.chat.mockResolvedValue(asksToDelete);
+    copilotApi.confirmAction.mockResolvedValue({ status: 'done', action: 'delete_alert', result: { deleted: true } });
+    render(<CopilotDock />);
+    await openAndAsk('delete that alert');
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Deleted.')).toBeInTheDocument();
+    expect(copilotApi.confirmAction).toHaveBeenCalledTimes(1);
+    expect(copilotApi.confirmAction).toHaveBeenCalledWith('tok-1');
+  });
+
+  it('shows no prompt for an ordinary reply', async () => {
+    copilotApi.chat.mockResolvedValue({ conversationId: 'c1', reply: { id: 'a2', role: 'assistant', content: 'Nothing to confirm.', createdAt: new Date().toISOString() } });
+    render(<CopilotDock />);
+    await openAndAsk('hello');
+    expect(await screen.findByText('Nothing to confirm.')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Confirmation required' })).not.toBeInTheDocument();
   });
 });
