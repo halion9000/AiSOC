@@ -51,7 +51,7 @@ export function FimDashboard() {
   const [pathPrefix, setPathPrefix] = useState('');
   const [since, setSince] = useState('24h');
 
-  const sinceISO = sinceToISO(since);
+  // The SWR keys carry the window the user CHOSE ('24h'), never a timestamp: a key built from `new Date()` is different on every render, so every finished fetch caused a re-render, a new key and another fetch (about 80 requests a second from an idle page against a 20 ms server). The timestamp is computed when the request is made, so each 30 s refresh also uses a window that has moved with the clock.
 
   // Events feed
   const eventsKey = [
@@ -60,7 +60,7 @@ export function FimDashboard() {
     page,
     action,
     pathPrefix,
-    sinceISO,
+    since,
   ];
   const {
     data: eventsData,
@@ -75,7 +75,7 @@ export function FimDashboard() {
         page_size: PAGE_SIZE,
         action: action || undefined,
         path_prefix: pathPrefix || undefined,
-        since: sinceISO,
+        since: sinceToISO(since),
       }),
     {
       onError: () => toast.error('Failed to load FIM events'),
@@ -84,14 +84,14 @@ export function FimDashboard() {
   );
 
   // Summary cards
-  const summaryKey = ['fim-summary', TENANT_ID, sinceISO];
+  const summaryKey = ['fim-summary', TENANT_ID, since];
   const {
     data: summaryData,
     error: summaryError,
     isLoading: summaryLoading,
   } = useSWR<FimSummary>(
     summaryKey,
-    () => getFimSummary({ tenant_id: TENANT_ID, since: sinceISO }),
+    () => getFimSummary({ tenant_id: TENANT_ID, since: sinceToISO(since) }),
     {
       onError: () => toast.error('Failed to load FIM summary'),
       refreshInterval: 60_000,
