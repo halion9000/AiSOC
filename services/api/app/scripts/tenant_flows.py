@@ -119,6 +119,13 @@ class Step:
     absent: str | None = None
 
 
+def _dig(obj: Any, path: str) -> Any:
+    """Follow a dotted path through JSON: a digit indexes a list ("0.id" is the id of the first element), anything else is a key."""
+    for part in path.split("."):
+        obj = obj[int(part)] if part.isdigit() else obj[part]
+    return obj
+
+
 def _has(resp: Any, needle: str) -> bool:
     return needle in resp.text
 
@@ -243,6 +250,7 @@ def build_flows() -> dict[str, list[Step]]:
     fresh = flows.pop("fresh")
     flows.update(_more_flows())
     flows.update(_third_batch())
+    flows.update(_fourth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -411,6 +419,41 @@ def _third_batch() -> dict[str, list[Step]]:
     }
 
 
+def _fourth_batch() -> dict[str, list[Step]]:
+    """Connectors, compliance evidence and knowledge-base documents. LEFT OUT because they need services this environment does not run: playbook CRUD, honeytokens and tabletop sessions (each is proxied to another service and answers 503 here), and the operations needing external infrastructure (connector test / push refresh, atomics, caldera)."""
+    return {
+        "connectors": [
+            S("A creates a connector", "A", "post", "/api/v1/connectors", over={"connector_type": "okta"}, capture=("cn", "id")),
+            S("A reads it", "A", "get", "/api/v1/connectors/{cn}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/connectors/{cn}", expect=ISO),
+            S("B cannot change it", "B", "patch", "/api/v1/connectors/{cn}", over={"name": "pwned"}, expect=ISO),
+            S("B cannot set its capabilities", "B", "put", "/api/v1/connectors/{cn}/capabilities", expect=ISO),
+            S("B cannot read its last event time", "B", "get", "/api/v1/connectors/{cn}/last_event_at", expect=ISO),
+            S("B cannot refresh its ingest token", "B", "post", "/api/v1/connectors/{cn}/push/refresh", expect=ISO, nobody=True),
+            S("B cannot test it", "B", "post", "/api/v1/connectors/{cn}/test", expect=ISO, nobody=True),
+            S("B's connector list excludes it", "B", "get", "/api/v1/connectors", expect=(200,), absent="cn"),
+            S("B cannot delete it", "B", "delete", "/api/v1/connectors/{cn}", expect=ISO, nobody=True),
+            S("A's connector is intact", "A", "get", "/api/v1/connectors/{cn}", expect=(200,), check=lambda r, c: "pwned" not in r.text),
+        ],
+        "compliance_evidence": [
+            S("A adds evidence", "A", "post", "/api/v1/compliance/evidence", over={"framework": "soc2", "control_id": "CC6.1", "summary": "flow-evidence-secret"}, capture=("ev", "id")),
+            S("A reads it", "A", "get", "/api/v1/compliance/evidence/{ev}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/compliance/evidence/{ev}", expect=ISO),
+            S("B cannot review it", "B", "post", "/api/v1/compliance/evidence/{ev}/review", over={"decision": "accepted"}, expect=ISO),
+            S("B's evidence list excludes it", "B", "get", "/api/v1/compliance/evidence", expect=(200,), absent="ev"),
+            S("A's evidence is still pending", "A", "get", "/api/v1/compliance/evidence/{ev}", expect=(200,), check=lambda r, c: "accepted" not in r.text),
+        ],
+        "kb_documents": [
+            S("A ingests a document", "A", "post", "/api/v1/kb/ingest", over={"title": "flow-kb-secret-title", "content": "flow-kb-secret-content about phishing playbooks"}, capture=("kb", "0.id")),
+            S("A reads it", "A", "get", "/api/v1/kb/documents/{kb}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/kb/documents/{kb}", expect=ISO),
+            S("B's document list excludes it", "B", "get", "/api/v1/kb/documents", expect=(200,), absent="kb"),
+            S("B cannot delete it", "B", "delete", "/api/v1/kb/documents/{kb}", expect=ISO, nobody=True),
+            S("A's document is intact", "A", "get", "/api/v1/kb/documents/{kb}", expect=(200,)),
+        ],
+    }
+
+
 def _more_fresh() -> list[Step]:
     return [
         S("A creates a fresh asset", "A", "post", "/api/v1/assets", capture=("f_asset", "id")),
@@ -499,7 +542,7 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                         continue
                     if st.capture and r.status_code < 300:
                         try:
-                            ctx[st.capture[0]] = str(r.json()[st.capture[1]])
+                            ctx[st.capture[0]] = str(_dig(r.json(), st.capture[1]))
                             if st.user == "A" and flow == "fresh":
                                 fresh_ids[ctx[st.capture[0]]] = st.capture[0]
                         except Exception:  # noqa: BLE001, S110
