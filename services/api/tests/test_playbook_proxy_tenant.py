@@ -3,6 +3,7 @@
 Playbooks are a shared read-only library plus each tenant's own (the agents service owns them). The API calls it with the INTERNAL token, which carries no tenant, so the tenant has to be named explicitly
 on every call, or the agents service has no way to scope the request. Also: a 4xx from the agents service (e.g. "library playbooks are read-only, clone it") is passed through to the caller; 5xx stays generic.
 """
+import json
 import uuid
 
 import httpx
@@ -42,8 +43,15 @@ def http(role="admin", tenant=TENANT) -> TestClient:
 
 
 class FakeRequest:
+    """Stands in for a Starlette Request: the handlers read the body as bytes (`body()`); `json()` is kept for the older call sites. An Exception as the body means 'malformed JSON'."""
+
     def __init__(self, body):
         self._body = body
+
+    async def body(self):
+        if isinstance(self._body, Exception):
+            return b"{not json"
+        return json.dumps(self._body).encode()
 
     async def json(self):
         if isinstance(self._body, Exception):

@@ -75,6 +75,12 @@ class CurrentUser:
         self.email = email
         self.scopes = scopes  # None → role-based; list → API-key scoped
 
+    @property
+    def id(self) -> uuid.UUID:
+        """Alias for ``user_id``. Fourteen call sites in eight modules (reports, remediation, mssp, posture, insider threat, replay, sla, audit) read ``current_user.id``, the way they would on the ORM ``User``;
+        ``CurrentUser`` only had ``user_id``, so every one of those endpoints raised AttributeError (HTTP 500) on any call that reached that line."""
+        return self.user_id
+
     def require_permission(self, permission: str) -> None:
         if self.scopes is not None:
             # API-key path: check explicit scopes list

@@ -62,9 +62,9 @@ class IOCOut(IOCCreate):
     tenant_id: uuid.UUID
     is_active: bool
     false_positive: bool
-    first_seen: str
-    last_seen: str
-    created_at: str
+    first_seen: datetime
+    last_seen: datetime
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -95,7 +95,7 @@ class ThreatActorOut(ThreatActorCreate):
     id: uuid.UUID
     tenant_id: uuid.UUID
     is_active: bool
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -113,8 +113,8 @@ class FeedOut(FeedCreate):
     id: uuid.UUID
     tenant_id: uuid.UUID
     is_enabled: bool
-    last_polled_at: str | None = None
-    created_at: str
+    last_polled_at: datetime | None = None
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

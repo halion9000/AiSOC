@@ -29,7 +29,7 @@ class ChildTenantOut(BaseModel):
     id: uuid.UUID
     name: str
     mssp_role: str
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,7 +43,7 @@ class TenantNoteOut(TenantNoteCreate):
     id: uuid.UUID
     parent_id: uuid.UUID
     author_id: uuid.UUID | None
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,14 +59,14 @@ class DelegationOut(DelegationCreate):
     parent_tenant_id: uuid.UUID
     granted_by_user: uuid.UUID | None
     revoked_at: datetime | None
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class MetricsOut(BaseModel):
     tenant_id: uuid.UUID
-    snapshot_at: str
+    snapshot_at: datetime
     open_alerts: int
     critical_alerts: int
     open_cases: int
@@ -280,8 +280,8 @@ class RulePackOut(BaseModel):
     description: str | None
     category: str | None
     is_default: bool
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -302,7 +302,7 @@ class PackAssignmentOut(BaseModel):
     child_tenant_id: uuid.UUID
     enabled: bool
     parameter_overrides: dict
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -325,7 +325,7 @@ class RuleOverrideOut(BaseModel):
     note: str | None
     severity_override: str | None
     parameter_overrides: dict
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -669,7 +669,7 @@ class ManagedTenantRow(BaseModel):
     tenant_id: str
     name: str
     has_metrics: bool
-    snapshot_at: str | None = None
+    snapshot_at: datetime | None = None
     health_score: float | None = None
     open_alerts: int | None = None
     critical_alerts: int | None = None
@@ -687,7 +687,7 @@ class CrossTenantIncident(BaseModel):
     title: str
     severity: str
     status: str
-    created_at: str
+    created_at: datetime
     assignee: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

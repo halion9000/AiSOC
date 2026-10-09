@@ -125,7 +125,7 @@ def S(name: str, user: str, method: str, tpl: str, **kw: Any) -> Step:
 
 
 def build_flows() -> dict[str, list[Step]]:
-    return {
+    flows = {
         "cases": [
             S("A creates a case", "A", "post", "/api/v1/cases", capture=("case", "id")),
             S("A reads it", "A", "get", "/api/v1/cases/{case}", expect=(200,)),
@@ -212,6 +212,106 @@ def build_flows() -> dict[str, list[Step]]:
             S("A submits a fresh alert", "A", "post", "/api/v1/alerts/submit", over={"title": "fresh alert", "severity": "high", "events": [{"message": "fresh event", "host": "h2", "user": "u2"}]}, capture=("f_alert", "id")),
         ],
     }
+    fresh = flows.pop("fresh")
+    flows.update(_more_flows())
+    flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
+    return flows
+
+
+NOT_YOURS = (404, 403, 400, 422)  # for cross-tenant WRITES that name another tenant's object in the body: any refusal will do, success is the bug
+
+
+def _more_flows() -> dict[str, list[Step]]:
+    nothave = lambda key: (lambda r, c: not _has(r, c[key]))  # noqa: E731
+    return {
+        "assets": [
+            S("A creates an asset", "A", "post", "/api/v1/assets", capture=("asset", "id")),
+            S("A reads it", "A", "get", "/api/v1/assets/{asset}", expect=(200,)),
+            S("A renames it", "A", "patch", "/api/v1/assets/{asset}", over={"name": "asset-renamed-by-A"}, expect=(200,)),
+            S("A adds a vulnerability to it", "A", "post", "/api/v1/assets/vulnerabilities", capture=("vuln", "id")),
+            S("A lists its vulnerabilities (has it)", "A", "get", "/api/v1/assets/{asset}/vulnerabilities", expect=(200,), check=lambda r, c: _has(r, c["vuln"])),
+            S("B cannot read it", "B", "get", "/api/v1/assets/{asset}", expect=ISO),
+            S("B cannot rename it", "B", "patch", "/api/v1/assets/{asset}", over={"name": "pwned"}, expect=ISO),
+            S("B cannot delete it", "B", "delete", "/api/v1/assets/{asset}", expect=ISO, nobody=True),
+            S("B cannot list its vulnerabilities", "B", "get", "/api/v1/assets/{asset}/vulnerabilities", expect=(404, 403, 200), check=lambda r, c: r.status_code != 200 or not _has(r, c["vuln"])),
+            S("B's asset list excludes it", "B", "get", "/api/v1/assets", expect=(200,), check=nothave("asset")),
+            S("B's vulnerability list excludes it", "B", "get", "/api/v1/assets/vulnerabilities", expect=(200,), check=nothave("vuln")),
+            S("A's asset is still intact", "A", "get", "/api/v1/assets/{asset}", expect=(200,), check=lambda r, c: _has(r, "asset-renamed-by-A")),
+            S("A deletes it", "A", "delete", "/api/v1/assets/{asset}", expect=(200, 204), nobody=True),
+        ],
+        "threat_intel": [
+            S("A adds an IOC", "A", "post", "/api/v1/threat-intel/iocs", over={"ioc_type": "ip", "value": "203.0.113.9"}, capture=("ioc", "id")),
+            S("A adds a feed", "A", "post", "/api/v1/threat-intel/feeds", over={"feed_type": "taxii"}, capture=("feed", "id")),
+            S("A reads the IOC", "A", "get", "/api/v1/threat-intel/iocs/{ioc}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/threat-intel/iocs/{ioc}", expect=ISO),
+            S("B cannot delete it", "B", "delete", "/api/v1/threat-intel/iocs/{ioc}", expect=ISO, nobody=True),
+            S("B cannot delete A's feed", "B", "delete", "/api/v1/threat-intel/feeds/{feed}", expect=ISO, nobody=True),
+            S("B's IOC list excludes it", "B", "get", "/api/v1/threat-intel/iocs", expect=(200,), check=nothave("ioc")),
+            S("B's feed list excludes it", "B", "get", "/api/v1/threat-intel/feeds", expect=(200,), check=nothave("feed")),
+            S("A's IOC is still there", "A", "get", "/api/v1/threat-intel/iocs/{ioc}", expect=(200,)),
+            S("A deletes the IOC", "A", "delete", "/api/v1/threat-intel/iocs/{ioc}", expect=(200, 204), nobody=True),
+            S("A deletes the feed", "A", "delete", "/api/v1/threat-intel/feeds/{feed}", expect=(200, 204), nobody=True),
+        ],
+        "reports": [
+            S("A creates a report template", "A", "post", "/api/v1/reports/templates", over={"report_type": "soc_weekly"}, capture=("tmpl", "id")),
+            S("A reads it", "A", "get", "/api/v1/reports/templates/{tmpl}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/reports/templates/{tmpl}", expect=ISO),
+            S("B cannot delete it", "B", "delete", "/api/v1/reports/templates/{tmpl}", expect=ISO, nobody=True),
+            S("B's template list excludes it", "B", "get", "/api/v1/reports/templates", expect=(200,), check=nothave("tmpl")),
+            S("A deletes it", "A", "delete", "/api/v1/reports/templates/{tmpl}", expect=(200, 204), nobody=True),
+        ],
+        "remediation": [
+            S("A whitelists an action", "A", "post", "/api/v1/remediation/whitelist", over={"action_type": "isolate_host", "blast_radius": "low"}, capture=("wl", "id")),
+            S("B cannot remove it", "B", "delete", "/api/v1/remediation/whitelist/{wl}", expect=ISO, nobody=True),
+            S("B's whitelist excludes it", "B", "get", "/api/v1/remediation/whitelist", expect=(200,), check=nothave("wl")),
+            S("A removes it", "A", "delete", "/api/v1/remediation/whitelist/{wl}", expect=(200, 204), nobody=True),
+        ],
+        "identity_graph": [
+            S("A creates a node", "A", "post", "/api/v1/identity-graph/nodes", over={"node_type": "human_user", "external_id": "ext-a-1", "source_system": "okta"}, capture=("n1", "id")),
+            S("A creates a second node", "A", "post", "/api/v1/identity-graph/nodes", over={"node_type": "human_user", "external_id": "ext-a-2", "source_system": "okta"}, capture=("n2", "id")),
+            S("A links them", "A", "post", "/api/v1/identity-graph/edges", over={"edge_type": "member_of"}, capture=("edge", "id")),
+            S("A reads the node", "A", "get", "/api/v1/identity-graph/nodes/{n1}", expect=(200,)),
+            S("B cannot read A's node", "B", "get", "/api/v1/identity-graph/nodes/{n1}", expect=ISO),
+            S("B cannot read A's node edges", "B", "get", "/api/v1/identity-graph/nodes/{n1}/edges", expect=(404, 403, 200), check=lambda r, c: r.status_code != 200 or not _has(r, c["edge"])),
+            S("B's node list excludes it", "B", "get", "/api/v1/identity-graph/nodes", expect=(200,), check=nothave("n1")),
+            S("B's edge list excludes it", "B", "get", "/api/v1/identity-graph/edges", expect=(200,), check=nothave("edge")),
+            S("B makes its own node", "B", "post", "/api/v1/identity-graph/nodes", over={"node_type": "human_user", "external_id": "ext-b-1", "source_system": "okta"}, capture=("nb", "id")),
+            S("B cannot link its node to A's node", "B", "post", "/api/v1/identity-graph/edges", over={"edge_type": "member_of"}, expect=NOT_YOURS),
+        ],
+        "posture": [
+            S("A records a finding", "A", "post", "/api/v1/posture/findings", over={"cloud_provider": "aws", "resource_type": "s3_bucket", "resource_id": "bucket-a", "rule_id": "S3-001"}, capture=("finding", "id")),
+            S("A reads it", "A", "get", "/api/v1/posture/findings/{finding}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/posture/findings/{finding}", expect=ISO),
+            S("B cannot resolve it", "B", "post", "/api/v1/posture/findings/{finding}/resolve", expect=ISO, nobody=True),
+            S("B cannot suppress it", "B", "post", "/api/v1/posture/findings/{finding}/suppress", expect=ISO),
+            S("B's finding list excludes it", "B", "get", "/api/v1/posture/findings", expect=(200,), check=nothave("finding")),
+            S("A's finding is still open", "A", "get", "/api/v1/posture/findings/{finding}", expect=(200,), check=lambda r, c: "suppressed" not in r.text.lower() or "resolved" not in r.text.lower()),
+        ],
+        "detection_rules": [
+            S("A creates a rule", "A", "post", "/api/v1/detection/rules", over={"language": "sigma"}, capture=("rule", "id")),
+            S("A reads it", "A", "get", "/api/v1/detection/rules/{rule}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/detection/rules/{rule}", expect=ISO),
+            S("B cannot change it", "B", "patch", "/api/v1/detection/rules/{rule}", expect=ISO),
+            S("B cannot delete it", "B", "delete", "/api/v1/detection/rules/{rule}", expect=ISO, nobody=True),
+            S("B's rule list excludes it", "B", "get", "/api/v1/detection/rules", expect=(200,), check=nothave("rule")),
+            S("B cannot tune it", "B", "post", "/api/v1/detection/tuning/{rule}/dismiss", over={"reason": "x"}, expect=ISO),
+            S("A's rule is still there", "A", "get", "/api/v1/detection/rules/{rule}", expect=(200,)),
+            S("A deletes it", "A", "delete", "/api/v1/detection/rules/{rule}", expect=(200, 204), nobody=True),
+        ],
+    }
+
+
+def _more_fresh() -> list[Step]:
+    return [
+        S("A creates a fresh asset", "A", "post", "/api/v1/assets", capture=("f_asset", "id")),
+        S("A adds a fresh IOC", "A", "post", "/api/v1/threat-intel/iocs", over={"ioc_type": "ip", "value": "198.51.100.7"}, capture=("f_ioc", "id")),
+        S("A adds a fresh feed", "A", "post", "/api/v1/threat-intel/feeds", over={"feed_type": "taxii"}, capture=("f_feed", "id")),
+        S("A creates a fresh template", "A", "post", "/api/v1/reports/templates", over={"report_type": "soc_weekly"}, capture=("f_tmpl", "id")),
+        S("A whitelists a fresh action", "A", "post", "/api/v1/remediation/whitelist", over={"action_type": "isolate_host", "blast_radius": "low"}, capture=("f_wl", "id")),
+        S("A creates a fresh node", "A", "post", "/api/v1/identity-graph/nodes", over={"node_type": "human_user", "external_id": "ext-fresh", "source_system": "okta"}, capture=("f_node", "id")),
+        S("A records a fresh finding", "A", "post", "/api/v1/posture/findings", over={"cloud_provider": "aws", "resource_type": "s3_bucket", "resource_id": "bucket-fresh", "rule_id": "S3-002"}, capture=("f_finding", "id")),
+        S("A creates a fresh rule", "A", "post", "/api/v1/detection/rules", over={"language": "sigma"}, capture=("f_rule", "id")),
+    ]
 
 
 def compare_runs(a: list[list], b: list[list]) -> dict[str, list]:
@@ -254,6 +354,12 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                     over = dict(st.over)
                     if flow == "alerts" and st.name in ("A links the alert", "B cannot attach A's alert"):
                         over = {"alert_ids": [ctx.get("alert")]}
+                    if flow == "assets" and st.name == "A adds a vulnerability to it":
+                        over = {"asset_id": ctx.get("asset"), "title": "CVE-2026-0001", "source": "scanner"}
+                    if flow == "identity_graph" and st.name == "A links them":
+                        over = {**over, "source_id": ctx.get("n1"), "target_id": ctx.get("n2")}
+                    if flow == "identity_graph" and st.name == "B cannot link its node to A's node":
+                        over = {**over, "source_id": ctx.get("nb"), "target_id": ctx.get("n1")}
                     kw: dict[str, Any] = {}
                     if st.params:
                         kw["params"] = st.params

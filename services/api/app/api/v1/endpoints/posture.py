@@ -54,9 +54,9 @@ class FindingOut(FindingCreate):
     tenant_id: uuid.UUID
     status: str
     auto_remediated: bool
-    first_detected_at: str
-    last_evaluated_at: str
-    resolved_at: str | None = None
+    first_detected_at: datetime
+    last_evaluated_at: datetime
+    resolved_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,8 +66,8 @@ class ScanRunOut(BaseModel):
     tenant_id: uuid.UUID
     cloud_provider: str
     cloud_account: str | None
-    started_at: str
-    completed_at: str | None
+    started_at: datetime
+    completed_at: datetime | None
     status: str
     findings_total: int
     findings_new: int

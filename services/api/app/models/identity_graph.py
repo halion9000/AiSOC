@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,7 +23,7 @@ class IdentityNode(Base):
     source_system: Mapped[str] = mapped_column(String(100), nullable=False)
     risk_score: Mapped[float] = mapped_column(Float, default=0.0)
     privilege_tier: Mapped[int] = mapped_column(Integer, default=0)
-    is_active: Mapped[bool] = mapped_column(String(10), default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_activity: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attributes: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

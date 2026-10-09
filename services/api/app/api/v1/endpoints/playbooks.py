@@ -8,6 +8,7 @@ one place while the engine lives in services/agents.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import Any
@@ -62,7 +63,11 @@ async def _proxy(method: str, path: str, **kwargs) -> Any:
             raise HTTPException(status_code=r.status_code, detail=detail)
         if r.status_code == 204:
             return None
-        return r.json()
+        try:
+            return r.json()
+        except ValueError as exc:
+            # A 2xx whose body is not JSON (a misbehaving upstream, or a proxy answering for it) used to escape as an unhandled JSONDecodeError, i.e. an HTTP 500 with a stack trace.
+            raise HTTPException(status_code=502, detail="Agents service returned an invalid response") from exc
     except httpx.RequestError as exc:
         raise HTTPException(status_code=503, detail="Agents service unavailable") from exc
 
@@ -77,9 +82,25 @@ async def list_playbooks(user: AuthUser, enabled_only: bool = False):
     return await _proxy("GET", "", params={"enabled_only": enabled_only, "tenant_id": str(user.tenant_id)})
 
 
+async def _json_body(request: Request) -> dict:
+    """The request body as a JSON object. An EMPTY body is {} (the agents service then says what is missing); a malformed one is a 400 and a non-object a 422.
+
+    Three handlers called `await request.json()` bare, so an empty or malformed body was an unhandled JSONDecodeError (HTTP 500 with a stack trace) found by sending a POST with no body. None of these reach the agents service."""
+    raw = await request.body()
+    if not raw.strip():
+        return {}
+    try:
+        body = json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Request body must be a JSON object")
+    return body
+
+
 @router.post("", summary="Create playbook", status_code=201, dependencies=[Depends(require_permission("playbooks:write"))])
 async def create_playbook(request: Request, user: AuthUser):
-    body = await request.json()
+    body = await _json_body(request)
     return await _proxy("POST", "", json=body, params={"tenant_id": str(user.tenant_id)})
 
 
@@ -103,7 +124,7 @@ async def get_playbook(playbook_id: str, user: AuthUser):
 @router.put("/{playbook_id}", summary="Update a playbook", dependencies=[Depends(require_permission("playbooks:write"))])
 async def update_playbook(playbook_id: str, request: Request, user: AuthUser):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
-    body = await request.json()
+    body = await _json_body(request)
     return await _proxy("PUT", f"/{safe_id}", json=body, params={"tenant_id": str(user.tenant_id)})
 
 
@@ -116,7 +137,7 @@ async def delete_playbook(playbook_id: str, user: AuthUser):
 @router.post("/{playbook_id}/run", summary="Execute a playbook", status_code=202, dependencies=[Depends(require_permission("playbooks:execute"))])
 async def run_playbook(playbook_id: str, request: Request, user: AuthUser):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
-    body = await request.json()
+    body = await _json_body(request)
     return await _proxy("POST", f"/{safe_id}/run", json=body, params={"tenant_id": str(user.tenant_id)})
 
 
@@ -124,7 +145,7 @@ async def run_playbook(playbook_id: str, request: Request, user: AuthUser):
 async def clone_playbook(playbook_id: str, request: Request, user: AuthUser):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     try:
-        body = await request.json()
-    except ValueError:
-        body = {}
-    return await _proxy("POST", f"/{safe_id}/clone", json=body if isinstance(body, dict) else {}, params={"tenant_id": str(user.tenant_id)})
+        body = await _json_body(request)
+    except HTTPException:
+        body = {}  # a clone needs no body: an unreadable one is treated as none (unchanged behaviour)
+    return await _proxy("POST", f"/{safe_id}/clone", json=body, params={"tenant_id": str(user.tenant_id)})

@@ -160,7 +160,7 @@ async def ingest(body: IngestRequest, db: DBSession, user: AuthUser) -> list[KBD
                 id, tenant_id, title, doc_kind, source_url, content, tags,
                 chunk_index, chunk_total, created_at, updated_at, created_by
             ) VALUES (
-                :id, :tenant_id, :title, :kind, :url, :content, :tags::text[],
+                :id, :tenant_id, :title, :kind, :url, :content, CAST(:tags AS text[]),
                 :idx, :total, :now, :now, :user
             ) RETURNING *
         """).bindparams(
@@ -242,7 +242,7 @@ async def query_kb(body: QueryRequest, db: DBSession, user: AuthUser) -> QueryRe
     wheres = ["to_tsvector('english', content) @@ plainto_tsquery('english', :q)", "tenant_id = :tenant_id"]
     params: dict[str, Any] = {"q": body.question, "tenant_id": user.tenant_id, "limit": body.top_k}
     if body.doc_kinds:
-        wheres.append("doc_kind = ANY(:kinds::text[])")
+        wheres.append("doc_kind = ANY(CAST(:kinds AS text[]))")
         params["kinds"] = body.doc_kinds
 
     sql = text(f"""

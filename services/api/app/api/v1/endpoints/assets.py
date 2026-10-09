@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,19 +48,21 @@ class AssetUpdate(AssetCreate):
 class AssetOut(AssetCreate):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    created_at: str
-    updated_at: str
-    last_seen: str
-    first_seen: str
-    # ORM attribute is asset_metadata; expose as metadata in JSON via validator
-    asset_metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+    last_seen: datetime
+    first_seen: datetime
+    # The ORM attribute is `asset_metadata` (column "metadata"). A plain `metadata` field would be read from the ORM object's `metadata` attribute, which on a declarative class is the registry's MetaData(), not the column:
+    # reading it made POST /assets fail response validation on every call. Read the real attribute; still serialise as `metadata`.
+    metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="asset_metadata")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-    def model_post_init(self, __context: Any) -> None:
-        # Populate the `metadata` field from the ORM's `asset_metadata` column.
-        if self.asset_metadata and not self.metadata:
-            object.__setattr__(self, "metadata", self.asset_metadata)
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _metadata_must_be_a_dict(cls, v: Any) -> Any:
+        # A NULL column (legacy rows), or any attribute that is not a dict (e.g. the declarative registry's MetaData when the real column is absent), becomes {} instead of failing the whole response.
+        return v if isinstance(v, dict) else {}
 
 
 class VulnerabilityCreate(BaseModel):
@@ -80,17 +83,19 @@ class VulnerabilityCreate(BaseModel):
 class VulnerabilityOut(VulnerabilityCreate):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    first_found: str
-    last_found: str
-    remediated_at: str | None
-    # ORM attribute is asset_metadata; expose as metadata in JSON via validator
-    asset_metadata: dict[str, Any] = Field(default_factory=dict)
+    first_found: datetime
+    last_found: datetime
+    remediated_at: datetime | None
+    # Same collision as AssetOut: read the real column attribute, not the declarative registry's `metadata`.
+    metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="asset_metadata")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-    def model_post_init(self, __context: Any) -> None:
-        if self.asset_metadata and not self.metadata:
-            object.__setattr__(self, "metadata", self.asset_metadata)
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _metadata_must_be_a_dict(cls, v: Any) -> Any:
+        # A NULL column (legacy rows), or any attribute that is not a dict (e.g. the declarative registry's MetaData when the real column is absent), becomes {} instead of failing the whole response.
+        return v if isinstance(v, dict) else {}
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +138,26 @@ async def create_asset(
     await db.commit()
     await db.refresh(asset)
     return asset
+
+
+# Declared BEFORE the /{asset_id} routes: FastAPI matches in declaration order, and GET /{asset_id} would capture 'vulnerabilities' as an id (and answer 422), making this endpoint unreachable.
+@router.get("/vulnerabilities", response_model=list[VulnerabilityOut], dependencies=[Depends(require_permission("alerts:read"))])
+async def list_vulnerabilities(
+    severity: str | None = Query(None),
+    is_exploited: bool | None = Query(None),
+    limit: int = Query(50, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AssetVulnerability]:
+    q = select(AssetVulnerability).where(AssetVulnerability.tenant_id == current_user.tenant_id)
+    if severity:
+        q = q.where(AssetVulnerability.severity == severity)
+    if is_exploited is not None:
+        q = q.where(AssetVulnerability.is_exploited == is_exploited)
+    q = q.order_by(AssetVulnerability.last_found.desc()).offset(offset).limit(limit)
+    result = await db.execute(q)
+    return list(result.scalars().all())
 
 
 @router.get("/{asset_id}", response_model=AssetOut, dependencies=[Depends(require_permission("alerts:read"))])
@@ -183,25 +208,6 @@ async def delete_asset(
 # ---------------------------------------------------------------------------
 # Vulnerability CRUD
 # ---------------------------------------------------------------------------
-
-
-@router.get("/vulnerabilities", response_model=list[VulnerabilityOut], dependencies=[Depends(require_permission("alerts:read"))])
-async def list_vulnerabilities(
-    severity: str | None = Query(None),
-    is_exploited: bool | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> list[AssetVulnerability]:
-    q = select(AssetVulnerability).where(AssetVulnerability.tenant_id == current_user.tenant_id)
-    if severity:
-        q = q.where(AssetVulnerability.severity == severity)
-    if is_exploited is not None:
-        q = q.where(AssetVulnerability.is_exploited == is_exploited)
-    q = q.order_by(AssetVulnerability.last_found.desc()).offset(offset).limit(limit)
-    result = await db.execute(q)
-    return list(result.scalars().all())
 
 
 @router.post("/vulnerabilities", response_model=VulnerabilityOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])

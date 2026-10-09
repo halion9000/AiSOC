@@ -46,9 +46,9 @@ class TemplateOut(TemplateCreate):
     id: uuid.UUID
     tenant_id: uuid.UUID
     is_enabled: bool
-    last_run_at: str | None = None
-    created_at: str
-    updated_at: str
+    last_run_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,16 +59,16 @@ class ArtefactOut(BaseModel):
     template_id: uuid.UUID | None
     report_type: str
     title: str
-    period_start: str
-    period_end: str
+    period_start: datetime
+    period_end: datetime
     output_format: str
     file_size_bytes: int | None
     delivered_to: list[str] | None
-    delivered_at: str | None
+    delivered_at: datetime | None
     generated_by: str
     status: str
     error_message: str | None
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

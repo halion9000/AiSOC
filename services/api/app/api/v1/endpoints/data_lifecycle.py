@@ -52,13 +52,13 @@ async def put_retention(
     if row is None:
         row = RetentionPolicyRow(tenant_id=current_user.tenant_id)
         db.add(row)
-    merged = resolve_policy(
-        {
-            "raw_events_days": body.raw_events_days if body.raw_events_days is not None else row.raw_events_days,
-            "alerts_days": body.alerts_days if body.alerts_days is not None else row.alerts_days,
-            "audit_days": body.audit_days if body.audit_days is not None else row.audit_days,
-        }
-    )
+    # A new row's columns are still None until it is flushed, so a first save that omits a field used to reach int(None). Only pass what is known; resolve_policy supplies the defaults for the rest.
+    candidate = {
+        "raw_events_days": body.raw_events_days if body.raw_events_days is not None else row.raw_events_days,
+        "alerts_days": body.alerts_days if body.alerts_days is not None else row.alerts_days,
+        "audit_days": body.audit_days if body.audit_days is not None else row.audit_days,
+    }
+    merged = resolve_policy({k: v for k, v in candidate.items() if v is not None})
     row.raw_events_days = merged.raw_events_days
     row.alerts_days = merged.alerts_days
     row.audit_days = merged.audit_days

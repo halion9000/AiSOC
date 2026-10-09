@@ -257,7 +257,7 @@ async def collect_evidence(body: CollectEvidenceRequest, db: DBSession, user: Au
             collected_at, status, created_at
         ) VALUES (
             :id, :tenant_id, :case_id, :fw, :ctrl, :title,
-            :kind, :summary, :payload::jsonb, :hash, :prev,
+            :kind, :summary, CAST(:payload AS jsonb), :hash, :prev,
             :now, 'pending', :now
         ) RETURNING *
     """).bindparams(

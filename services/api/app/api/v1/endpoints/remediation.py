@@ -35,8 +35,8 @@ class MaturityOut(BaseModel):
     tenant_id: uuid.UUID
     maturity_tier: int
     action_overrides: dict[str, Any]
-    changed_at: str
-    created_at: str
+    changed_at: datetime
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,7 +51,7 @@ class GateLogOut(BaseModel):
     decision: str
     rationale: str | None
     actor: str
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,7 +67,7 @@ class WhitelistOut(WhitelistCreate):
     id: uuid.UUID
     tenant_id: uuid.UUID
     approved_by: uuid.UUID | None
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

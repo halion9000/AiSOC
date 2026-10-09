@@ -39,8 +39,8 @@ class RiskProfileOut(BaseModel):
     privilege_delta: int
     is_watchlisted: bool
     watchlist_reason: str | None
-    last_evaluated_at: str
-    updated_at: str
+    last_evaluated_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,8 +59,8 @@ class IndicatorOut(BaseModel):
     description: str
     source_alert_id: uuid.UUID | None
     evidence: dict[str, Any]
-    occurred_at: str
-    acknowledged_at: str | None
+    occurred_at: datetime
+    acknowledged_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -84,7 +84,7 @@ class PeerGroupCreate(BaseModel):
 class PeerGroupOut(PeerGroupCreate):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    created_at: str
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
