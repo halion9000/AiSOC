@@ -206,8 +206,9 @@ async def suggest_fp_fix(
     """
     # 1. Load alert — scoped to caller's tenant. A cross-tenant alert_id 404s
     # before any evidence or rule body is read.
+    # `alerts` has no `evidence` column (and `aisoc_alerts`, which this used to query, was never created, so this endpoint failed on every call): the evidence is composed from the alert's own fields.
     row = await db.execute(
-        text("SELECT rule_id, evidence, tenant_id FROM aisoc_alerts " "WHERE id = :aid AND tenant_id = :tenant_id").bindparams(
+        text("SELECT rule_id, tenant_id, title, severity, mitre_techniques, raw_event, entities, iocs FROM alerts " "WHERE id = :aid AND tenant_id = :tenant_id").bindparams(
             aid=body.alert_id, tenant_id=user.tenant_id
         )
     )
@@ -216,7 +217,18 @@ async def suggest_fp_fix(
         raise HTTPException(status_code=404, detail="Alert not found")
 
     rule_id = alert_row.rule_id
-    evidence: dict[str, Any] = alert_row.evidence or {}
+    evidence: dict[str, Any] = {
+        key: value
+        for key, value in {
+            "title": alert_row.title,
+            "severity": alert_row.severity,
+            "mitre_techniques": alert_row.mitre_techniques,
+            "raw_event": alert_row.raw_event,
+            "entities": alert_row.entities,
+            "iocs": alert_row.iocs,
+        }.items()
+        if value not in (None, [], {}, "")
+    }
     # Trust the caller's tenant for downstream writes — never echo a value
     # read from the database back into an authorization decision.
     tenant_id: uuid.UUID = user.tenant_id
@@ -224,10 +236,16 @@ async def suggest_fp_fix(
     # 2. Load rule body if available — also tenant-scoped so an alert in tenant
     # A can never resolve a rule body owned by tenant B (e.g. via stale data).
     current_sigma = "# Rule body not found\n"
-    if rule_id:
+    # detection_rules (aisoc_detection_rules was never created). alerts.rule_id is free text but detection_rules.id, base_rule_id on the proposal and on the stored suggestion, and the response field are all UUIDs, so a rule id that is not one has no row to find,
+    # must not reach a query as a malformed UUID, and is recorded as no base rule (rule_uuid is None) rather than failing the whole response.
+    try:
+        rule_uuid = uuid.UUID(str(rule_id)) if rule_id else None
+    except ValueError:
+        rule_uuid = None
+    if rule_uuid is not None:
         rule_row = await db.execute(
-            text("SELECT rule_body FROM aisoc_detection_rules " "WHERE id = :rid AND tenant_id = :tenant_id").bindparams(
-                rid=rule_id, tenant_id=user.tenant_id
+            text("SELECT rule_body FROM detection_rules " "WHERE id = :rid AND tenant_id = :tenant_id").bindparams(
+                rid=rule_uuid, tenant_id=user.tenant_id
             )
         )
         rule_data = rule_row.fetchone()
@@ -264,7 +282,7 @@ async def suggest_fp_fix(
                 ).bindparams(
                     id=proposal_id,
                     tid=tenant_id,
-                    rid=rule_id,
+                    rid=rule_uuid,
                     name=draft.get("rule_name", "fp-exclusion-draft"),
                     desc=draft.get("rationale", ""),
                     body=draft.get("sigma_yaml", ""),
@@ -279,7 +297,7 @@ async def suggest_fp_fix(
     result = SuggestionResponse(
         suggestion_id=suggestion_id,
         alert_id=body.alert_id,
-        base_rule_id=rule_id,
+        base_rule_id=rule_uuid,
         draft_rule_name=draft.get("rule_name", "fp-exclusion-draft"),
         draft_sigma_yaml=draft.get("sigma_yaml", ""),
         rationale=draft.get("rationale", ""),
@@ -292,7 +310,7 @@ async def suggest_fp_fix(
             tenant_id=tenant_id,  # the CALLER's tenant, never a value read back from the database
             created_by=user.user_id,
             alert_id=body.alert_id,
-            base_rule_id=rule_id,
+            base_rule_id=rule_uuid,
             draft_rule_name=result.draft_rule_name,
             draft_sigma_yaml=result.draft_sigma_yaml,
             rationale=result.rationale,

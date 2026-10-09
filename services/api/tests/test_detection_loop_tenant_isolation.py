@@ -56,12 +56,17 @@ def _user(tenant_id: uuid.UUID | None = None) -> CurrentUser:
     )
 
 
-def _alert_row(tenant_id: uuid.UUID, rule_id: uuid.UUID | None = None, evidence: dict[str, Any] | None = None) -> MagicMock:
-    """Build a fake ``aisoc_alerts`` row exposing the columns the endpoint reads."""
+def _alert_row(tenant_id: uuid.UUID, rule_id: uuid.UUID | str | None = None, evidence: dict[str, Any] | None = None) -> MagicMock:
+    """Build a fake ``alerts`` row exposing the columns the endpoint reads (the real table has no ``evidence`` column: the endpoint composes it)."""
     row = MagicMock()
     row.rule_id = rule_id
-    row.evidence = evidence or {"process_name": "powershell.exe", "User": "svc-ci"}
     row.tenant_id = tenant_id
+    row.title = "Suspicious PowerShell"
+    row.severity = "high"
+    row.mitre_techniques = ["T1059.001"]
+    row.raw_event = evidence or {"process_name": "powershell.exe", "User": "svc-ci"}
+    row.entities = {}
+    row.iocs = []
     return row
 
 
@@ -190,8 +195,8 @@ async def test_suggest_cross_tenant_alert_id_returns_404(_stub_llm: dict[str, An
     assert exc.value.status_code == 404
 
     # The alert SELECT must have been tenant-scoped.
-    alert_select = _find_select(db.executed, "aisoc_alerts")
-    assert alert_select is not None, "expected a SELECT against aisoc_alerts"
+    alert_select = _find_select(db.executed, "from alerts")
+    assert alert_select is not None, "expected a SELECT against alerts"
     sql, params = alert_select
     assert "tenant_id" in re.sub(r"\s+", " ", sql).lower(), f"alert SELECT not tenant-scoped: {sql}"
     assert (
@@ -199,7 +204,7 @@ async def test_suggest_cross_tenant_alert_id_returns_404(_stub_llm: dict[str, An
     ), f"alert SELECT did not bind the caller's tenant_id; params={params}; expected={tenant_a.tenant_id}"
 
     # Critical: no rule lookup and no proposal INSERT must have run.
-    assert _find_select(db.executed, "aisoc_detection_rules") is None, "rule body lookup must not run when the alert lookup 404s"
+    assert _find_select(db.executed, "from detection_rules") is None, "rule body lookup must not run when the alert lookup 404s"
     assert _find_insert(db.executed, "detection_rule_proposals") is None, "no proposal must be inserted when the alert lookup 404s"
     # And nothing must land in the in-memory store.
     assert db.added == [], "nothing may be stored when the alert lookup 404s"
@@ -225,15 +230,15 @@ async def test_suggest_same_tenant_scopes_alert_rule_and_proposal(_stub_llm: dic
     assert response.base_rule_id == rule_id
 
     # Alert SELECT — tenant-scoped on caller's tenant.
-    alert_select = _find_select(db.executed, "aisoc_alerts")
+    alert_select = _find_select(db.executed, "from alerts")
     assert alert_select is not None
     sql, params = alert_select
     assert "tenant_id" in re.sub(r"\s+", " ", sql).lower()
     assert params.get("tenant_id") == user.tenant_id
 
     # Rule SELECT — also tenant-scoped on caller's tenant.
-    rule_select = _find_select(db.executed, "aisoc_detection_rules")
-    assert rule_select is not None, "expected a SELECT against aisoc_detection_rules"
+    rule_select = _find_select(db.executed, "from detection_rules")
+    assert rule_select is not None, "expected a SELECT against detection_rules"
     sql, params = rule_select
     assert "tenant_id" in re.sub(r"\s+", " ", sql).lower()
     assert params.get("tenant_id") == user.tenant_id
@@ -312,7 +317,7 @@ async def test_suggest_alert_without_rule_id_skips_rule_select(_stub_llm: dict[s
     )
 
     assert response.base_rule_id is None
-    assert _find_select(db.executed, "aisoc_detection_rules") is None
+    assert _find_select(db.executed, "from detection_rules") is None
     proposal_insert = _find_insert(db.executed, "detection_rule_proposals")
     assert proposal_insert is not None
     assert proposal_insert[1].get("tid") == user.tenant_id

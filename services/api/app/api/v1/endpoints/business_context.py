@@ -320,9 +320,14 @@ async def _fetch_sample_alerts(
         result = await db.execute(
             text(
                 """
-                SELECT id, severity, title, source, src_ip, hostname, username,
-                       tags, metadata
-                FROM aisoc_alerts
+                SELECT id, severity, title,
+                       connector_type AS source,
+                       affected_ips ->> 0 AS src_ip,
+                       affected_hosts ->> 0 AS hostname,
+                       affected_users ->> 0 AS username,
+                       tags,
+                       enrichment_data AS metadata
+                FROM alerts
                 WHERE tenant_id = :tenant_id
                 ORDER BY created_at DESC
                 LIMIT :limit

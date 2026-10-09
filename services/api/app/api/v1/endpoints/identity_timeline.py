@@ -86,6 +86,16 @@ def _mitre_from_alert(raw: dict[str, Any]) -> str | None:
 # ────────────────────────────────────────────────────────────────────────────
 
 
+def _first_technique(techniques) -> str | None:
+    """The first MITRE technique id of an alert's mitre_techniques (strings, or {"id": ...} objects)."""
+    for item in techniques or []:
+        if isinstance(item, str) and item:
+            return item
+        if isinstance(item, dict) and item.get("id"):
+            return str(item["id"])
+    return None
+
+
 @router.post(
     "/build",
     response_model=IdentityTimeline,
@@ -109,20 +119,22 @@ async def build_timeline(
         alert_rows = await db.execute(
             text(
                 """
-                SELECT id, created_at, severity, title, evidence, mitre_technique
-                FROM aisoc_alerts
-                WHERE created_at BETWEEN :from_ts AND :to_ts
+                SELECT id, created_at, severity, title, raw_event AS evidence, mitre_techniques
+                FROM alerts
+                WHERE tenant_id = :tenant_id
+                  AND created_at BETWEEN :from_ts AND :to_ts
                   AND (
-                    evidence::text ILIKE :pat
-                    OR title ILIKE :pat
+                    raw_event::text ILIKE :pat ESCAPE '\\'
+                    OR title ILIKE :pat ESCAPE '\\'
                   )
                 ORDER BY created_at DESC
                 LIMIT :lim
                 """
             ).bindparams(
+                tenant_id=user.tenant_id,
                 from_ts=from_ts,
                 to_ts=to_ts,
-                pat=f"%{body.identity_value}%",
+                pat="%" + body.identity_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",
                 lim=body.max_events,
             )
         )
@@ -132,15 +144,15 @@ async def build_timeline(
                     event_id=row.id,
                     timestamp=row.created_at,
                     event_type="alert",
-                    source="aisoc_alerts",
+                    source="alerts",
                     description=row.title or "Alert",
                     severity=row.severity,
-                    mitre_technique=row.mitre_technique or _mitre_from_alert(row.evidence or {}),
+                    mitre_technique=_first_technique(row.mitre_techniques) or _mitre_from_alert(row.evidence or {}),
                     raw=row.evidence,
                 )
             )
     except Exception as exc:
-        log.debug("aisoc_alerts table not available; skipping", error=str(exc))
+        log.debug("alerts query failed; skipping", error=str(exc))
 
     # ── 2. Raw events from aisoc_events (if table exists) ──────────────────
     try:

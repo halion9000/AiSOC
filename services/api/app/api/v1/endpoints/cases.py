@@ -896,7 +896,8 @@ async def case_timeline(case_id: str, db: DBSession, user: Annotated[AuthUser, D
     for alert_id in list(case_row.alert_ids or [])[:25]:
         try:
             a = (
-                await db.execute(text("SELECT id, title, severity, created_at FROM aisoc_alerts WHERE id = :id").bindparams(id=alert_id))
+                # `alerts` (the table alerts live in; `aisoc_alerts` was never created, so no linked alert ever appeared here), scoped to the caller's tenant like every other read in this function.
+                await db.execute(text("SELECT id, title, severity, created_at FROM alerts WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=alert_id, tenant_id=user.tenant_id))
             ).fetchone()
             if a:
                 events.append(
