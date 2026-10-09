@@ -100,10 +100,16 @@ function tenantOf(req: Request): string {
 }
 
 function userOf(req: Request, body: SubscribeRequestBody): string | null {
-  // Prefer the body field for now; the API gateway is expected to validate
-  // it against the bearer token before traffic reaches the realtime
-  // service in production.
-  if (body.user_id) return body.user_id;
+  // The header is set by the API from the VERIFIED session (and this route needs the internal token), so it wins. The body is only a fallback for an internal caller that sends no
+  // header. It used to be preferred, on the assumption that the gateway had validated it; the gateway forwarded it unchanged, so a client could name another user.
+  const hdr = req.headers['x-user-id'];
+  if (typeof hdr === 'string' && hdr.length > 0) return hdr;
+  if (Array.isArray(hdr) && hdr[0]) return hdr[0];
+  if (body?.user_id) return body.user_id;
+  return null;
+}
+
+function headerUser(req: Request): string | null {
   const hdr = req.headers['x-user-id'];
   if (typeof hdr === 'string' && hdr.length > 0) return hdr;
   if (Array.isArray(hdr) && hdr[0]) return hdr[0];
@@ -179,6 +185,9 @@ export class PushManager {
     const existing: SubscriptionRecord | null = existingRaw
       ? (JSON.parse(existingRaw) as SubscriptionRecord)
       : null;
+    // The record is keyed by the endpoint alone. Re-subscribing an endpoint under a DIFFERENT tenant or user replaces the record, so its memberships in the old tenant's, user's and
+    // topic sets must go too: left behind, they made the old tenant's notifications resolve to a device that now belongs to someone else.
+    const rehomed = existing !== null && (existing.tenant_id !== tenantId || existing.user_id !== userId);
 
     const topics =
       body.topics && body.topics.length > 0 ? body.topics : DEFAULT_TOPICS;
@@ -209,12 +218,17 @@ export class PushManager {
       pipeline.expire(topicKey, SUB_TTL_SECONDS);
     }
     // If topics changed, prune the subscription from old topic sets.
-    if (existing) {
+    if (existing && !rehomed) {
       for (const oldTopic of existing.topics) {
         if (!topics.includes(oldTopic)) {
           pipeline.srem(key('topic', tenantId, oldTopic), id);
         }
       }
+    }
+    if (existing && rehomed) {
+      pipeline.srem(key('tenant', existing.tenant_id), id);
+      if (existing.user_id) pipeline.srem(key('user', existing.tenant_id, existing.user_id), id);
+      for (const oldTopic of existing.topics) pipeline.srem(key('topic', existing.tenant_id, oldTopic), id);
     }
     await pipeline.exec();
 
@@ -225,16 +239,20 @@ export class PushManager {
     return record;
   }
 
-  async removeSubscription(tenantId: string, endpoint: string): Promise<boolean> {
+  /** Remove the subscription for this endpoint, but only if it belongs to `tenantId` (and, when given, to `userId`): knowing an endpoint is not enough to remove someone else's. */
+  async removeSubscription(tenantId: string, endpoint: string, userId?: string | null): Promise<boolean> {
     const id = hashEndpoint(endpoint);
-    return this.removeSubscriptionById(tenantId, id);
+    return this.removeSubscriptionById(tenantId, id, userId);
   }
 
-  async removeSubscriptionById(tenantId: string, id: string): Promise<boolean> {
+  async removeSubscriptionById(tenantId: string, id: string, userId?: string | null): Promise<boolean> {
     const subKey = key('sub', id);
     const raw = await this.redis.get(subKey);
     if (!raw) return false;
     const record = JSON.parse(raw) as SubscriptionRecord;
+    // It used to delete whatever the record said it belonged to, whoever asked.
+    if (record.tenant_id !== tenantId) return false;
+    if (userId && record.user_id && record.user_id !== userId) return false;
 
     const pipeline = this.redis.multi();
     pipeline.del(subKey);
@@ -293,10 +311,14 @@ export class PushManager {
       }
     }
 
+    // The index sets only say which ids to LOOK AT; the record itself must still belong to the tenant (and, for a user target, the user) being notified.
+    const wantedUsers = target.user_ids && target.user_ids.length > 0 ? new Set(target.user_ids) : null;
     const records: SubscriptionRecord[] = [];
     for (const id of ids) {
       const r = await this.getSubscription(id);
-      if (r) records.push(r);
+      if (!r || r.tenant_id !== target.tenant_id) continue;
+      if (wantedUsers && (!r.user_id || !wantedUsers.has(r.user_id))) continue;
+      records.push(r);
     }
     return records;
   }
@@ -453,7 +475,7 @@ export class PushManager {
       res.status(400).json({ error: 'endpoint is required' });
       return;
     }
-    const removed = await this.removeSubscription(tenantId, endpoint);
+    const removed = await this.removeSubscription(tenantId, endpoint, headerUser(req));
     res.json({ removed });
   };
 
