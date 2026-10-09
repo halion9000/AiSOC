@@ -182,7 +182,7 @@ def validate_index_pattern(value: str) -> str:
     return value
 
 
-CROSS_TENANT_PERMISSION = "platform:cross_tenant_query"
+from app.services.tenant_selection import CROSS_TENANT_PERMISSION  # noqa: E402  (the one definition of who may read other tenants)
 logger = logging.getLogger(__name__)
 
 

@@ -262,6 +262,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_eighth_batch())
     flows.update(_ninth_batch())
     flows.update(_tenth_batch())
+    flows.update(_eleventh_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -577,7 +578,23 @@ def _eighth_batch() -> dict[str, list[Step]]:
 
 
 # Values a flow starts with, for a path parameter that is chosen by the caller rather than returned by the API (a connector type, a slug): {name} in a step's path is filled from here until a step captures it.
-FLOW_SEEDS: dict[str, dict[str, str]] = {"oauth_apps": {"ct": "github"}}
+FLOW_SEEDS: dict[str, dict[str, str]] = {"oauth_apps": {"ct": "github"}, "tenant_selection": {"etype": "user", "evalue": "alice"}}
+
+
+def _eleventh_batch() -> dict[str, list[Step]]:
+    """Endpoints that let the caller NAME a tenant (fusion entity risk, osquery file integrity). Neither flow user holds platform:cross_tenant_query, so naming the other tenant must be a 403, decided BEFORE any upstream call; naming one's own must not be. (The upstream services are not running here, so "own" answers 200 / 404 / 503: anything but 403 shows the check let it through.)"""
+    A, B = "aaaaaaaa-0000-0000-0000-000000000001", "bbbbbbbb-0000-0000-0000-000000000002"
+    routes = (("fusion queue", "/api/v1/fusion/entity-risk/queue", (200,)), ("fusion stats", "/api/v1/fusion/entity-risk/stats", (200,)), ("fusion entity", "/api/v1/fusion/entity-risk/{etype}/{evalue}", (200, 404)),
+              ("osquery events", "/api/v1/osquery/fim/events", (200, 503)), ("osquery summary", "/api/v1/osquery/fim/summary", (200, 503)))
+    steps: list[Step] = []
+    for label, path, own_ok in routes:
+        steps += [
+            S(f"B names its OWN tenant on {label} (not refused)", "B", "get", path, params={"tenant_id": B}, expect=own_ok),
+            S(f"B cannot name A's tenant on {label}", "B", "get", path, params={"tenant_id": A}, expect=(403,)),
+            S(f"A names its OWN tenant on {label} (not refused)", "A", "get", path, params={"tenant_id": A}, expect=own_ok),
+            S(f"A cannot name B's tenant on {label}", "A", "get", path, params={"tenant_id": B}, expect=(403,)),
+        ]
+    return {"tenant_selection": steps}
 
 
 def _tenth_batch() -> dict[str, list[Step]]:

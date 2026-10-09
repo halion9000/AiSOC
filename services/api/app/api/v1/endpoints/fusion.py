@@ -37,6 +37,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from app.api.v1.deps import AuthUser, require_permission
 from app.core.internal_auth import fusion_service_headers
 from app.core.logging import safe_log_value
+from app.services.tenant_selection import resolve_requested_tenant
 
 
 logger = logging.getLogger(__name__)
@@ -152,8 +153,7 @@ def _require_own_tenant(tenant_id: UUID, user: "AuthUser") -> None:
     A caller may only ask about their own tenant (taken from their verified login,
     never from the request). Platform admins operate across tenants.
     """
-    if user.role != "platform_admin" and str(tenant_id) != str(user.tenant_id):
-        raise HTTPException(status_code=403, detail="tenant_id does not match your tenant")
+    resolve_requested_tenant(user, tenant_id)  # raises 403 unless it is their own tenant or they hold platform:cross_tenant_query
 
 
 @router.get("/entity-risk/queue", summary="Top entities by risk score")

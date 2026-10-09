@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
+from app.services.tenant_selection import resolve_requested_tenant
 from app.api.v1.dev_auth import DEMO_TENANT_ID
 
 router = APIRouter(prefix="/osquery/fim", tags=["osquery"])
@@ -46,9 +47,7 @@ def resolve_tenant(user: Any, requested: str | None) -> str:
     requested = (requested or "").strip()
     if not requested:
         return str(user.tenant_id)
-    if user.role == "platform_admin" or requested in allowed_tenants(user):
-        return requested
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_id does not match your tenant")
+    return resolve_requested_tenant(user, requested, also_allowed=allowed_tenants(user))
 
 
 def _base_url() -> str:
