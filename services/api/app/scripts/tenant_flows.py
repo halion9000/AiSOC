@@ -242,6 +242,7 @@ def build_flows() -> dict[str, list[Step]]:
     }
     fresh = flows.pop("fresh")
     flows.update(_more_flows())
+    flows.update(_third_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -324,6 +325,78 @@ def _more_flows() -> dict[str, list[Step]]:
             S("B cannot tune it", "B", "post", "/api/v1/detection/tuning/{rule}/dismiss", over={"reason": "x"}, expect=ISO),
             S("A's rule is still there", "A", "get", "/api/v1/detection/rules/{rule}", expect=(200,)),
             S("A deletes it", "A", "delete", "/api/v1/detection/rules/{rule}", expect=(200, 204), nobody=True),
+        ],
+    }
+
+
+def _third_batch() -> dict[str, list[Step]]:
+    """Case children, rules, hunts and detection proposals. Exclusions use absent= (which adds the owner's positive control); cross-tenant WRITES expect any refusal."""
+    child = lambda tail: f"/api/v1/cases/{{cc}}/{tail}"  # noqa: E731
+    return {
+        "case_children": [
+            S("A creates a case", "A", "post", "/api/v1/cases", capture=("cc", "id")),
+            S("B makes its own case", "B", "post", "/api/v1/cases", capture=("cc_b", "id")),
+            S("A adds a note", "A", "post", child("notes"), capture=("note", "id")),
+            S("B cannot list A's notes", "B", "get", child("notes"), expect=(404, 403, 200), absent="note"),
+            S("B cannot add a note to A's case", "B", "post", child("notes"), expect=ISO),
+            S("A adds a task", "A", "post", child("tasks"), capture=("task", "id")),
+            S("B cannot list A's tasks", "B", "get", child("tasks"), expect=(404, 403, 200), absent="task"),
+            S("B cannot add a task to A's case", "B", "post", child("tasks"), expect=ISO),
+            S("B cannot patch A's task through A's case", "B", "patch", "/api/v1/cases/{cc}/tasks/{task}", over={"title": "pwned"}, expect=ISO),
+            S("B cannot patch A's task through ITS OWN case", "B", "patch", "/api/v1/cases/{cc_b}/tasks/{task}", over={"title": "pwned"}, expect=ISO),
+            S("B cannot update A's observables", "B", "post", child("observables"), expect=ISO),
+            S("A's task is intact", "A", "get", child("tasks"), expect=(200,), check=lambda r, c: "pwned" not in r.text),
+            S("A reads the evidence", "A", "get", child("evidence"), expect=(200,)),
+            S("B cannot read A's evidence", "B", "get", child("evidence"), expect=ISO),
+            S("A reads the related cases", "A", "get", child("related"), expect=(200,)),
+            S("B cannot read A's related cases", "B", "get", child("related"), expect=ISO),
+            S("A reads the timeline", "A", "get", child("timeline"), expect=(200,)),
+            S("B cannot read A's timeline", "B", "get", child("timeline"), expect=ISO),
+            S("A reads the attack chain", "A", "get", child("attack-chain"), expect=(200,)),
+            S("B cannot read A's attack chain", "B", "get", child("attack-chain"), expect=ISO),
+            S("A reads the summary", "A", "get", child("summary"), expect=(200,), check=lambda r, c: _top_field_is(r, "headline", r.json().get("headline")) and "case" in r.json()),
+            S("B cannot read A's summary", "B", "get", child("summary"), expect=ISO),
+            S("B cannot read A's summary as HTML", "B", "get", child("summary"), params={"format": "html"}, expect=ISO),
+            S("A reads the postmortem", "A", "get", child("postmortem"), expect=(200,)),
+            S("B cannot read A's postmortem", "B", "get", child("postmortem"), expect=ISO),
+            S("B cannot read A's postmortem as HTML", "B", "get", child("postmortem"), params={"format": "html"}, expect=ISO),
+            S("A lists its investigations", "A", "get", child("investigations"), expect=(200,)),
+            S("B cannot read A's investigations", "B", "get", child("investigations"), expect=ISO),
+        ],
+        "rules": [
+            S("A creates a rule", "A", "post", "/api/v1/rules", over={"rule_language": "sigma", "rule_body": "title: flow\nlogsource:\n  product: windows\ndetection:\n  selection:\n    x: 1\n  condition: selection\n", "category": "custom"}, capture=("rl", "id")),
+            S("A reads it", "A", "get", "/api/v1/rules/{rl}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/rules/{rl}", expect=ISO),
+            S("B cannot change it", "B", "patch", "/api/v1/rules/{rl}", expect=ISO),
+            S("B cannot back-test it", "B", "post", "/api/v1/rules/{rl}/backtest", expect=ISO),
+            S("B cannot run it", "B", "post", "/api/v1/rules/{rl}/execute", over={"events": []}, expect=ISO),
+            S("B's rule list excludes it", "B", "get", "/api/v1/rules", expect=(200,), absent="rl"),
+            S("B cannot delete it", "B", "delete", "/api/v1/rules/{rl}", expect=ISO, nobody=True),
+            S("A's rule is still there", "A", "get", "/api/v1/rules/{rl}", expect=(200,)),
+            S("A deletes it", "A", "delete", "/api/v1/rules/{rl}", expect=(200, 204), nobody=True),
+        ],
+        "hunts": [
+            S("A opens a hunt", "A", "post", "/api/v1/hunts", capture=("ht", "id")),
+            S("A reads it", "A", "get", "/api/v1/hunts/{ht}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/hunts/{ht}", expect=ISO),
+            S("B cannot change it", "B", "patch", "/api/v1/hunts/{ht}", expect=ISO),
+            S("B cannot add findings to it", "B", "post", "/api/v1/hunts/{ht}/findings", over={"findings": [{"title": "pwned"}]}, expect=ISO),
+            S("B cannot run it", "B", "post", "/api/v1/hunts/{ht}/run", expect=ISO),
+            S("B cannot read its runs", "B", "get", "/api/v1/hunts/{ht}/runs", expect=ISO),
+            S("B's hunt list excludes it", "B", "get", "/api/v1/hunts", expect=(200,), absent="ht"),
+        ],
+        "detection_proposals": [
+            S("A opens a proposal", "A", "post", "/api/v1/detection-proposals", over={"rule_language": "sigma", "category": "custom", "rule_body": "title: flow\n"}, capture=("prop", "id")),
+            S("A reads it", "A", "get", "/api/v1/detection-proposals/{prop}", expect=(200,)),
+            S("B cannot read it", "B", "get", "/api/v1/detection-proposals/{prop}", expect=ISO),
+            S("B cannot comment on it", "B", "post", "/api/v1/detection-proposals/{prop}/comment", over={"comment": "pwned"}, expect=ISO),
+            S("B cannot decide it", "B", "post", "/api/v1/detection-proposals/{prop}/decide", over={"decision": "reject"}, expect=ISO),
+            S("B cannot attach an eval to it", "B", "post", "/api/v1/detection-proposals/{prop}/eval", over={"eval_report": {}}, expect=ISO),
+            S("B cannot evaluate its rule", "B", "post", "/api/v1/detection-proposals/{prop}/evaluate-rule", over={"positive_fixtures": [{"x": 1}]}, expect=ISO),
+            S("B cannot back-test it", "B", "post", "/api/v1/detection-proposals/{prop}/backtest", expect=ISO),
+            S("B cannot promote it", "B", "post", "/api/v1/detection-proposals/{prop}/promote", expect=ISO, nobody=True),
+            S("B's proposal list excludes it", "B", "get", "/api/v1/detection-proposals", expect=(200,), absent="prop"),
+            S("A's proposal is untouched", "A", "get", "/api/v1/detection-proposals/{prop}", expect=(200,), check=lambda r, c: "pwned" not in r.text and '"status":"proposed"' in r.text.replace(" ", "")),
         ],
     }
 

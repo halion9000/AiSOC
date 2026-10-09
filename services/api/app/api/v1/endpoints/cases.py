@@ -1160,6 +1160,21 @@ async def case_investigate(
     return resp.json()
 
 
+async def _require_own_run(run_id: str, user: Any) -> dict[str, Any]:
+    """The investigation run `run_id`, only if it belongs to the caller's tenant.
+
+    The agents service does not scope a call made with the internal token (it trusts the API to have authorised it), so the check belongs here. A run that is not this tenant's, or that records no owner, is the same 404 the agents service gives for a missing one.
+    GET /investigations/{run} had this check; GET /investigations/{run}/report.pdf did not, so any tenant could download any run's PDF report by id."""
+    safe_run_id = quote(run_id, safe="")  # URL-encode the user-supplied id so it cannot inject `/`, `?`, `#`, CR/LF or other URL syntax into the proxied path
+    resp = await _agents_proxy("GET", f"/api/v1/investigations/{safe_run_id}")
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    run = resp.json()
+    if not isinstance(run, dict) or str(run.get("tenant_id")) != str(user.tenant_id):
+        raise HTTPException(status_code=404, detail='{"detail":"Investigation run not found"}')
+    return run
+
+
 @router.get("/{case_id}/investigations", summary="List investigation runs for a case")
 async def list_case_investigations(
     case_id: str,
@@ -1172,13 +1187,21 @@ async def list_case_investigations(
     an empty list rather than 503 so the case detail page still renders.
     """
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
+    # _resolve_case_id does NOT check ownership of a UUID, and the agents service does not scope an internal-token call: without this check any tenant could list any case's runs by guessing its id.
+    owned = (await db.execute(text("SELECT 1 FROM aisoc_cases WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=cid, tenant_id=user.tenant_id))).fetchone()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Case not found.")
     try:
         resp = await _agents_proxy("GET", f"/api/v1/cases/{cid}/investigations")
         if resp.status_code == 404:
             return {"runs": []}
         if resp.status_code >= 400:
             return {"runs": []}
-        return resp.json()
+        body = resp.json()
+        # Belt and braces, consistent with the single-run endpoint: only runs that record THIS tenant as their owner.
+        if isinstance(body, dict) and isinstance(body.get("runs"), list):
+            body = {**body, "runs": [r for r in body["runs"] if isinstance(r, dict) and str(r.get("tenant_id")) == str(user.tenant_id)]}
+        return body
     except HTTPException:
         # Agents service unavailable — render a soft-empty list instead of 503.
         return {"runs": []}
@@ -1190,18 +1213,7 @@ async def case_investigation_run(
     run_id: str,
     user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
 ) -> dict[str, Any]:
-    # URL-encode the user-supplied run_id so it cannot inject `/`, `?`, `#`,
-    # CR/LF, or other URL syntax into the proxied path.
-    safe_run_id = quote(run_id, safe="")
-    resp = await _agents_proxy("GET", f"/api/v1/investigations/{safe_run_id}")
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    run = resp.json()
-    # The agents service does not scope a call made with the internal token (it trusts the API to have authorised it), so the tenant check belongs HERE, where the caller's tenant is known. This used to
-    # return whatever run the id named, to any user. A run that is not this tenant's (or that records no owner) is the SAME 404 the agents service gives for an unknown id: nothing leaks about which ids exist.
-    if not isinstance(run, dict) or str(run.get("tenant_id")) != str(user.tenant_id):
-        raise HTTPException(status_code=404, detail='{"detail":"Investigation run not found"}')
-    return run
+    return await _require_own_run(run_id, user)
 
 
 # Filename sanitiser for Content-Disposition: keep only safe ASCII so the
@@ -1283,7 +1295,7 @@ async def case_auto_summary(
     ),
 ) -> Any:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
-    summary = await build_case_summary(db, cid)
+    summary = await build_case_summary(db, cid, tenant_id=user.tenant_id)
     if summary is None:
         raise HTTPException(status_code=404, detail="Case not found.")
 
@@ -1325,7 +1337,7 @@ async def case_auto_postmortem(
     change*. Both are deterministic — same case state in, same artefact out.
     """
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
-    postmortem = await build_case_postmortem(db, cid)
+    postmortem = await build_case_postmortem(db, cid, tenant_id=user.tenant_id)
     if postmortem is None:
         raise HTTPException(status_code=404, detail="Case not found.")
 
@@ -1350,6 +1362,7 @@ async def case_investigation_pdf(
     run_id: str,
     user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
 ) -> Response:
+    await _require_own_run(run_id, user)  # the PDF is the run's content: same tenant check as the JSON
     safe_run_id = quote(run_id, safe="")
     resp = await _agents_proxy("GET", f"/api/v1/investigations/{safe_run_id}/report.pdf")
     if resp.status_code >= 400:

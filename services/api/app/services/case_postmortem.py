@@ -876,6 +876,7 @@ async def build_case_postmortem(
     db: AsyncSession,
     case_id: uuid.UUID,
     *,
+    tenant_id: uuid.UUID,
     now: datetime | None = None,
 ) -> CasePostmortem | None:
     """Async orchestrator: pull rows for one case and build the post-mortem.
@@ -886,11 +887,11 @@ async def build_case_postmortem(
     SQL access is delegated to the auto-summary fetchers — they already
     return the exact dataclasses we need.
     """
-    case = await _fetch_case_for_summary(db, case_id)
+    case = await _fetch_case_for_summary(db, case_id, tenant_id)
     if case is None:
         return None
-    comments = await _fetch_comments(db, case_id)
-    tasks = await _fetch_tasks(db, case_id)
+    comments = await _fetch_comments(db, case_id, tenant_id)
+    tasks = await _fetch_tasks(db, case_id, tenant_id)
     inputs = PostmortemInputs(case=case, comments=comments, tasks=tasks)
     return build_postmortem_from_rows(inputs, now=now)
 
