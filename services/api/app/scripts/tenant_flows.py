@@ -594,6 +594,14 @@ def _eleventh_batch() -> dict[str, list[Step]]:
             S(f"A names its OWN tenant on {label} (not refused)", "A", "get", path, params={"tenant_id": A}, expect=own_ok),
             S(f"A cannot name B's tenant on {label}", "A", "get", path, params={"tenant_id": B}, expect=(403,)),
         ]
+    # tenant_id is OPTIONAL on the fusion routes and defaults to the caller's own: a client that names nothing gets its own tenant's data, and the payload says so.
+    # (The console used to send a build-time constant here, which is 'default' on a standard build: not a UUID.)
+    for user, own in (("A", A), ("B", B)):
+        steps += [
+            S(f"{user} omits tenant_id on fusion queue: its own tenant answers", user, "get", "/api/v1/fusion/entity-risk/queue", expect=(200,), check=lambda r, c, own=own: r.json()["tenant_id"] == own),
+            S(f"{user} omits tenant_id on fusion stats: its own tenant answers", user, "get", "/api/v1/fusion/entity-risk/stats", expect=(200,), check=lambda r, c, own=own: r.json()["tenant_id"] == own),
+            S(f"{user} sends the console's old non-UUID constant: refused, not guessed", user, "get", "/api/v1/fusion/entity-risk/queue", params={"tenant_id": "default"}, expect=(422,)),
+        ]
     # The picker's list: a caller without the permission is offered exactly their own tenant, and is never shown the other tenant's name.
     steps += [
         S("B's picker offers only B's own tenant", "B", "get", "/api/v1/tenants/selectable", expect=(200,), check=lambda r, c: [t["id"] for t in r.json()["tenants"]] == [B] and r.json()["can_select_other_tenants"] is False and _lacks(r, "tenant-a")),

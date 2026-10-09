@@ -147,27 +147,26 @@ _DEFAULT_THRESHOLD = 100.0
 
 
 
-def _require_own_tenant(tenant_id: UUID, user: "AuthUser") -> None:
-    """The fusion service trusts the tenant_id it is sent, so the check lives here.
+def _effective_tenant(tenant_id: UUID | None, user: "AuthUser") -> str:
+    """The tenant this request is for. The fusion service trusts the tenant_id it is sent, so the check lives here.
 
-    A caller may only ask about their own tenant (taken from their verified login,
-    never from the request). Platform admins operate across tenants.
-    """
-    resolve_requested_tenant(user, tenant_id)  # raises 403 unless it is their own tenant or they hold platform:cross_tenant_query
+    Omitted: the caller's own tenant (taken from their verified login, never from the request), so a client never has to know or guess it: the console used to send a BUILD-TIME constant here, which is 'default' (not even a UUID: a 422) on a standard build and some other tenant's id elsewhere (a 403).
+    Naming a tenant other than your own needs platform:cross_tenant_query (app.services.tenant_selection)."""
+    return resolve_requested_tenant(user, tenant_id)
 
 
 @router.get("/entity-risk/queue", summary="Top entities by risk score")
 async def entity_risk_queue(
-    tenant_id: UUID,
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    tenant_id: UUID | None = None,
     limit: int = Query(default=25, ge=1, le=200),
     promoted_only: bool = False,
 ) -> dict[str, Any]:
-    _require_own_tenant(tenant_id, user)
+    tenant = _effective_tenant(tenant_id, user)
     upstream = await _proxy_get(
         "/entity-risk/queue",
         params={
-            "tenant_id": str(tenant_id),
+            "tenant_id": tenant,
             "limit": limit,
             "promoted_only": str(promoted_only).lower(),
         },
@@ -175,7 +174,7 @@ async def entity_risk_queue(
     if upstream is not None:
         return upstream
     return {
-        "tenant_id": str(tenant_id),
+        "tenant_id": tenant,
         "threshold": _DEFAULT_THRESHOLD,
         "entities": [],
     }
@@ -183,18 +182,18 @@ async def entity_risk_queue(
 
 @router.get("/entity-risk/stats", summary="Entity-risk queue stats")
 async def entity_risk_stats(
-    tenant_id: UUID,
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    tenant_id: UUID | None = None,
 ) -> dict[str, Any]:
-    _require_own_tenant(tenant_id, user)
+    tenant = _effective_tenant(tenant_id, user)
     upstream = await _proxy_get(
         "/entity-risk/stats",
-        params={"tenant_id": str(tenant_id)},
+        params={"tenant_id": tenant},
     )
     if upstream is not None:
         return upstream
     return {
-        "tenant_id": str(tenant_id),
+        "tenant_id": tenant,
         "threshold": _DEFAULT_THRESHOLD,
         "total": 0,
         "promoted": 0,
@@ -210,10 +209,10 @@ async def entity_risk_stats(
 async def entity_risk_detail(
     entity_type: str,
     entity_value: str,
-    tenant_id: UUID,
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    tenant_id: UUID | None = None,
 ) -> dict[str, Any]:
-    _require_own_tenant(tenant_id, user)
+    tenant = _effective_tenant(tenant_id, user)
     if entity_type == "ip":
         entity_type = "src_ip"
     # URL-encode user-controlled path segments so they cannot inject `/`,
@@ -222,7 +221,7 @@ async def entity_risk_detail(
     safe_value = quote(entity_value, safe="")
     upstream = await _proxy_get(
         f"/entity-risk/{safe_type}/{safe_value}",
-        params={"tenant_id": str(tenant_id)},
+        params={"tenant_id": tenant},
     )
     if upstream is not None:
         return upstream

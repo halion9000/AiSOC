@@ -72,14 +72,14 @@ class TestTheRule:
 class TestTheEndpointsUseIt:
     def test_fusion_refuses_another_tenant_for_a_non_holder_and_allows_a_holder(self):
         with pytest.raises(HTTPException) as exc:
-            fusion._require_own_tenant(OTHER, principal("admin"))
+            fusion._effective_tenant(OTHER, principal("admin"))
         assert exc.value.status_code == 403
-        fusion._require_own_tenant(HOME, principal("viewer"))
-        fusion._require_own_tenant(OTHER, principal("platform_admin"))
+        assert fusion._effective_tenant(HOME, principal("viewer")) == str(HOME)
+        assert fusion._effective_tenant(OTHER, principal("platform_admin")) == str(OTHER)
 
     def test_fusion_no_longer_trusts_the_role_name(self):
         with pytest.raises(HTTPException):
-            fusion._require_own_tenant(OTHER, principal("platform_admin", scopes=["alerts:read"]))
+            fusion._effective_tenant(OTHER, principal("platform_admin", scopes=["alerts:read"]))
 
     def test_osquery_defaults_to_the_callers_tenant(self):
         assert osquery_fim.resolve_tenant(principal("viewer"), None) == str(HOME)
@@ -187,3 +187,68 @@ class TestSelectableTenants:
         fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "list_selectable_tenants")
         assert "require_permission('alerts:read')" in ast.unparse(fn.args)  # ast.unparse normalises to single quotes
         assert all(has_permission(role, "alerts:read") for role in ROLE_PERMISSIONS)
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------
+# fusion entity risk: tenant_id is OPTIONAL and defaults to the caller's own tenant.
+# The console used to send a build-time constant ('default' on a standard build: not a UUID, so a 422; another tenant's id elsewhere: a 403), so the page
+# only worked where an operator had configured NEXT_PUBLIC_TENANT_ID. The client no longer has to know the tenant; it names one only when a user picks one.
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------
+@pytest.mark.asyncio
+class TestFusionDefaultsToTheCallersTenant:
+    @pytest.fixture
+    def upstream(self, monkeypatch):
+        """Capture what is forwarded to the fusion service. Returns None-upstream by default so the offline fallback payload (which echoes the tenant) is exercised too."""
+        calls = []
+
+        async def fake(path, params=None):
+            calls.append((path, dict(params or {})))
+            return None
+
+        monkeypatch.setattr(fusion, "_proxy_get", fake)
+        return calls
+
+    async def test_queue_omitted_tenant_is_the_callers_own_forwarded_and_echoed(self, upstream):
+        out = await fusion.entity_risk_queue(user=principal("viewer"), tenant_id=None)
+        assert upstream[0][1]["tenant_id"] == str(HOME) and out["tenant_id"] == str(HOME)
+
+    async def test_stats_omitted_tenant_is_the_callers_own_forwarded_and_echoed(self, upstream):
+        out = await fusion.entity_risk_stats(user=principal("viewer"), tenant_id=None)
+        assert upstream[0][1] == {"tenant_id": str(HOME)} and out["tenant_id"] == str(HOME)
+
+    async def test_detail_omitted_tenant_is_the_callers_own_forwarded(self, upstream):
+        with pytest.raises(HTTPException) as exc:  # no upstream: the route's documented 404, after the tenant was resolved and forwarded
+            await fusion.entity_risk_detail(entity_type="user", entity_value="alice", user=principal("viewer"), tenant_id=None)
+        assert exc.value.status_code == 404 and upstream[0][1] == {"tenant_id": str(HOME)}
+
+    async def test_naming_your_own_tenant_explicitly_is_the_same_as_omitting_it(self, upstream):
+        await fusion.entity_risk_queue(user=principal("viewer"), tenant_id=HOME)
+        await fusion.entity_risk_queue(user=principal("viewer"), tenant_id=None)
+        assert upstream[0][1] == upstream[1][1]
+
+    async def test_a_non_holder_naming_another_tenant_is_refused_before_any_upstream_call(self, upstream):
+        for call in (
+            fusion.entity_risk_queue(user=principal("admin"), tenant_id=OTHER),
+            fusion.entity_risk_stats(user=principal("admin"), tenant_id=OTHER),
+            fusion.entity_risk_detail(entity_type="user", entity_value="alice", user=principal("admin"), tenant_id=OTHER),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await call
+            assert exc.value.status_code == 403
+        assert upstream == []
+
+    async def test_a_holder_naming_another_tenant_has_exactly_that_tenant_forwarded_and_echoed(self, upstream):
+        out = await fusion.entity_risk_queue(user=principal("platform_admin"), tenant_id=OTHER)
+        assert upstream[0][1]["tenant_id"] == str(OTHER) and out["tenant_id"] == str(OTHER)
+
+    async def test_the_detail_route_still_maps_ip_and_encodes_the_path_segments(self, upstream):
+        with pytest.raises(HTTPException):
+            await fusion.entity_risk_detail(entity_type="ip", entity_value="a/b?c", user=principal("viewer"), tenant_id=None)
+        assert upstream[0][0] == "/entity-risk/src_ip/a%2Fb%3Fc"
+
+    def test_tenant_id_is_an_optional_query_parameter_on_all_three_routes(self):
+        import inspect
+
+        for fn in (fusion.entity_risk_queue, fusion.entity_risk_stats, fusion.entity_risk_detail):
+            p = inspect.signature(fn).parameters["tenant_id"]
+            assert p.default is None, fn.__name__
