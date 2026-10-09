@@ -642,3 +642,83 @@ async def test_update_task_scopes_update_statement() -> None:
     normalized = re.sub(r"\s+", " ", upd_sql).lower()
     assert "update aisoc_case_tasks" in normalized
     assert upd_params["tenant_id"] == user.tenant_id
+
+
+# --- POST /cases must not cite alerts the caller does not own -------------------------------------------------------------------------------------------------------------------------------------------------------------
+# POST /cases/{id}/alerts was fixed to check alert ownership; POST /cases never was: on real Postgres tenant B created a case citing tenant A's alert id and got 201.
+# Both now share one check (_require_owned_alerts); foreign and nonexistent ids get the same 404, so it cannot be used to probe which alert ids exist elsewhere.
+
+
+def _norm(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql).lower()
+
+
+@pytest.mark.asyncio
+async def test_create_case_with_a_foreign_or_nonexistent_alert_is_404_and_nothing_is_inserted() -> None:
+    user = _user()
+    a = uuid.uuid4()
+    db = _mk_db([[]])  # the ownership query finds none of the caller's
+    with pytest.raises(HTTPException) as exc:
+        await create_case(body=CreateCaseRequest(title="citing someone else", alert_ids=[a]), db=db, user=user)
+    assert exc.value.status_code == 404 and exc.value.detail == "One or more alerts were not found."
+    assert len(db.executed) == 1 and "insert into" not in _norm(db.executed[0][0])
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_case_with_one_foreign_alert_among_owned_ones_is_refused() -> None:
+    user = _user()
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+    db = _mk_db([[(mine,)]])  # only one of the two is the caller's
+    with pytest.raises(HTTPException) as exc:
+        await create_case(body=CreateCaseRequest(title="mixed ownership", alert_ids=[mine, theirs]), db=db, user=user)
+    assert exc.value.status_code == 404
+    assert all("insert into" not in _norm(sql) for sql, _ in db.executed)
+
+
+@pytest.mark.asyncio
+async def test_the_answer_is_identical_for_foreign_and_nonexistent_alerts() -> None:
+    answers = []
+    for _ in range(2):
+        with pytest.raises(HTTPException) as exc:
+            await create_case(body=CreateCaseRequest(title="probing ids", alert_ids=[uuid.uuid4()]), db=_mk_db([[]]), user=_user())
+        answers.append((exc.value.status_code, exc.value.detail))
+    assert answers[0] == answers[1] == (404, "One or more alerts were not found.")
+
+
+@pytest.mark.asyncio
+async def test_create_case_with_owned_alerts_checks_ownership_first_then_inserts_them() -> None:
+    user = _user()
+    a, b = uuid.uuid4(), uuid.uuid4()
+    db = _mk_db([[(a,), (b,)], _case_row(alert_ids=[a, b])])
+    await create_case(body=CreateCaseRequest(title="both mine", alert_ids=[a, b]), db=db, user=user)
+    check_sql, check_params = db.executed[0]
+    assert "from alerts" in _norm(check_sql) and "tenant_id = :tenant_id" in _norm(check_sql) and "id = any(" in _norm(check_sql)
+    assert check_params["tenant_id"] == user.tenant_id and check_params["ids"] == [str(a), str(b)]
+    assert "insert into aisoc_cases" in _norm(db.executed[1][0])
+
+
+@pytest.mark.asyncio
+async def test_a_case_that_names_no_alerts_runs_no_ownership_query() -> None:
+    db = _mk_db([_case_row(title="no alerts")])
+    await create_case(body=CreateCaseRequest(title="no alerts"), db=db, user=_user())
+    assert len(db.executed) == 1 and "insert into aisoc_cases" in _norm(db.executed[0][0])
+
+
+@pytest.mark.asyncio
+async def test_a_duplicated_alert_id_in_the_request_is_not_a_false_refusal() -> None:
+    a = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
+    await create_case(body=CreateCaseRequest(title="dupes are fine", alert_ids=[a, a]), db=db, user=_user())
+    assert "insert into aisoc_cases" in _norm(db.executed[1][0])
+
+
+def test_create_and_attach_share_one_ownership_check() -> None:
+    import ast
+    from pathlib import Path
+
+    import app.api.v1.endpoints.cases as cases_mod
+
+    tree = ast.parse(Path(cases_mod.__file__).read_text(encoding="utf-8"))
+    calls = {n.name: {ast.unparse(c.func) for c in ast.walk(n) if isinstance(c, ast.Call)} for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name in ("create_case", "add_alerts")}
+    assert "_require_owned_alerts" in calls["create_case"] and "_require_owned_alerts" in calls["add_alerts"]

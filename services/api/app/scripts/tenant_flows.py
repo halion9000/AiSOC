@@ -200,6 +200,8 @@ def build_flows() -> dict[str, list[Step]]:
             S("A links the alert", "A", "post", "/api/v1/cases/{case2}/alerts", expect=(200, 201, 202)),
             S("B makes its own case", "B", "post", "/api/v1/cases", capture=("case_b", "id")),
             S("B cannot attach A's alert", "B", "post", "/api/v1/cases/{case_b}/alerts", expect=(404, 403, 400, 422)),
+            S("B cannot create a case citing A's alert", "B", "post", "/api/v1/cases", expect=(404, 403, 400, 422)),
+            S("A can create a case citing its OWN alert", "A", "post", "/api/v1/cases", expect=(201,)),
             S("B's case does not expose A's alert content", "B", "get", "/api/v1/cases/{case_b}", expect=(200,), check=lambda r, c: "flow alert" not in r.text),
             S("B's shift handoff items exclude A's alert", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), check=lambda r, c: not _has(r, c["alert"])),
         ],
@@ -354,7 +356,7 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                         out.append([flow, st.name, st.user, "SKIP", False, f"needs {e}, which an earlier step did not produce"])
                         continue
                     over = dict(st.over)
-                    if flow == "alerts" and st.name in ("A links the alert", "B cannot attach A's alert"):
+                    if flow == "alerts" and st.name in ("A links the alert", "B cannot attach A's alert", "B cannot create a case citing A's alert", "A can create a case citing its OWN alert"):
                         over = {"alert_ids": [ctx.get("alert")]}
                     if flow == "assets" and st.name == "A adds a vulnerability to it":
                         over = {"asset_id": ctx.get("asset"), "title": "CVE-2026-0001", "source": "scanner"}

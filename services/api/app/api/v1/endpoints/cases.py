@@ -436,10 +436,24 @@ async def list_cases(
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
+async def _require_owned_alerts(db: Any, tenant_id: uuid.UUID, alert_ids: list[uuid.UUID]) -> None:
+    """Every alert a case names must belong to the caller's tenant.
+
+    The CASE was always scoped to the caller's tenant but the alerts it points at were not: POST /cases/{id}/alerts was fixed to check them, POST /cases never was, so a tenant could create a case citing another tenant's alert id (HTTP 201, stored in alert_ids).
+    Foreign and nonexistent ids get the same 404, so this cannot be used to probe which alert ids exist elsewhere."""
+    ids = [str(a) for a in alert_ids]
+    if not ids:
+        return
+    owned = (await db.execute(text("SELECT id FROM alerts WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id").bindparams(ids=ids, tenant_id=tenant_id))).fetchall()
+    if {str(r[0]) for r in owned} != set(ids):
+        raise HTTPException(status_code=404, detail="One or more alerts were not found.")
+
+
 @router.post("", response_model=CaseResponse, status_code=status.HTTP_201_CREATED, summary="Create case")
 async def create_case(body: CreateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
     import json as _json
 
+    await _require_owned_alerts(db, user.tenant_id, body.alert_ids)
     case_id = uuid.uuid4()
     now = datetime.now(UTC)
     # Note: PostgreSQL ``::type`` casts inside text() confuse SQLAlchemy's
@@ -642,15 +656,7 @@ async def update_case(case_id: str, body: UpdateCaseRequest, db: DBSession, user
 async def add_alerts(case_id: str, body: AddAlertsRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     ids_str = [str(a) for a in body.alert_ids]
-    # The CASE was always checked against the caller's tenant; the ALERTS never were, so a tenant could plant references to alerts it does not own (or that do not exist) in its own cases.
-    # Foreign and nonexistent ids get the same answer, so this cannot be used to probe which alert ids exist.
-    owned = (
-        await db.execute(
-            text("SELECT id FROM alerts WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id").bindparams(ids=ids_str, tenant_id=user.tenant_id)
-        )
-    ).fetchall()
-    if {str(r[0]) for r in owned} != set(ids_str):
-        raise HTTPException(status_code=404, detail="One or more alerts were not found.")
+    await _require_owned_alerts(db, user.tenant_id, body.alert_ids)
     q = text("""
         UPDATE aisoc_cases
         SET alert_ids = array(SELECT DISTINCT unnest(alert_ids || CAST(:new_ids AS UUID[]))),
