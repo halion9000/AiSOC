@@ -13,13 +13,18 @@ import json
 import uuid
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import AsyncSessionLocal
 from app.db.rls import set_rls_context
 from app.models.alert import Alert
-from app.models.case import Case
+
+
+def _like_pattern(query: str) -> str:
+    """A substring pattern for ILIKE with %, _ and the escape character escaped, so a model-supplied `%` matches a literal percent instead of turning the search into a wildcard scan (pair with escape="\\")."""
+    return "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 async def _get_session(tenant_id: uuid.UUID) -> AsyncSession:
@@ -41,11 +46,11 @@ async def search_alerts(
     async with await _get_session(tid) as db:
         stmt = select(Alert).where(Alert.tenant_id == tid)
         if query:
-            pattern = f"%{query}%"
+            pattern = _like_pattern(query)
             stmt = stmt.where(
-                Alert.title.ilike(pattern) | Alert.description.ilike(pattern)
+                Alert.title.ilike(pattern, escape="\\") | Alert.description.ilike(pattern, escape="\\")
             )
-        stmt = stmt.order_by(Alert.created_at.desc()).limit(min(limit, 50))
+        stmt = stmt.order_by(Alert.created_at.desc()).limit(max(1, min(limit, 50)))
         result = await db.execute(stmt)
         alerts = result.scalars().all()
         return {
@@ -111,7 +116,9 @@ async def delete_alert(*, tenant_id: str, alert_id: str) -> dict[str, Any]:
 async def search_cases(
     *, tenant_id: str, query: str = "", limit: int = 10
 ) -> dict[str, Any]:
-    """Search cases by title substring match."""
+    """Search cases by title substring match.
+
+    Cases live in aisoc_cases (what the cases API reads and writes). This used to read the old `cases` table, which nothing writes, so the Copilot always answered "no cases found"."""
     try:
         tid = uuid.UUID(tenant_id)
     except ValueError:
@@ -119,13 +126,13 @@ async def search_cases(
 
     async with await _get_session(tid) as db:
         where_clauses = ["tenant_id = :tenant_id"]
-        params: dict[str, Any] = {"tenant_id": str(tid), "limit": min(limit, 50)}
+        params: dict[str, Any] = {"tenant_id": str(tid), "limit": max(1, min(limit, 50))}
         if query:
-            where_clauses.append("title ILIKE :pattern")
-            params["pattern"] = f"%{query}%"
+            where_clauses.append("title ILIKE :pattern ESCAPE '\\'")
+            params["pattern"] = _like_pattern(query)
         sql = f"""
             SELECT id, case_number, title, status, severity, created_at
-            FROM cases
+            FROM aisoc_cases
             WHERE {' AND '.join(where_clauses)}
             ORDER BY created_at DESC
             LIMIT :limit
@@ -149,22 +156,11 @@ async def search_cases(
 
 
 async def delete_case(*, tenant_id: str, case_id: str) -> dict[str, Any]:
-    """Delete a single case by ID. Requires cases:write permission."""
-    try:
-        tid = uuid.UUID(tenant_id)
-    except ValueError:
-        return {"error": "invalid tenant_id"}
+    """Cases cannot be deleted from the Copilot.
 
-    async with await _get_session(tid) as db:
-        result = await db.execute(
-            text("DELETE FROM cases WHERE id = :id AND tenant_id = :tid").bindparams(
-                id=case_id, tid=str(tid)
-            )
-        )
-        await db.commit()
-        if result.rowcount == 0:  # type: ignore[union-attr]
-            return {"error": "case not found or already deleted"}
-        return {"deleted": True, "case_id": case_id}
+    This used to run `DELETE FROM cases`, the old table nothing writes, so it always answered "case not found or already deleted". Pointing it at aisoc_cases would have switched on a destructive tool that has never worked, for a model that reads
+    attacker-influenced alert text, while the cases API itself has no delete (cases hold investigation evidence). So it refuses, truthfully, until deleting a case is a deliberate product decision with a confirmation step."""
+    return {"error": "Deleting cases is not supported. A case holds investigation evidence and the cases API has no delete; close or resolve it instead."}
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +248,7 @@ COPILOT_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "delete_case",
-            "description": "Permanently delete a case by its ID. This cannot be undone.",
+            "description": "Not supported: cases cannot be deleted from the Copilot. To finish with a case, close or resolve it instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -277,13 +273,34 @@ _COPILOT_TOOL_DISPATCH: dict[str, Any] = {
 }
 
 
-async def execute_copilot_tool(
-    name: str, args: dict[str, Any], tenant_id: str
-) -> Any:
-    """Execute a copilot tool by name with tenant isolation."""
+# The permission each tool needs, the same ones the matching REST endpoints require. A tool with no entry here is not run.
+TOOL_PERMISSIONS: dict[str, str] = {
+    "search_alerts": "alerts:read",
+    "get_alert": "alerts:read",
+    "delete_alert": "alerts:delete",
+    "search_cases": "cases:read",
+    "delete_case": "cases:delete",
+}
+
+
+async def execute_copilot_tool(name: str, args: dict[str, Any], tenant_id: str, *, user: Any) -> Any:
+    """Execute a copilot tool by name, as `user`, with tenant isolation.
+
+    The endpoint only checks `copilot:use`; this runs whatever tool the model asks for, and the tool docstrings said "Requires alerts:write" / "cases:write" while nothing enforced anything, so any user holding copilot:use (and an API key scoped to copilot:use alone)
+    could have the model delete alerts. Each tool now needs the permission of the matching REST endpoint, checked exactly the way the endpoints check it (static role table, or an API key's scopes). `user` is required: omitting it fails closed.
+    """
     fn = _COPILOT_TOOL_DISPATCH.get(name)
     if fn is None:
         return {"error": f"unknown tool: {name}"}
+    needed = TOOL_PERMISSIONS.get(name)
+    if needed is None:
+        return {"error": f"tool {name} has no declared permission and is not available"}
+    if str(getattr(user, "tenant_id", "")) != str(tenant_id):
+        return {"error": "tenant mismatch"}
+    try:
+        user.require_permission(needed)
+    except HTTPException:
+        return {"error": f"permission denied: {name} requires {needed}"}
     try:
         return await fn(tenant_id=tenant_id, **(args or {}))
     except Exception as exc:  # noqa: BLE001

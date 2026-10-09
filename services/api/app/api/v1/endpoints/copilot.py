@@ -167,7 +167,7 @@ async def copilot_chat(
                 name = call.get("name", "")
                 args = call.get("args", {}) or {}
                 call_id = call.get("id", "") or ""
-                tool_result = await execute_copilot_tool(name, args, tenant_id)
+                tool_result = await execute_copilot_tool(name, args, tenant_id, user=user)
                 messages.append(
                     ToolMessage(
                         content=json.dumps(tool_result, default=str)[:4000],

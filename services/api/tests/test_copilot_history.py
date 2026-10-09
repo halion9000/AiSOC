@@ -28,7 +28,7 @@ from app.models.tenant import Tenant
 from app.services import copilot_history
 
 DB = SimpleNamespace(factory=None, sync=None, path=None)
-LLM = SimpleNamespace(sent=[], replies=[], raise_on_call=False, tool_loop=False, tool_calls=0)
+LLM = SimpleNamespace(sent=[], replies=[], raise_on_call=False, tool_loop=False, tool_calls=0, tool_users=[])
 RLS = SimpleNamespace(calls=[])  # tenant ids the store asked the database to scope the session to
 
 
@@ -46,8 +46,9 @@ async def fake_safe_ainvoke(_bound, messages):
     return AIMessage(content=LLM.replies.pop(0) if LLM.replies else f"answer-{len(LLM.sent)}")
 
 
-async def fake_tool(name, args, tenant_id):
+async def fake_tool(name, args, tenant_id, *, user):
     LLM.tool_calls += 1
+    LLM.tool_users.append(user)
     return {"ok": True}
 
 
@@ -58,6 +59,7 @@ def harness(tmp_path, monkeypatch):
     Base.metadata.create_all(DB.sync, tables=[Tenant.__table__, CopilotConversation.__table__])
     DB.factory = async_sessionmaker(create_async_engine(f"sqlite+aiosqlite:///{path}", poolclass=NullPool), expire_on_commit=False)
     LLM.sent, LLM.replies, LLM.raise_on_call, LLM.tool_loop, LLM.tool_calls = [], [], False, False, 0
+    LLM.tool_users = []
     RLS.calls = []
 
     async def fake_rls(_session, tenant_id):  # SQLite has no RLS and no set_config(); the real thing is exercised against Postgres. Recorded so the tests can prove it is asserted.
@@ -327,6 +329,14 @@ class TestFailureModes:
         assert r.json()["degraded"] is False
         assert "couldn't reach" not in r.json()["reply"]["content"] and r.json()["reply"]["content"] == "still thinking"
         assert LLM.tool_calls == 6  # it really did loop to the limit
+
+
+    def test_tools_run_as_the_authenticated_user_so_their_permissions_can_be_checked(self):
+        """execute_copilot_tool used to receive only the tenant id: nothing it ran could be tied to who asked."""
+        LLM.tool_loop = True
+        c = client_as()
+        chat(c, "keep using tools")
+        assert len(LLM.tool_users) == 6 and all(u.user_id == c.user_id and u.tenant_id == c.tenant_id and u.role == "admin" for u in LLM.tool_users)
 
 
 class TestPermissionAndWiring:
