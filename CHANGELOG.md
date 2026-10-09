@@ -21,6 +21,10 @@ Several authorization problems were found by two-tenant isolation testing and fi
 - **A shared (tenantless) detection proposal can no longer be commented on, decided or promoted by a tenant** (hardening; no such row is created today).
 - **Deleting an alert from the Copilot needs your confirmation**, and the model cannot give it: the request is signed, expiring and bound to the user, and only a separate confirm call performs it.
 
+### Added
+
+- **`tenant_flows run-url`: the two-tenant isolation flows against a deployed environment.** It checks the setup before writing anything (two different tenants, two plain tenant admins who can do what the flows do), refuses unless the host is retyped and `--yes-write-test-data` is given, can be repeated against the same environment (every run's names carry a random tag; what the final flow created is deleted after the leak sweep), and skips the two flows that replace a tenant's whole business-context rule set and settings unless `--include-destructive` is given. Exit codes: 0 clean, 1 a finding, 2 a setup problem. See `docs/security/running-isolation-flows-against-staging.md`.
+
 ### Fixed
 
 - **UEBA can no longer read an unscoreable baseline as normal behaviour.** A

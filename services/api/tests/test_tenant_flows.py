@@ -144,7 +144,7 @@ class TestTheFlowDefinitionsMatchTheRealApi:
         flows = tf.build_flows()
         for flow, seeds in tf.FLOW_SEEDS.items():
             assert flow in flows, f"seed for a flow that does not exist: {flow}"
-            assert all(isinstance(k, str) and isinstance(v, str) and v for k, v in seeds.items())
+            assert all(isinstance(k, str) and isinstance(v() if callable(v) else v, str) and (v() if callable(v) else v) for k, v in seeds.items())
 
     def test_step_names_are_unique_within_a_flow(self):
         for flow, steps in tf.build_flows().items():
