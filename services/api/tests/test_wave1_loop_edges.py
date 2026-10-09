@@ -9,7 +9,7 @@ they run fast and deterministically.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -61,10 +61,14 @@ async def test_hunt_to_detection_flag_disables_bridge(monkeypatch):
 async def test_default_callback_opens_case_and_proposal(monkeypatch):
     monkeypatch.setenv("AISOC_HUNT_TO_DETECTION", "true")
     db = AsyncMock()
-    db.add = lambda *_a, **_k: None  # sync add
+    db.add = MagicMock()
     await hunt_scheduler._on_hunt_hits(db, _hunt(), 3)
-    # the proposal INSERT went through db.execute
-    assert db.execute.await_count == 1
+    # both writes are INSERTs through db.execute: the case into aisoc_cases (where the cases API reads it), then the detection proposal. Nothing goes through the ORM's db.add any more.
+    statements = [" ".join(str(c.args[0]).split()) for c in db.execute.await_args_list]
+    assert len(statements) == 2
+    assert statements[0].startswith("INSERT INTO aisoc_cases")
+    assert statements[1].startswith("INSERT INTO") and "aisoc_cases" not in statements[1]
+    db.add.assert_not_called()
 
 
 # ── W1.4: disposition history -> tuner input ────────────────────────────────

@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import uuid
@@ -68,7 +69,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.airgap import AirgapViolation
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
-from app.models.case import Case
 from app.models.saved_hunt import SavedHunt
 from app.services.event_warehouse import (
     HuntExecutionError,
@@ -206,20 +206,36 @@ async def _open_case_for_hits(db: AsyncSession, hunt: SavedHunt, hit_count: int)
     """
     if hit_count <= 0:
         return
-    case = Case(
-        tenant_id=hunt.tenant_id,
-        case_number=f"HUNT-{hunt.id.hex[:8].upper()}-{int(datetime.now(UTC).timestamp())}",
-        title=f"Scheduled hunt fired: {hunt.name}",
-        description=(
-            f"Saved hunt {hunt.name!r} returned {hit_count} hit(s) on its scheduled run.\n\nOriginal NL question: {hunt.nl_query}"
+    # Cases live in aisoc_cases, the table the cases API, GraphQL and the dashboards read. This used to add a row to the old `cases` table instead, so a case opened by a scheduled hunt was invisible everywhere.
+    # Written in the shape POST /cases uses (the caller commits). aisoc_cases has no priority or case_type column and its tags are an object, so those travel in tags.
+    now = datetime.now(UTC)
+    await db.execute(
+        text(
+            """
+            INSERT INTO aisoc_cases (
+                id, tenant_id, case_number, title, description, severity, status,
+                mitre_techniques, alert_ids, compliance_frameworks, tags,
+                opened_at, created_at, updated_at, created_by
+            ) VALUES (
+                :id, :tenant_id, :case_number, :title, :description, 'medium', 'new',
+                CAST(:mitre AS JSONB), CAST(:alert_ids AS UUID[]), CAST(:frameworks AS TEXT[]), CAST(:tags AS JSONB),
+                :now, :now, :now, 'system'
+            )
+            """
         ),
-        case_type="hunt_finding",
-        priority="medium",
-        severity="medium",
-        status="open",
-        tags=["scheduled-hunt", f"hunt:{hunt.id}"],
+        {
+            "id": uuid.uuid4(),
+            "tenant_id": hunt.tenant_id,
+            "case_number": f"HUNT-{hunt.id.hex[:8].upper()}-{int(now.timestamp())}",
+            "title": f"Scheduled hunt fired: {hunt.name}",
+            "description": (f"Saved hunt {hunt.name!r} returned {hit_count} hit(s) on its scheduled run.\n\nOriginal NL question: {hunt.nl_query}"),
+            "mitre": "[]",
+            "alert_ids": [],
+            "frameworks": [],
+            "tags": json.dumps({"source": "scheduled-hunt", "hunt_id": str(hunt.id), "case_type": "hunt_finding"}),
+            "now": now,
+        },
     )
-    db.add(case)
     logger.info(
         "hunt_scheduler.case_opened hunt_id=%s tenant=%s hits=%d",
         hunt.id,
