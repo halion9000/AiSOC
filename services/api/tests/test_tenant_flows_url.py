@@ -128,7 +128,7 @@ class TestFetchSpec:
             await tf.fetch_spec(c)
 
 
-def script_for(ids=("tid-a", "tid-b"), can_select=(False, False), missing=((), ())):
+def script_for(ids=("tid-a", "tid-b"), can_select=(False, False), missing=((), ()), viewable=("own", "own")):
     """A deployment with two users A and B, routed by the bearer token each request carries."""
     class Routed:
         def __init__(self):
@@ -140,6 +140,11 @@ def script_for(ids=("tid-a", "tid-b"), can_select=(False, False), missing=((), (
             i = 0 if who == "A" else 1
             if path == "/api/v1/tenants/me/identity":
                 return R(200, {"id": ids[i]})
+            if path == "/api/v1/tenants/viewable":  # "own": only its own tenant; None: a deployment without view-as (404); a list of ids; or a raw response body
+                v = viewable[i]
+                if v is None:
+                    return R(404)
+                return R(200, {"tenants": [{"id": t} for t in ([ids[i]] if v == "own" else v)]}) if isinstance(v, (list, str)) else R(200, v)
             if path == "/api/v1/tenants/selectable":
                 return R(200, {"can_select_other_tenants": can_select[i]}) if can_select[i] is not None else R(404)
             if path == "/api/v1/auth/authorize":
@@ -166,6 +171,31 @@ class TestPreflight:
         with pytest.raises(tf.PreflightError) as exc:
             await tf.preflight(script_for(can_select=flags), TOK)
         assert f"user {who} may look at other tenants" in str(exc.value) and "plain tenant admins" in str(exc.value)
+
+    @pytest.mark.parametrize("who,viewable", [("A", (["tid-a", "tid-child"], "own")), ("B", ("own", ["tid-b", "tid-a"])), ("A", (["tid-a", "tid-b", "tid-c"], "own"))])
+    async def test_a_user_who_may_view_other_tenants_is_refused_and_named(self, who, viewable):
+        """If A managed B (or had platform power), 'B cannot be viewed by A' would fail for a legitimate reason."""
+        with pytest.raises(tf.PreflightError) as exc:
+            await tf.preflight(script_for(viewable=viewable), TOK)
+        assert f"user {who} may VIEW other tenants" in str(exc.value) and "unrelated" in str(exc.value)
+
+    async def test_the_view_check_happens_before_any_permission_is_probed_or_anything_is_written(self):
+        c = script_for(viewable=(["tid-a", "tid-x"], "own"))
+        with pytest.raises(tf.PreflightError):
+            await tf.preflight(c, TOK)
+        assert not any(p == "/api/v1/auth/authorize" for _, _, p in c.requests) and all(m == "GET" for _, m, _ in c.requests)
+
+    async def test_a_deployment_without_view_as_cannot_be_checked_and_is_tolerated(self):
+        assert await tf.preflight(script_for(viewable=(None, None)), TOK) == {"A": "tid-a", "B": "tid-b"}
+
+    @pytest.mark.parametrize("body", [{}, {"tenants": None}, {"tenants": "x"}, {"other": 1}])
+    async def test_an_answer_of_an_unknown_shape_is_tolerated_not_trusted_either_way(self, body):
+        assert await tf.preflight(script_for(viewable=(body, body)), TOK) == {"A": "tid-a", "B": "tid-b"}
+
+    async def test_both_users_are_asked_what_they_may_view(self):
+        c = script_for()
+        await tf.preflight(c, TOK)
+        assert sorted(who for who, _, p in c.requests if p == "/api/v1/tenants/viewable") == ["A", "B"]
 
     async def test_a_deployment_without_the_selectable_endpoint_is_tolerated(self):
         assert await tf.preflight(script_for(can_select=(None, None)), TOK) == {"A": "tid-a", "B": "tid-b"}

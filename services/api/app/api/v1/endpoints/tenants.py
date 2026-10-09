@@ -4,7 +4,7 @@ import hashlib
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.security import get_password_hash
 from app.services.tenant_selection import selectable_tenants
+from app.services.view_as import home_tenant_of, viewable_tenants
 from app.models.tenant import Tenant, User
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,35 @@ async def list_selectable_tenants(
         own_tenant_id=current_user.tenant_id,
         can_select_other_tenants=can,
         tenants=[SelectableTenant(id=t.id, name=t.name, slug=t.slug) for t in rows],
+    )
+
+
+class ViewableTenant(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    # self: the caller's own tenant. child: a tenant managed by the caller's (MSSP parent). platform: any tenant, for a holder of the cross-tenant permission.
+    relationship: Literal["self", "child", "platform"]
+
+
+class ViewableTenantsResponse(BaseModel):
+    home_tenant_id: uuid.UUID
+    tenants: list[ViewableTenant]
+
+
+@router.get("/viewable", response_model=ViewableTenantsResponse)
+async def list_viewable_tenants(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: DBSession,
+) -> ViewableTenantsResponse:
+    """The tenants this caller may VIEW (read-only) with the `X-View-As-Tenant` header: their own first, then their managed children (an MSSP operator) or every tenant (a platform admin).
+
+    It is the same rule the server applies when the header is sent (app.services.view_as), so the console can only offer what will be honoured. It always answers for the person's own account, whatever is being viewed.
+    """
+    rows = await viewable_tenants(db, current_user)
+    return ViewableTenantsResponse(
+        home_tenant_id=home_tenant_of(current_user),
+        tenants=[ViewableTenant(id=t.id, name=t.name, slug=t.slug, relationship=rel) for t, rel in rows],
     )
 
 

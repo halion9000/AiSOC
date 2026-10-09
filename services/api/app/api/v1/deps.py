@@ -25,7 +25,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Security, status
+import logging
+from fastapi import Depends, HTTPException, Request, Response, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy import select, update
@@ -42,6 +43,9 @@ from app.api.v1.dev_auth import (
 from app.core.security import decode_token, has_permission, hash_api_key, permission_in
 from app.db.database import get_db
 from app.models.tenant import ApiKey, User
+from app.services.view_as import VIEW_AS_HEADER, VIEWING_HEADER, is_account_level, record_view, refuse_api_key, resolve_view_as
+
+logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -68,12 +72,20 @@ class CurrentUser:
         role: str,
         email: str,
         scopes: list[str] | None = None,
+        home_tenant_id: uuid.UUID | None = None,
     ) -> None:
         self.user_id = user_id
         self.tenant_id = tenant_id
+        # The tenant the person BELONGS to. It differs from tenant_id only while they are viewing another tenant (app.services.view_as).
+        self.home_tenant_id = home_tenant_id or tenant_id
         self.role = role
         self.email = email
         self.scopes = scopes  # None → role-based; list → API-key scoped
+
+    @property
+    def viewing_other_tenant(self) -> bool:
+        """True while this request is a read-only view of a tenant other than the person's own."""
+        return self.tenant_id != self.home_tenant_id
 
     @property
     def label(self) -> str:
@@ -229,6 +241,35 @@ async def _resolve_api_key(raw_key: str, db: AsyncSession) -> CurrentUser:
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(bearer_scheme)],
     db: AsyncSession = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; None for a direct call
+    response: Response = None,  # type: ignore[assignment]
+) -> CurrentUser:
+    """The signed-in caller, as the tenant the request is FOR.
+
+    That is the caller's own tenant, unless the request carries `X-View-As-Tenant` and the caller may view that tenant (read-only): see app.services.view_as for the rule, and why a bad or unauthorised value is an error and never ignored.
+    """
+    user = await _authenticate(credentials, db)
+    requested = None if request is None or credentials is None else request.headers.get(VIEW_AS_HEADER)
+    if not requested or not requested.strip() or is_account_level(request.url.path):
+        return user
+    if user.scopes is not None:
+        raise refuse_api_key()
+    target = await resolve_view_as(db, user, requested, request.method)
+    if target is None:
+        return user
+    await record_view(db, user, target, request)  # in the VIEWED tenant's own audit log; if it cannot be written, the view is not served
+    logger.info(
+        "viewing another tenant (read-only)",
+        extra={"viewer": str(user.user_id), "home_tenant": str(user.tenant_id), "viewed_tenant": str(target), "http_method": request.method, "path": request.url.path},
+    )
+    if response is not None:
+        response.headers[VIEWING_HEADER] = str(target)
+    return CurrentUser(user_id=user.user_id, tenant_id=target, role=user.role, email=user.email, home_tenant_id=user.tenant_id)
+
+
+async def _authenticate(
+    credentials: HTTPAuthorizationCredentials | None,
+    db: AsyncSession,
 ) -> CurrentUser:
     """Resolve Bearer token to CurrentUser.
 

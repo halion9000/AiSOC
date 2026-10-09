@@ -17,7 +17,7 @@ The flows write real data into **both** tenants. Use two test tenants, not tenan
 
 ## Before you start
 
-* **Two users who are plain tenant admins of two different tenants.** Not a `platform_admin`: with platform power the "cannot name another tenant" steps would fail for the wrong reason. The tool checks this, and checks that both hold the permissions the flows use, **before it writes anything**, and stops with a specific message otherwise.
+* **Two users who are plain tenant admins of two different, UNRELATED tenants.** Not a `platform_admin`, and neither tenant may be the other's MSSP parent: with platform power or a parent/child relationship the "cannot name / view the other tenant" steps would fail for the wrong reason (see `viewing-another-tenant.md`). The tool checks this (through `/tenants/selectable` and `/tenants/viewable`; a deployment without the latter cannot be checked and is tolerated), and checks that both hold the permissions the flows use, **before it writes anything**, and stops with a specific message otherwise.
 * Tenant A must not already have a remediation whitelist entry for `isolate_host` at `low` blast radius, or the IOC `198.51.100.7`: their values are fixed by the API's enums and formats, so they cannot be made unique per run. If it does, you get a false `409` on that step, not data loss.
 * The API's OpenAPI schema is served at `/api/openapi.json` outside production. If your deployment switches it off, generate it from the same commit and pass `--spec-file`:
   `python -c "import json; from app.main import app; print(json.dumps(app.openapi()))" > spec.json`

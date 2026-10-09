@@ -138,12 +138,18 @@ class Step:
     check: Callable[[Any, dict], bool] | None = None
     nobody: bool = False
     params: dict | None = None
+    # `view_as`: send `X-View-As-Tenant` with this step. "A" or "B" mean that tenant's REAL id (known only once the run has identified the two tenants); any other text is sent as it is (to probe a bad value).
+    view_as: str | None = None
     # `absent="key"`: the object captured under ctx[key] must NOT be visible to this user. The runner first makes the SAME request as the other tenant (the owner) and requires it to FIND the object (a "control" row), so an exclusion can never pass vacuously
     # (a list that is empty for an unrelated reason, a pagination default, an error that returns []). Use this, never a bare `not _has(...)`, for an exclusion check.
     absent: str | None = None
 
 
 _TOKEN = re.compile(r"^\{(\w+)\}$")
+
+
+def _view_as_value(value: str) -> str:
+    return TENANT_IDS.get(value, value) if value in ("A", "B") else value
 
 
 def _fill(value: Any, ctx: dict[str, str]) -> Any:
@@ -329,6 +335,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_tenth_batch())
     flows.update(_eleventh_batch())
     flows.update(_twelfth_batch())
+    flows.update(_thirteenth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -650,6 +657,29 @@ def _eighth_batch() -> dict[str, list[Step]]:
 FLOW_SEEDS: dict[str, dict[str, Any]] = {"oauth_apps": {"ct": lambda: _t("flowtest")}, "tenant_selection": {"etype": "user", "evalue": "alice"}}
 
 
+def _thirteenth_batch() -> dict[str, list[Step]]:
+    """Viewing another tenant (`X-View-As-Tenant`, read-only, only for a tenant the caller manages or may see through the platform permission). A and B are unrelated plain admins, so neither may view the other, on any kind of
+    endpoint (a plain table, a row-level-security table, a write), whether the other tenant exists or not, with the SAME answer for a real and a made-up tenant. The positive controls: naming your own tenant is a no-op, and the account
+    endpoints ignore the header. (The positive case, an MSSP parent viewing a child, needs a parent/child pair: it is covered by the unit tests and the live scenario, not by these two unrelated tenants.)"""
+    refused = lambda r, c: r.headers.get("x-view-as-error") == "forbidden"  # noqa: E731
+    return {
+        "view_as_isolation": [
+            S("B cannot view A (identity)", "B", "get", "/api/v1/tenants/me/identity", view_as="A", expect=(403,), check=refused),
+            S("B cannot view A (user list)", "B", "get", "/api/v1/tenants/me/users", view_as="A", expect=(403,), check=refused),
+            S("B cannot view A (a row-level-security table)", "B", "get", "/api/v1/marketplace/installed", view_as="A", expect=(403,), check=refused),
+            S("A cannot view B (identity)", "A", "get", "/api/v1/tenants/me/identity", view_as="B", expect=(403,), check=refused),
+            S("A cannot view B (user list)", "A", "get", "/api/v1/tenants/me/users", view_as="B", expect=(403,), check=refused),
+            S("a tenant that does not exist is refused the same way", "B", "get", "/api/v1/tenants/me/identity", view_as="00000000-0000-4000-8000-0000000000ba", expect=(403,), check=refused),
+            S("a value that is not a tenant id is an error, not ignored", "B", "get", "/api/v1/tenants/me/identity", view_as="default", expect=(400,), check=lambda r, c: r.headers.get("x-view-as-error") == "invalid"),
+            S("a write with a view of A is forbidden (not 'read-only': that would reveal A exists)", "B", "post", "/api/v1/tenants/me/users", view_as="A", expect=(403,), nobody=True, check=refused),
+            S("B naming its OWN tenant is a no-op", "B", "get", "/api/v1/tenants/me/identity", view_as="B", expect=(200,), check=lambda r, c: r.json()["id"] == TENANT_IDS["B"] and "x-viewing-tenant" not in r.headers),
+            S("the account endpoint ignores the header (still B's own account)", "B", "get", "/api/v1/auth/me", view_as="A", expect=(200,), check=lambda r, c: str(r.json().get("tenant_id", TENANT_IDS["B"])) == TENANT_IDS["B"]),
+            S("B may view only B", "B", "get", "/api/v1/tenants/viewable", expect=(200,), check=lambda r, c: [t["id"] for t in r.json()["tenants"]] == [TENANT_IDS["B"]]),
+            S("A may view only A", "A", "get", "/api/v1/tenants/viewable", expect=(200,), check=lambda r, c: [t["id"] for t in r.json()["tenants"]] == [TENANT_IDS["A"]]),
+        ],
+    }
+
+
 def _twelfth_batch() -> dict[str, list[Step]]:
     """Marketplace installs: a tenant's "installed" markers (a table since migration 068; they used to be a per-process dict that vanished on restart). Each tenant must see, repeat and remove only its own. The flow installs a catalogue item and uninstalls it
     again, so on a tenant that had already installed that item for real it would end uninstalled: it is one of the flows skipped against a deployed environment unless --include-destructive says the tenants are disposable."""
@@ -843,6 +873,10 @@ async def preflight(c: Any, tok: dict[str, dict]) -> dict[str, str]:
     if ids["A"] == ids["B"]:
         raise PreflightError("both users belong to the SAME tenant. The flows need two users in two different tenants.")
     for user in "AB":
+        viewable = await _send(c, "GET", "/api/v1/tenants/viewable", headers=tok[user])
+        listed = viewable.json().get("tenants") if viewable.status_code == 200 else None  # a deployment without view-as (404) cannot be checked: skip
+        if isinstance(listed, list) and [str(t.get("id")) for t in listed] != [ids[user]]:
+            raise PreflightError(f"user {user} may VIEW other tenants (it manages child tenants, or holds platform power). The flows assume two unrelated plain tenants: with a relationship the 'cannot view the other tenant' steps would fail for a legitimate reason. Use two tenants with no parent/child relationship.")
         sel = await _send(c, "GET", "/api/v1/tenants/selectable", headers=tok[user])
         if sel.status_code == 200 and sel.json().get("can_select_other_tenants"):
             raise PreflightError(f"user {user} may look at other tenants (platform:cross_tenant_query, e.g. a platform_admin). The flows assume plain tenant admins: with platform power the 'cannot name another tenant' steps would fail for the wrong reason. Use a tenant admin.")
@@ -958,7 +992,8 @@ async def run_flows(
                         except KeyError:
                             kw["json"] = over
                     try:
-                        r = await asyncio.wait_for(_send(c, st.method.upper(), path, headers=tok[st.user], **kw), timeout)
+                        sent_as = {**tok[st.user], "X-View-As-Tenant": _view_as_value(st.view_as)} if st.view_as else tok[st.user]
+                        r = await asyncio.wait_for(_send(c, st.method.upper(), path, headers=sent_as, **kw), timeout)
                     except Exception as e:  # noqa: BLE001
                         out.append([flow, st.name, st.user, "EXC", False, type(e).__name__])
                         continue
