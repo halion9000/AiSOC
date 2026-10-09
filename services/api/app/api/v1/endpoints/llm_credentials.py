@@ -367,7 +367,7 @@ async def upsert_llm_credential(
             "tenant": str(current_user.tenant_id),
             "provider": safe_provider,
             "rotated": rotated,
-            "created": existing is None,
+            "was_created": existing is None,  # NOT "created": a reserved LogRecord attribute; logging would raise (a 500 after the commit)
         },
     )
     return _project(row)
