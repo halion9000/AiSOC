@@ -171,6 +171,7 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
     from app.core.security import generate_api_key, get_password_hash  # noqa: PLC0415
     from app.db.database import AsyncSessionLocal  # noqa: PLC0415
     from app.models.tenant import ApiKey, User  # noqa: PLC0415
+    from app.services.user_lookup import find_user_by_email  # noqa: PLC0415
 
     email = email.strip().lower()
     result: dict = {"ok": False, "admin_email": email}
@@ -187,7 +188,7 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
         result["default_admin_disabled"] = newly_disabled
 
         # 4. The real admin.
-        admin = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        admin = await find_user_by_email(session, email)
         if admin is None:
             if not password:
                 raise BootstrapError(

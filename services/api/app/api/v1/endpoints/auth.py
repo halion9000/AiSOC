@@ -15,6 +15,7 @@ __all__ = ["router", "get_current_user"]
 from app.core.config import settings
 from app.core.trusted_proxy import resolve_client_ip
 from app.services import login_throttle
+from app.services.user_lookup import find_user_by_email
 from app.core.security import known_permissions
 from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
 from app.core.security import (
@@ -92,8 +93,7 @@ async def login(
             client_ip = None
     await login_throttle.ensure_not_locked(db, request.email, client_ip)
 
-    result = await db.execute(select(User).where(User.email == request.email, User.is_active.is_(True)))
-    user = result.scalar_one_or_none()
+    user = await find_user_by_email(db, request.email, active_only=True)
 
     # The password is checked whether or not the account exists (or is active), so "no such account" takes as long as "wrong password": the answer and its timing must not reveal which email addresses are registered.
     password_ok = verify_password_or_equalise(request.password, None if user is None else user.hashed_password)

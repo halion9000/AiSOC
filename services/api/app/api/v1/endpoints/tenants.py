@@ -8,9 +8,10 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
+from app.core.emails import normalize_email
 from app.core.security import get_password_hash
 from app.services.tenant_selection import selectable_tenants
 from app.services.view_as import home_tenant_of, viewable_tenants
@@ -225,7 +226,7 @@ async def create_user(
     _require_grantable_role(current_user, request.role)
     # Email addresses are unique across ALL tenants (login is by email alone), so a clash may be with a user of another organisation. Say so only for the caller's own tenant, whose users the caller can list anyway; for another
     # tenant's user do not confirm that the address is registered anywhere (that would tell this admin who uses the platform), and record the attempt so probing can be seen.
-    owner_tenant = (await db.execute(select(User.tenant_id).where(User.email == request.email))).scalar_one_or_none()
+    owner_tenant = (await db.execute(select(User.tenant_id).where(func.lower(User.email) == normalize_email(request.email)).order_by(User.created_at.asc()).limit(1))).scalar_one_or_none()
     if owner_tenant is not None:
         if owner_tenant == current_user.tenant_id:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists in your organization.")
@@ -237,7 +238,7 @@ async def create_user(
 
     user = User(
         tenant_id=current_user.tenant_id,
-        email=request.email,
+        email=normalize_email(request.email),  # stored lower-cased: `Alice@x` and `alice@x` are one address (app/core/emails.py)
         username=request.username,
         hashed_password=get_password_hash(request.password),
         role=request.role,

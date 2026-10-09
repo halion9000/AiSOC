@@ -62,7 +62,9 @@ from cryptography.fernet import Fernet
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.emails import normalize_email
 from app.models.tenant import Tenant, User
+from app.services.user_lookup import find_user_by_email
 from app.models.waitlist import (
     WAITLIST_STATUS_ONBOARDED,
     WaitlistEntry,
@@ -394,7 +396,7 @@ async def provision_from_waitlist(
     # support team can do a one-shot password reset.
     admin_user = User(
         tenant_id=tenant.id,
-        email=entry.email,
+        email=normalize_email(entry.email),
         username=entry.email.split("@", 1)[0][:100],
         hashed_password="!invite-pending",
         role="tenant_admin",
@@ -484,11 +486,7 @@ async def _result_for_existing(
         entry.provisioned_tenant_id = None
         raise WaitlistEntryNotPromotableError(f"waitlist entry {entry.id} pointed at a deleted tenant; cleared the pointer")
 
-    admin_row = (
-        (await db.execute(select(User).where(User.tenant_id == tenant.id, User.email == entry.email).order_by(User.created_at.asc())))
-        .scalars()
-        .first()
-    )
+    admin_row = await find_user_by_email(db, entry.email, tenant_id=tenant.id)
     admin_email = admin_row.email if admin_row else entry.email
     admin_role = admin_row.role if admin_row else "tenant_admin"
     admin_id = admin_row.id if admin_row else uuid.uuid4()

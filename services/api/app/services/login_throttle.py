@@ -26,14 +26,15 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 
 from app.core.config import settings
+from app.core.emails import normalize_email
 from app.models.login_failure import LoginFailure
 
 logger = logging.getLogger(__name__)
 
 
 def email_key(email: str) -> str:
-    """The address as the lock counts it: trimmed and lower-cased, so `Alice@x` and `alice@x` share one count."""
-    return email.strip().lower()
+    """The address as the lock counts it: trimmed and lower-cased, so `Alice@x` and `alice@x` share one count (the same rule as everywhere else: app/core/emails.py)."""
+    return normalize_email(email)
 
 
 def window() -> timedelta:

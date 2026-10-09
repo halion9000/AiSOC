@@ -50,6 +50,7 @@ from app.core.security import create_access_token, create_refresh_token
 from app.db.rls import TenantDBSession
 from app.models.responder import PasskeyChallenge, PasskeyCredential
 from app.models.tenant import User
+from app.services.user_lookup import find_user_by_email
 
 logger = logging.getLogger(__name__)
 
@@ -322,14 +323,7 @@ async def passkey_authenticate_begin(
     target_user: User | None = None
 
     if body.email:
-        user_row = (
-            await db.execute(
-                select(User).where(
-                    User.email == body.email,
-                    User.is_active == True,  # noqa: E712
-                )
-            )
-        ).scalar_one_or_none()
+        user_row = await find_user_by_email(db, body.email, active_only=True)
         if user_row is not None:
             target_user = user_row
             cred_rows = (
