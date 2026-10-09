@@ -12,8 +12,8 @@ The flows write real data into **both** tenants. Use two test tenants, not tenan
 
 **What it removes afterwards:** the objects of the final `fresh` flow that have a delete route (cleanup runs *after* the leak sweep). Everything else stays; clean the two tenants up yourself if you need them pristine. `--no-cleanup` leaves even those.
 
-**What it does not touch in the default mode.** The flows act on objects they created, with two exceptions that *replace* configuration: the **whole business-context rule set** and the **whole tenant settings**. Those two flows (`business_context_rules`, `tenant_settings`) are **skipped unless you pass `--include-destructive`**, which you should do only on tenants whose rules and settings you can lose. The OAuth flow registers an app for a connector type named for the run (`flowtest-<tag>`), and the inbox flow acts only on tokens it minted and revokes them, so neither touches a real one.
-*Checked on a live server:* with both tenants pre-populated with a rule set, settings, a `github` OAuth app and an inbox token, two default runs left all of it intact; `--include-destructive` replaced the rule set and settings, as intended. That covers those four kinds of configuration, not every resource type.
+**What it does not touch in the default mode.** The flows act on objects they created, with three exceptions that *replace or remove* configuration: the **whole business-context rule set**, the **whole tenant settings**, and a **marketplace install** of the catalogue's first item (the flow installs it and uninstalls it again, so a tenant that had installed that item for real would end up without it). Those three flows (`business_context_rules`, `tenant_settings`, `marketplace_installs`) are **skipped unless you pass `--include-destructive`**, which you should do only on tenants whose rules, settings and installs you can lose. The OAuth flow registers an app for a connector type named for the run (`flowtest-<tag>`), and the inbox flow acts only on tokens it minted and revokes them, so neither touches a real one.
+*Checked on a live server:* with both tenants pre-populated with a rule set, settings, a `github` OAuth app and an inbox token, two default runs left all of it intact; `--include-destructive` replaced the rule set and settings, as intended. That covers those four kinds of configuration, not every resource type. (The marketplace flow is new and was verified in-process only, under both database roles.)
 
 ## Before you start
 
@@ -38,7 +38,7 @@ Guards, all checked before any request: `--yes-write-test-data` is required; `--
 
 | Option | Meaning |
 | --- | --- |
-| `--include-destructive` | also run the two flows that replace the whole rule set / settings |
+| `--include-destructive` | also run the three flows that replace or remove existing configuration (rule set, settings, a marketplace install) |
 | `--no-cleanup` | leave the objects the `fresh` flow created |
 | `--no-sweep` | skip the sweep that calls every `GET` endpoint as B |
 | `--concurrency N` | parallel requests in the sweep (default 3) |

@@ -27,6 +27,7 @@ Several authorization problems were found by two-tenant isolation testing and fi
 
 ### Fixed
 
+- **Marketplace installs survive a restart and are the same on every worker.** An install was recorded in a module-level dict, so every API restart silently uninstalled everything, and with several workers or replicas each had its own copy (a tenant's "installed" list depended on which process answered). They are now rows in a new `marketplace_installs` table (migration 068), one per tenant, item type and item id, under row-level security and filtered by tenant in every query. The API's responses are unchanged. Existing deployments start with an empty table (the dict never survived a restart, so nothing is lost by the change). The isolation flows gained a marketplace flow (13 steps).
 - **UEBA can no longer read an unscoreable baseline as normal behaviour.** A
   feature that had never been observed, had too few samples, or had zero
   variance produced a `0.0` z-score — the same value an observation sitting

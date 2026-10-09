@@ -47,9 +47,9 @@ TENANT_IDS: dict[str, str] = {"A": "aaaaaaaa-0000-0000-0000-000000000001", "B": 
 # against the same environment does not collide with the first ("already exists", then every dependent step skipped).
 RUN: dict[str, str] = {"tag": ""}
 
-# Flows that REPLACE configuration a tenant may already have (the whole business-context rule set, the whole settings object). Harmless on a scratch database; destructive on a real tenant, so
+# Flows that REPLACE or REMOVE configuration a tenant may already have (the whole business-context rule set, the whole settings object, a marketplace install of the catalogue's first item). Harmless on a scratch database; destructive on a real tenant, so
 # against a deployed API they are skipped unless --include-destructive says the tenants are disposable.
-DESTRUCTIVE_FLOWS = frozenset({"business_context_rules", "tenant_settings"})
+DESTRUCTIVE_FLOWS = frozenset({"business_context_rules", "tenant_settings", "marketplace_installs"})
 
 
 def _t(name: str) -> str:
@@ -141,6 +141,34 @@ class Step:
     # `absent="key"`: the object captured under ctx[key] must NOT be visible to this user. The runner first makes the SAME request as the other tenant (the owner) and requires it to FIND the object (a "control" row), so an exclusion can never pass vacuously
     # (a list that is empty for an unrelated reason, a pagination default, an error that returns []). Use this, never a bare `not _has(...)`, for an exclusion check.
     absent: str | None = None
+
+
+_TOKEN = re.compile(r"^\{(\w+)\}$")
+
+
+def _fill(value: Any, ctx: dict[str, str]) -> Any:
+    """Replace every string that is EXACTLY "{name}" (in a body or a query) with what an earlier step captured under that name; anything else, including text that merely contains braces (a YAML body), is left alone.
+    A name nothing captured raises KeyError, which the runner reports as a skipped step, the same as for a path."""
+    if isinstance(value, str):
+        m = _TOKEN.match(value)
+        return ctx[m.group(1)] if m else value
+    if isinstance(value, dict):
+        return {k: _fill(v, ctx) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_fill(v, ctx) for v in value]
+    return value
+
+
+def template_names(value: Any) -> set[str]:
+    """The names a body or query refers to with an exact "{name}" token."""
+    if isinstance(value, str):
+        m = _TOKEN.match(value)
+        return {m.group(1)} if m else set()
+    if isinstance(value, dict):
+        return set().union(*(template_names(v) for v in value.values())) if value else set()
+    if isinstance(value, list):
+        return set().union(*(template_names(v) for v in value)) if value else set()
+    return set()
 
 
 def _capture_value(capture: tuple, body: Any) -> str:
@@ -300,6 +328,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_ninth_batch())
     flows.update(_tenth_batch())
     flows.update(_eleventh_batch())
+    flows.update(_twelfth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -621,6 +650,29 @@ def _eighth_batch() -> dict[str, list[Step]]:
 FLOW_SEEDS: dict[str, dict[str, Any]] = {"oauth_apps": {"ct": lambda: _t("flowtest")}, "tenant_selection": {"etype": "user", "evalue": "alice"}}
 
 
+def _twelfth_batch() -> dict[str, list[Step]]:
+    """Marketplace installs: a tenant's "installed" markers (a table since migration 068; they used to be a per-process dict that vanished on restart). Each tenant must see, repeat and remove only its own. The flow installs a catalogue item and uninstalls it
+    again, so on a tenant that had already installed that item for real it would end uninstalled: it is one of the flows skipped against a deployed environment unless --include-destructive says the tenants are disposable."""
+    item = {"type": "{mp_type}", "id": "{mp_id}"}
+    return {
+        "marketplace_installs": [
+            S("A reads the catalogue (capturing the first item's id)", "A", "get", "/api/v1/marketplace", expect=(200,), capture=("mp_id", "items.0.id")),
+            S("A reads the catalogue (capturing the first item's type)", "A", "get", "/api/v1/marketplace", expect=(200,), capture=("mp_type", "items.0.type")),
+            S("A installs it", "A", "post", "/api/v1/marketplace/install", over=item, expect=(200,), check=lambda r, c: r.json()["id"] == c["mp_id"]),
+            S("A's installed list has it", "A", "get", "/api/v1/marketplace/installed", expect=(200,), check=lambda r, c: any(i["id"] == c["mp_id"] and i["type"] == c["mp_type"] for i in r.json()["items"])),
+            S("B's installed list does not", "B", "get", "/api/v1/marketplace/installed", expect=(200,), check=lambda r, c: not any(i["id"] == c["mp_id"] for i in r.json()["items"])),
+            S("B cannot uninstall A's install", "B", "delete", "/api/v1/marketplace/install", params=item, expect=(404,), nobody=True),
+            S("A's install is intact after B's attempt", "A", "get", "/api/v1/marketplace/installed", expect=(200,), check=lambda r, c: any(i["id"] == c["mp_id"] for i in r.json()["items"])),
+            S("B installs the same item for ITSELF (its own row)", "B", "post", "/api/v1/marketplace/install", over=item, expect=(200,), check=lambda r, c: r.json()["already_installed"] is False),
+            S("B reinstalling is idempotent", "B", "post", "/api/v1/marketplace/install", over=item, expect=(200,), check=lambda r, c: r.json()["already_installed"] is True),
+            S("A uninstalls its own", "A", "delete", "/api/v1/marketplace/install", params=item, expect=(200,), nobody=True),
+            S("A's installed list no longer has it", "A", "get", "/api/v1/marketplace/installed", expect=(200,), check=lambda r, c: not any(i["id"] == c["mp_id"] for i in r.json()["items"])),
+            S("B's own install survives A's uninstall", "B", "get", "/api/v1/marketplace/installed", expect=(200,), check=lambda r, c: any(i["id"] == c["mp_id"] for i in r.json()["items"])),
+            S("B uninstalls its own (cleanup)", "B", "delete", "/api/v1/marketplace/install", params=item, expect=(200,), nobody=True),
+        ],
+    }
+
+
 def _eleventh_batch() -> dict[str, list[Step]]:
     """Endpoints that let the caller NAME a tenant (fusion entity risk, osquery file integrity). Neither flow user holds platform:cross_tenant_query, so naming the other tenant must be a 403, decided BEFORE any upstream call; naming one's own must not be. (The upstream services are not running here, so "own" answers 200 / 404 / 503: anything but 403 shows the check let it through.)"""
     A, B = TENANT_IDS["A"], TENANT_IDS["B"]
@@ -862,10 +914,11 @@ async def run_flows(
                 for st in steps:
                     try:
                         path = st.tpl.format(**ctx) if "{" in st.tpl else st.tpl
+                        st_over, st_params = _fill(st.over, ctx), (_fill(st.params, ctx) if st.params else st.params)
                     except KeyError as e:
                         out.append([flow, st.name, st.user, "SKIP", False, f"needs {e}, which an earlier step did not produce"])
                         continue
-                    over = dict(st.over)
+                    over = dict(st_over)
                     if flow == "alerts" and st.name in ("A links the alert", "B cannot attach A's alert", "B cannot create a case citing A's alert", "A can create a case citing its OWN alert"):
                         over = {"alert_ids": [ctx.get("alert")]}
                     if flow == "rbac" and st.name == "B cannot give A's user B's role":
@@ -885,8 +938,8 @@ async def run_flows(
                     if flow == "identity_graph" and st.name == "B cannot link its node to A's node":
                         over = {**over, "source_id": ctx.get("nb"), "target_id": ctx.get("n1")}
                     kw: dict[str, Any] = {}
-                    if st.params:
-                        kw["params"] = st.params
+                    if st_params:
+                        kw["params"] = st_params
                     if st.absent:
                         want = ctx.get(st.absent)
                         if want is None:
@@ -1038,7 +1091,7 @@ def main(argv: list[str] | None = None) -> int:
     url.add_argument("--concurrency", type=int, default=3, help="parallel requests in the leak sweep")
     url.add_argument("--no-sweep", action="store_true", help="skip the sweep that calls every GET endpoint as B")
     url.add_argument("--no-cleanup", action="store_true", help="leave the objects the fresh flow created (by default they are deleted again once the sweep is done)")
-    url.add_argument("--include-destructive", action="store_true", help="ALSO run the flows that REPLACE existing configuration (the WHOLE business-context rule set and the WHOLE tenant settings); only for disposable tenants")
+    url.add_argument("--include-destructive", action="store_true", help="ALSO run the flows that REPLACE or REMOVE existing configuration (the WHOLE business-context rule set, the WHOLE tenant settings, and a marketplace install of the catalogue's first item); only for disposable tenants")
     url.add_argument("--allow-insecure-http", action="store_true", help="allow http:// for a host that is not local")
     url.add_argument("--yes-write-test-data", action="store_true", help="required: the flows create (and some delete) data in BOTH tenants")
     cmp_ = sub.add_parser("compare", help="compare two result files")

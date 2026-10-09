@@ -146,6 +146,16 @@ class TestTheFlowDefinitionsMatchTheRealApi:
             assert flow in flows, f"seed for a flow that does not exist: {flow}"
             assert all(isinstance(k, str) and isinstance(v() if callable(v) else v, str) and (v() if callable(v) else v) for k, v in seeds.items())
 
+    def test_every_token_in_a_body_or_query_names_something_an_earlier_step_captured(self):
+        """`{name}` in `over` / `params` is replaced by what an earlier step captured; a name nothing captured would make the step skip silently."""
+        for flow, steps in tf.build_flows().items():
+            have: set[str] = set(tf.FLOW_SEEDS.get(flow, {}))
+            for st in steps:
+                for name in tf.template_names(st.over) | tf.template_names(st.params or {}):
+                    assert name in have, f"{flow}: '{st.name}' refers to {{{name}}} before any step captures it"
+                if st.capture:
+                    have.add(st.capture[0])
+
     def test_step_names_are_unique_within_a_flow(self):
         for flow, steps in tf.build_flows().items():
             names = [s.name for s in steps]
@@ -359,3 +369,37 @@ class TestTheToolEnforcesTheConvention:
 
         src = inspect.getsource(_tf.run_flows)
         assert "st.absent" in src and "control_found(" in src and "exclusion_holds(" in src and "[control: the owner finds it]" in src
+
+
+class TestTemplatingInBodiesAndQueries:
+    CTX = {"a": "1", "b": "two"}
+
+    def test_an_exact_token_is_replaced_in_a_body_a_nested_body_and_a_list(self):
+        assert tf._fill({"x": "{a}", "n": {"y": "{b}"}, "l": ["{a}", "keep"]}, self.CTX) == {"x": "1", "n": {"y": "two"}, "l": ["1", "keep"]}
+
+    @pytest.mark.parametrize("text", ["prefix {a}", "{a} suffix", "{a}{b}", "{ a }", "{a-b}", "id: x\nwhen:\n  value: {a}", "", "{}"])
+    def test_text_that_merely_contains_braces_is_left_alone(self, text):
+        assert tf._fill(text, self.CTX) == text
+
+    def test_non_strings_pass_through_untouched(self):
+        assert tf._fill({"n": 3, "f": 1.5, "t": True, "z": None}, self.CTX) == {"n": 3, "f": 1.5, "t": True, "z": None}
+
+    def test_a_name_nothing_captured_is_a_key_error_so_the_step_is_skipped_not_sent_with_a_literal_token(self):
+        with pytest.raises(KeyError):
+            tf._fill({"x": "{missing}"}, self.CTX)
+
+    def test_the_names_a_body_refers_to_are_found_at_any_depth(self):
+        assert tf.template_names({"x": "{a}", "n": {"y": ["{b}", "no"]}, "p": "plain {c}"}) == {"a", "b"}
+        assert tf.template_names({}) == set() and tf.template_names([]) == set() and tf.template_names("{a}") == {"a"}
+
+    def test_the_original_step_is_never_modified(self):
+        step = tf.S("x", "A", "post", "/api/v1/x", over={"k": "{a}"})
+        tf._fill(step.over, self.CTX)
+        assert step.over == {"k": "{a}"}
+
+    def test_the_runner_fills_the_body_and_the_query_and_skips_when_a_name_is_missing(self):
+        import inspect
+
+        src = inspect.getsource(tf.run_flows)
+        assert "_fill(st.over, ctx)" in src and "_fill(st.params, ctx)" in src and "over = dict(st_over)" in src and 'kw["params"] = st_params' in src
+

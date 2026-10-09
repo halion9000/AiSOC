@@ -519,7 +519,7 @@ class TestARunCanBeRepeatedAndTouchesNothingItDidNotCreate:
     def test_every_flow_that_replaces_existing_configuration_is_in_the_destructive_set(self):
         flows = tf.build_flows()
         assert tf.DESTRUCTIVE_FLOWS <= set(flows)
-        replacing = ("/api/v1/business-context/rules", "/api/v1/tenants/me/settings")
+        replacing = ("/api/v1/business-context/rules", "/api/v1/tenants/me/settings", "/api/v1/marketplace/install")
         for name, steps in flows.items():
             hits = [s.tpl for s in steps if s.method in ("post", "put", "patch", "delete") and s.tpl.startswith(replacing)]
             assert bool(hits) == (name in tf.DESTRUCTIVE_FLOWS), (name, hits)

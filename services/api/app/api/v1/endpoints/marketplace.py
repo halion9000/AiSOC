@@ -13,12 +13,9 @@ This module provides a thin HTTP surface so the web UI can:
 - Read which items are currently installed for the tenant
   (``GET /v1/marketplace/installed``)
 
-Install state is intentionally tracked in-memory per process for now —
-the marketplace UI's “✓ Installed” affordance is the main consumer, and a
-heavier per-tenant ``installed_items`` table can replace this without an
-API contract change. The ``content_sha256`` field returned at install time
-gives the UI something stable to display and lets us evolve to a DB-backed
-store later.
+Install state lives in the ``marketplace_installs`` table (migration 068): one row per (tenant, item type, item id), under row-level security and filtered by tenant in every query. It used to be a module-level dict, so it
+was lost on every restart and differed between workers. An install is the tenant's "enabled" marker for an item whose files are on disk for everyone; the ``content_sha256`` returned at install time gives the UI
+something stable to display.
 """
 
 from __future__ import annotations
@@ -32,8 +29,12 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.deps import AuthUser, require_permission
+from app.db.rls import TenantDBSession
+from app.models.marketplace import MarketplaceInstall
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 
@@ -87,31 +88,49 @@ def _load_index() -> dict[str, Any]:
         return _index_cache["data"]
 
 
-# ── Per-tenant installed state ────────────────────────────────────────────────
-
-# Keyed by (tenant_id, type, item_id) → install record. Replace with a real
-# table when we move installed-set tracking into Postgres.
-_installed: dict[tuple[str, str, str], dict[str, Any]] = {}
-_installed_lock = threading.Lock()
+# Per-tenant installed state: the marketplace_installs table (see MarketplaceInstall).
 
 
-def _install_record(
-    tenant_id: str,
-    item: dict[str, Any],
-    sha256: str,
-    user_email: str,
-) -> dict[str, Any]:
+def _install_row(tenant_id: Any, item: dict[str, Any], sha256: str, user_email: str, now: datetime) -> MarketplaceInstall:
+    return MarketplaceInstall(
+        tenant_id=tenant_id,
+        item_type=item["type"],
+        item_id=item["id"],
+        name=item.get("name", item["id"]),
+        version=item.get("version", "1.0.0"),
+        path=item.get("path"),
+        content_sha256=sha256,
+        installed_at=now,
+        installed_by=user_email,
+    )
+
+
+def _install_record(row: MarketplaceInstall) -> dict[str, Any]:
+    """The JSON shape the API has always returned for an installed item."""
     return {
-        "id": item["id"],
-        "type": item["type"],
-        "name": item.get("name", item["id"]),
-        "version": item.get("version", "1.0.0"),
-        "path": item.get("path"),
-        "content_sha256": sha256,
-        "installed_at": datetime.now(UTC).isoformat(),
-        "installed_by": user_email,
-        "tenant_id": tenant_id,
+        "id": row.item_id,
+        "type": row.item_type,
+        "name": row.name,
+        "version": row.version,
+        "path": row.path,
+        "content_sha256": row.content_sha256,
+        "installed_at": row.installed_at.isoformat(),
+        "installed_by": row.installed_by,
+        "tenant_id": str(row.tenant_id),
     }
+
+
+def _install_response(row: MarketplaceInstall, *, already_installed: bool) -> InstallResponse:
+    return InstallResponse(
+        id=row.item_id,
+        type=row.item_type,
+        name=row.name,
+        version=row.version,
+        content_sha256=row.content_sha256,
+        installed_at=row.installed_at.isoformat(),
+        installed_by=row.installed_by,
+        already_installed=already_installed,
+    )
 
 
 def _resolve_item_path(item: dict[str, Any]) -> Path:
@@ -228,6 +247,7 @@ class MarketplaceListResponse(BaseModel):
 @router.get("", response_model=MarketplaceListResponse)
 async def list_marketplace(
     current_user: AuthUser,
+    db: TenantDBSession,
     type_filter: Literal["detection", "playbook", "plugin"] | None = Query(None, alias="type"),
     mitre: str | None = Query(
         None,
@@ -278,9 +298,7 @@ async def list_marketplace(
             or q in (i.get("id") or "").lower()
         ]
 
-    tenant_id = str(current_user.tenant_id)
-    with _installed_lock:
-        installed_ids = [key[2] for key in _installed if key[0] == tenant_id]
+    installed_ids = list((await db.execute(select(MarketplaceInstall.item_id).where(MarketplaceInstall.tenant_id == current_user.tenant_id))).scalars().all())
 
     return MarketplaceListResponse(
         total=len(items),
@@ -312,14 +330,12 @@ def _summarise(i: dict[str, Any]) -> dict[str, Any]:
 async def install_marketplace_item(
     body: InstallRequest,
     current_user: AuthUser,
+    db: TenantDBSession,
 ) -> InstallResponse:
     """Activate a marketplace item for the caller's tenant.
 
-    For core (on-disk) items this records that the item is "enabled"
-    for the tenant — the underlying detection/playbook/plugin file is
-    already present on the AiSOC instance and is read straight from disk
-    by the relevant subsystem. The install marker is what the UI needs
-    in order to show ``✓ Installed`` and what tenants can later disable.
+    For core (on-disk) items this records that the item is "enabled" for the tenant: the underlying detection/playbook/plugin file is already present on the AiSOC instance and is read straight from disk by the relevant
+    subsystem. The install marker is what the UI needs in order to show "Installed" and what tenants can later disable. It is a row in marketplace_installs, so it survives a restart and is the same on every worker.
     """
     idx = _load_index()
     match: dict[str, Any] | None = None
@@ -336,40 +352,37 @@ async def install_marketplace_item(
     target = _resolve_item_path(match)
     sha = _hash_file(target)
 
-    tenant_id = str(current_user.tenant_id)
-    key = (tenant_id, body.type, body.id)
+    tenant_id = current_user.tenant_id
     user_email = current_user.email or str(current_user.user_id)
+    now = datetime.now(UTC)
 
-    with _installed_lock:
-        existing = _installed.get(key)
-        if existing:
-            # Idempotent: re-installing returns the existing record but
-            # refreshes the sha (e.g. file edited since last install).
-            existing["content_sha256"] = sha
-            existing["installed_at"] = datetime.now(UTC).isoformat()
-            return InstallResponse(
-                id=existing["id"],
-                type=existing["type"],
-                name=existing["name"],
-                version=existing["version"],
-                content_sha256=existing["content_sha256"],
-                installed_at=existing["installed_at"],
-                installed_by=existing["installed_by"],
-                already_installed=True,
-            )
-        record = _install_record(tenant_id, match, sha, user_email)
-        _installed[key] = record
+    def find() -> Any:
+        return select(MarketplaceInstall).where(
+            MarketplaceInstall.tenant_id == tenant_id,
+            MarketplaceInstall.item_type == body.type,
+            MarketplaceInstall.item_id == body.id,
+        )
 
-    return InstallResponse(
-        id=record["id"],
-        type=record["type"],
-        name=record["name"],
-        version=record["version"],
-        content_sha256=record["content_sha256"],
-        installed_at=record["installed_at"],
-        installed_by=record["installed_by"],
-        already_installed=False,
-    )
+    existing = (await db.execute(find())).scalar_one_or_none()
+    if existing is None:
+        row = _install_row(tenant_id, match, sha, user_email, now)
+        db.add(row)
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Two installs of the same item raced and the other won: this one is the "already installed" case.
+            await db.rollback()
+            existing = (await db.execute(find())).scalar_one_or_none()
+            if existing is None:
+                raise
+        else:
+            return _install_response(row, already_installed=False)
+
+    # Idempotent: re-installing returns the existing record but refreshes the sha (e.g. file edited since last install).
+    existing.content_sha256 = sha
+    existing.installed_at = now
+    await db.commit()
+    return _install_response(existing, already_installed=True)
 
 
 @router.delete("/install", dependencies=[Depends(require_permission("settings:write"))])
@@ -377,29 +390,45 @@ async def uninstall_marketplace_item(
     type: Literal["detection", "playbook", "plugin"],
     id: str,
     current_user: AuthUser,
+    db: TenantDBSession,
 ) -> dict[str, Any]:
     """Remove a previously installed marketplace item from the tenant."""
-    tenant_id = str(current_user.tenant_id)
-    key = (tenant_id, type, id)
-    with _installed_lock:
-        removed = _installed.pop(key, None)
-    if removed is None:
+    removed = await db.execute(
+        delete(MarketplaceInstall)
+        .where(
+            MarketplaceInstall.tenant_id == current_user.tenant_id,
+            MarketplaceInstall.item_type == type,
+            MarketplaceInstall.item_id == id,
+        )
+        .returning(MarketplaceInstall.item_id)
+    )
+    if removed.first() is None:
         raise HTTPException(
             status_code=404,
             detail=f"Item not installed for this tenant: {type}:{id}",
         )
+    await db.commit()
     return {"status": "uninstalled", "id": id, "type": type}
 
 
 @router.get("/installed")
 async def list_installed(
     current_user: AuthUser,
+    db: TenantDBSession,
 ) -> dict[str, Any]:
     """List all marketplace items installed for the caller's tenant."""
-    tenant_id = str(current_user.tenant_id)
-    with _installed_lock:
-        items = [v for k, v in _installed.items() if k[0] == tenant_id]
-    items.sort(key=lambda r: (r["type"], r["id"]))
+    rows = (
+        (
+            await db.execute(
+                select(MarketplaceInstall)
+                .where(MarketplaceInstall.tenant_id == current_user.tenant_id)
+                .order_by(MarketplaceInstall.item_type, MarketplaceInstall.item_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    items = [_install_record(r) for r in rows]
     return {"total": len(items), "items": items}
 
 
