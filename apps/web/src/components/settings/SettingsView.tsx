@@ -48,6 +48,7 @@ import {
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AutonomyPolicyPanel } from '@/components/settings/AutonomyPolicy';
 import { useTheme, type ThemePreference } from '@/components/theme/ThemeProvider';
 import { authFetch } from '@/lib/auth-session';
@@ -829,6 +830,9 @@ function ApiKeysPanel() {
   const [draftName, setDraftName] = useState('');
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // Revoking a key is permanent and breaks whatever uses it: ask first, naming the key.
+  const [keyToRevoke, setKeyToRevoke] = useState<{ id: string; name: string } | null>(null);
+  const [revoking, setRevoking] = useState(false);
 
   const create = async () => {
     if (!draftName.trim()) {
@@ -859,6 +863,17 @@ function ApiKeysPanel() {
       mutate();
     } catch {
       toast.error('Could not revoke key');
+    }
+  };
+
+  const confirmRevoke = async () => {
+    if (!keyToRevoke) return;
+    setRevoking(true);
+    try {
+      await revoke(keyToRevoke.id);
+    } finally {
+      setRevoking(false);
+      setKeyToRevoke(null);
     }
   };
 
@@ -988,7 +1003,7 @@ function ApiKeysPanel() {
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
-                        onClick={() => void revoke(k.id)}
+                        onClick={() => setKeyToRevoke({ id: k.id, name: k.name })}
                         className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20"
                       >
                         Revoke
@@ -1001,6 +1016,15 @@ function ApiKeysPanel() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={keyToRevoke !== null}
+        title="Revoke API key?"
+        message={`Revoke "${keyToRevoke?.name ?? ''}"? Anything using this key will stop working immediately. This cannot be undone.`}
+        confirmLabel="Revoke key"
+        busy={revoking}
+        onConfirm={() => void confirmRevoke()}
+        onCancel={() => setKeyToRevoke(null)}
+      />
     </div>
   );
 }
