@@ -300,7 +300,14 @@ async def _load_proposal(
     db: Any,
     proposal_id: uuid.UUID,
     tenant_id: uuid.UUID,
+    *,
+    write: bool = False,
 ) -> DetectionRuleProposal:
+    """The caller's proposal, or a shared (tenantless) one for READING.
+
+    A tenantless proposal is visible to every tenant, which is fine for reading, but this lookup is also used by the endpoints that change a proposal. Pass write=True there: a shared proposal is then refused (403, "read-only") instead of being commented on,
+    evaluated, rejected or promoted by whichever tenant got there first, for everyone (shown on real Postgres with a seeded tenantless proposal: tenant B rejected it and it was rejected for all). No code path creates a tenantless proposal today, so this is hardening
+    for the day one is seeded; another tenant's proposal is still a plain 404 either way."""
     result = await db.execute(
         select(DetectionRuleProposal).where(
             DetectionRuleProposal.id == proposal_id,
@@ -316,6 +323,8 @@ async def _load_proposal(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Proposal not found",
         )
+    if write and proposal.tenant_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shared proposals are read-only.")
     return proposal
 
 
@@ -495,7 +504,7 @@ async def comment_on_proposal(
 ) -> ProposalResponse:
     """Append a review comment and move the proposal into `in_review`."""
     _ensure_dac_enabled()
-    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id)
+    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id, write=True)
     if proposal.status in {"promoted", "rejected"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -713,7 +722,7 @@ async def evaluate_rule(
     negatives (noisy) cannot be approved, regardless of the global benchmark.
     """
     _ensure_dac_enabled()
-    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id)
+    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id, write=True)
     if proposal.status in {"promoted", "rejected"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -770,7 +779,7 @@ async def backtest_proposal(
     _ensure_dac_enabled()
     from app.db.clickhouse import LakeQueryNotConfiguredError  # noqa: PLC0415
 
-    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id)
+    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id, write=True)
     if proposal.status in {"promoted", "rejected"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Proposal is {proposal.status}; backtest cannot be re-run")
 
@@ -816,7 +825,7 @@ async def attach_eval_result(
     only when MITRE accuracy regression is < ``max_regression_pp``.
     """
     _ensure_dac_enabled()
-    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id)
+    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id, write=True)
     if proposal.status in {"promoted", "rejected"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -874,7 +883,7 @@ async def decide_proposal(
 ) -> ProposalResponse:
     """Approve or reject a proposal. Approving requires the eval gate to have passed."""
     _ensure_dac_enabled()
-    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id)
+    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id, write=True)
     if proposal.status in {"promoted", "rejected"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -948,7 +957,7 @@ async def promote_proposal(
 ) -> ProposalResponse:
     """Promote an approved proposal: create or update the linked detection rule."""
     _ensure_dac_enabled()
-    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id)
+    proposal = await _load_proposal(db, proposal_id, current_user.tenant_id, write=True)
     if proposal.status != "approved":
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
@@ -972,6 +981,9 @@ async def promote_proposal(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Base rule no longer exists; cannot promote as edit",
             )
+        if existing.tenant_id != current_user.tenant_id:  # a shared (tenantless) rule is None here, so it is refused too
+            # Defence in depth: PATCH /detection/rules edits only the caller's own rules, and promotion must not be a way around that to change a shared (tenantless) rule for every tenant. (The database cannot hold a tenantless rule today: detection_rules.tenant_id is NOT NULL.)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shared rules cannot be edited by promotion; propose a new rule instead.")
         await db.execute(
             update(DetectionRule)
             .where(DetectionRule.id == existing.id)
