@@ -16,8 +16,8 @@ to ``REALTIME_BASE_URL``. The gateway:
 * Stamps the realtime call with ``X-AiSOC-User-Id``, ``X-AiSOC-Tenant-Id``
   and ``X-AiSOC-Internal-Token`` so the realtime side can attribute
   subscriptions to a real user without re-doing JWT verification.
-* Forwards the JSON body unchanged so we don't have to keep two schemas in
-  sync.
+* Forwards the JSON body so we don't have to keep two schemas in sync, but with the IDENTITY fields taken from the verified session, never from the client: the realtime
+  service prefers `body.user_id` over the verified `X-User-Id` header, so a body that named another user used to subscribe the caller's device to THAT person's notifications.
 """
 
 from __future__ import annotations
@@ -88,6 +88,17 @@ async def _proxy(
         return {"detail": response.text}
 
 
+# Fields a client must never get to choose: realtime reads `user_id` (and trusts it over the header), and a tenant or a list of users has no business in a request about the caller's own device.
+_IDENTITY_FIELDS = frozenset({"user_id", "userId", "user_ids", "tenant_id", "tenantId", "tenant"})
+
+
+def _own_body(user: SessionUser, body: dict[str, Any] | None) -> dict[str, Any]:
+    """The body to forward: the client's, minus every identity-shaped field, plus the caller's own user id from the verified session. The client's dict is not modified."""
+    forwarded = {k: v for k, v in (body or {}).items() if k not in _IDENTITY_FIELDS}
+    forwarded["user_id"] = str(user.user_id)
+    return forwarded
+
+
 @router.get("/public-key")
 async def get_public_key() -> dict[str, Any]:
     """Return the VAPID public key the PWA needs to subscribe.
@@ -105,7 +116,7 @@ async def subscribe(
     body: Annotated[dict[str, Any], Body(...)],
 ) -> dict[str, Any]:
     """Register a PushSubscription for the authenticated user."""
-    return await _proxy("POST", "/v1/push/subscribe", user=user, json=body)
+    return await _proxy("POST", "/v1/push/subscribe", user=user, json=_own_body(user, body))
 
 
 @router.post("/unsubscribe")
@@ -114,7 +125,7 @@ async def unsubscribe(
     body: Annotated[dict[str, Any], Body(...)],
 ) -> dict[str, Any]:
     """Remove a PushSubscription for the authenticated user."""
-    return await _proxy("POST", "/v1/push/unsubscribe", user=user, json=body)
+    return await _proxy("POST", "/v1/push/unsubscribe", user=user, json=_own_body(user, body))
 
 
 @router.post("/test")
@@ -126,5 +137,4 @@ async def test_notify(
 
     Useful for the PWA settings screen "send test" button.
     """
-    payload = body or {}
-    return await _proxy("POST", "/v1/push/test", user=user, json=payload)
+    return await _proxy("POST", "/v1/push/test", user=user, json=_own_body(user, body))
