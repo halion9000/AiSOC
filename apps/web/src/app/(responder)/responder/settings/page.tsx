@@ -22,6 +22,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { clsx } from 'clsx';
 import {
   passkeyApi,
@@ -113,6 +114,8 @@ export default function ResponderSettingsPage() {
   const [credentialsError, setCredentialsError] = useState<string | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  // Revoking a passkey is permanent and can lock the responder out of that device: ask first, naming it.
+  const [passkeyToRevoke, setPasskeyToRevoke] = useState<{ id: string; name: string } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const webauthnSupported = useMemo(() => isWebAuthnSupported(), []);
@@ -345,6 +348,15 @@ export default function ResponderSettingsPage() {
     },
     [showToast],
   );
+
+  const confirmRevokePasskey = useCallback(async () => {
+    if (!passkeyToRevoke) return;
+    try {
+      await handleRevokePasskey(passkeyToRevoke.id);
+    } finally {
+      setPasskeyToRevoke(null);
+    }
+  }, [handleRevokePasskey, passkeyToRevoke]);
 
   // ─── Sign out ───────────────────────────────────────────────────────────
 
@@ -581,7 +593,7 @@ export default function ResponderSettingsPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void handleRevokePasskey(c.id)}
+                  onClick={() => setPasskeyToRevoke({ id: c.id, name: c.device_name || 'this passkey' })}
                   disabled={revokingId === c.id}
                   className="px-2 py-1.5 text-[11px] uppercase tracking-wider rounded-md border border-red-500/40 text-red-300 hover:bg-red-500/10 transition disabled:opacity-60"
                 >
@@ -591,6 +603,16 @@ export default function ResponderSettingsPage() {
             ))}
           </ul>
         )}
+
+        <ConfirmDialog
+          open={passkeyToRevoke !== null}
+          title="Revoke passkey?"
+          message={`Revoke "${passkeyToRevoke?.name ?? ''}"? You will no longer be able to sign in with it.${(credentials?.length ?? 0) <= 1 ? ' It is your only registered passkey, so you may be locked out.' : ''} This cannot be undone.`}
+          confirmLabel="Revoke passkey"
+          busy={revokingId !== null}
+          onConfirm={() => void confirmRevokePasskey()}
+          onCancel={() => setPasskeyToRevoke(null)}
+        />
 
         <button
           type="button"
