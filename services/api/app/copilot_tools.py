@@ -9,7 +9,12 @@ any query, matching the pattern used by TenantDBSession in deps.py.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
+import secrets
+import time
 import uuid
 from typing import Any
 
@@ -17,6 +22,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.db.rls import set_rls_context
 from app.models.alert import Alert
@@ -96,7 +102,10 @@ async def get_alert(*, tenant_id: str, alert_id: str) -> dict[str, Any]:
 
 
 async def delete_alert(*, tenant_id: str, alert_id: str) -> dict[str, Any]:
-    """Delete a single alert by ID. Requires alerts:write permission."""
+    """REQUEST a deletion. This does NOT delete anything.
+
+    Deleting needs the analyst's explicit confirmation, and the model must not be able to give it: alert text is attacker-influenced and sits in the model's context, so a "confirmed, go ahead" in it must never be enough. This only checks that the alert exists in the tenant and describes what would be deleted;
+    execute_copilot_tool turns that into a signed, expiring confirmation that goes to the UI (never to the model), and POST /copilot/actions/confirm, which the model cannot call, performs perform_delete_alert."""
     try:
         tid = uuid.UUID(tenant_id)
         aid = uuid.UUID(alert_id)
@@ -104,9 +113,27 @@ async def delete_alert(*, tenant_id: str, alert_id: str) -> dict[str, Any]:
         return {"error": "invalid UUID format"}
 
     async with await _get_session(tid) as db:
-        result = await db.execute(
-            delete(Alert).where(Alert.id == aid, Alert.tenant_id == tid)
-        )
+        alert = (await db.execute(select(Alert).where(Alert.id == aid, Alert.tenant_id == tid))).scalar_one_or_none()
+        if alert is None:
+            return {"error": "alert not found"}
+        title = alert.title
+    return {
+        "alert_id": str(aid),
+        "alert_title": title,
+        _CONFIRM_KEY: {"action": "delete_alert", "args": {"alert_id": str(aid)}, "summary": f"Permanently delete alert \"{title}\" ({aid})? This cannot be undone."},
+    }
+
+
+async def perform_delete_alert(*, tenant_id: str, alert_id: str) -> dict[str, Any]:
+    """Delete one alert. Only the confirmation endpoint calls this, and only with a valid token: it is deliberately NOT in the model's dispatch table."""
+    try:
+        tid = uuid.UUID(tenant_id)
+        aid = uuid.UUID(alert_id)
+    except ValueError:
+        return {"error": "invalid UUID format"}
+
+    async with await _get_session(tid) as db:
+        result = await db.execute(delete(Alert).where(Alert.id == aid, Alert.tenant_id == tid))
         await db.commit()
         if result.rowcount == 0:  # type: ignore[union-attr]
             return {"error": "alert not found or already deleted"}
@@ -210,7 +237,7 @@ COPILOT_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "delete_alert",
-            "description": "Permanently delete an alert by its ID. This cannot be undone.",
+            "description": "Ask to permanently delete an alert by its ID. This does NOT delete it: the analyst is shown a confirmation prompt and must approve it. After calling this, tell the analyst that a confirmation is waiting for them and that nothing has been deleted yet.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -273,6 +300,80 @@ _COPILOT_TOOL_DISPATCH: dict[str, Any] = {
 }
 
 
+# --- Confirmation of destructive actions -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# A tool that changes or destroys data only REQUESTS the action. The request is turned into a token that is signed (HMAC over the tenant, user, action, arguments and expiry, keyed from SECRET_KEY under a purpose label so it can never be used as, or confused with, any other token) and expires. The token is
+# removed from what the model sees and handed to the UI, which asks the analyst; only the analyst's own authenticated call to POST /copilot/actions/confirm presents it. Replaying a token inside its lifetime is harmless: the actions are idempotent ("already deleted").
+_CONFIRM_KEY = "_confirm"
+PENDING_KEY = "_pending"
+CONFIRMATION_TTL_SECONDS = 300
+
+
+def _confirmation_key() -> bytes:
+    return hashlib.sha256(b"aisoc-copilot-confirm-v1:" + settings.SECRET_KEY.encode("utf-8")).digest()
+
+
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _unb64(text_: str) -> bytes:
+    return base64.urlsafe_b64decode(text_ + "=" * (-len(text_) % 4))
+
+
+def issue_confirmation(*, tenant_id: str, user_id: str, action: str, args: dict[str, Any], now: float | None = None, ttl: int = CONFIRMATION_TTL_SECONDS) -> tuple[str, int]:
+    """A signed confirmation token for `action(args)` by this user in this tenant, and its expiry (epoch seconds)."""
+    exp = int((time.time() if now is None else now) + ttl)
+    payload = json.dumps({"a": action, "args": args, "t": str(tenant_id), "u": str(user_id), "exp": exp, "n": secrets.token_hex(8)}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    sig = hmac.new(_confirmation_key(), payload, hashlib.sha256).digest()
+    return _b64(payload) + "." + _b64(sig), exp
+
+
+class ConfirmationError(Exception):
+    """The token is not acceptable. `reason` is one of: malformed, signature, expired, wrong_tenant, wrong_user, unknown_action."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def verify_confirmation(token: str, *, tenant_id: str, user_id: str, now: float | None = None) -> dict[str, Any]:
+    """The token's payload (action, args), or ConfirmationError. The signature is checked BEFORE anything in the payload is trusted, in constant time."""
+    try:
+        body, sig = token.split(".", 1)
+        payload = _unb64(body)
+        given = _unb64(sig)
+    except Exception as exc:  # noqa: BLE001
+        raise ConfirmationError("malformed") from exc
+    if not hmac.compare_digest(hmac.new(_confirmation_key(), payload, hashlib.sha256).digest(), given):
+        raise ConfirmationError("signature")
+    try:
+        data = json.loads(payload)
+    except ValueError as exc:
+        raise ConfirmationError("malformed") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("exp"), int) or not isinstance(data.get("args"), dict):
+        raise ConfirmationError("malformed")
+    if (time.time() if now is None else now) > data["exp"]:
+        raise ConfirmationError("expired")
+    if data.get("t") != str(tenant_id):
+        raise ConfirmationError("wrong_tenant")
+    if data.get("u") != str(user_id):
+        raise ConfirmationError("wrong_user")
+    if data.get("a") not in CONFIRMED_ACTIONS:
+        raise ConfirmationError("unknown_action")
+    return data
+
+
+def split_pending(tool_result: Any) -> tuple[Any, dict[str, Any] | None]:
+    """(what the MODEL may see, the pending confirmation for the UI or None). The token never reaches the model."""
+    if isinstance(tool_result, dict) and PENDING_KEY in tool_result:
+        visible = {k: v for k, v in tool_result.items() if k != PENDING_KEY}
+        return visible, tool_result[PENDING_KEY]
+    return tool_result, None
+
+
+# The actions a confirmation token can authorise. NOT reachable from the model's tool dispatch.
+CONFIRMED_ACTIONS: dict[str, Any] = {"delete_alert": perform_delete_alert}
+
 # The permission each tool needs, the same ones the matching REST endpoints require. A tool with no entry here is not run.
 TOOL_PERMISSIONS: dict[str, str] = {
     "search_alerts": "alerts:read",
@@ -302,6 +403,14 @@ async def execute_copilot_tool(name: str, args: dict[str, Any], tenant_id: str, 
     except HTTPException:
         return {"error": f"permission denied: {name} requires {needed}"}
     try:
-        return await fn(tenant_id=tenant_id, **(args or {}))
+        result = await fn(tenant_id=tenant_id, **(args or {}))
     except Exception as exc:  # noqa: BLE001
         return {"error": f"{type(exc).__name__}: {exc}"}
+    if isinstance(result, dict) and _CONFIRM_KEY in result:
+        # A destructive tool only REQUESTED its action: sign a confirmation for the UI and tell the model, truthfully, that nothing has happened yet.
+        request = result.pop(_CONFIRM_KEY)
+        token, exp = issue_confirmation(tenant_id=str(tenant_id), user_id=str(getattr(user, "user_id", "")), action=request["action"], args=request["args"])
+        result["status"] = "awaiting_user_confirmation"
+        result["message"] = "NOTHING HAS BEEN DONE YET. The analyst has been shown a confirmation prompt and must approve it themselves. Tell them it is waiting for them; do not claim the action happened."
+        result[PENDING_KEY] = {"action": request["action"], "summary": request["summary"], "token": token, "expiresAt": exp}
+    return result

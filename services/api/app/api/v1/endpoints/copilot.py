@@ -23,7 +23,15 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
-from app.copilot_tools import COPILOT_TOOL_SCHEMAS, execute_copilot_tool
+from app.copilot_tools import (
+    COPILOT_TOOL_SCHEMAS,
+    CONFIRMED_ACTIONS,
+    TOOL_PERMISSIONS,
+    ConfirmationError,
+    execute_copilot_tool,
+    split_pending,
+    verify_confirmation,
+)
 from app.db.rls import TenantDBSession
 from app.llm.contract import safe_ainvoke
 from app.llm.factory import make_chat_model
@@ -59,10 +67,30 @@ class CopilotMessageOut(BaseModel):
     suggestions: list[str] | None = None
 
 
+class PendingActionOut(BaseModel):
+    """A destructive action the Copilot asked for and that is WAITING for the analyst. Nothing has happened yet. The token is for the UI's confirm call only; it is never shown to the model."""
+
+    action: str
+    summary: str
+    token: str
+    expiresAt: int
+
+
 class CopilotChatResponse(BaseModel):
     conversationId: str
     reply: CopilotMessageOut
     degraded: bool = False
+    pendingActions: list[PendingActionOut] = Field(default_factory=list)
+
+
+class ConfirmActionRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=4000)
+
+
+class ConfirmActionResponse(BaseModel):
+    status: str  # "done" | "failed"
+    action: str
+    result: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +179,7 @@ async def copilot_chat(
 
     degraded = False
     content = ""
+    pending_actions: list[PendingActionOut] = []
     try:
         llm = make_chat_model("copilot", temperature=0.3, max_tokens=1024)
         bound = llm.bind_tools(COPILOT_TOOL_SCHEMAS)
@@ -168,6 +197,10 @@ async def copilot_chat(
                 args = call.get("args", {}) or {}
                 call_id = call.get("id", "") or ""
                 tool_result = await execute_copilot_tool(name, args, tenant_id, user=user)
+                # A destructive tool only REQUESTED its action: the signed confirmation goes to the analyst's UI and is removed from what the model is shown.
+                tool_result, pending = split_pending(tool_result)
+                if pending and len(pending_actions) < 5:
+                    pending_actions.append(PendingActionOut(**pending))
                 messages.append(
                     ToolMessage(
                         content=json.dumps(tool_result, default=str)[:4000],
@@ -213,4 +246,39 @@ async def copilot_chat(
         suggestions=None,
     )
 
-    return CopilotChatResponse(conversationId=conversation_id, reply=reply, degraded=degraded)
+    return CopilotChatResponse(conversationId=conversation_id, reply=reply, degraded=degraded, pendingActions=pending_actions)
+
+
+_CONFIRM_ERRORS = {
+    "malformed": (400, "That confirmation is not valid."),
+    "signature": (400, "That confirmation is not valid."),
+    "unknown_action": (400, "That confirmation is not valid."),
+    "expired": (410, "That confirmation has expired. Ask the Copilot again."),
+    "wrong_tenant": (403, "That confirmation was not issued to you."),
+    "wrong_user": (403, "That confirmation was not issued to you."),
+}
+
+
+@router.post(
+    "/actions/confirm",
+    response_model=ConfirmActionResponse,
+    summary="Confirm a destructive action the Copilot asked for",
+)
+async def confirm_action(
+    body: ConfirmActionRequest,
+    user: Annotated[AuthUser, Depends(require_permission("copilot:use"))],
+) -> ConfirmActionResponse:
+    """Perform a destructive action the Copilot REQUESTED, after the analyst approved it.
+
+    This is the only way such an action happens, and it is not a model tool: the model cannot call it. The token must have been issued to THIS user in THIS tenant, must not have expired, and its signature must verify; the user then needs the same permission the
+    matching REST endpoint requires (alerts:delete for an alert), checked here at confirmation time, not only when the request was made."""
+    try:
+        data = verify_confirmation(body.token, tenant_id=str(user.tenant_id), user_id=str(user.user_id))
+    except ConfirmationError as exc:
+        code, message = _CONFIRM_ERRORS.get(exc.reason, (400, "That confirmation is not valid."))
+        raise HTTPException(status_code=code, detail=message) from exc
+    action = data["a"]
+    user.require_permission(TOOL_PERMISSIONS[action])
+    result = await CONFIRMED_ACTIONS[action](tenant_id=str(user.tenant_id), **data["args"])
+    logger.info("copilot.action.confirmed action=%s tenant=%s user=%s ok=%s", action, user.tenant_id, user.user_id, "error" not in result)
+    return ConfirmActionResponse(status="failed" if "error" in result else "done", action=action, result=result)
