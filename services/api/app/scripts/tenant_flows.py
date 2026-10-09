@@ -512,6 +512,13 @@ def _sixth_batch() -> dict[str, list[Step]]:
             S("an injected pipeline is refused", "B", "post", "/api/v1/nl-query/translate", over={**q, "index_pattern": "logs-* | EVAL pwned = 1 | DROP message | LIMIT 5 //"}, expect=(422,)),
             S("a newline-separated command is refused", "B", "post", "/api/v1/nl-query/translate", over={**q, "index_pattern": "logs-*\n| KEEP user.password"}, expect=(422,)),
             S("execute refuses a hostile pattern too", "B", "post", "/api/v1/nl-query/execute", over={**q, "index_pattern": "*"}, expect=(422,)),
+            # Tenant selection: B is a plain tenant admin (no platform:cross_tenant_query). The two tenants of the flow database have these fixed ids.
+            S("B searching its OWN tenant is allowed", "B", "post", "/api/v1/nl-query/translate", over={**q, "tenant_ids": ["bbbbbbbb-0000-0000-0000-000000000002"]}, expect=(200,)),
+            S("B cannot search tenant A", "B", "post", "/api/v1/nl-query/translate", over={**q, "tenant_ids": ["aaaaaaaa-0000-0000-0000-000000000001"]}, expect=(403,)),
+            S("B cannot search A and B together", "B", "post", "/api/v1/nl-query/translate", over={**q, "tenant_ids": ["aaaaaaaa-0000-0000-0000-000000000001", "bbbbbbbb-0000-0000-0000-000000000002"]}, expect=(403,)),
+            S("B cannot search all tenants", "B", "post", "/api/v1/nl-query/translate", over={**q, "all_tenants": True}, expect=(403,)),
+            S("execute refuses another tenant too", "B", "post", "/api/v1/nl-query/execute", over={**q, "tenant_ids": ["aaaaaaaa-0000-0000-0000-000000000001"]}, expect=(403,)),
+            S("B's selector lists only its own tenant", "B", "get", "/api/v1/nl-query/tenants", expect=(200,), check=lambda r, c: len(r.json()["tenants"]) == 1 and r.json()["tenants"][0]["id"] == "bbbbbbbb-0000-0000-0000-000000000002" and r.json()["cross_tenant_enabled"] is False and "tenant-a" not in r.text),
         ],
     }
 

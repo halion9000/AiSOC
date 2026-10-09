@@ -22,20 +22,24 @@ Endpoints
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import select
 
-from app.api.v1.deps import AuthUser, require_permission
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
 from app.core.config import settings
+from app.models.tenant import Tenant
 from app.services.esql_runner import (
     ESQLExecutionError,
     ESQLNotConfigured,
@@ -178,9 +182,67 @@ def validate_index_pattern(value: str) -> str:
     return value
 
 
-def enforce_query_scope(esql: str, tenant_id: uuid.UUID | str) -> str:
-    """The ES|QL that may be run: its source clause must be `FROM <allowed indices>` (checked with the same rules as index_pattern), and when NL_QUERY_TENANT_FIELD is set the caller's tenant predicate is added right after it.
-    Applied to the FINAL query, so it holds whether the deterministic translator or an LLM wrote it. Raises QueryScopeError."""
+CROSS_TENANT_PERMISSION = "platform:cross_tenant_query"
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TenantScope:
+    """Whose events a query may read. `own` (the default): the caller's tenant. `selected`: exactly these tenants. `all`: every tenant (no tenant predicate at all)."""
+
+    kind: str
+    tenant_ids: tuple[str, ...] = ()
+
+
+def resolve_tenant_scope(body: "NLQueryTranslateRequest", user: Any) -> TenantScope:
+    """The tenant scope this request is entitled to.
+
+    Nothing selected, or only the caller's own tenant selected, is `own`. Anything wider (another tenant, several tenants, or all of them) needs the platform permission `platform:cross_tenant_query` (held by platform_admin only, or by an API key carrying that exact scope) AND a
+    configured NL_QUERY_TENANT_FIELD: without a field that identifies each event's tenant there is nothing to filter on, so a wider search could not be restricted to the tenants chosen."""
+    own = str(user.tenant_id)
+    chosen = tuple(dict.fromkeys(str(t) for t in (body.tenant_ids or ())))
+    if not body.all_tenants and (not chosen or chosen == (own,)):
+        return TenantScope("own", (own,))
+    if not user.holds(CROSS_TENANT_PERMISSION):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Searching other tenants needs the {CROSS_TENANT_PERMISSION} permission.")
+    if not (settings.NL_QUERY_TENANT_FIELD or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Searching other tenants needs NL_QUERY_TENANT_FIELD to be configured (the Elasticsearch field that holds each event's tenant); without it the search cannot be restricted to the tenants you chose.",
+        )
+    return TenantScope("all") if body.all_tenants else TenantScope("selected", chosen)
+
+
+async def _require_tenants_exist(db: Any, scope: TenantScope) -> None:
+    """A selected tenant that does not exist is a 404 naming it, not an empty result that looks like 'no events'."""
+    if scope.kind != "selected":
+        return
+    found = {str(i) for i in (await db.execute(select(Tenant.id).where(Tenant.id.in_([uuid.UUID(t) for t in scope.tenant_ids])))).scalars().all()}
+    missing = [t for t in scope.tenant_ids if t not in found]
+    if missing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No such tenant: {', '.join(missing)}")
+
+
+def _tenant_predicate(field: str, ids: tuple[str, ...]) -> str:
+    for i in ids:
+        uuid.UUID(i)  # only ever a UUID reaches the query text
+    if len(ids) == 1:
+        return f'{field} == "{ids[0]}"'
+    return f"{field} IN ({', '.join(chr(34) + i + chr(34) for i in ids)})"
+
+
+def _log_wider_scope(user: Any, scope: TenantScope) -> None:
+    """A search wider than the caller's own tenant is a platform-level action: leave a record of who looked at whose data."""
+    if scope.kind != "own":
+        logger.info(
+            "nl_query.cross_tenant user=%s role=%s home_tenant=%s scope=%s tenants=%s",
+            getattr(user, "user_id", None), getattr(user, "role", None), getattr(user, "tenant_id", None), scope.kind, ",".join(scope.tenant_ids) or "*",
+        )
+
+
+def enforce_query_scope(esql: str, tenant_id: uuid.UUID | str, scope: TenantScope | None = None) -> str:
+    """The ES|QL that may be run: its source clause must be `FROM <allowed indices>` (checked with the same rules as index_pattern), and when NL_QUERY_TENANT_FIELD is set a tenant predicate is added right after it: the caller's own tenant by default, `IN (...)` for
+    selected tenants, nothing for `all`. Applied to the FINAL query, so it holds whether the deterministic translator or an LLM wrote it. Raises QueryScopeError."""
     m = _SOURCE_HEAD_RE.match(esql)
     if m is None:
         raise QueryScopeError("the query does not begin with a plain FROM <indices> source clause")
@@ -190,7 +252,14 @@ def enforce_query_scope(esql: str, tenant_id: uuid.UUID | str) -> str:
         return esql
     if not _FIELD_NAME_RE.match(field):
         raise QueryScopeError("NL_QUERY_TENANT_FIELD is not a valid field name")
-    return f'{m.group("head")}\n| WHERE {field} == "{tenant_id}"' + esql[m.end("head"):]
+    scope = scope or TenantScope("own", (str(tenant_id),))
+    if scope.kind == "all":
+        return esql
+    try:
+        predicate = _tenant_predicate(field, scope.tenant_ids or (str(tenant_id),))
+    except ValueError as exc:
+        raise QueryScopeError("a selected tenant id is not a valid UUID") from exc
+    return f'{m.group("head")}\n| WHERE {predicate}' + esql[m.end("head"):]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -215,6 +284,21 @@ class NLQueryTranslateRequest(BaseModel):
         description="Look-back window in hours.",
     )
 
+    tenant_ids: list[uuid.UUID] | None = Field(
+        None,
+        max_length=50,
+        description="Search these tenants (several allowed). Omitted: your own tenant only. Other tenants need the platform:cross_tenant_query permission.",
+    )
+    all_tenants: bool = Field(False, description="Search every tenant. Needs platform:cross_tenant_query. Mutually exclusive with tenant_ids.")
+
+    @model_validator(mode="after")
+    def _one_way_to_choose_tenants(self) -> "NLQueryTranslateRequest":
+        if self.all_tenants and self.tenant_ids:
+            raise ValueError("choose either tenant_ids or all_tenants, not both")
+        if self.tenant_ids is not None and len(self.tenant_ids) == 0:
+            raise ValueError("tenant_ids must name at least one tenant (omit it to search your own)")
+        return self
+
     @field_validator("index_pattern")
     @classmethod
     def _index_pattern_names_only_indices(cls, v: str) -> str:
@@ -236,6 +320,8 @@ class NLQueryTranslateResponse(BaseModel):
     # UI can flag deterministic vs. LLM-assisted answers.
     engine: str = Field("deterministic", description="`deterministic` or `llm`.")
     grammar_validated: bool = Field(True, description="True if every emitted query passed grammar checks.")
+    tenant_scope: str = Field("own", description="Whose events the query reads: `own`, `selected` or `all`.")
+    tenant_ids: list[str] | None = Field(None, description="The tenants searched (`own` and `selected`); null for `all`.")
 
 
 class NLQueryExecuteRequest(NLQueryTranslateRequest):
@@ -355,10 +441,14 @@ async def _execute_esql(esql: str, es_url: str, es_api_key: str, max_rows: int) 
 async def translate_query(
     body: NLQueryTranslateRequest,
     user: AuthUser,
+    db: DBSession,
 ) -> NLQueryTranslateResponse:
+    scope = resolve_tenant_scope(body, user)
+    await _require_tenants_exist(db, scope)
+    _log_wider_scope(user, scope)
     translated, engine = await _translate(body.question, body.index_pattern, body.time_range_hours)
     try:
-        scoped_esql = enforce_query_scope(translated.esql, user.tenant_id)
+        scoped_esql = enforce_query_scope(translated.esql, user.tenant_id, scope)
     except QueryScopeError as exc:
         raise HTTPException(status_code=422, detail=f"The generated query was refused: {exc}") from exc
     return NLQueryTranslateResponse(
@@ -371,6 +461,8 @@ async def translate_query(
         created_at=datetime.now(UTC),
         engine=engine,
         grammar_validated=True,
+        tenant_scope=scope.kind,
+        tenant_ids=None if scope.kind == "all" else list(scope.tenant_ids),
     )
 
 
@@ -384,10 +476,14 @@ async def translate_query(
 async def execute_query(
     body: NLQueryExecuteRequest,
     user: AuthUser,
+    db: DBSession,
 ) -> NLQueryExecuteResponse:
+    scope = resolve_tenant_scope(body, user)
+    await _require_tenants_exist(db, scope)
+    _log_wider_scope(user, scope)
     translated, engine = await _translate(body.question, body.index_pattern, body.time_range_hours)
     try:
-        scoped_esql = enforce_query_scope(translated.esql, user.tenant_id)
+        scoped_esql = enforce_query_scope(translated.esql, user.tenant_id, scope)
         scope_error = None
     except QueryScopeError as exc:
         scoped_esql, scope_error = translated.esql, str(exc)
@@ -402,6 +498,8 @@ async def execute_query(
         created_at=datetime.now(UTC),
         engine=engine,
         grammar_validated=True,
+        tenant_scope=scope.kind,
+        tenant_ids=None if scope.kind == "all" else list(scope.tenant_ids),
     )
 
     if scope_error is not None:
@@ -442,3 +540,33 @@ async def execute_query(
         base.execution_error = str(exc)
 
     return base
+
+
+class NLQueryTenant(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+
+
+class NLQueryTenantsResponse(BaseModel):
+    own_tenant_id: uuid.UUID
+    cross_tenant_enabled: bool = Field(..., description="True when this caller may search other tenants: they hold platform:cross_tenant_query AND NL_QUERY_TENANT_FIELD is configured.")
+    tenants: list[NLQueryTenant]
+
+
+@router.get(
+    "/tenants",
+    response_model=NLQueryTenantsResponse,
+    summary="The tenants this caller may search (for a tenant selector)",
+    dependencies=[Depends(require_permission("lake:query"))],
+)
+async def list_searchable_tenants(user: AuthUser, db: DBSession) -> NLQueryTenantsResponse:
+    """Your own tenant, plus every other tenant if you may search across tenants. A caller who may not gets exactly one entry: their own."""
+    enabled = bool((settings.NL_QUERY_TENANT_FIELD or "").strip()) and user.holds(CROSS_TENANT_PERMISSION)
+    query = select(Tenant).order_by(Tenant.name).limit(500) if enabled else select(Tenant).where(Tenant.id == user.tenant_id)
+    rows = (await db.execute(query)).scalars().all()
+    return NLQueryTenantsResponse(
+        own_tenant_id=user.tenant_id,
+        cross_tenant_enabled=enabled,
+        tenants=[NLQueryTenant(id=t.id, name=t.name, slug=t.slug) for t in rows],
+    )

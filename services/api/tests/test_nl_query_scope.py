@@ -119,12 +119,19 @@ def translated(esql):
     return SimpleNamespace(esql=esql, spl="spl", kql="kql", explanation="why")
 
 
+class NoDB:
+    """An own-tenant search needs no database: touching it fails the test."""
+
+    def __init__(self):
+        self.execute = AsyncMock(side_effect=AssertionError("an own-tenant search must not query the database"))
+
+
 @pytest.mark.asyncio
 class TestEndpoints:
     async def test_translate_refuses_a_generated_query_that_reads_what_it_may_not(self, monkeypatch):
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM *" + GOOD_TAIL), "llm")))
         with pytest.raises(HTTPException) as exc:
-            await nq.translate_query(body=nq.NLQueryTranslateRequest(question="Show failed logins per user"), user=user())
+            await nq.translate_query(body=nq.NLQueryTranslateRequest(question="Show failed logins per user"), user=user(), db=NoDB())
         assert exc.value.status_code == 422 and "refused" in exc.value.detail
 
     async def test_execute_runs_nothing_when_the_query_reads_what_it_may_not(self, monkeypatch):
@@ -132,7 +139,7 @@ class TestEndpoints:
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM .security-*" + GOOD_TAIL), "llm")))
         monkeypatch.setattr(nq, "_execute_esql", run)
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
-        out = await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user())
+        out = await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
         assert out.result is None and out.execution_error.startswith("Refusing to execute:")
         run.assert_not_awaited()
 
@@ -142,7 +149,7 @@ class TestEndpoints:
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM logs-*" + GOOD_TAIL), "deterministic")))
         monkeypatch.setattr(nq, "_execute_esql", run)
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
-        out = await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user())
+        out = await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
         sent = run.await_args.args[0]
         assert sent == f'FROM logs-*\n| WHERE tenant.id == "{TENANT}"' + GOOD_TAIL and out.esql == sent and out.execution_error is None
 
@@ -153,12 +160,12 @@ class TestEndpoints:
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated(q), "deterministic")))
         monkeypatch.setattr(nq, "_execute_esql", run)
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
-        await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user())
+        await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
         assert run.await_args.args[0] == q
 
     async def test_the_scope_check_runs_before_the_server_credentials_are_even_resolved(self, monkeypatch):
         creds = []
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM *" + GOOD_TAIL), "llm")))
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: creds.append(1) or ("https://es.internal", "key"))
-        await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user())
+        await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
         assert creds == []
