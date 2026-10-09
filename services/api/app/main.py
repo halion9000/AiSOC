@@ -20,6 +20,7 @@ from app.auth.saml import router as saml_router
 from app.core.airgap import airgap_status
 from app.core.config import enforce_secure_defaults, is_dev_env, settings
 from app.core.cors import build_cors_kwargs
+from app.core.db_errors import register_db_error_handlers
 from app.core.logging import configure_logging
 from app.core.scheduler_lock import scheduler_lock
 from app.core.telemetry import instrument_app
@@ -535,6 +536,9 @@ def create_application() -> FastAPI:
             default_origins=settings.CORS_ORIGINS,
         ),
     )
+
+    # A constraint violation the handler did not anticipate is the caller's to correct (4xx), not a server error.
+    register_db_error_handlers(app)
 
     # Routers
     app.include_router(api_router)
