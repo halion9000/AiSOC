@@ -114,6 +114,9 @@ class Step:
     check: Callable[[Any, dict], bool] | None = None
     nobody: bool = False
     params: dict | None = None
+    # `absent="key"`: the object captured under ctx[key] must NOT be visible to this user. The runner first makes the SAME request as the other tenant (the owner) and requires it to FIND the object (a "control" row), so an exclusion can never pass vacuously
+    # (a list that is empty for an unrelated reason, a pagination default, an error that returns []). Use this, never a bare `not _has(...)`, for an exclusion check.
+    absent: str | None = None
 
 
 def _has(resp: Any, needle: str) -> bool:
@@ -130,6 +133,16 @@ def _top_field_is(resp: Any, key: str, want: str) -> bool:
     return isinstance(body, dict) and str(body.get(key)) == str(want)
 
 
+def control_found(owner_resp: Any, want: str) -> bool:
+    """The control: the OWNER's request succeeded and the object is in it."""
+    return owner_resp.status_code == 200 and want in owner_resp.text
+
+
+def exclusion_holds(resp: Any, want: str, expect: tuple[int, ...]) -> bool:
+    """The exclusion: an expected status, and if the request was served at all (200) the object is not in the body. A 404/403 is the endpoint refusing, which is also a pass."""
+    return resp.status_code in expect and (resp.status_code != 200 or want not in resp.text)
+
+
 def S(name: str, user: str, method: str, tpl: str, **kw: Any) -> Step:
     return Step(name, user, method, tpl, **kw)
 
@@ -139,7 +152,7 @@ def build_flows() -> dict[str, list[Step]]:
         "cases": [
             S("A creates a case", "A", "post", "/api/v1/cases", capture=("case", "id")),
             S("A's shift handoff includes the case", "A", "get", "/api/v1/shifts/handoff-items", expect=(200,), check=lambda r, c: _has(r, c["case"])),
-            S("B's shift handoff does not", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), check=lambda r, c: not _has(r, c["case"])),
+            S("B's shift handoff does not", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), absent="case"),
             S("A reads it", "A", "get", "/api/v1/cases/{case}", expect=(200,)),
             S("A renames it", "A", "patch", "/api/v1/cases/{case}", over={"title": "Renamed by A"}, expect=(200,)),
             S("A comments", "A", "post", "/api/v1/cases/{case}/comments", capture=("comment", "id")),
@@ -148,16 +161,16 @@ def build_flows() -> dict[str, list[Step]]:
             S("B cannot read A's case", "B", "get", "/api/v1/cases/{case}", expect=ISO),
             S("B cannot rename A's case", "B", "patch", "/api/v1/cases/{case}", over={"title": "pwned"}, expect=ISO),
             S("B cannot comment on A's case", "B", "post", "/api/v1/cases/{case}/comments", expect=ISO),
-            S("B cannot list A's comments", "B", "get", "/api/v1/cases/{case}/comments", expect=(404, 403, 200), check=lambda r, c: r.status_code != 200 or not _has(r, c["comment"])),
-            S("B's case list excludes it", "B", "get", "/api/v1/cases", expect=(200,), check=lambda r, c: not _has(r, c["case"])),
+            S("B cannot list A's comments", "B", "get", "/api/v1/cases/{case}/comments", expect=(404, 403, 200), absent="comment"),
+            S("B's case list excludes it", "B", "get", "/api/v1/cases", expect=(200,), absent="case"),
             S("A's case is still intact", "A", "get", "/api/v1/cases/{case}", expect=(200,), check=lambda r, c: _has(r, "Renamed by A")),
-            S("B's shift handoff items exclude A's case", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), check=lambda r, c: not _has(r, c["case"])),
+            S("B's shift handoff items exclude A's case", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), absent="case"),
         ],
         "saved_views": [
             S("A creates a view", "A", "post", "/api/v1/saved-views", over={"view_type": "alerts"}, capture=("view", "id")),
             S("A renames it", "A", "patch", "/api/v1/saved-views/{view}", over={"name": "A renamed"}, expect=(200,)),
             S("A lists (has it)", "A", "get", "/api/v1/saved-views", params={"view_type": "alerts"}, expect=(200,), check=lambda r, c: _has(r, c["view"])),
-            S("B's list excludes it", "B", "get", "/api/v1/saved-views", params={"view_type": "alerts"}, expect=(200,), check=lambda r, c: not _has(r, c["view"])),
+            S("B's list excludes it", "B", "get", "/api/v1/saved-views", params={"view_type": "alerts"}, expect=(200,), absent="view"),
             S("B cannot change it", "B", "patch", "/api/v1/saved-views/{view}", over={"name": "pwned"}, expect=ISO),
             S("B cannot delete it", "B", "delete", "/api/v1/saved-views/{view}", expect=ISO, nobody=True),
             S("A deletes it", "A", "delete", "/api/v1/saved-views/{view}", expect=(200, 204), nobody=True),
@@ -170,7 +183,7 @@ def build_flows() -> dict[str, list[Step]]:
             S("B cannot read it", "B", "get", "/api/v1/api-keys/{key}", expect=ISO),
             S("B cannot change it", "B", "patch", "/api/v1/api-keys/{key}", over={"name": "pwned"}, expect=ISO),
             S("B cannot delete it", "B", "delete", "/api/v1/api-keys/{key}", expect=ISO, nobody=True),
-            S("B's list excludes it", "B", "get", "/api/v1/api-keys", expect=(200,), check=lambda r, c: not _has(r, c["key"])),
+            S("B's list excludes it", "B", "get", "/api/v1/api-keys", expect=(200,), absent="key"),
             S("A deletes it", "A", "delete", "/api/v1/api-keys/{key}", expect=(200, 204), nobody=True),
         ],
         "saved_hunts": [
@@ -178,7 +191,7 @@ def build_flows() -> dict[str, list[Step]]:
             S("A reads it", "A", "get", "/api/v1/saved-hunts/{hunt}", expect=(200,)),
             S("B cannot read it", "B", "get", "/api/v1/saved-hunts/{hunt}", expect=ISO),
             S("B cannot delete it", "B", "delete", "/api/v1/saved-hunts/{hunt}", expect=ISO, nobody=True),
-            S("B's list excludes it", "B", "get", "/api/v1/saved-hunts", expect=(200,), check=lambda r, c: not _has(r, c["hunt"])),
+            S("B's list excludes it", "B", "get", "/api/v1/saved-hunts", expect=(200,), absent="hunt"),
             S("A deletes it", "A", "delete", "/api/v1/saved-hunts/{hunt}", expect=(200, 204), nobody=True),
         ],
         "shifts": [
@@ -188,7 +201,7 @@ def build_flows() -> dict[str, list[Step]]:
             S("A writes the handoff", "A", "put", "/api/v1/shifts/{shift}/handoff", expect=(200,)),
             S("A lists (has it)", "A", "get", "/api/v1/shifts", expect=(200,), check=lambda r, c: _has(r, c["shift"])),
             S("B cannot write A's handoff", "B", "put", "/api/v1/shifts/{shift}/handoff", expect=ISO),
-            S("B's shift list excludes A's shift", "B", "get", "/api/v1/shifts", expect=(200,), check=lambda r, c: not _has(r, c["shift"])),
+            S("B's shift list excludes A's shift", "B", "get", "/api/v1/shifts", expect=(200,), absent="shift"),
             S("B's own shift is still active (A's actions must not touch it)", "B", "get", "/api/v1/shifts", expect=(200,), check=lambda r, c: any(x["id"] == c["shift_b"] and x["status"] == "active" for x in r.json())),
         ],
         "approvals": [
@@ -196,7 +209,7 @@ def build_flows() -> dict[str, list[Step]]:
             S("A reads it", "A", "get", "/api/v1/approvals/{appr}", expect=(200,)),
             S("B cannot read it", "B", "get", "/api/v1/approvals/{appr}", expect=ISO),
             S("B cannot decide it", "B", "post", "/api/v1/approvals/{appr}/decide", expect=ISO),
-            S("B's list excludes it", "B", "get", "/api/v1/approvals", expect=(200,), check=lambda r, c: not _has(r, c["appr"])),
+            S("B's list excludes it", "B", "get", "/api/v1/approvals", expect=(200,), absent="appr"),
             S("A decides it", "A", "post", "/api/v1/approvals/{appr}/decide", expect=(200, 201, 202)),
         ],
         "alerts": [
@@ -205,7 +218,7 @@ def build_flows() -> dict[str, list[Step]]:
             S("A claims it", "A", "post", "/api/v1/alerts/{alert}/claim", expect=(200, 201, 202), nobody=True),
             S("B cannot read it", "B", "get", "/api/v1/alerts/{alert}", expect=ISO),
             S("B cannot claim it", "B", "post", "/api/v1/alerts/{alert}/claim", expect=ISO, nobody=True),
-            S("B's alert list excludes it", "B", "get", "/api/v1/alerts", expect=(200,), check=lambda r, c: not _has(r, c["alert"])),
+            S("B's alert list excludes it", "B", "get", "/api/v1/alerts", expect=(200,), absent="alert"),
             S("A attaches it to a case", "A", "post", "/api/v1/cases", capture=("case2", "id")),
             S("A links the alert", "A", "post", "/api/v1/cases/{case2}/alerts", expect=(200, 201, 202)),
             S("the alert now shows the case it was linked to", "A", "get", "/api/v1/alerts/{alert}", expect=(200,), check=lambda r, c: _top_field_is(r, "case_id", c["case2"])),
@@ -214,7 +227,7 @@ def build_flows() -> dict[str, list[Step]]:
             S("B cannot create a case citing A's alert", "B", "post", "/api/v1/cases", expect=(404, 403, 400, 422)),
             S("A can create a case citing its OWN alert", "A", "post", "/api/v1/cases", expect=(201,)),
             S("B's case does not expose A's alert content", "B", "get", "/api/v1/cases/{case_b}", expect=(200,), check=lambda r, c: "flow alert" not in r.text),
-            S("B's shift handoff items exclude A's alert", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), check=lambda r, c: not _has(r, c["alert"])),
+            S("B's shift handoff items exclude A's alert", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), absent="alert"),
         ],
         # A creates objects B has NEVER mentioned: the only ids the final sweep may look for.
         "fresh": [
@@ -237,7 +250,6 @@ NOT_YOURS = (404, 403, 400, 422)  # for cross-tenant WRITES that name another te
 
 
 def _more_flows() -> dict[str, list[Step]]:
-    nothave = lambda key: (lambda r, c: not _has(r, c[key]))  # noqa: E731
     return {
         "assets": [
             S("A creates an asset", "A", "post", "/api/v1/assets", capture=("asset", "id")),
@@ -248,9 +260,9 @@ def _more_flows() -> dict[str, list[Step]]:
             S("B cannot read it", "B", "get", "/api/v1/assets/{asset}", expect=ISO),
             S("B cannot rename it", "B", "patch", "/api/v1/assets/{asset}", over={"name": "pwned"}, expect=ISO),
             S("B cannot delete it", "B", "delete", "/api/v1/assets/{asset}", expect=ISO, nobody=True),
-            S("B cannot list its vulnerabilities", "B", "get", "/api/v1/assets/{asset}/vulnerabilities", expect=(404, 403, 200), check=lambda r, c: r.status_code != 200 or not _has(r, c["vuln"])),
-            S("B's asset list excludes it", "B", "get", "/api/v1/assets", expect=(200,), check=nothave("asset")),
-            S("B's vulnerability list excludes it", "B", "get", "/api/v1/assets/vulnerabilities", expect=(200,), check=nothave("vuln")),
+            S("B cannot list its vulnerabilities", "B", "get", "/api/v1/assets/{asset}/vulnerabilities", expect=(404, 403, 200), absent="vuln"),
+            S("B's asset list excludes it", "B", "get", "/api/v1/assets", expect=(200,), absent="asset"),
+            S("B's vulnerability list excludes it", "B", "get", "/api/v1/assets/vulnerabilities", expect=(200,), absent="vuln"),
             S("A's asset is still intact", "A", "get", "/api/v1/assets/{asset}", expect=(200,), check=lambda r, c: _has(r, "asset-renamed-by-A")),
             S("A deletes it", "A", "delete", "/api/v1/assets/{asset}", expect=(200, 204), nobody=True),
         ],
@@ -261,8 +273,8 @@ def _more_flows() -> dict[str, list[Step]]:
             S("B cannot read it", "B", "get", "/api/v1/threat-intel/iocs/{ioc}", expect=ISO),
             S("B cannot delete it", "B", "delete", "/api/v1/threat-intel/iocs/{ioc}", expect=ISO, nobody=True),
             S("B cannot delete A's feed", "B", "delete", "/api/v1/threat-intel/feeds/{feed}", expect=ISO, nobody=True),
-            S("B's IOC list excludes it", "B", "get", "/api/v1/threat-intel/iocs", expect=(200,), check=nothave("ioc")),
-            S("B's feed list excludes it", "B", "get", "/api/v1/threat-intel/feeds", expect=(200,), check=nothave("feed")),
+            S("B's IOC list excludes it", "B", "get", "/api/v1/threat-intel/iocs", expect=(200,), absent="ioc"),
+            S("B's feed list excludes it", "B", "get", "/api/v1/threat-intel/feeds", expect=(200,), absent="feed"),
             S("A's IOC is still there", "A", "get", "/api/v1/threat-intel/iocs/{ioc}", expect=(200,)),
             S("A deletes the IOC", "A", "delete", "/api/v1/threat-intel/iocs/{ioc}", expect=(200, 204), nobody=True),
             S("A deletes the feed", "A", "delete", "/api/v1/threat-intel/feeds/{feed}", expect=(200, 204), nobody=True),
@@ -272,13 +284,13 @@ def _more_flows() -> dict[str, list[Step]]:
             S("A reads it", "A", "get", "/api/v1/reports/templates/{tmpl}", expect=(200,)),
             S("B cannot read it", "B", "get", "/api/v1/reports/templates/{tmpl}", expect=ISO),
             S("B cannot delete it", "B", "delete", "/api/v1/reports/templates/{tmpl}", expect=ISO, nobody=True),
-            S("B's template list excludes it", "B", "get", "/api/v1/reports/templates", expect=(200,), check=nothave("tmpl")),
+            S("B's template list excludes it", "B", "get", "/api/v1/reports/templates", expect=(200,), absent="tmpl"),
             S("A deletes it", "A", "delete", "/api/v1/reports/templates/{tmpl}", expect=(200, 204), nobody=True),
         ],
         "remediation": [
             S("A whitelists an action", "A", "post", "/api/v1/remediation/whitelist", over={"action_type": "isolate_host", "blast_radius": "low"}, capture=("wl", "id")),
             S("B cannot remove it", "B", "delete", "/api/v1/remediation/whitelist/{wl}", expect=ISO, nobody=True),
-            S("B's whitelist excludes it", "B", "get", "/api/v1/remediation/whitelist", expect=(200,), check=nothave("wl")),
+            S("B's whitelist excludes it", "B", "get", "/api/v1/remediation/whitelist", expect=(200,), absent="wl"),
             S("A removes it", "A", "delete", "/api/v1/remediation/whitelist/{wl}", expect=(200, 204), nobody=True),
         ],
         "identity_graph": [
@@ -287,9 +299,9 @@ def _more_flows() -> dict[str, list[Step]]:
             S("A links them", "A", "post", "/api/v1/identity-graph/edges", over={"edge_type": "member_of"}, capture=("edge", "id")),
             S("A reads the node", "A", "get", "/api/v1/identity-graph/nodes/{n1}", expect=(200,)),
             S("B cannot read A's node", "B", "get", "/api/v1/identity-graph/nodes/{n1}", expect=ISO),
-            S("B cannot read A's node edges", "B", "get", "/api/v1/identity-graph/nodes/{n1}/edges", expect=(404, 403, 200), check=lambda r, c: r.status_code != 200 or not _has(r, c["edge"])),
-            S("B's node list excludes it", "B", "get", "/api/v1/identity-graph/nodes", expect=(200,), check=nothave("n1")),
-            S("B's edge list excludes it", "B", "get", "/api/v1/identity-graph/edges", expect=(200,), check=nothave("edge")),
+            S("B cannot read A's node edges", "B", "get", "/api/v1/identity-graph/nodes/{n1}/edges", expect=(404, 403, 200), absent="edge"),
+            S("B's node list excludes it", "B", "get", "/api/v1/identity-graph/nodes", expect=(200,), absent="n1"),
+            S("B's edge list excludes it", "B", "get", "/api/v1/identity-graph/edges", expect=(200,), absent="edge"),
             S("B makes its own node", "B", "post", "/api/v1/identity-graph/nodes", over={"node_type": "human_user", "external_id": "ext-b-1", "source_system": "okta"}, capture=("nb", "id")),
             S("B cannot link its node to A's node", "B", "post", "/api/v1/identity-graph/edges", over={"edge_type": "member_of"}, expect=NOT_YOURS),
         ],
@@ -299,7 +311,7 @@ def _more_flows() -> dict[str, list[Step]]:
             S("B cannot read it", "B", "get", "/api/v1/posture/findings/{finding}", expect=ISO),
             S("B cannot resolve it", "B", "post", "/api/v1/posture/findings/{finding}/resolve", expect=ISO, nobody=True),
             S("B cannot suppress it", "B", "post", "/api/v1/posture/findings/{finding}/suppress", expect=ISO),
-            S("B's finding list excludes it", "B", "get", "/api/v1/posture/findings", expect=(200,), check=nothave("finding")),
+            S("B's finding list excludes it", "B", "get", "/api/v1/posture/findings", expect=(200,), absent="finding"),
             S("A's finding is still open", "A", "get", "/api/v1/posture/findings/{finding}", expect=(200,), check=lambda r, c: "suppressed" not in r.text.lower() or "resolved" not in r.text.lower()),
         ],
         "detection_rules": [
@@ -308,7 +320,7 @@ def _more_flows() -> dict[str, list[Step]]:
             S("B cannot read it", "B", "get", "/api/v1/detection/rules/{rule}", expect=ISO),
             S("B cannot change it", "B", "patch", "/api/v1/detection/rules/{rule}", expect=ISO),
             S("B cannot delete it", "B", "delete", "/api/v1/detection/rules/{rule}", expect=ISO, nobody=True),
-            S("B's rule list excludes it", "B", "get", "/api/v1/detection/rules", expect=(200,), check=nothave("rule")),
+            S("B's rule list excludes it", "B", "get", "/api/v1/detection/rules", expect=(200,), absent="rule"),
             S("B cannot tune it", "B", "post", "/api/v1/detection/tuning/{rule}/dismiss", over={"reason": "x"}, expect=ISO),
             S("A's rule is still there", "A", "get", "/api/v1/detection/rules/{rule}", expect=(200,)),
             S("A deletes it", "A", "delete", "/api/v1/detection/rules/{rule}", expect=(200, 204), nobody=True),
@@ -378,6 +390,18 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                     kw: dict[str, Any] = {}
                     if st.params:
                         kw["params"] = st.params
+                    if st.absent:
+                        want = ctx.get(st.absent)
+                        if want is None:
+                            out.append([flow, st.name, st.user, "SKIP", False, f"needs '{st.absent}', which an earlier step did not produce"])
+                            continue
+                        owner = "A" if st.user == "B" else "B"
+                        try:
+                            ctrl = await asyncio.wait_for(c.get(path, headers=tok[owner], **kw), 15)
+                            found = control_found(ctrl, want)
+                            out.append([flow, st.name + " [control: the owner finds it]", owner, ctrl.status_code, found, "" if found else "the owner cannot see it either, so this exclusion proves nothing: " + ctrl.text[:90]])
+                        except Exception as e:  # noqa: BLE001
+                            out.append([flow, st.name + " [control: the owner finds it]", owner, "EXC", False, type(e).__name__])
                     if st.method in ("post", "put", "patch") and not st.nobody:
                         try:
                             kw["json"] = body_for(spec, st.tpl, st.method, **over)
@@ -396,6 +420,8 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                         except Exception:  # noqa: BLE001, S110
                             pass
                     ok = r.status_code in st.expect
+                    if ok and st.absent:
+                        ok = exclusion_holds(r, ctx[st.absent], st.expect)
                     if ok and st.check:
                         try:
                             ok = bool(st.check(r, ctx))

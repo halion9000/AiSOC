@@ -256,3 +256,100 @@ def test_the_password_variable_the_docs_name_is_the_one_the_cli_reads():
     doc_names = set(re.findall(r"\b(TENANT_FLOWS_[A-Z_]+)=", tf.__doc__))
     default = re.search(r'"--password-env", default="(\w+)"', open(tf.__file__, encoding="utf-8").read()).group(1)
     assert doc_names == {default}
+
+
+# --- exclusion steps carry an automatic positive control -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# "B's list excludes A's object" passes whenever the object is absent, including when the list is empty for an unrelated reason (a pagination default, a filter, an error answering []). 16 of the 23 such steps had no step showing the OWNER finding the object on that path.
+# `absent="key"` makes the runner issue the same GET as the owner first and require it to find the object (a "control" row); shown on real Postgres: with the IOC list endpoint returning [] for everyone, the control row failed ("the owner cannot see it either, so this exclusion
+# proves nothing") while the exclusion step itself still passed.
+from types import SimpleNamespace as _NS  # noqa: E402
+
+from app.scripts import tenant_flows as _tf  # noqa: E402
+
+
+def _resp(status: int, text: str = "") -> _NS:
+    return _NS(status_code=status, text=text)
+
+
+class TestTheControl:
+    def test_the_owner_finding_it_is_a_pass(self):
+        assert _tf.control_found(_resp(200, '{"items": ["abc-123"]}'), "abc-123")
+
+    @pytest.mark.parametrize("resp", [_resp(200, "[]"), _resp(200, '{"items": ["other"]}'), _resp(404, "abc-123"), _resp(403, "abc-123"), _resp(500, "abc-123"), _resp(200, "")])
+    def test_anything_else_means_the_exclusion_proves_nothing(self, resp):
+        assert not _tf.control_found(resp, "abc-123")
+
+
+class TestTheExclusion:
+    EXPECT = (200,)
+    EXPECT_REFUSAL_OK = (404, 403, 200)
+
+    def test_served_without_the_object_is_a_pass(self):
+        assert _tf.exclusion_holds(_resp(200, "[]"), "abc-123", self.EXPECT)
+
+    def test_served_with_the_object_is_a_leak(self):
+        assert not _tf.exclusion_holds(_resp(200, '["abc-123"]'), "abc-123", self.EXPECT)
+
+    @pytest.mark.parametrize("status", [404, 403])
+    def test_a_refusal_is_a_pass_where_a_refusal_is_expected(self, status):
+        assert _tf.exclusion_holds(_resp(status, "abc-123 not found"), "abc-123", self.EXPECT_REFUSAL_OK)
+
+    def test_a_status_that_is_not_expected_is_a_failure_even_without_the_object(self):
+        assert not _tf.exclusion_holds(_resp(500, "boom"), "abc-123", self.EXPECT)
+        assert not _tf.exclusion_holds(_resp(404, ""), "abc-123", self.EXPECT)
+
+    def test_a_refusal_that_echoes_the_object_is_still_a_pass_because_only_a_served_200_is_inspected(self):
+        """A 404 body naming the requested id is normal; what must never happen is a 200 that contains it."""
+        assert _tf.exclusion_holds(_resp(404, "alert abc-123 not found"), "abc-123", self.EXPECT_REFUSAL_OK)
+        assert not _tf.exclusion_holds(_resp(200, "alert abc-123 found"), "abc-123", self.EXPECT_REFUSAL_OK)
+
+
+class TestTheToolEnforcesTheConvention:
+    steps = [(flow, st) for flow, ss in _tf.build_flows().items() for st in ss]
+
+    def test_there_are_exclusion_steps_and_they_are_a_substantial_share_of_the_tool(self):
+        assert len([1 for _, st in self.steps if st.absent]) >= 20
+
+    def test_no_second_tenant_read_asserts_absence_with_a_bare_check(self):
+        """A hand-written `not _has(...)` check has no control. Use absent=."""
+        import inspect
+
+        offenders = []
+        for flow, st in self.steps:
+            if st.user == "B" and st.method == "get" and st.check is not None:
+                code = inspect.getsource(st.check)
+                if "not _has(" in code or "nothave" in code or "status_code != 200 or" in code:
+                    offenders.append(f"{flow}: {st.name}")
+        assert offenders == [], "use absent= (it adds the owner's positive control automatically):\n" + "\n".join(offenders)
+
+    def test_an_absent_step_is_a_get(self):
+        assert [f"{f}: {st.name}" for f, st in self.steps if st.absent and st.method != "get"] == []
+
+    def test_every_absent_key_is_captured_by_an_earlier_step_of_its_flow(self):
+        problems = []
+        for flow, ss in _tf.build_flows().items():
+            captured: set[str] = set()
+            for st in ss:
+                if st.absent and st.absent not in captured:
+                    problems.append(f"{flow}: {st.name} needs '{st.absent}' before it is captured")
+                if st.capture:
+                    captured.add(st.capture[0])
+        assert problems == []
+
+    def test_the_absent_object_is_not_captured_by_the_same_user_that_must_not_see_it(self):
+        """The object under test must belong to the OTHER tenant: capture by A, exclusion read by B."""
+        owner_of: dict[tuple[str, str], str] = {}
+        bad = []
+        for flow, ss in _tf.build_flows().items():
+            for st in ss:
+                if st.capture and flow != "fresh":
+                    owner_of[(flow, st.capture[0])] = st.user
+                if st.absent and owner_of.get((flow, st.absent)) == st.user:
+                    bad.append(f"{flow}: {st.name}")
+        assert bad == []
+
+    def test_the_runner_issues_the_control_and_judges_the_exclusion(self):
+        import inspect
+
+        src = inspect.getsource(_tf.run_flows)
+        assert "st.absent" in src and "control_found(" in src and "exclusion_holds(" in src and "[control: the owner finds it]" in src
