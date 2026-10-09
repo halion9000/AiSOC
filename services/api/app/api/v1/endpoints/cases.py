@@ -449,6 +449,19 @@ async def _require_owned_alerts(db: Any, tenant_id: uuid.UUID, alert_ids: list[u
         raise HTTPException(status_code=404, detail="One or more alerts were not found.")
 
 
+async def _link_alerts_to_case(db: Any, tenant_id: uuid.UUID, case_id: uuid.UUID, alert_ids: list[uuid.UUID]) -> None:
+    """Record the link on the ALERT as well (alerts.case_id), in the same transaction as the case write.
+
+    The link was kept only on the case (aisoc_cases.alert_ids), so alerts.case_id stayed NULL for every live alert (only the demo seed set it) and four readers of it were silently inert: the alert queue's case_id, the SLA metrics' case count, the narrative projection and the rail's case pivot.
+    An alert can be in several cases but has one case_id: the FIRST case that claims it keeps it (`case_id IS NULL`), so later cases never move it. Scoped to the tenant, so it can only ever touch the caller's own alerts."""
+    ids = [str(a) for a in alert_ids]
+    if not ids:
+        return
+    await db.execute(
+        text("UPDATE alerts SET case_id = :case_id WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id AND case_id IS NULL").bindparams(case_id=case_id, ids=ids, tenant_id=tenant_id)
+    )
+
+
 @router.post("", response_model=CaseResponse, status_code=status.HTTP_201_CREATED, summary="Create case")
 async def create_case(body: CreateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
     import json as _json
@@ -489,6 +502,7 @@ async def create_case(body: CreateCaseRequest, db: DBSession, user: Annotated[Au
         row = (await db.execute(q)).fetchone()
         if row is None:
             raise HTTPException(status_code=503, detail="Database error: INSERT returned no row")
+        await _link_alerts_to_case(db, user.tenant_id, case_id, body.alert_ids)
         await db.commit()
     except Exception as exc:
         await db.rollback()
@@ -668,6 +682,7 @@ async def add_alerts(case_id: str, body: AddAlertsRequest, db: DBSession, user: 
         row = (await db.execute(q)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Case not found.")
+        await _link_alerts_to_case(db, user.tenant_id, cid, body.alert_ids)
         await db.commit()
         return _row_to_case(row)
     except HTTPException:

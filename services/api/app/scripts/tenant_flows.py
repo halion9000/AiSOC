@@ -120,6 +120,16 @@ def _has(resp: Any, needle: str) -> bool:
     return needle in resp.text
 
 
+def _top_field_is(resp: Any, key: str, want: str) -> bool:
+    """True if the response's TOP-LEVEL JSON object has `key` equal to `want`. Not a search: the same id can appear elsewhere in a response (the alert detail repeats its case_id inside a rail event's payload), and a step that matches that
+    passes whether or not the field under test is right (a recursive version of this helper did exactly that and failed to notice the link being removed)."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and str(body.get(key)) == str(want)
+
+
 def S(name: str, user: str, method: str, tpl: str, **kw: Any) -> Step:
     return Step(name, user, method, tpl, **kw)
 
@@ -198,6 +208,7 @@ def build_flows() -> dict[str, list[Step]]:
             S("B's alert list excludes it", "B", "get", "/api/v1/alerts", expect=(200,), check=lambda r, c: not _has(r, c["alert"])),
             S("A attaches it to a case", "A", "post", "/api/v1/cases", capture=("case2", "id")),
             S("A links the alert", "A", "post", "/api/v1/cases/{case2}/alerts", expect=(200, 201, 202)),
+            S("the alert now shows the case it was linked to", "A", "get", "/api/v1/alerts/{alert}", expect=(200,), check=lambda r, c: _top_field_is(r, "case_id", c["case2"])),
             S("B makes its own case", "B", "post", "/api/v1/cases", capture=("case_b", "id")),
             S("B cannot attach A's alert", "B", "post", "/api/v1/cases/{case_b}/alerts", expect=(404, 403, 400, 422)),
             S("B cannot create a case citing A's alert", "B", "post", "/api/v1/cases", expect=(404, 403, 400, 422)),

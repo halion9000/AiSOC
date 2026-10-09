@@ -414,8 +414,9 @@ async def test_owned_alerts_are_linked_and_the_update_is_still_tenant_scoped() -
     a = uuid.uuid4()
     db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
     out = await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[a]), db=db, user=user)
-    assert out.alert_ids == [a] and len(db.executed) == 2
+    assert out.alert_ids == [a] and len(db.executed) == 3  # ownership check, the case update, then the alert link
     assert "update aisoc_cases" in _executed_sql(db, 1) and db.executed[1][1]["tenant_id"] == user.tenant_id
+    assert "update alerts set case_id" in _executed_sql(db, 2)
     db.commit.assert_awaited_once()
 
 
@@ -425,7 +426,7 @@ async def test_the_same_alert_listed_twice_is_fine() -> None:
     a = uuid.uuid4()
     db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
     await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[a, a]), db=db, user=user)
-    assert len(db.executed) == 2
+    assert len(db.executed) == 3
 
 
 @pytest.mark.asyncio
@@ -722,3 +723,165 @@ def test_create_and_attach_share_one_ownership_check() -> None:
     tree = ast.parse(Path(cases_mod.__file__).read_text(encoding="utf-8"))
     calls = {n.name: {ast.unparse(c.func) for c in ast.walk(n) if isinstance(c, ast.Call)} for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name in ("create_case", "add_alerts")}
     assert "_require_owned_alerts" in calls["create_case"] and "_require_owned_alerts" in calls["add_alerts"]
+
+
+# --- alerts.case_id is kept in step with the case side -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# The alert <-> case link was recorded only on the case (aisoc_cases.alert_ids): alerts.case_id was NULL for every live alert (only the demo seed set it), so the alert queue's case_id, the SLA metrics' case count, the narrative projection and the rail's case pivot were silently inert.
+# Now POST /cases and POST /cases/{id}/alerts set it in the same transaction; the FIRST case to claim an alert keeps it; migration 065 backfills existing links.
+
+
+def _link_statement(db: MagicMock):
+    for sql, params in db.executed:
+        if _norm(sql).startswith("update alerts set case_id"):
+            return _norm(sql), params
+    return None
+
+
+@pytest.mark.asyncio
+async def test_creating_a_case_with_alerts_links_them_after_the_insert_and_before_the_commit() -> None:
+    user = _user()
+    a, b = uuid.uuid4(), uuid.uuid4()
+    db = _mk_db([[(a,), (b,)], _case_row(alert_ids=[a, b])])
+    order: list[str] = []
+    original = db.execute.side_effect
+
+    async def traced(clause: Any, *args: Any, **kwargs: Any) -> Any:
+        order.append(" ".join(_norm(str(clause)).strip().split(" ")[:2]))
+        return await original(clause, *args, **kwargs)
+
+    db.execute.side_effect = traced
+    db.commit.side_effect = lambda: order.append("COMMIT")
+    await create_case(body=CreateCaseRequest(title="both mine", alert_ids=[a, b]), db=db, user=user)
+    assert order == ["select id", "insert into", "update alerts", "COMMIT"]
+
+
+@pytest.mark.asyncio
+async def test_the_link_names_the_new_case_the_callers_tenant_and_the_alerts() -> None:
+    user = _user()
+    a = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
+    await create_case(body=CreateCaseRequest(title="one alert", alert_ids=[a]), db=db, user=user)
+    sql, params = _link_statement(db)
+    insert_params = db.executed[1][1]
+    assert "where id = any(cast(:ids as uuid[])) and tenant_id = :tenant_id and case_id is null" in sql
+    assert params["tenant_id"] == user.tenant_id and params["ids"] == [str(a)] and params["case_id"] == insert_params["id"]
+
+
+@pytest.mark.asyncio
+async def test_the_first_case_to_claim_an_alert_keeps_it() -> None:
+    """`case_id IS NULL` in the UPDATE: a second case citing the alert never moves it."""
+    sql, _ = _link_statement(await _linked_db())
+    assert sql.endswith("and case_id is null")
+
+
+async def _linked_db() -> MagicMock:
+    a = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
+    await create_case(body=CreateCaseRequest(title="claims it", alert_ids=[a]), db=db, user=_user())
+    return db
+
+
+@pytest.mark.asyncio
+async def test_a_case_without_alerts_issues_no_link_statement() -> None:
+    db = _mk_db([_case_row(title="no alerts")])
+    await create_case(body=CreateCaseRequest(title="no alerts"), db=db, user=_user())
+    assert _link_statement(db) is None and len(db.executed) == 1
+
+
+@pytest.mark.asyncio
+async def test_attaching_alerts_links_them_to_that_case() -> None:
+    user = _user()
+    a = uuid.uuid4()
+    cid = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(id=cid, alert_ids=[a])])
+    await add_alerts(case_id=str(cid), body=AddAlertsRequest(alert_ids=[a]), db=db, user=user)
+    sql, params = _link_statement(db)
+    assert params["tenant_id"] == user.tenant_id and params["ids"] == [str(a)] and str(params["case_id"]) == str(cid)
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_attach_never_reaches_the_link() -> None:
+    db = _mk_db([[]])  # ownership check finds nothing
+    with pytest.raises(HTTPException):
+        await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[uuid.uuid4()]), db=db, user=_user())
+    assert _link_statement(db) is None
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_link_rolls_back_instead_of_committing_a_half_linked_case_on_attach() -> None:
+    a = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
+    original = db.execute.side_effect
+    calls = {"n": 0}
+
+    async def failing_on_the_link(clause: Any, *args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("alerts update failed")
+        return await original(clause, *args, **kwargs)
+
+    db.execute.side_effect = failing_on_the_link
+    with pytest.raises(HTTPException) as exc:
+        await add_alerts(case_id=str(uuid.uuid4()), body=AddAlertsRequest(alert_ids=[a]), db=db, user=_user())
+    assert exc.value.status_code == 503
+    db.rollback.assert_awaited()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_link_does_not_commit_the_created_case() -> None:
+    a = uuid.uuid4()
+    db = _mk_db([[(a,)], _case_row(alert_ids=[a])])
+    original = db.execute.side_effect
+    calls = {"n": 0}
+
+    async def failing_on_the_link(clause: Any, *args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("alerts update failed")
+        return await original(clause, *args, **kwargs)
+
+    db.execute.side_effect = failing_on_the_link
+    with pytest.raises(HTTPException):
+        await create_case(body=CreateCaseRequest(title="atomic", alert_ids=[a]), db=db, user=_user())
+    db.commit.assert_not_awaited()
+
+
+def test_both_writers_call_the_link_helper() -> None:
+    import ast
+    from pathlib import Path
+
+    import app.api.v1.endpoints.cases as cases_mod
+
+    tree = ast.parse(Path(cases_mod.__file__).read_text(encoding="utf-8"))
+    calls = {n.name: {ast.unparse(c.func) for c in ast.walk(n) if isinstance(c, ast.Call)} for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name in ("create_case", "add_alerts")}
+    assert "_link_alerts_to_case" in calls["create_case"] and "_link_alerts_to_case" in calls["add_alerts"]
+
+
+class TestMigration065:
+    from pathlib import Path as _P
+
+    sql = (_P(__file__).resolve().parent.parent / "migrations" / "065_backfill_alert_case_id.sql").read_text(encoding="utf-8")
+
+    def norm(self) -> str:
+        return " ".join(re.sub(r"--[^\n]*", "", self.sql).split())
+
+    def test_it_is_transactional_and_follows_064(self) -> None:
+        from pathlib import Path
+
+        assert self.sql.count("BEGIN;") == 1 and self.sql.count("COMMIT;") == 1
+        names = sorted(p.name for p in (Path(__file__).resolve().parent.parent / "migrations").glob("*.sql"))
+        assert names.index("065_backfill_alert_case_id.sql") == names.index("064_detection_proposal_source.sql") + 1
+
+    def test_the_earliest_opened_case_wins(self) -> None:
+        n = self.norm()
+        assert "DISTINCT ON (x.alert_id, x.tenant_id)" in n and "ORDER BY x.alert_id, x.tenant_id, x.opened_at ASC, x.case_id" in n
+
+    def test_only_same_tenant_alerts_with_no_case_yet_are_touched(self) -> None:
+        n = self.norm()
+        assert "a.tenant_id = first_case.tenant_id" in n and "a.case_id IS NULL" in n and "a.id = first_case.alert_id" in n
+
+    def test_it_reads_the_case_side_link(self) -> None:
+        assert "unnest(alert_ids)" in self.norm() and "FROM aisoc_cases" in self.norm()
