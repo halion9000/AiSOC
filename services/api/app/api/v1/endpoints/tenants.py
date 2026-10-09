@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.security import get_password_hash
+from app.services.tenant_selection import selectable_tenants
 from app.models.tenant import Tenant, User
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
@@ -74,6 +75,36 @@ class UpdateUserRequest(BaseModel):
 
 class UpdateTenantSettingsRequest(BaseModel):
     settings: dict = {}
+
+
+class SelectableTenant(BaseModel):
+    """Just enough to label a picker entry: the same minimal identity as /me/identity (no plan, settings or limits)."""
+
+    id: uuid.UUID
+    name: str
+    slug: str
+
+
+class SelectableTenantsResponse(BaseModel):
+    own_tenant_id: uuid.UUID
+    can_select_other_tenants: bool
+    tenants: list[SelectableTenant]
+
+
+@router.get("/selectable", response_model=SelectableTenantsResponse)
+async def list_selectable_tenants(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: DBSession,
+) -> SelectableTenantsResponse:
+    """The tenants this caller may choose between in a tenant picker.
+
+    Your own tenant, plus every other tenant if (and only if) you hold platform:cross_tenant_query; anyone else gets exactly one entry, their own, and `can_select_other_tenants: false`. Needs alerts:read (every role holds it), the permission of the pages that offer a picker."""
+    can, rows = await selectable_tenants(db, current_user)
+    return SelectableTenantsResponse(
+        own_tenant_id=current_user.tenant_id,
+        can_select_other_tenants=can,
+        tenants=[SelectableTenant(id=t.id, name=t.name, slug=t.slug) for t in rows],
+    )
 
 
 @router.get("/me/identity", response_model=TenantHeaderResponse)

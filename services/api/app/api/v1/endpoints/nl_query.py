@@ -182,7 +182,7 @@ def validate_index_pattern(value: str) -> str:
     return value
 
 
-from app.services.tenant_selection import CROSS_TENANT_PERMISSION  # noqa: E402  (the one definition of who may read other tenants)
+from app.services.tenant_selection import CROSS_TENANT_PERMISSION, selectable_tenants  # noqa: E402  (the one definition of who may read other tenants)
 logger = logging.getLogger(__name__)
 
 
@@ -562,9 +562,7 @@ class NLQueryTenantsResponse(BaseModel):
 )
 async def list_searchable_tenants(user: AuthUser, db: DBSession) -> NLQueryTenantsResponse:
     """Your own tenant, plus every other tenant if you may search across tenants. A caller who may not gets exactly one entry: their own."""
-    enabled = bool((settings.NL_QUERY_TENANT_FIELD or "").strip()) and user.holds(CROSS_TENANT_PERMISSION)
-    query = select(Tenant).order_by(Tenant.name).limit(500) if enabled else select(Tenant).where(Tenant.id == user.tenant_id)
-    rows = (await db.execute(query)).scalars().all()
+    enabled, rows = await selectable_tenants(db, user, include_others=bool((settings.NL_QUERY_TENANT_FIELD or "").strip()))
     return NLQueryTenantsResponse(
         own_tenant_id=user.tenant_id,
         cross_tenant_enabled=enabled,

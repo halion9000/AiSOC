@@ -112,3 +112,78 @@ def test_no_endpoint_decides_cross_tenant_access_by_comparing_a_role_name():
                 if "platform_admin" in text and ("role" in text):
                     problems.append(f"{path.relative_to(APP.parent)}:{node.lineno}: {text}")
     assert not problems, "decide by permission (app.services.tenant_selection), not by role name:\n  " + "\n  ".join(problems)
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------
+# The list a tenant picker chooses from: GET /tenants/selectable (and the NL search's own list, which shares the lookup).
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+from app.api.v1.endpoints import tenants as tenants_ep  # noqa: E402
+
+
+class FakeDB:
+    def __init__(self, *payloads):
+        self.queue, self.statements = list(payloads), []
+        self.execute = AsyncMock(side_effect=self._execute)
+
+    async def _execute(self, stmt, *a, **k):
+        comp = stmt.compile()
+        self.statements.append((" ".join(str(comp).split()), dict(comp.params)))
+        res = MagicMock()
+        res.scalars.return_value.all.return_value = self.queue.pop(0) if self.queue else []
+        return res
+
+
+def tenant(name):
+    return SimpleNamespace(id=uuid.uuid4(), name=name, slug=name.lower())
+
+
+@pytest.mark.asyncio
+class TestSelectableTenants:
+    async def test_a_non_holder_gets_only_their_own_tenant_and_the_query_is_restricted_to_it(self):
+        db = FakeDB([tenant("Home")])
+        can, rows = await ts.selectable_tenants(db, principal("admin"))
+        assert can is False and [t.name for t in rows] == ["Home"]
+        sql, params = db.statements[0]
+        assert "tenants.id =" in sql and HOME in params.values() and "LIMIT" not in sql
+
+    async def test_a_holder_gets_every_tenant_ordered_by_name_with_a_cap(self):
+        db = FakeDB([tenant("A"), tenant("B")])
+        can, rows = await ts.selectable_tenants(db, principal("platform_admin"))
+        assert can is True and [t.name for t in rows] == ["A", "B"]
+        sql, _ = db.statements[0]
+        assert "ORDER BY tenants.name" in sql and "LIMIT" in sql and "WHERE" not in sql
+
+    async def test_include_others_false_forces_the_own_tenant_answer_even_for_a_holder(self):
+        db = FakeDB([tenant("Home")])
+        can, _ = await ts.selectable_tenants(db, principal("platform_admin"), include_others=False)
+        assert can is False and "tenants.id =" in db.statements[0][0]
+
+    async def test_an_api_key_with_the_exact_scope_is_a_holder_and_a_wildcard_key_is_not(self):
+        assert (await ts.selectable_tenants(FakeDB([tenant("A")]), principal("viewer", scopes=[ts.CROSS_TENANT_PERMISSION])))[0] is True
+        assert (await ts.selectable_tenants(FakeDB([tenant("A")]), principal("platform_admin", scopes=["*"])))[0] is False
+
+    async def test_the_endpoint_returns_the_minimal_identity_only(self):
+        t = tenant("Home")
+        t.plan, t.settings, t.limits = "enterprise", {"secret": "x"}, {"seats": 5}
+        out = await tenants_ep.list_selectable_tenants(current_user=principal("viewer"), db=FakeDB([t]))
+        assert out.own_tenant_id == HOME and out.can_select_other_tenants is False
+        assert set(out.tenants[0].model_dump()) == {"id", "name", "slug"}  # never plan, settings or limits
+
+    async def test_the_endpoint_offers_every_tenant_to_a_holder(self):
+        out = await tenants_ep.list_selectable_tenants(current_user=principal("platform_admin"), db=FakeDB([tenant("A"), tenant("B")]))
+        assert out.can_select_other_tenants is True and [t.slug for t in out.tenants] == ["a", "b"]
+
+    def test_the_endpoint_needs_alerts_read_which_every_role_holds(self):
+        """Not an unguarded route (the authorization ratchet refuses new ones), and not narrower than the pages that offer a picker: every role can read alerts."""
+        import ast
+        from pathlib import Path
+
+        from app.core.security import ROLE_PERMISSIONS, has_permission
+
+        tree = ast.parse(Path(tenants_ep.__file__).read_text(encoding="utf-8"))
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "list_selectable_tenants")
+        assert "require_permission('alerts:read')" in ast.unparse(fn.args)  # ast.unparse normalises to single quotes
+        assert all(has_permission(role, "alerts:read") for role in ROLE_PERMISSIONS)

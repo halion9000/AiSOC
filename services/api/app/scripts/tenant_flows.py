@@ -594,6 +594,11 @@ def _eleventh_batch() -> dict[str, list[Step]]:
             S(f"A names its OWN tenant on {label} (not refused)", "A", "get", path, params={"tenant_id": A}, expect=own_ok),
             S(f"A cannot name B's tenant on {label}", "A", "get", path, params={"tenant_id": B}, expect=(403,)),
         ]
+    # The picker's list: a caller without the permission is offered exactly their own tenant, and is never shown the other tenant's name.
+    steps += [
+        S("B's picker offers only B's own tenant", "B", "get", "/api/v1/tenants/selectable", expect=(200,), check=lambda r, c: [t["id"] for t in r.json()["tenants"]] == [B] and r.json()["can_select_other_tenants"] is False and _lacks(r, "tenant-a")),
+        S("A's picker offers only A's own tenant", "A", "get", "/api/v1/tenants/selectable", expect=(200,), check=lambda r, c: [t["id"] for t in r.json()["tenants"]] == [A] and r.json()["can_select_other_tenants"] is False and _lacks(r, "tenant-b")),
+    ]
     return {"tenant_selection": steps}
 
 
