@@ -208,7 +208,7 @@ async def submit(body: SubmitRequest, db: DBSession, user: AuthUser) -> Submissi
     """).bindparams(
         id=sub_id,
         tenant_id=user.tenant_id,
-        by=str(user) if user else "system",
+        by=user.label if user else "system",
         kind=body.artifact_kind,
         content=body.raw_content,
         sender=body.sender,

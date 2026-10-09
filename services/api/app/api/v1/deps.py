@@ -76,6 +76,16 @@ class CurrentUser:
         self.scopes = scopes  # None → role-based; list → API-key scoped
 
     @property
+    def label(self) -> str:
+        """Who this is, as text for an audit field or a log line: the email, else the user id.
+
+        Several endpoints stored `str(user)`, which for this class is "<app.api.v1.deps.CurrentUser object at 0x...>": a meaningless value written to the database (compliance reviewer, phishing submitter, knowledge-base author) that also leaked an in-process memory address through the API."""
+        return self.email or str(self.user_id)
+
+    def __str__(self) -> str:
+        return self.label
+
+    @property
     def id(self) -> uuid.UUID:
         """Alias for ``user_id``. Fourteen call sites in eight modules (reports, remediation, mssp, posture, insider threat, replay, sla, audit) read ``current_user.id``, the way they would on the ORM ``User``;
         ``CurrentUser`` only had ``user_id``, so every one of those endpoints raised AttributeError (HTTP 500) on any call that reached that line."""

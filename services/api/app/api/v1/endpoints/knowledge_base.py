@@ -174,7 +174,7 @@ async def ingest(body: IngestRequest, db: DBSession, user: AuthUser) -> list[KBD
             idx=idx,
             total=len(chunks),
             now=now,
-            user=str(user) if user else "system",
+            user=user.label if user else "system",
         )
         try:
             row = (await db.execute(q)).fetchone()
