@@ -18,7 +18,9 @@ import uuid
 
 import httpx
 import strawberry
-from sqlalchemy import func, select
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from strawberry.types import Info
@@ -37,7 +39,6 @@ from app.graphql.types import (
     SocStatsType,
 )
 from app.models.alert import Alert
-from app.models.case import Case
 from app.models.connector import Connector
 from app.models.detection_rule import DetectionRule
 from app.core.internal_auth import internal_service_headers
@@ -114,30 +115,98 @@ def _orm_to_alert(row: Alert) -> AlertType:
     )
 
 
-def _orm_to_case(row: Case) -> CaseType:
+# Cases live in `aisoc_cases` (the table the cases REST API reads and writes). These resolvers used to read the old `cases` table, which never receives a case, so GraphQL saw none:
+# after a case was created through REST (201, and REST listed it) `cases` returned total 0, `case(id)` returned null and `socStats.openCases` was 0.
+# aisoc_cases has no priority, case_type, tactics, ticket refs, summary or resolution, and its assignee is free text. The schema is unchanged: severity doubles as priority (as in the shift handoff),
+# case_number falls back to the case's real id, assigned_to_id is the assignee only if it parses as a UUID, and the fields with no source stay empty rather than being invented.
+_CASE_COLUMNS = "id, tenant_id, case_number, title, description, severity, status, assignee, mitre_techniques, alert_ids, tags, sla_due_at, resolved_at, created_at, updated_at"
+_FINISHED_STATUSES = ("resolved", "closed")
+_MAX_PAGE_SIZE = 200
+
+
+def _uuid_or_none(value) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+def _technique_ids(values) -> list[str]:
+    """mitre_techniques as a list of technique ids (older fixtures stored {"id": ..., "name": ...} objects)."""
+    out: list[str] = []
+    for item in values or []:
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict) and item.get("id"):
+            out.append(str(item["id"]))
+    return out
+
+
+def _sla_breached(due, resolved_at, status: str, now: datetime) -> bool:
+    """No deadline is never a breach; a resolved case breached only if it was resolved after the deadline; an open one once the deadline has passed."""
+    if due is None:
+        return False
+    if resolved_at is not None:
+        return resolved_at > due
+    return status not in _FINISHED_STATUSES and now > due
+
+
+def _aisoc_case_to_type(row, now: datetime | None = None) -> CaseType:
     return CaseType(
         id=row.id,
         tenant_id=row.tenant_id,
-        case_number=row.case_number,
+        case_number=row.case_number or str(row.id),
         title=row.title,
         description=row.description,
         status=row.status,
-        priority=row.priority,
+        priority=row.severity,
         severity=row.severity,
-        case_type=row.case_type,
-        mitre_tactics=row.mitre_tactics or [],
-        mitre_techniques=row.mitre_techniques or [],
-        assigned_to_id=row.assigned_to_id,
-        sla_deadline=row.sla_deadline,
-        sla_breached=row.sla_breached,
-        alert_ids=row.alert_ids or [],
-        tags=row.tags or [],
-        ticket_refs=row.ticket_refs or [],
-        summary=row.summary,
-        resolution=row.resolution,
+        case_type="unspecified",
+        mitre_tactics=[],
+        mitre_techniques=_technique_ids(row.mitre_techniques),
+        assigned_to_id=_uuid_or_none(row.assignee),
+        sla_deadline=row.sla_due_at,
+        sla_breached=_sla_breached(row.sla_due_at, row.resolved_at, row.status, now or datetime.now(UTC)),
+        alert_ids=[str(a) for a in (row.alert_ids or [])],
+        tags=row.tags if isinstance(row.tags, dict) else {},
+        ticket_refs=[],
+        summary=None,
+        resolution=None,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+async def _fetch_case(db: AsyncSession, tid: uuid.UUID, case_id: str) -> CaseType | None:
+    try:
+        wanted = uuid.UUID(str(case_id))
+    except ValueError:
+        return None
+    row = (await db.execute(text(f"SELECT {_CASE_COLUMNS} FROM aisoc_cases WHERE id = :id AND tenant_id = :tid"), {"id": wanted, "tid": tid})).first()
+    return _aisoc_case_to_type(row) if row else None
+
+
+async def _list_cases(db: AsyncSession, tid: uuid.UUID, *, page: int, page_size: int, status: str | None, priority: str | None, search: str | None):
+    """(rows as CaseType, total). Only fixed SQL fragments are assembled; every user-supplied value is a bound parameter."""
+    page, page_size = max(1, page), min(max(1, page_size), _MAX_PAGE_SIZE)
+    where, params = ["tenant_id = :tid"], {"tid": tid}
+    if status:
+        where.append("status = :status")
+        params["status"] = status
+    if priority:
+        where.append("severity = :priority")
+        params["priority"] = priority
+    if search:
+        where.append("title ILIKE :search ESCAPE '\\'")
+        params["search"] = f"%{_escape_like(search)}%"
+    clause = " AND ".join(where)
+    total = (await db.execute(text(f"SELECT count(*) FROM aisoc_cases WHERE {clause}"), params)).scalar_one()
+    rows = (await db.execute(text(f"SELECT {_CASE_COLUMNS} FROM aisoc_cases WHERE {clause} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"), {**params, "limit": page_size, "offset": (page - 1) * page_size})).fetchall()
+    return [_aisoc_case_to_type(r) for r in rows], total, page, page_size
+
+
+async def _count_open_cases(db: AsyncSession, tid: uuid.UUID) -> int:
+    return (await db.execute(text("SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND status NOT IN ('resolved', 'closed')"), {"tid": tid})).scalar_one()
 
 
 def _orm_to_rule(row: DetectionRule) -> DetectionRuleType:
@@ -242,9 +311,7 @@ class Query:
         tid = _tenant_id(info)
         if tid is None:
             return None
-        result = await db.execute(select(Case).where(Case.id == id, Case.tenant_id == tid))
-        row = result.scalar_one_or_none()
-        return _orm_to_case(row) if row else None
+        return await _fetch_case(db, tid, str(id))
 
     @strawberry.field(description="Paginated list of cases with optional filters.")
     async def cases(
@@ -257,30 +324,11 @@ class Query:
         search: str | None = None,
     ) -> CasePage:
         db = _db(info)
-        q = _scope(select(Case), info, Case)
-
-        if status:
-            q = q.where(Case.status == status)
-        if priority:
-            q = q.where(Case.priority == priority)
-        if search:
-            safe = _escape_like(search)
-            q = q.where(Case.title.ilike(f"%{safe}%", escape="\\"))
-
-        total_result = await db.execute(select(func.count()).select_from(q.subquery()))
-        total = total_result.scalar_one()
-
-        offset = (page - 1) * page_size
-        rows_result = await db.execute(q.order_by(Case.created_at.desc()).offset(offset).limit(page_size))
-        rows = rows_result.scalars().all()
-
-        return CasePage(
-            items=[_orm_to_case(r) for r in rows],
-            total=total,
-            page=page,
-            page_size=page_size,
-            pages=max(1, math.ceil(total / page_size)),
-        )
+        tid = _tenant_id(info)
+        if tid is None:
+            return CasePage(items=[], total=0, page=1, page_size=page_size, pages=1)
+        items, total, page, page_size = await _list_cases(db, tid, page=page, page_size=page_size, status=status, priority=priority, search=search)
+        return CasePage(items=items, total=total, page=page, page_size=page_size, pages=max(1, math.ceil(total / page_size)))
 
     # ── Detection Rules ────────────────────────────────────────────────────────
 
@@ -414,9 +462,7 @@ class Query:
             )
 
         total_alerts = (await db.execute(select(func.count()).select_from(Alert).where(Alert.tenant_id == tid))).scalar_one()
-        open_cases = (
-            await db.execute(select(func.count()).select_from(Case).where(Case.tenant_id == tid, Case.status.in_(["open", "in_progress"])))
-        ).scalar_one()
+        open_cases = await _count_open_cases(db, tid)
         critical_alerts = (
             await db.execute(select(func.count()).select_from(Alert).where(Alert.tenant_id == tid, Alert.severity == "critical"))
         ).scalar_one()
