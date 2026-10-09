@@ -19,7 +19,7 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    verify_password,
+    verify_password_or_equalise,
 )
 from app.models.tenant import User
 
@@ -77,7 +77,9 @@ async def login(request: LoginRequest, db: DBSession) -> TokenResponse:
     result = await db.execute(select(User).where(User.email == request.email, User.is_active.is_(True)))
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(request.password, user.hashed_password):
+    # The password is checked whether or not the account exists (or is active), so "no such account" takes as long as "wrong password": the answer and its timing must not reveal which email addresses are registered.
+    password_ok = verify_password_or_equalise(request.password, None if user is None else user.hashed_password)
+    if user is None or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

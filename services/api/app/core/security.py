@@ -175,6 +175,20 @@ def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(_to_bcrypt_input(password), bcrypt.gensalt()).decode("utf-8")
 
 
+# A real bcrypt hash, made the way every stored hash is (same cost), of a password nobody knows: it is random and discarded. Login checks a password against it when there is no account to check against, so the expensive part of
+# the work is done either way. Without it an unknown email answered in about 6 ms and a registered one in about 285 ms (measured over HTTP, no overlap), which let anyone, with no account, find out which email addresses are registered.
+_TIMING_EQUALISER_HASH = get_password_hash(secrets.token_hex(16))
+
+
+def verify_password_or_equalise(plain_password: str, hashed_password: str | None) -> bool:
+    """verify_password, except that "no such account" (None) costs the same as a real check and is always False.
+
+    Use it wherever a login names an account that may not exist or may not be usable (unknown, inactive): the caller then answers the same text after the same amount of work.
+    """
+    matches = verify_password(plain_password, _TIMING_EQUALISER_HASH if hashed_password is None else hashed_password)
+    return matches and hashed_password is not None
+
+
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     if expires_delta:

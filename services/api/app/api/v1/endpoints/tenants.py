@@ -1,5 +1,7 @@
 """Tenant and user management endpoints."""
 
+import hashlib
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -12,6 +14,8 @@ from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.security import get_password_hash
 from app.services.tenant_selection import selectable_tenants
 from app.models.tenant import Tenant, User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -189,13 +193,17 @@ async def create_user(
 ) -> UserResponse:
     """Create a new user in the current tenant."""
     _require_grantable_role(current_user, request.role)
-    # Check email uniqueness
-    existing = await db.execute(select(User).where(User.email == request.email))
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User with this email already exists",
+    # Email addresses are unique across ALL tenants (login is by email alone), so a clash may be with a user of another organisation. Say so only for the caller's own tenant, whose users the caller can list anyway; for another
+    # tenant's user do not confirm that the address is registered anywhere (that would tell this admin who uses the platform), and record the attempt so probing can be seen.
+    owner_tenant = (await db.execute(select(User.tenant_id).where(User.email == request.email))).scalar_one_or_none()
+    if owner_tenant is not None:
+        if owner_tenant == current_user.tenant_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists in your organization.")
+        logger.warning(
+            "user creation refused: the email belongs to a user of another tenant",
+            extra={"acting_tenant": str(current_user.tenant_id), "acting_user": str(current_user.user_id), "email_sha256": hashlib.sha256(request.email.encode()).hexdigest()[:16]},
         )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email address cannot be used. Choose a different one.")
 
     user = User(
         tenant_id=current_user.tenant_id,
