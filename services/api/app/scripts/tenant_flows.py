@@ -260,6 +260,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_sixth_batch())
     flows.update(_seventh_batch())
     flows.update(_eighth_batch())
+    flows.update(_ninth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -570,6 +571,35 @@ def _eighth_batch() -> dict[str, list[Step]]:
             S("A's token is still untouched by B's rotation", "A", "get", "/api/v1/inbox/tokens", expect=(200,), check=lambda r, c: len(r.json()) == 1 and len(live(c, r)) == 1),
             S("A revokes its own token", "A", "delete", "/api/v1/inbox/tokens/{fp}", expect=(204,), nobody=True),
             S("A's revoked token no longer appears in its list (the list hides revoked tokens)", "A", "get", "/api/v1/inbox/tokens", expect=(200,), check=lambda r, c: r.json() == [] and _lacks(r, c["fp"])),
+        ],
+    }
+
+
+def _ninth_batch() -> dict[str, list[Step]]:
+    """Tenant user management and settings. B is a plain `admin` here: it holds every tenant-level permission but no platform permission, so it must be refused a platform_admin and allowed lower roles."""
+    user_of = lambda r, uid: next((u for u in r.json() if u["id"] == uid), None)  # noqa: E731
+    return {
+        "tenant_users": [
+            S("A creates a user", "A", "post", "/api/v1/tenants/me/users", over={"email": "flow-user-a@example.com", "username": "flowusera", "password": "Trial-Passw0rd!x", "role": "viewer"}, expect=(201,), capture=("fuser", "id")),
+            S("A's user list has it", "A", "get", "/api/v1/tenants/me/users", expect=(200,), check=lambda r, c: _has(r, "flow-user-a@example.com")),
+            S("B's user list does not", "B", "get", "/api/v1/tenants/me/users", expect=(200,), check=lambda r, c: _lacks(r, "flow-user-a@example.com") and _has(r, "admin-b@example.com")),
+            S("B cannot change A's user's role", "B", "patch", "/api/v1/tenants/me/users/{fuser}", over={"role": "soc_analyst"}, expect=(404,)),
+            S("B cannot deactivate A's user", "B", "patch", "/api/v1/tenants/me/users/{fuser}", over={"is_active": False}, expect=(404,)),
+            S("A's user is unchanged (still a viewer, still active)", "A", "get", "/api/v1/tenants/me/users", expect=(200,), check=lambda r, c: (user_of(r, c["fuser"]) or {}).get("role") == "viewer" and (user_of(r, c["fuser"]) or {}).get("is_active") is True),
+            # The role rules, over HTTP (unit-tested as well): nobody grants more power than they hold.
+            S("B (admin) cannot create a platform_admin", "B", "post", "/api/v1/tenants/me/users", over={"email": "flow-pa-b@example.com", "username": "flowpab", "password": "Trial-Passw0rd!x", "role": "platform_admin"}, expect=(403,)),
+            S("B cannot create a user with an unknown role", "B", "post", "/api/v1/tenants/me/users", over={"email": "flow-xx-b@example.com", "username": "flowxxb", "password": "Trial-Passw0rd!x", "role": "overlord"}, expect=(422,)),
+            S("B CAN create a tenant_admin (a role within its own permissions)", "B", "post", "/api/v1/tenants/me/users", over={"email": "flow-ta-b@example.com", "username": "flowtab", "password": "Trial-Passw0rd!x", "role": "tenant_admin"}, expect=(201,), capture=("btadm", "id")),
+            S("B cannot promote that user to platform_admin", "B", "patch", "/api/v1/tenants/me/users/{btadm}", over={"role": "platform_admin"}, expect=(403,)),
+            S("B CAN change that user to a lower role", "B", "patch", "/api/v1/tenants/me/users/{btadm}", over={"role": "viewer"}, expect=(200,), check=lambda r, c: r.json()["role"] == "viewer"),
+            S("neither platform_admin nor the refused users exist anywhere in B's list", "B", "get", "/api/v1/tenants/me/users", expect=(200,), check=lambda r, c: _has(r, "flow-ta-b@example.com") and _lacks(r, "flow-pa-b@example.com") and _lacks(r, "flow-xx-b@example.com") and all(u["role"] != "platform_admin" for u in r.json())),
+            S("A's list never shows B's users", "A", "get", "/api/v1/tenants/me/users", expect=(200,), check=lambda r, c: _has(r, "flow-user-a@example.com") and _lacks(r, "flow-ta-b@example.com")),
+        ],
+        "tenant_settings": [
+            S("A sets its settings", "A", "patch", "/api/v1/tenants/me/settings", over={"settings": {"flow_marker": "alpha-marker"}}, expect=(200,), check=lambda r, c: _has(r, "alpha-marker")),
+            S("B sets ITS settings", "B", "patch", "/api/v1/tenants/me/settings", over={"settings": {"flow_marker": "bravo-marker"}}, expect=(200,), check=lambda r, c: _has(r, "bravo-marker") and _lacks(r, "alpha-marker")),
+            S("A still has only its own", "A", "get", "/api/v1/tenants/me", expect=(200,), check=lambda r, c: _has(r, "alpha-marker") and _lacks(r, "bravo-marker")),
+            S("B has only its own", "B", "get", "/api/v1/tenants/me", expect=(200,), check=lambda r, c: _has(r, "bravo-marker") and _lacks(r, "alpha-marker")),
         ],
     }
 
