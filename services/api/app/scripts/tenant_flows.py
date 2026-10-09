@@ -128,6 +128,8 @@ def build_flows() -> dict[str, list[Step]]:
     flows = {
         "cases": [
             S("A creates a case", "A", "post", "/api/v1/cases", capture=("case", "id")),
+            S("A's shift handoff includes the case", "A", "get", "/api/v1/shifts/handoff-items", expect=(200,), check=lambda r, c: _has(r, c["case"])),
+            S("B's shift handoff does not", "B", "get", "/api/v1/shifts/handoff-items", expect=(200,), check=lambda r, c: not _has(r, c["case"])),
             S("A reads it", "A", "get", "/api/v1/cases/{case}", expect=(200,)),
             S("A renames it", "A", "patch", "/api/v1/cases/{case}", over={"title": "Renamed by A"}, expect=(200,)),
             S("A comments", "A", "post", "/api/v1/cases/{case}/comments", capture=("comment", "id")),

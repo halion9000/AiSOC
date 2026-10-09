@@ -255,11 +255,13 @@ async def list_handoff_items(
         {**tenant_params, "priority": priority, "limit": limit} if priority else {**tenant_params, "limit": limit},
     )).fetchall()
 
-    case_priority_clause = "AND priority = :priority" if priority else ""
+    # Cases live in aisoc_cases (the table the cases API reads and writes). This used to query the old `cases` table, which never receives a case, so a shift handoff silently never included any.
+    # aisoc_cases has no `priority` or `assigned_to_id`: severity is the handoff priority and `assignee` is free text.
+    case_priority_clause = "AND severity = :priority" if priority else ""
     case_rows = (await db.execute(
         text(f"""
-            SELECT id, title, priority, status, assigned_to_id, description AS notes
-            FROM cases
+            SELECT id, title, severity AS priority, status, assignee, description AS notes
+            FROM aisoc_cases
             WHERE tenant_id = :tenant_id AND status NOT IN ('resolved', 'closed') {case_priority_clause}
             ORDER BY created_at DESC
             LIMIT :limit
@@ -285,7 +287,7 @@ async def list_handoff_items(
             title=r.title,
             type="case",
             status=r.status,
-            assigned_to=str(r.assigned_to_id) if r.assigned_to_id else "unassigned",
+            assigned_to=r.assignee or "unassigned",
             notes=r.notes,
         )
         for r in case_rows

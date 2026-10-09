@@ -29,7 +29,7 @@ from app.api.v1.endpoints.shifts import (
 )
 from fastapi import HTTPException
 
-TENANT_TABLES = ("aisoc_shifts", "alerts", "cases")
+TENANT_TABLES = ("aisoc_shifts", "alerts", "aisoc_cases")
 
 
 def _user(tenant: uuid.UUID | None = None) -> CurrentUser:
@@ -47,6 +47,13 @@ def _shift_row(**over: Any) -> Any:
 
 def _item_row(**over: Any) -> Any:
     base = {"id": uuid.uuid4(), "title": "t", "priority": "high", "status": "new", "assigned_to_id": None, "notes": None}
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _case_row(**over: Any) -> Any:
+    """A row of the cases query: aisoc_cases has severity (aliased to priority) and a free-text assignee, not assigned_to_id."""
+    base = {"id": uuid.uuid4(), "title": "c", "priority": "high", "status": "new", "assignee": None, "notes": None}
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -118,17 +125,55 @@ class TestEveryHandlerScopesToTheCallersTenant:
     async def test_handoff_items_scopes_both_the_alerts_and_the_cases_query(self) -> None:
         """It used to return EVERY tenant's open alerts (titles and AI summaries) to any analyst."""
         user = _user()
-        db = _db([_item_row()], [_item_row()])
+        db = _db([_item_row()], [_case_row()])
         await list_handoff_items(current_user=user, db=db, priority=None, limit=50)
         _assert_scoped(db, user.tenant_id, expect_statements=2)
-        assert {t for sql, _ in db.executed for t in ("FROM alerts", "FROM cases") if t in sql} == {"FROM alerts", "FROM cases"}
+        assert {t for sql, _ in db.executed for t in ("FROM alerts", "FROM aisoc_cases") if t in sql} == {"FROM alerts", "FROM aisoc_cases"}
 
     async def test_handoff_items_with_a_priority_filter_keeps_the_tenant_filter(self) -> None:
         user = _user()
-        db = _db([_item_row()], [_item_row()])
+        db = _db([_item_row()], [_case_row()])
         await list_handoff_items(current_user=user, db=db, priority="critical", limit=10)
         _assert_scoped(db, user.tenant_id, expect_statements=2)
         assert all(p["priority"] == "critical" and p["limit"] == 10 for _, p in db.executed)
+
+    async def test_cases_come_from_aisoc_cases_not_the_legacy_table(self) -> None:
+        """The cases API writes aisoc_cases; the old `cases` table never receives a case, so handoffs silently never included any (a real flow run: 4 cases in aisoc_cases, 0 in cases)."""
+        import re
+
+        user = _user()
+        db = _db([], [_case_row()])
+        await list_handoff_items(current_user=user, db=db, priority=None, limit=50)
+        assert "FROM aisoc_cases" in db.executed[1][0]
+        assert all(not re.search(r"FROM cases\b", sql) for sql, _ in db.executed), "no statement may read the legacy cases table"
+
+    async def test_the_case_query_selects_columns_aisoc_cases_actually_has(self) -> None:
+        """aisoc_cases has severity and assignee: no priority and no assigned_to_id (selecting those fails on the real table)."""
+        user = _user()
+        db = _db([], [_case_row()])
+        await list_handoff_items(current_user=user, db=db, priority=None, limit=50)
+        sql = db.executed[1][0]
+        assert "severity AS priority" in sql and "assignee" in sql and "assigned_to_id" not in sql and "description AS notes" in sql
+
+    async def test_a_priority_filter_on_cases_filters_severity(self) -> None:
+        user = _user()
+        db = _db([], [_case_row()])
+        await list_handoff_items(current_user=user, db=db, priority="high", limit=10)
+        assert "AND severity = :priority" in db.executed[1][0] and "AND priority = :priority" not in db.executed[1][0]
+
+    async def test_a_case_is_reported_with_its_assignee_or_unassigned(self) -> None:
+        user = _user()
+        db = _db([], [_case_row(title="mine", assignee="dana@example.com"), _case_row(title="nobody", assignee=None), _case_row(title="blank", assignee="")])
+        items = {i.title: i for i in await list_handoff_items(current_user=user, db=db, priority=None, limit=50)}
+        assert items["mine"].assigned_to == "dana@example.com" and items["nobody"].assigned_to == "unassigned" and items["blank"].assigned_to == "unassigned"
+        assert all(i.type == "case" for i in items.values())
+
+    async def test_cases_and_alerts_are_merged_and_sorted_by_priority_with_info_last(self) -> None:
+        user = _user()
+        db = _db([_item_row(title="a-low", priority="low")], [_case_row(title="c-info", priority="info"), _case_row(title="c-critical", priority="critical"), _case_row(title="c-high", priority="high")])
+        items = await list_handoff_items(current_user=user, db=db, priority=None, limit=50)
+        assert [i.title for i in items] == ["c-critical", "c-high", "a-low", "c-info"]
+        assert [i.type for i in items] == ["case", "case", "alert", "case"]
 
     async def test_the_handoff_write_names_the_shift_and_the_tenant(self) -> None:
         """It used to overwrite ANY tenant's shift by id."""
