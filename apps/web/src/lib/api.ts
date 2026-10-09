@@ -94,7 +94,7 @@ export const DEFAULT_TENANT_ID = TENANT_ID;
 //
 // The console used to ship every request with the env-derived TENANT_ID. With
 // the tenant switcher, MSSP parents and analysts who carry credentials for
-// multiple tenants need a way to flip the `X-Tenant-Id` header at runtime.
+// multiple tenants need a way to VIEW another tenant. The choice now travels as `X-View-As-Tenant` (added by authFetch, read-only, see tenant-view.ts); `X-Tenant-Id` is still sent but the API has never read it.
 // We expose three building blocks the TenantContext + switcher consume:
 //
 //   - ACTIVE_TENANT_KEY:    localStorage key for the override
@@ -106,36 +106,20 @@ export const DEFAULT_TENANT_ID = TENANT_ID;
 // `NEXT_PUBLIC_TENANT_ID` remains the floor so demo and SSR contexts keep
 // working when no user is logged in.
 
-export const ACTIVE_TENANT_KEY = 'aisoc.activeTenantId';
+export { ACTIVE_TENANT_KEY } from './tenant-view';
 
+/** The tenant the console is acting on: the one being viewed, else the person's own, else the build-time default (demo and SSR). The value `X-Tenant-Id` has always carried. */
 export function getActiveTenantId(): string {
   if (typeof window === 'undefined') return TENANT_ID;
-  try {
-    const override = window.localStorage.getItem(ACTIVE_TENANT_KEY);
-    if (override) return override;
-    const raw = window.localStorage.getItem(AUTH_USER_KEY);
-    if (raw) {
-      const user = JSON.parse(raw) as { tenant_id?: string };
-      if (user.tenant_id) return user.tenant_id;
-    }
-  } catch {
-    /* localStorage unavailable / malformed payload — fall through */
-  }
-  return TENANT_ID;
+  return getViewedTenantId() ?? homeTenantId() ?? TENANT_ID;
 }
 
+/** Choose a tenant to VIEW (read-only, see tenant-view.ts); null, or the person's own tenant, goes back to their own. */
 export function setActiveTenantId(tenantId: string | null): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (tenantId) {
-      window.localStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
-    } else {
-      window.localStorage.removeItem(ACTIVE_TENANT_KEY);
-    }
-  } catch {
-    /* private-mode quota errors — surface choice is in-memory only */
-  }
+  setViewedTenantId(tenantId);
 }
+
+export { getViewedTenantId } from './tenant-view';
 
 interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
@@ -145,12 +129,25 @@ interface FetchOptions extends RequestInit {
 export class ApiError extends Error {
   status: number;
   body: string;
+  /** Set when the refusal came from viewing another tenant: invalid | forbidden | read_only | session_only (the API's X-View-As-Error). */
+  viewAsError?: string;
 
-  constructor(message: string, status: number, body: string) {
+  constructor(message: string, status: number, body: string, viewAsError?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    if (viewAsError) this.viewAsError = viewAsError;
+  }
+}
+
+/** The API's own explanation (`detail`) from an error body, when it has one. */
+function detailOf(body: string): string | null {
+  try {
+    const d = (JSON.parse(body) as { detail?: unknown }).detail;
+    return typeof d === 'string' && d ? d : null;
+  } catch {
+    return null;
   }
 }
 
@@ -213,11 +210,13 @@ async function request<T>(path: string, options: FetchOptions = {}): Promise<T> 
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
-    throw new ApiError(
-      `API ${response.status} ${response.statusText} — ${path}`,
-      response.status,
-      errorText,
-    );
+    const viewAsError = response.headers?.get?.(VIEW_AS_ERROR_HEADER) ?? undefined;
+    // A write attempted while viewing another tenant: say so in words (the API's own sentence), not "API 403 Forbidden".
+    const message =
+      viewAsError === 'read_only'
+        ? (detailOf(errorText) ?? 'This tenant is read-only while you are viewing it. Switch back to your own tenant to make changes.')
+        : `API ${response.status} ${response.statusText} — ${path}`;
+    throw new ApiError(message, response.status, errorText, viewAsError);
   }
 
   if (response.status === 204) return {} as T;
@@ -231,6 +230,7 @@ async function request<T>(path: string, options: FetchOptions = {}): Promise<T> 
 
 export { AUTH_TOKEN_KEY, AUTH_REFRESH_KEY, AUTH_USER_KEY } from './auth-session';
 import { AUTH_TOKEN_KEY, AUTH_REFRESH_KEY, AUTH_USER_KEY, authFetch, clearSession } from './auth-session';
+import { getViewedTenantId, homeTenantId, setViewedTenantId, VIEW_AS_ERROR_HEADER } from './tenant-view';
 
 export interface AuthUser {
   id: string;
@@ -392,6 +392,19 @@ export interface TenantUser {
   created_at: string;
 }
 
+export interface ViewableTenant {
+  id: string;
+  name: string;
+  slug: string;
+  /** self: their own tenant. child: a customer of their MSSP. platform: any tenant, for a platform admin. */
+  relationship: 'self' | 'child' | 'platform';
+}
+
+export interface ViewableTenantsResponse {
+  home_tenant_id: string;
+  tenants: ViewableTenant[];
+}
+
 export const tenantsApi = {
   /**
    * Lightweight tenant identity for the SOC console TopBar.
@@ -407,6 +420,10 @@ export const tenantsApi = {
   /** The tenants this caller may choose between in a tenant picker: their own, plus every other one only if the server says they may look at others. Needs `alerts:read`. */
   async selectable(): Promise<SelectableTenantsResponse> {
     return request<SelectableTenantsResponse>('/api/v1/tenants/selectable');
+  },
+  /** The tenants this person may VIEW (read-only): their own first, then their managed customers (MSSP) or every tenant (platform admin). The same rule the server applies to `X-View-As-Tenant`. */
+  async viewable(): Promise<ViewableTenantsResponse> {
+    return request<ViewableTenantsResponse>('/api/v1/tenants/viewable');
   },
   /** The full tenant record (name, plan, creation date). Needs `settings:read`; an analyst without it gets a 403. */
   async details(): Promise<TenantDetails> {

@@ -6,9 +6,8 @@ import { TenantProvider } from './TenantProvider';
 
 const currentUserMock = vi.fn();
 const isAuthenticatedMock = vi.fn();
-const tenantsMeMock = vi.fn();
-const msspChildrenMock = vi.fn();
-const getActiveTenantIdMock = vi.fn(() => '');
+const viewableMock = vi.fn();
+const getViewedTenantIdMock = vi.fn((): string | null => null);
 const setActiveTenantIdMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
@@ -17,24 +16,27 @@ vi.mock('@/lib/api', () => ({
     isAuthenticated: () => isAuthenticatedMock(),
   },
   tenantsApi: {
-    me: () => tenantsMeMock(),
+    viewable: () => viewableMock(),
   },
-  msspApi: {
-    listChildren: () => msspChildrenMock(),
-  },
-  getActiveTenantId: () => getActiveTenantIdMock(),
+  getViewedTenantId: () => getViewedTenantIdMock(),
   setActiveTenantId: (id: string | null) => setActiveTenantIdMock(id),
 }));
 
 beforeEach(() => {
   currentUserMock.mockReset();
   isAuthenticatedMock.mockReset();
-  tenantsMeMock.mockReset();
-  msspChildrenMock.mockReset();
-  getActiveTenantIdMock.mockReset();
-  getActiveTenantIdMock.mockReturnValue('');
+  viewableMock.mockReset();
+  getViewedTenantIdMock.mockReset();
+  getViewedTenantIdMock.mockReturnValue(null);
   setActiveTenantIdMock.mockReset();
 });
+
+/** What `GET /tenants/viewable` answers: the person's own tenant first, then the rest. */
+const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'child' | 'platform' }[] = []) =>
+  viewableMock.mockResolvedValue({
+    home_tenant_id: home.id,
+    tenants: [{ ...home, slug: home.id, relationship: 'self' }, ...others.map((o) => ({ ...o, slug: o.id }))],
+  });
 
 function renderSwitcher() {
   return render(
@@ -65,12 +67,7 @@ describe('TenantSwitcher', () => {
       tenant_id: 't1',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 't1',
-      name: 'Acme Corp',
-      mssp_role: null,
-      parent_tenant_id: null,
-    });
+    viewable({ id: 't1', name: 'Acme Corp' });
 
     renderSwitcher();
 
@@ -89,15 +86,9 @@ describe('TenantSwitcher', () => {
       tenant_id: 'parent-t',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([
-      { id: 'c1', name: 'Customer A', mssp_role: 'child' },
-      { id: 'c2', name: 'Customer B', mssp_role: 'child' },
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [
+      { id: 'c1', name: 'Customer A', relationship: 'child' },
+      { id: 'c2', name: 'Customer B', relationship: 'child' },
     ]);
 
     renderSwitcher();
@@ -124,15 +115,7 @@ describe('TenantSwitcher', () => {
       tenant_id: 'parent-t',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([
-      { id: 'c1', name: 'Customer A', mssp_role: 'child' },
-    ]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
 
     // Stub out window.location.reload so the test runner doesn't bomb out.
     const reloadSpy = vi.fn();
@@ -161,15 +144,7 @@ describe('TenantSwitcher', () => {
       tenant_id: 'parent-t',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([
-      { id: 'c1', name: 'Customer A', mssp_role: 'child' },
-    ]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
 
     renderSwitcher();
 
@@ -189,15 +164,7 @@ describe('TenantSwitcher', () => {
       tenant_id: 'parent-t',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([
-      { id: 'c1', name: 'Customer A', mssp_role: 'child' },
-    ]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
 
     renderSwitcher();
 
@@ -206,5 +173,39 @@ describe('TenantSwitcher', () => {
     expect(screen.getByRole('dialog', { name: /Switch tenant/i })).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: /Switch tenant/i })).not.toBeInTheDocument();
+  });
+  it('labels each entry for what it is: the MSSP parent, its customers, and a platform view', async () => {
+    currentUserMock.mockReturnValue({ id: 'u1', email: 'a@mssp.com', role: 'mssp-admin', tenant_id: 'parent-t' });
+    isAuthenticatedMock.mockReturnValue(true);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
+    renderSwitcher();
+    await userEvent.click(await screen.findByRole('button', { name: /Active tenant/i }));
+    const [parent, child] = await screen.findAllByRole('option');
+    expect(parent).toHaveTextContent('MSSP parent');
+    expect(child).toHaveTextContent('Child tenant');
+  });
+
+  it('labels the other tenants a platform admin may view as a platform view, not as standalone', async () => {
+    currentUserMock.mockReturnValue({ id: 'u1', email: 'p@x.com', role: 'platform_admin', tenant_id: 'pl' });
+    isAuthenticatedMock.mockReturnValue(true);
+    viewable({ id: 'pl', name: 'Platform' }, [{ id: 'x', name: 'Tenant X', relationship: 'platform' }]);
+    renderSwitcher();
+    await userEvent.click(await screen.findByRole('button', { name: /Active tenant/i }));
+    const options = await screen.findAllByRole('option');
+    expect(options[0]).toHaveTextContent('Standalone');
+    expect(options[1]).toHaveTextContent('Platform view');
+  });
+
+  it('shows the tenant being viewed as active, and offers the own tenant as a choice', async () => {
+    currentUserMock.mockReturnValue({ id: 'u1', email: 'a@mssp.com', role: 'mssp-admin', tenant_id: 'parent-t' });
+    isAuthenticatedMock.mockReturnValue(true);
+    getViewedTenantIdMock.mockReturnValue('c1');
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
+    renderSwitcher();
+    const trigger = await screen.findByRole('button', { name: /Active tenant/i });
+    expect(trigger).toHaveTextContent('Customer A');
+    await userEvent.click(trigger);
+    expect(await screen.findByRole('option', { name: /Customer A/i })).toBeDisabled();
+    expect(screen.getByRole('option', { name: /MSSP Holdings/i })).toBeEnabled();
   });
 });

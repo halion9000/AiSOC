@@ -43,13 +43,23 @@ A refused write is audited by the middleware as any refused write is (status 403
 ## What this does not do
 
 * **Live updates.** The realtime push feed still follows the person's home tenant while viewing. Not changed.
+* **Pages that render on the server** (the cases page) do not follow the switcher; see "The console".
 * **Reads that write.** The rule is "read-only by HTTP method". A GET handler that creates something as a side effect (for example a default row) would still do so in the viewed tenant. I did not audit the codebase for such handlers.
 * **Who may view children.** The gate for an MSSP operator is `mssp:read`, which nearly every built-in role holds (even `viewer`; `api_service` does not). That matches what the old switcher offered. If viewers of an MSSP's own staff should not see customers' data, it needs a narrower permission.
 * **Tokens and API keys** are unchanged: a token is for the person's own tenant, and an API key may not view another tenant.
 
+## The console
+
+* **One place sends the header.** `authFetch` (`apps/web/src/lib/auth-session.ts`), which already attaches the login token to every same-origin `/api/*` call, adds `X-View-As-Tenant` while a tenant is being viewed, except on the account-level routes. The state lives in `apps/web/src/lib/tenant-view.ts` (no imports, so both `authFetch` and the API client can use it). The storage key is unchanged (`aisoc.activeTenantId`), so a choice made before the upgrade is still honoured; `X-Tenant-Id` is still sent but has never been read by the API.
+* **The switcher offers only what the server honours.** `TenantProvider` reads `GET /tenants/viewable` (it no longer combines `/tenants/me/identity` with `/mssp/children`). Choosing your own tenant clears the view rather than storing it.
+* **A banner on every page** says "Viewing <tenant>. Read-only…" with a "Return to <your tenant>" button (`TenantViewBanner`, mounted in `AppShell`).
+* **A refused write explains itself.** The API's `read_only` sentence becomes the `ApiError` message (and `ApiError.viewAsError` carries the code), instead of "API 403 Forbidden".
+* **A stale choice is never kept or hidden.** If the API refuses the view (`forbidden`/`invalid`), `authFetch` clears the choice and reloads onto the person's own tenant; a read-only refusal does not (it is an error for that action, not a reason to leave the view). If the stored choice is not in the server's list, the provider does the same. If the list cannot be read at all while a view is stored, the console says "Viewing Another tenant" and offers the way back; it never claims "your own tenant" while requests still carry the view.
+* **Not covered.** The cases page is a server component (it renders on the server with the build-time tenant, where neither browser storage nor the switcher exists), so it does not follow the switcher. Public and static fetches (`safeFetcher`, the benchmark and replay pages) are not tenant-scoped. Switching reloads the page, as before.
+
 ## Deploying
 
-Deploy the API first. A console that still sends `X-Tenant-Id` keeps working exactly as before (the API ignores it); only a request that sends `X-View-As-Tenant` is affected. The isolation flows (`docs/security/running-isolation-flows-against-staging.md`) now include a `view_as_isolation` flow and their preflight refuses two test tenants where one may view the other.
+Deploy the API first. A console that still sends `X-Tenant-Id` keeps working exactly as before (the API ignores it); only a request that sends `X-View-As-Tenant` is affected. **Do not ship the console before the API.** A new console against an old API cannot read `/tenants/viewable` (404). With no stored choice it simply behaves as before. But a choice stored by the OLD switcher is still honoured (the storage key is unchanged on purpose): the console then shows the banner and sends `X-View-As-Tenant`, which the old API ignores, so the screen would claim a view the data does not reflect: the original bug. With the API deployed first this cannot happen. A stored choice left over from the old switcher is, after the upgrade, a real read-only view: the person lands on it with the banner and can leave it with one click. The isolation flows (`docs/security/running-isolation-flows-against-staging.md`) now include a `view_as_isolation` flow and their preflight refuses two test tenants where one may view the other.
 
 ## Verified
 

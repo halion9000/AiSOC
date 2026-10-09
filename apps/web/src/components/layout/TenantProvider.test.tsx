@@ -1,15 +1,12 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { TenantProvider, useTenant } from './TenantProvider';
 
-// `@/lib/api` is mocked end-to-end so the provider can be exercised in isolation
-// from the real network + localStorage helpers. Each mocked function is a
-// `vi.fn` we can program per test.
+// `@/lib/api` is mocked end-to-end so the provider can be exercised in isolation from the real network and localStorage helpers.
 const currentUserMock = vi.fn();
 const isAuthenticatedMock = vi.fn();
-const tenantsMeMock = vi.fn();
-const msspChildrenMock = vi.fn();
-const getActiveTenantIdMock = vi.fn(() => '');
+const viewableMock = vi.fn();
+const getViewedTenantIdMock = vi.fn((): string | null => null);
 const setActiveTenantIdMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
@@ -18,12 +15,9 @@ vi.mock('@/lib/api', () => ({
     isAuthenticated: () => isAuthenticatedMock(),
   },
   tenantsApi: {
-    me: () => tenantsMeMock(),
+    viewable: () => viewableMock(),
   },
-  msspApi: {
-    listChildren: () => msspChildrenMock(),
-  },
-  getActiveTenantId: () => getActiveTenantIdMock(),
+  getViewedTenantId: () => getViewedTenantIdMock(),
   setActiveTenantId: (id: string | null) => setActiveTenantIdMock(id),
 }));
 
@@ -31,15 +25,42 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <TenantProvider>{children}</TenantProvider>;
 }
 
+const originalLocation = window.location;
+let reloadSpy: ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
   currentUserMock.mockReset();
   isAuthenticatedMock.mockReset();
-  tenantsMeMock.mockReset();
-  msspChildrenMock.mockReset();
-  getActiveTenantIdMock.mockReset();
-  getActiveTenantIdMock.mockReturnValue('');
+  viewableMock.mockReset();
+  getViewedTenantIdMock.mockReset();
+  getViewedTenantIdMock.mockReturnValue(null);
   setActiveTenantIdMock.mockReset();
+  // jsdom cannot navigate: `window.location.reload()` is intentional in the provider, so count it instead.
+  reloadSpy = vi.fn();
+  Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, reload: reloadSpy } });
 });
+
+afterEach(() => {
+  Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+});
+
+const signedIn = (tenant_id: string, role = 'analyst') => {
+  currentUserMock.mockReturnValue({ id: 'u1', email: 'a@b.com', role, tenant_id });
+  isAuthenticatedMock.mockReturnValue(true);
+};
+
+/** What `GET /tenants/viewable` answers: the person's own tenant first, then the rest. */
+const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'child' | 'platform' }[] = []) =>
+  viewableMock.mockResolvedValue({
+    home_tenant_id: home.id,
+    tenants: [{ ...home, slug: home.id, relationship: 'self' }, ...others.map((o) => ({ ...o, slug: o.id }))],
+  });
+
+const PARENT = { id: 'parent-t', name: 'MSSP Holdings' };
+const CHILDREN = [
+  { id: 'c1', name: 'Customer A', relationship: 'child' as const },
+  { id: 'c2', name: 'Customer B', relationship: 'child' as const },
+];
 
 describe('TenantProvider', () => {
   it('exits loading=false when the user is not authenticated', async () => {
@@ -50,198 +71,143 @@ describe('TenantProvider', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.current).toBeNull();
+    expect(result.current.home).toBeNull();
     expect(result.current.available).toEqual([]);
-    expect(tenantsMeMock).not.toHaveBeenCalled();
+    expect(result.current.viewingOther).toBe(false);
+    expect(viewableMock).not.toHaveBeenCalled();
   });
 
-  it('loads the current tenant for a standalone (non-MSSP) user', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@b.com',
-      role: 'analyst',
-      tenant_id: 't1',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 't1',
-      name: 'Acme Corp',
-      mssp_role: null,
-      parent_tenant_id: null,
-    });
+  it('loads the current tenant for a standalone user', async () => {
+    signedIn('t1');
+    viewable({ id: 't1', name: 'Acme Corp' });
 
     const { result } = renderHook(() => useTenant(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.userRole).toBe('analyst');
-    expect(result.current.current).toEqual({
-      id: 't1',
-      name: 'Acme Corp',
-      role: 'standalone',
-    });
+    expect(result.current.current).toEqual({ id: 't1', name: 'Acme Corp', role: 'standalone', relationship: 'self' });
+    expect(result.current.home).toEqual(result.current.current);
     expect(result.current.available).toHaveLength(1);
-    // Standalone users should never trigger the /mssp/children call.
-    expect(msspChildrenMock).not.toHaveBeenCalled();
+    expect(result.current.viewingOther).toBe(false);
   });
 
-  it('lists [parent, ...children] for an MSSP parent operator', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@mssp.com',
-      role: 'mssp-admin',
-      tenant_id: 'parent-t',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([
-      { id: 'c1', name: 'Customer A', mssp_role: 'child' },
-      { id: 'c2', name: 'Customer B', mssp_role: 'child' },
-    ]);
+  it('lists [parent, ...children] for an MSSP parent operator, as the server says', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, CHILDREN);
 
     const { result } = renderHook(() => useTenant(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.available.map((t) => t.id)).toEqual(['parent-t', 'c1', 'c2']);
-    expect(result.current.available[0].role).toBe('parent');
-    expect(result.current.available[1].role).toBe('child');
+    expect(result.current.available.map((t) => t.role)).toEqual(['parent', 'child', 'child']);
+    expect(result.current.available.map((t) => t.relationship)).toEqual(['self', 'child', 'child']);
     expect(result.current.current?.id).toBe('parent-t');
+    expect(result.current.viewingOther).toBe(false);
   });
 
-  it('honours an active tenant ID from storage when it resolves', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@mssp.com',
-      role: 'mssp-admin',
-      tenant_id: 'parent-t',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    getActiveTenantIdMock.mockReturnValue('c2'); // stale-but-valid
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([
-      { id: 'c1', name: 'Customer A', mssp_role: 'child' },
-      { id: 'c2', name: 'Customer B', mssp_role: 'child' },
+  it("a platform admin's own tenant is not called an MSSP parent, and the others are labelled for what they are", async () => {
+    signedIn('pl', 'platform_admin');
+    viewable({ id: 'pl', name: 'Platform' }, [{ id: 'x', name: 'Tenant X', relationship: 'platform' }]);
+
+    const { result } = renderHook(() => useTenant(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.available.map((t) => [t.id, t.role, t.relationship])).toEqual([
+      ['pl', 'standalone', 'self'],
+      ['x', 'standalone', 'platform'],
     ]);
+  });
+
+  it('shows the tenant being viewed when the stored choice is one the server lists', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, CHILDREN);
+    getViewedTenantIdMock.mockReturnValue('c2');
 
     const { result } = renderHook(() => useTenant(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.current?.id).toBe('c2');
     expect(result.current.current?.name).toBe('Customer B');
+    expect(result.current.home?.id).toBe('parent-t');
+    expect(result.current.viewingOther).toBe(true);
+    expect(setActiveTenantIdMock).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 
-  it('falls back to "me" if the stored active tenant is not in the list', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@mssp.com',
-      role: 'mssp-admin',
-      tenant_id: 'parent-t',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    getActiveTenantIdMock.mockReturnValue('deleted-child');
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([]);
+  it('nothing chosen: no choice is cleared and the page is not reloaded', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, CHILDREN);
 
     const { result } = renderHook(() => useTenant(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.current?.id).toBe('parent-t');
+    expect(setActiveTenantIdMock).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 
-  it('still renders a fallback tenant when /tenants/me errors', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@b.com',
-      role: 'analyst',
-      tenant_id: 't1',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockRejectedValue(new Error('boom'));
+  it('a stored choice the server does not list is cleared and the page reloads onto the own tenant', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, []);
+    getViewedTenantIdMock.mockReturnValue('deleted-child');
+
+    const { result } = renderHook(() => useTenant(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(setActiveTenantIdMock).toHaveBeenCalledWith(null);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.current?.id).toBe('parent-t');
+    expect(result.current.viewingOther).toBe(false);
+  });
+
+  it('still renders a fallback tenant when the list cannot be read', async () => {
+    signedIn('t1');
+    viewableMock.mockRejectedValue(new Error('boom'));
 
     const { result } = renderHook(() => useTenant(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBe('boom');
-    expect(result.current.current).toEqual({
-      id: 't1',
-      name: 'My tenant',
-      role: 'standalone',
-    });
+    expect(result.current.current).toEqual({ id: 't1', name: 'My tenant', role: 'standalone', relationship: 'self' });
     expect(result.current.available).toHaveLength(1);
+    expect(result.current.viewingOther).toBe(false);
   });
 
-  it('tolerates /mssp/children failing for an otherwise-healthy parent', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@mssp.com',
-      role: 'mssp-admin',
-      tenant_id: 'parent-t',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockRejectedValue(new Error('403'));
+  it('never claims "your own tenant" while a view is in force and the list cannot be read', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewableMock.mockRejectedValue(new Error('403'));
+    getViewedTenantIdMock.mockReturnValue('c1');
+
+    const { result } = renderHook(() => useTenant(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // Requests still carry the view, so the console must say another tenant is being viewed (and offer the way back), not show the own tenant.
+    expect(result.current.viewingOther).toBe(true);
+    expect(result.current.current?.id).toBe('c1');
+    expect(result.current.home?.id).toBe('parent-t');
+    expect(setActiveTenantIdMock).not.toHaveBeenCalled();
+  });
+
+  it('an MSSP parent with no children is a standalone as far as the switcher goes', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, []);
 
     const { result } = renderHook(() => useTenant(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
-    expect(result.current.current?.id).toBe('parent-t');
-    // No children → switcher will render as a read-only badge upstream.
     expect(result.current.available).toHaveLength(1);
+    expect(result.current.available[0].role).toBe('standalone');
   });
 
   it('throws when useTenant() is called outside the provider', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => renderHook(() => useTenant())).toThrow(
-      /useTenant\(\) must be used inside <TenantProvider>/,
-    );
+    expect(() => renderHook(() => useTenant())).toThrow(/useTenant\(\) must be used inside <TenantProvider>/);
     err.mockRestore();
   });
 
-  it('setTenant() persists the choice via setActiveTenantId and dispatches an event', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@mssp.com',
-      role: 'mssp-admin',
-      tenant_id: 'parent-t',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 'parent-t',
-      name: 'MSSP Holdings',
-      mssp_role: 'parent',
-      parent_tenant_id: null,
-    });
-    msspChildrenMock.mockResolvedValue([
-      { id: 'c1', name: 'Customer A', mssp_role: 'child' },
-    ]);
-
-    // Suppress JSDOM's "not implemented: navigation" noise from
-    // `window.location.reload()` — the call is intentional and we just
-    // need it to no-op.
-    const reloadSpy = vi.fn();
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...window.location, reload: reloadSpy },
-    });
+  it('setTenant() to a customer persists the choice, dispatches an event and reloads', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, [CHILDREN[0]]);
 
     const switchedEvents: CustomEvent[] = [];
     const handler = (e: Event) => switchedEvents.push(e as CustomEvent);
@@ -259,26 +225,51 @@ describe('TenantProvider', () => {
     expect(switchedEvents).toHaveLength(1);
     expect((switchedEvents[0].detail as { tenantId: string }).tenantId).toBe('c1');
     expect(result.current.current?.id).toBe('c1');
+    expect(result.current.viewingOther).toBe(true);
 
     window.removeEventListener('aisoc:tenant-switched', handler as EventListener);
+  });
+
+  it("setTenant() to the person's OWN tenant clears the view instead of storing it", async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, [CHILDREN[0]]);
+    getViewedTenantIdMock.mockReturnValue('c1');
+
+    const { result } = renderHook(() => useTenant(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      result.current.setTenant('parent-t');
+    });
+
+    expect(setActiveTenantIdMock).toHaveBeenCalledWith(null);
+    expect(setActiveTenantIdMock).not.toHaveBeenCalledWith('parent-t');
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('returnToHome() leaves the view and reloads', async () => {
+    signedIn('parent-t', 'mssp-admin');
+    viewable(PARENT, [CHILDREN[0]]);
+    getViewedTenantIdMock.mockReturnValue('c1');
+
+    const { result } = renderHook(() => useTenant(), { wrapper });
+    await waitFor(() => expect(result.current.viewingOther).toBe(true));
+
+    await act(async () => {
+      result.current.returnToHome();
+    });
+
+    expect(setActiveTenantIdMock).toHaveBeenCalledWith(null);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.current?.id).toBe('parent-t');
+    expect(result.current.viewingOther).toBe(false);
   });
 });
 
 describe('TenantProvider integration with consumers', () => {
   it('exposes current/available/userRole to nested consumers', async () => {
-    currentUserMock.mockReturnValue({
-      id: 'u1',
-      email: 'a@b.com',
-      role: 'analyst-lead',
-      tenant_id: 't1',
-    });
-    isAuthenticatedMock.mockReturnValue(true);
-    tenantsMeMock.mockResolvedValue({
-      id: 't1',
-      name: 'Acme',
-      mssp_role: null,
-      parent_tenant_id: null,
-    });
+    signedIn('t1', 'analyst-lead');
+    viewable({ id: 't1', name: 'Acme' });
 
     function Probe() {
       const { current, available, userRole } = useTenant();

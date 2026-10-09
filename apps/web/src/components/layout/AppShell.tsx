@@ -6,6 +6,7 @@ import { TopBar } from './TopBar';
 import { CommandPalette } from './CommandPalette';
 import { TimeWindowProvider } from './TimeWindowProvider';
 import { TenantProvider } from './TenantProvider';
+import { TenantViewBanner } from './TenantViewBanner';
 import { CopilotDock } from '@/components/copilot/CopilotDock';
 import { DemoBanner } from '@/components/demo/DemoBanner';
 import { DemoAutoLogin } from '@/components/demo/DemoAutoLogin';
@@ -64,7 +65,10 @@ export function AppShell({ children }: AppShellProps) {
         <div className="md:ml-60">
           <TopBar demoOffset={demo} />
           <main className={`${topPadClass} min-h-screen`}>
-            <div className="p-6">{children}</div>
+            <div className="p-6">
+              <TenantViewBanner />
+              {children}
+            </div>
           </main>
         </div>
         {/*

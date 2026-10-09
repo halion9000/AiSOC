@@ -21,6 +21,8 @@
  *    unrelated 401, a network blip) -> the original response is returned as-is.
  */
 
+import { getViewedTenantId, setViewedTenantId, viewAsHeaders, VIEW_AS_ERROR_HEADER, VIEW_AS_HEADER } from './tenant-view';
+
 export const AUTH_TOKEN_KEY = 'aisoc.responder.accessToken';
 export const AUTH_REFRESH_KEY = 'aisoc.responder.refreshToken';
 export const AUTH_USER_KEY = 'aisoc.responder.user';
@@ -29,6 +31,9 @@ export const AUTH_USER_KEY = 'aisoc.responder.user';
 export const sessionHooks = {
   redirectToLogin(next: string): void {
     window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+  },
+  reload(): void {
+    window.location.reload();
   },
 };
 
@@ -148,6 +153,30 @@ function withBearer(init: RequestInit | undefined, token: string | null): Reques
   return { ...init, headers };
 }
 
+/** Ask for the tenant being viewed (see tenant-view.ts), unless the caller set its own or the route is account-level. */
+function withViewAs(init: RequestInit | undefined, path: string): RequestInit | undefined {
+  const extra = viewAsHeaders(path);
+  const value = extra[VIEW_AS_HEADER];
+  if (!value) return init;
+  const headers = new Headers(init?.headers);
+  if (headers.has(VIEW_AS_HEADER)) return init;
+  headers.set(VIEW_AS_HEADER, value);
+  return { ...init, headers };
+}
+
+/**
+ * The server refuses a view the person may not have (`forbidden`: the relationship ended, or the choice is stale) or cannot parse (`invalid`). A choice that
+ * is refused must not keep being sent: drop it and reload onto the person's own tenant. `read_only` is NOT this: that is a write attempted while viewing,
+ * which is an error for that action, not a reason to leave the view.
+ */
+function dropRefusedView(res: Response): void {
+  const code = res.headers?.get?.(VIEW_AS_ERROR_HEADER);
+  if ((code === 'forbidden' || code === 'invalid') && getViewedTenantId() !== null) {
+    setViewedTenantId(null);
+    sessionHooks.reload();
+  }
+}
+
 type SessionState = 'refreshed' | 'valid' | 'dead' | 'unknown';
 let inflight: Promise<SessionState> | null = null;
 
@@ -211,7 +240,8 @@ export async function authFetch(input: RequestInfo | URL, init?: RequestInit): P
   const callerSetAuth = new Headers(init?.headers).has('Authorization');
   const replay = input instanceof Request ? input.clone() : input;
   const replayable = !(init?.body instanceof ReadableStream);
-  const res = await fetch(input, withBearer(init, getItem(AUTH_TOKEN_KEY)));
+  const res = await fetch(input, withViewAs(withBearer(init, getItem(AUTH_TOKEN_KEY)), path));
+  dropRefusedView(res);
   if (res.status !== 401 || callerSetAuth || NO_RETRY_PATHS.includes(path) || !replayable) return res;
 
   const state = await sharedSessionCheck();
@@ -219,6 +249,10 @@ export async function authFetch(input: RequestInfo | URL, init?: RequestInit): P
     endSession();
     return res;
   }
-  if (state === 'refreshed') return fetch(replay, withBearer(init, getItem(AUTH_TOKEN_KEY)));
+  if (state === 'refreshed') {
+    const again = await fetch(replay, withViewAs(withBearer(init, getItem(AUTH_TOKEN_KEY)), path));
+    dropRefusedView(again);
+    return again;
+  }
   return res; // an unrelated 401 or a network blip: leave the session alone
 }

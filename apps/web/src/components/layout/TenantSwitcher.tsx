@@ -17,7 +17,8 @@ interface TenantSwitcherProps {
  *   - writes the chosen tenant id to localStorage,
  *   - dispatches `aisoc:tenant-switched`,
  *   - reloads the page to flush every SWR cache and re-issue API calls with
- *     the new `X-Tenant-Id`.
+ *     `X-View-As-Tenant` (read-only: the API refuses writes while another
+ *     tenant is being viewed; TenantViewBanner says so on every page).
  *
  * For standalone tenants we render a read-only pill (no chevron, no
  * dropdown) so the chrome still telegraphs the active tenant without
@@ -233,7 +234,9 @@ export function TenantSwitcher({ className }: TenantSwitcherProps) {
                           ? 'MSSP parent'
                           : t.role === 'child'
                             ? 'Child tenant'
-                            : 'Standalone'}
+                            : t.relationship === 'platform'
+                              ? 'Platform view'
+                              : 'Standalone'}
                       </span>
                     </span>
                     {isActive && (
