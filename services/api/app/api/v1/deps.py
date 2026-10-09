@@ -39,7 +39,7 @@ from app.api.v1.dev_auth import (
     DEMO_USER_ROLE,
     is_dev_mode,
 )
-from app.core.security import decode_token, has_permission, hash_api_key
+from app.core.security import decode_token, has_permission, hash_api_key, permission_in
 from app.db.database import get_db
 from app.models.tenant import ApiKey, User
 
@@ -94,7 +94,7 @@ class CurrentUser:
     def require_permission(self, permission: str) -> None:
         if self.scopes is not None:
             # API-key path: check explicit scopes list
-            allowed = "*" in self.scopes or permission in self.scopes or f"{permission.split(':')[0]}:*" in self.scopes
+            allowed = permission_in(self.scopes, permission)
             if not allowed:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -126,11 +126,11 @@ class CurrentUser:
         perms = ROLE_PERMISSIONS.get(target_role)
         if perms is None:
             return False
-        if "*" in perms and not self._holds_wildcard():
+        if "*" in perms and not self.holds_wildcard():
             return False
         return all(self.holds(p) for p in perms if p != "*")
 
-    def _holds_wildcard(self) -> bool:
+    def holds_wildcard(self) -> bool:
         from app.core.security import ROLE_PERMISSIONS  # noqa: PLC0415
 
         if self.scopes is not None:
@@ -144,7 +144,7 @@ class CurrentUser:
         no rows in ``user_roles`` (e.g. fresh tenants not yet migrated).
         """
         if self.scopes is not None:
-            return "*" in self.scopes or permission in self.scopes or f"{permission.split(':')[0]}:*" in self.scopes
+            return permission_in(self.scopes, permission)
 
         # Query RBAC tables
         from app.models.rbac import Permission as PermModel  # noqa: PLC0415
@@ -160,7 +160,7 @@ class CurrentUser:
         db_perms: list[str] = [row[0] for row in result.all()]
 
         if db_perms:
-            return "*" in db_perms or permission in db_perms or f"{permission.split(':')[0]}:*" in db_perms
+            return permission_in(db_perms, permission)
 
         # Fallback to static map
         return has_permission(self.role, permission)

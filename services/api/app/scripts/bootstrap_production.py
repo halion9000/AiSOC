@@ -187,7 +187,9 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
                 email=email,
                 username=email,
                 hashed_password=get_password_hash(password),
-                role="admin",
+                # The primary administrator is the one default holder of PLATFORM permissions (plugin administration, tenant onboarding, cross-tenant search). Others get them only by being granted
+                # the role deliberately (python -m app.scripts.platform_admin grant --email ...).
+                role="platform_admin",
                 is_active=True,
                 is_verified=True,
             )

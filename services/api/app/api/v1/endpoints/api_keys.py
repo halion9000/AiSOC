@@ -69,6 +69,17 @@ VALID_SCOPES: frozenset[str] = frozenset(
 )
 
 
+def _require_scopes_held(current_user: AuthUser, scopes: list[str]) -> None:
+    """A key may carry only scopes its creator holds. Anything wider is a way to hand yourself power you do not have.
+
+    create_api_key let any users:write holder mint a key with ANY valid scope, and wildcard keys for tenant_admin: shown live, a tenant_admin (refused plugin administration itself, 403) minted a `*` key and a `plugins:admin`-only key and both succeeded on the endpoint it had been refused (200).
+    The wildcard needs a wildcard; a platform scope (see PLATFORM_PERMISSIONS) needs that exact permission, which only a platform_admin holds; and a wildcard key never carries platform permissions."""
+    for scope in scopes:
+        held = current_user.holds_wildcard() if scope == "*" else current_user.holds(scope)
+        if not held:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"You cannot grant the scope {scope!r}: you do not hold it yourself.")
+
+
 def _validate_scopes(scopes: list[str]) -> None:
     invalid = [s for s in scopes if s not in VALID_SCOPES]
     if invalid:
@@ -148,12 +159,7 @@ async def create_api_key(
     """
     _validate_scopes(body.scopes)
 
-    # Only admins can issue wildcard keys
-    if "*" in body.scopes and current_user.role not in ("platform_admin", "tenant_admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can create wildcard (*) API keys",
-        )
+    _require_scopes_held(current_user, body.scopes)
 
     raw_key, prefix, hashed_key = generate_api_key()
 
@@ -230,11 +236,7 @@ async def update_api_key(
 
     if body.scopes is not None:
         _validate_scopes(body.scopes)
-        if "*" in body.scopes and current_user.role not in ("platform_admin", "tenant_admin"):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admins can grant wildcard (*) scope",
-            )
+        _require_scopes_held(current_user, body.scopes)
         ak.scopes = body.scopes
 
     if body.expires_in_days is not None:

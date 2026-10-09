@@ -103,9 +103,10 @@ def test_every_route_requires_exactly_the_permission_for_its_kind():
     assert not problems, "\n  " + "\n  ".join(problems)
 
 
-def test_only_platform_wildcard_roles_may_onboard_a_child_tenant():
+def test_only_platform_admin_may_onboard_a_child_tenant():
+    """Onboarding a tenant acts on the whole platform, so it is a PLATFORM permission: the wildcard `admin` (a tenant's own administrator) no longer holds it; only platform_admin does (it used to be [admin, platform_admin])."""
     holders = [r for r in ROLES if has_permission(r, "mssp:onboard")]
-    assert sorted(holders) == ["admin", "platform_admin"]
+    assert holders == ["platform_admin"]
 
 
 @pytest.mark.parametrize("role", ROLES)

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+Several authorization problems were found by two-tenant isolation testing and fixed. Where an item says "demonstrated", it was reproduced against a real database before the fix and shown closed after; where it says otherwise, the limit is stated. Whether any of this was exploited cannot be determined from the code. See `docs/security/roles-and-platform-permissions.md` for the upgrade checklist.
+
+- **A `tenant_admin` could become a `platform_admin`** (demonstrated): `POST`/`PATCH /tenants/me/users` accepted any role, so a tenant admin could create a platform admin or promote itself with one request. The same escalation worked through API keys: a key could carry any scope, including `*` and `plugins:admin`, whatever its creator held. Nobody can now grant a role, scope or database-role permission they do not hold; nobody changes their own role or edits a user above them.
+- **Platform power is now separate and explicit.** `plugins:admin`, `mssp:onboard` and `platform:cross_tenant_query` are not covered by `*`; only `platform_admin` holds them. The original primary administrator is a `platform_admin` by default (migration 067); `python -m app.scripts.platform_admin` grants and revokes it. **Upgrade note:** a tenant's `admin` can no longer manage the shared plugin registry or onboard tenants.
+- **Cross-tenant reads (demonstrated):** a case's summary and post-mortem (JSON and HTML), `GET /graph/attack-path/{case_id}`, and the rule shown in an alert's explanation (via a `rule:<uuid>` tag). The case investigations list and the investigation PDF had no ownership check (fixed and unit-tested; not demonstrated, as the agents service was not available).
+- **Cross-tenant write (demonstrated):** `DELETE /rbac/users/{user_id}/roles/{role_id}` removed any role from any user of any tenant.
+- **`/nl-query` index pattern (demonstrated at the query-building layer):** the caller-chosen index pattern went verbatim into the Elasticsearch query that `/execute` runs with the server's credentials (`FROM *`, system indices, injected pipeline commands). It is now validated, the final query's source is checked whoever wrote it (including an LLM), and `NL_QUERY_TENANT_FIELD` adds a per-tenant filter for deployments that share one Elasticsearch. Set it if yours does.
+- **Connectors SSRF guard (review-based; not run against live connectors):** connector requests, including each redirect hop, refuse loopback, link-local (cloud metadata) and other never-legitimate destinations; private ranges stay allowed. See the connectors README for `CONNECTORS_EGRESS_*`.
+- **Compliance reviewer could be spoofed, and three audit fields stored a Python object repr** (migration 066).
+- **A shared (tenantless) detection proposal can no longer be commented on, decided or promoted by a tenant** (hardening; no such row is created today).
+- **Deleting an alert from the Copilot needs your confirmation**, and the model cannot give it: the request is signed, expiring and bound to the user, and only a separate confirm call performs it.
+
 ### Fixed
 
 - **UEBA can no longer read an unscoreable baseline as normal behaviour.** A

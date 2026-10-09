@@ -6,6 +6,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from collections.abc import Iterable
 from typing import Any
 
 import bcrypt
@@ -20,8 +21,13 @@ from app.core.config import settings
 # for short passwords).
 _BCRYPT_MAX_BYTES = 72
 
+# Permissions that act on the PLATFORM (every tenant), not on the caller's own tenant: managing the shared plugin registry, onboarding new tenants, and searching across tenants.
+# The wildcard "*" and resource wildcards ("plugins:*") do NOT grant them. A principal holds one only if it is named explicitly: in a role's list (only platform_admin lists them), in an API key's scopes, or in a database role. So a tenant's own
+# administrator, who holds "*" over their tenant, cannot touch what every other tenant shares; platform power is granted deliberately, to specific people, by someone who holds it.
+PLATFORM_PERMISSIONS: frozenset[str] = frozenset({"plugins:admin", "mssp:onboard", "platform:cross_tenant_query"})
+
 ROLE_PERMISSIONS: dict[str, list[str]] = {
-    "platform_admin": ["*"],
+    "platform_admin": ["*", *sorted(PLATFORM_PERMISSIONS)],
     # ``admin`` is the role string handed out by the dev-mode demo user
     # (see ``app.api.v1.dev_auth``) and by some legacy seed scripts. It
     # must resolve to the same privileges as ``platform_admin`` so that
@@ -273,13 +279,18 @@ def known_permissions() -> frozenset[str]:
     return frozenset(granted | _UNGRANTED_PERMISSIONS)
 
 
+def permission_in(granted: Iterable[str], permission: str) -> bool:
+    """Is `permission` covered by `granted`: a role's list, an API key's scopes, or a database role's permission names? The ONE matching rule.
+
+    A platform permission (see PLATFORM_PERMISSIONS) must be named exactly; neither "*" nor "<resource>:*" covers it. Anything else is covered by "*", by the exact name, or by "<resource>:*"."""
+    granted = granted if isinstance(granted, (list, set, frozenset, tuple)) else list(granted)
+    if permission in PLATFORM_PERMISSIONS:
+        return permission in granted
+    if "*" in granted or permission in granted:
+        return True
+    return f"{permission.split(':')[0]}:*" in granted
+
+
 def has_permission(role: str, permission: str) -> bool:
     """Check if a role has a specific permission."""
-    perms = ROLE_PERMISSIONS.get(role, [])
-    if "*" in perms:
-        return True
-    if permission in perms:
-        return True
-    # Check wildcard resource (e.g., "alerts:*" covers "alerts:read")
-    resource = permission.split(":")[0]
-    return f"{resource}:*" in perms
+    return permission_in(ROLE_PERMISSIONS.get(role, []), permission)

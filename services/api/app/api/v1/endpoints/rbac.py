@@ -9,7 +9,7 @@ Requires:
 """
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -140,6 +140,9 @@ async def create_role(
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Role '{body.name}' already exists")
 
+    perms_to_attach = await _resolve_permissions(db, body.permission_ids)
+    _require_permissions_held(current_user, [p.name for p in perms_to_attach])
+
     role = Role(
         tenant_id=current_user.tenant_id,
         name=body.name,
@@ -150,7 +153,6 @@ async def create_role(
     await db.flush()  # get role.id
 
     # Attach permissions
-    perms_to_attach = await _resolve_permissions(db, body.permission_ids)
     for perm in perms_to_attach:
         db.add(RolePermission(role_id=role.id, permission_id=perm.id))
 
@@ -197,15 +199,21 @@ async def update_role(
     if role.is_system:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="System roles cannot be modified")
 
+    perms = None
+    if body.permission_ids is not None:
+        perms = await _resolve_permissions(db, body.permission_ids)
+        _require_permissions_held(current_user, [p.name for p in perms])
+        # Nobody edits a role that already holds something they do not (a tenant_admin could otherwise re-name or strip a platform role).
+        _require_permissions_held(current_user, [p.name for p in await _load_role_permissions(db, role.id)])
+
     if body.name is not None:
         role.name = body.name
     if body.description is not None:
         role.description = body.description
 
-    if body.permission_ids is not None:
+    if perms is not None:
         # Replace permissions
         await db.execute(delete(RolePermission).where(RolePermission.role_id == role.id))
-        perms = await _resolve_permissions(db, body.permission_ids)
         for perm in perms:
             db.add(RolePermission(role_id=role.id, permission_id=perm.id))
 
@@ -271,6 +279,8 @@ async def assign_role(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id mismatch")
 
     role = await _get_role_or_404(db, body.role_id, current_user.tenant_id)
+    # Assigning a role hands out everything in it: the caller must hold all of it.
+    _require_permissions_held(current_user, [p.name for p in await _load_role_permissions(db, role.id)])
 
     # Ensure the target user belongs to this tenant
     user_res = await db.execute(select(User).where(User.id == user_id, User.tenant_id == current_user.tenant_id))
@@ -318,6 +328,14 @@ async def _get_role_or_404(db: AsyncSession, role_id: uuid.UUID, tenant_id: uuid
     if role is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
     return role
+
+
+def _require_permissions_held(current_user: Any, names: list[str]) -> None:
+    """Nobody attaches to a role, or assigns through one, a permission they do not hold themselves (database roles are consulted by has_permission_db). A platform permission needs that exact permission."""
+    for name in names:
+        held = current_user.holds_wildcard() if name == "*" else current_user.holds(name)
+        if not held:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"You cannot grant the permission {name!r}: you do not hold it yourself.")
 
 
 async def _resolve_permissions(db: AsyncSession, permission_ids: list[uuid.UUID]) -> list[Permission]:
