@@ -50,6 +50,8 @@ CORE_KEY_SCOPES = ["alerts:read", "alerts:write", "cases:read", "cases:write", "
 AGENTS_KEY_NAME = "agents-service"
 AGENTS_KEY_SCOPES = ["alerts:read", "cases:read"]
 RESULT_MARKER = "AISOC_BOOTSTRAP_RESULT "
+SEEDED_ADMIN_DISABLED_HASH = "!disabled-by-bootstrap"  # not a bcrypt hash: no password can ever match it
+SEEDED_ADMIN_DISABLED_ROLE = "viewer"
 MIN_PASSWORD_LENGTH = 12
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -148,6 +150,19 @@ async def _ensure_key(session, name: str, scopes: list[str], owner_id, rotate: b
     return raw_key, ("rotated" if active else "created")
 
 
+def plan_seeded_admin_update(seeded) -> tuple[bool, dict | None]:
+    """What to do to the seeded default admin (admin@aisoc.local, whose password hash is public): (was it newly disabled, the column values to write or None).
+
+    It is disabled, and it is also demoted to `viewer`. Migrations run BEFORE this step and migration 067 promotes the earliest active admin, which on a fresh database is exactly this account, so without the demotion a locked account would keep `platform_admin` and show up as a platform administrator.
+    A disabled account must not keep elevated rights. This also repairs an install already in that state (disabled but still elevated); one already disabled and a viewer is left alone."""
+    if seeded is None or seeded.email != SEEDED_ADMIN_EMAIL:
+        return False, None
+    newly_disabled = bool(seeded.is_active) or (seeded.hashed_password or "")[:1] != "!"
+    if not newly_disabled and seeded.role == SEEDED_ADMIN_DISABLED_ROLE:
+        return False, None
+    return newly_disabled, {"is_active": False, "hashed_password": SEEDED_ADMIN_DISABLED_HASH, "role": SEEDED_ADMIN_DISABLED_ROLE}
+
+
 async def run(email: str, password: str | None, rotate_core_key: bool, rotate_agents_key: bool = False) -> dict:
     from datetime import UTC, datetime  # noqa: PLC0415
 
@@ -166,13 +181,10 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
 
         # 3. Disable the seeded default admin (public password hash).
         seeded = (await session.execute(select(User).where(User.id == SEEDED_ADMIN_ID))).scalar_one_or_none()
-        if seeded is not None and seeded.email == SEEDED_ADMIN_EMAIL and (seeded.is_active or seeded.hashed_password[:1] != "!"):
-            await session.execute(
-                update(User).where(User.id == SEEDED_ADMIN_ID).values(is_active=False, hashed_password="!disabled-by-bootstrap")
-            )
-            result["default_admin_disabled"] = True
-        else:
-            result["default_admin_disabled"] = False
+        newly_disabled, seeded_values = plan_seeded_admin_update(seeded)
+        if seeded_values is not None:
+            await session.execute(update(User).where(User.id == SEEDED_ADMIN_ID).values(**seeded_values))
+        result["default_admin_disabled"] = newly_disabled
 
         # 4. The real admin.
         admin = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
