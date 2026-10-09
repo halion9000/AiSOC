@@ -37,7 +37,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.alert import Alert
-from app.models.case import Case
+from app.services import case_metrics
 from app.models.remediation import RemediationGateLog
 
 # ---------------------------------------------------------------------------
@@ -551,37 +551,10 @@ async def _fetch_cases(
     start: datetime,
     end: datetime,
 ) -> list[CaseRow]:
-    rows: list[CaseRow] = []
-    result = await db.execute(
-        select(
-            Case.status,
-            Case.created_at,
-            Case.closed_at,
-            Case.sla_breached,
-        ).where(
-            and_(
-                Case.tenant_id == tenant_id,
-                # Pull any case touched in the window: created OR closed in [start, end)
-                # We keep this simple: created_at filter for opens, closed_at filter for closes.
-                # Because we want both we union them.
-                # (start window ≤ end window — guarded at the endpoint.)
-                # SQLAlchemy doesn't have a clean OR boundary expression here,
-                # so use a permissive lower-bound: created_at >= start - 30d, then
-                # the pure builder filters precisely by date.
-                Case.created_at >= start - timedelta(days=30),
-            )
-        )
-    )
-    for r in result.all():
-        rows.append(
-            CaseRow(
-                status=r.status or "open",
-                created_at=r.created_at,
-                closed_at=r.closed_at,
-                sla_breached=bool(r.sla_breached),
-            )
-        )
-    return rows
+    # From aisoc_cases (see app.services.case_metrics); this read the old `cases` table, which nothing writes, so every digest said there were no cases.
+    # Pull any case created from a permissive lower bound (30 days before the window); the pure builder then filters precisely by date.
+    rows = await case_metrics.digest_rows(db, tenant_id, start - timedelta(days=30))
+    return [CaseRow(status=r.status or "new", created_at=r.created_at, closed_at=r.closed_at, sla_breached=bool(r.sla_breached)) for r in rows]
 
 
 async def _fetch_gate_log(
@@ -619,17 +592,7 @@ async def _count_open_alerts(db: AsyncSession, tenant_id: uuid.UUID, at: datetim
 
 
 async def _count_open_cases(db: AsyncSession, tenant_id: uuid.UUID, at: datetime) -> int:
-    val = await db.scalar(
-        select(func.count()).where(
-            and_(
-                Case.tenant_id == tenant_id,
-                Case.created_at < at,
-                Case.status != "resolved",
-                Case.status != "closed",
-            )
-        )
-    )
-    return int(val or 0)
+    return await case_metrics.count_open_before(db, tenant_id, at)
 
 
 async def build_weekly_digest(

@@ -58,7 +58,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.models.alert import Alert
-from app.models.case import Case
+from app.services import case_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -262,19 +262,9 @@ async def _case_sparkline(
     """24 evenly-spaced buckets of case-open volume across [start, end)."""
     total_seconds = max((end - start).total_seconds(), 1.0)
     bucket_seconds = total_seconds / _SPARKLINE_BUCKETS
-    rows = (
-        await db.execute(
-            select(Case.created_at).where(
-                and_(
-                    Case.tenant_id == tenant_id,
-                    Case.created_at >= start,
-                    Case.created_at < end,
-                )
-            )
-        )
-    ).all()
+    rows = await case_metrics.created_timestamps(db, tenant_id, start, end)  # aisoc_cases, not the old `cases` table
     buckets = [0.0] * _SPARKLINE_BUCKETS
-    for (ts,) in rows:
+    for ts in rows:
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
         delta = (ts - start).total_seconds()
@@ -427,16 +417,9 @@ async def get_soc_insights(
     )
     fp_rate = await _fp_rate(db, tenant_id, start, now)
     alert_count = await _count(db, Alert, tenant_id, start, now)
-    case_count = await _count(db, Case, tenant_id, start, now)
+    case_count = await case_metrics.count_created(db, tenant_id, start, now)
     cost_total, run_count = await _llm_cost_aggregate(db, tenant_id, start, now)
-    auto_closed = await _count(
-        db,
-        Case,
-        tenant_id,
-        start,
-        now,
-        Case.status == "resolved",
-    )
+    auto_closed = await case_metrics.count_created(db, tenant_id, start, now, statuses=case_metrics.FINISHED)
 
     # ── Previous-window comparisons for delta ─────────────────────────────
     prev_mtta = await _mean_hours(
@@ -457,16 +440,9 @@ async def get_soc_insights(
     )
     prev_fp_rate = await _fp_rate(db, tenant_id, prev_start, start)
     prev_alert_count = await _count(db, Alert, tenant_id, prev_start, start)
-    prev_case_count = await _count(db, Case, tenant_id, prev_start, start)
+    prev_case_count = await case_metrics.count_created(db, tenant_id, prev_start, start)
     prev_cost_total, prev_run_count = await _llm_cost_aggregate(db, tenant_id, prev_start, start)
-    prev_auto_closed = await _count(
-        db,
-        Case,
-        tenant_id,
-        prev_start,
-        start,
-        Case.status == "resolved",
-    )
+    prev_auto_closed = await case_metrics.count_created(db, tenant_id, prev_start, start, statuses=case_metrics.FINISHED)
 
     # ── Derived ───────────────────────────────────────────────────────────
     alerts_per_day = round(alert_count / window_days, 2)

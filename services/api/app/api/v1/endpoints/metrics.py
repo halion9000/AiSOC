@@ -30,7 +30,7 @@ from sqlalchemy import and_, func, select, text
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.config import settings
 from app.models.alert import Alert
-from app.models.case import Case
+from app.services import case_metrics as case_counts  # not `case_metrics`: get_dashboard_metrics has a local variable of that name
 from app.models.connector import Connector
 from app.models.detection_rule import DetectionRule
 from app.models.remediation import RemediationGateLog
@@ -244,17 +244,10 @@ async def get_dashboard_metrics(
     )
 
     # ── Case counts ───────────────────────────────────────────────────────────
-    open_cases_q = await db.scalar(select(func.count()).where(and_(Case.tenant_id == tenant_id, Case.status == "open")))
-    in_progress_q = await db.scalar(select(func.count()).where(and_(Case.tenant_id == tenant_id, Case.status == "in_progress")))
-    resolved_week_q = await db.scalar(
-        select(func.count()).where(
-            and_(
-                Case.tenant_id == tenant_id,
-                Case.status == "resolved",
-                Case.updated_at >= week_start,
-            )
-        )
-    )
+    # Read from aisoc_cases with its real statuses (see app.services.case_metrics): this counted the old `cases` table and the words 'open' / 'in_progress', so it always showed zero.
+    open_cases_q = await case_counts.count_with_status(db, tenant_id, case_counts.OPEN)
+    in_progress_q = await case_counts.count_with_status(db, tenant_id, case_counts.IN_PROGRESS)
+    resolved_week_q = await case_counts.count_finished_since(db, tenant_id, week_start)
 
     case_metrics = CaseMetrics(
         open=open_cases_q or 0,
@@ -508,19 +501,8 @@ async def get_soc_metrics(
 
     # ── Volume / case counts ──────────────────────────────────────────────────
     alert_vol = await db.scalar(select(func.count()).where(and_(Alert.tenant_id == tenant_id, Alert.created_at >= week_start))) or 0
-    cases_opened = await db.scalar(select(func.count()).where(and_(Case.tenant_id == tenant_id, Case.created_at >= week_start))) or 0
-    cases_closed = (
-        await db.scalar(
-            select(func.count()).where(
-                and_(
-                    Case.tenant_id == tenant_id,
-                    Case.status == "resolved",
-                    Case.updated_at >= week_start,
-                )
-            )
-        )
-        or 0
-    )
+    cases_opened = await case_counts.count_created(db, tenant_id, week_start)
+    cases_closed = await case_counts.count_finished_since(db, tenant_id, week_start)
 
     # ── Analyst overrides (7d) ────────────────────────────────────────────────
     # Any alert with a disposition set in the last 7 days = analyst weighed in.
