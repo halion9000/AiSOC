@@ -57,11 +57,22 @@ async def test_hunt_to_detection_flag_disables_bridge(monkeypatch):
     db.execute.assert_not_awaited()
 
 
+class _Savepoint:
+    """What AsyncSession.begin_nested() returns: an async context manager."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 @pytest.mark.asyncio
 async def test_default_callback_opens_case_and_proposal(monkeypatch):
     monkeypatch.setenv("AISOC_HUNT_TO_DETECTION", "true")
     db = AsyncMock()
     db.add = MagicMock()
+    db.begin_nested = MagicMock(return_value=_Savepoint())
     await hunt_scheduler._on_hunt_hits(db, _hunt(), 3)
     # both writes are INSERTs through db.execute: the case into aisoc_cases (where the cases API reads it), then the detection proposal. Nothing goes through the ORM's db.add any more.
     statements = [" ".join(str(c.args[0]).split()) for c in db.execute.await_args_list]
@@ -69,6 +80,7 @@ async def test_default_callback_opens_case_and_proposal(monkeypatch):
     assert statements[0].startswith("INSERT INTO aisoc_cases")
     assert statements[1].startswith("INSERT INTO") and "aisoc_cases" not in statements[1]
     db.add.assert_not_called()
+    db.begin_nested.assert_called_once()  # the proposal runs inside a SAVEPOINT, so its failure cannot cost the case
 
 
 # ── W1.4: disposition history -> tuner input ────────────────────────────────

@@ -35,6 +35,9 @@ class DetectionRuleProposal(Base):
     mitre_techniques: Mapped[list] = mapped_column(JSONB, default=list)
     tags: Mapped[list] = mapped_column(JSONB, default=list)
 
+    # Where the proposal came from (hunt-finding, detection-loop, auto-tuner); NULL for those made by hand or from natural language. Migration 064.
+    source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     status: Mapped[str] = mapped_column(String(20), default="proposed", index=True)
     eval_result: Mapped[dict] = mapped_column(JSONB, default=dict)
     review_comments: Mapped[list] = mapped_column(JSONB, default=list)

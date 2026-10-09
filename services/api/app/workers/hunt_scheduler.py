@@ -55,7 +55,6 @@ the flag the same way it gates ``oauth_refresh`` and
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -319,8 +318,13 @@ async def _propose_detection_from_hunt(db: AsyncSession, hunt: SavedHunt, hit_co
 async def _on_hunt_hits(db: AsyncSession, hunt: SavedHunt, hit_count: int) -> None:
     """Default hit handler: open a case AND propose a detection (Wave 1)."""
     await _open_case_for_hits(db, hunt, hit_count)
-    with contextlib.suppress(Exception):
-        await _propose_detection_from_hunt(db, hunt, hit_count)
+    # The proposal is a bonus: its failure must never cost the case. A failed statement aborts the WHOLE Postgres transaction, and this used to be wrapped only in contextlib.suppress, so when the proposal INSERT failed (it always did: the
+    # `source` column did not exist) the case just opened was rolled back with it and last_run_at was never stamped. A SAVEPOINT confines the failure to the proposal.
+    try:
+        async with db.begin_nested():
+            await _propose_detection_from_hunt(db, hunt, hit_count)
+    except Exception:  # noqa: BLE001
+        logger.warning("hunt_scheduler.detection_proposal_failed hunt_id=%s tenant=%s", hunt.id, hunt.tenant_id, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
