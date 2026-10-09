@@ -22,6 +22,7 @@ Endpoints
 
 from __future__ import annotations
 
+import re
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -29,8 +30,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from fastapi import APIRouter, status, Depends
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, status, Depends
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
@@ -149,6 +150,49 @@ if not TYPE_CHECKING:
 router = APIRouter(prefix="/nl-query", tags=["nl_query"])
 
 
+# --- What a query may read ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# The caller's index_pattern was spliced VERBATIM into the generated `FROM ...` line of an ES|QL query that /execute runs with the SERVER's Elasticsearch credentials, and the vendored grammar check accepts
+# every one of these (shown by running it): `FROM *`, `FROM .security-*,.kibana*` (internal indices), and injected pipeline commands (`logs-* | EVAL ... | DROP message | LIMIT 5 //`, whose `//` also comments out the translator's own LIMIT).
+# A single Elasticsearch shared by tenants made that a cross-tenant read; any Elasticsearch made it a read of whatever the server's key can see. When an LLM key is configured the LLM writes the query, steered by the user's question, so the
+# field alone is not enough: the final query's source clause is checked too, whoever produced it.
+_INDEX_TOKEN_RE = re.compile(r"^[a-z0-9][a-z0-9._*-]{2,99}$")
+_MAX_INDEX_TOKENS = 10
+_FIELD_NAME_RE = re.compile(r"^[A-Za-z_@][A-Za-z0-9_.@-]{0,99}$")
+# `FROM <sources> [METADATA ...]` at the very start, ended by a newline, a pipe or the end of the query.
+_SOURCE_HEAD_RE = re.compile(r"^(?P<head>\s*FROM\s+(?P<src>[^\s|,]+(?:\s*,\s*[^\s|,]+)*)(?P<meta>\s+METADATA\s+[A-Za-z0-9_@.,\s]+?)?)[ \t]*(?=\n|\||$)", re.IGNORECASE)
+
+
+class QueryScopeError(ValueError):
+    """The query reads something the caller may not ask for."""
+
+
+def validate_index_pattern(value: str) -> str:
+    """Comma-separated index names: lowercase letters, digits, `.`, `_`, `-` and `*`; each starting with a letter or digit (so never a hidden/system index, which starts with `.`) and with at least three literal characters before any `*` (so never `*`).
+    No whitespace, newline, pipe or comment character can get through, so the value cannot do anything but name indices."""
+    tokens = value.split(",")
+    if not value or len(tokens) > _MAX_INDEX_TOKENS:
+        raise QueryScopeError(f"index_pattern must name between 1 and {_MAX_INDEX_TOKENS} indices")
+    for token in tokens:
+        if not _INDEX_TOKEN_RE.match(token) or len(token.split("*")[0]) < 3:
+            raise QueryScopeError(f"index pattern {token[:40]!r} is not allowed: use lowercase names such as 'logs-*', with at least three literal characters before any '*'")
+    return value
+
+
+def enforce_query_scope(esql: str, tenant_id: uuid.UUID | str) -> str:
+    """The ES|QL that may be run: its source clause must be `FROM <allowed indices>` (checked with the same rules as index_pattern), and when NL_QUERY_TENANT_FIELD is set the caller's tenant predicate is added right after it.
+    Applied to the FINAL query, so it holds whether the deterministic translator or an LLM wrote it. Raises QueryScopeError."""
+    m = _SOURCE_HEAD_RE.match(esql)
+    if m is None:
+        raise QueryScopeError("the query does not begin with a plain FROM <indices> source clause")
+    validate_index_pattern(re.sub(r"\s+", "", m.group("src")))
+    field = (settings.NL_QUERY_TENANT_FIELD or "").strip()
+    if not field:
+        return esql
+    if not _FIELD_NAME_RE.match(field):
+        raise QueryScopeError("NL_QUERY_TENANT_FIELD is not a valid field name")
+    return f'{m.group("head")}\n| WHERE {field} == "{tenant_id}"' + esql[m.end("head"):]
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Pydantic schemas
 # ────────────────────────────────────────────────────────────────────────────
@@ -170,6 +214,14 @@ class NLQueryTranslateRequest(BaseModel):
         le=8760,
         description="Look-back window in hours.",
     )
+
+    @field_validator("index_pattern")
+    @classmethod
+    def _index_pattern_names_only_indices(cls, v: str) -> str:
+        try:
+            return validate_index_pattern(v)
+        except QueryScopeError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class NLQueryTranslateResponse(BaseModel):
@@ -305,10 +357,14 @@ async def translate_query(
     user: AuthUser,
 ) -> NLQueryTranslateResponse:
     translated, engine = await _translate(body.question, body.index_pattern, body.time_range_hours)
+    try:
+        scoped_esql = enforce_query_scope(translated.esql, user.tenant_id)
+    except QueryScopeError as exc:
+        raise HTTPException(status_code=422, detail=f"The generated query was refused: {exc}") from exc
     return NLQueryTranslateResponse(
         request_id=uuid.uuid4(),
         question=body.question,
-        esql=translated.esql,
+        esql=scoped_esql,
         spl=translated.spl,
         kql=translated.kql,
         explanation=translated.explanation,
@@ -330,11 +386,16 @@ async def execute_query(
     user: AuthUser,
 ) -> NLQueryExecuteResponse:
     translated, engine = await _translate(body.question, body.index_pattern, body.time_range_hours)
+    try:
+        scoped_esql = enforce_query_scope(translated.esql, user.tenant_id)
+        scope_error = None
+    except QueryScopeError as exc:
+        scoped_esql, scope_error = translated.esql, str(exc)
 
     base = NLQueryExecuteResponse(
         request_id=uuid.uuid4(),
         question=body.question,
-        esql=translated.esql,
+        esql=scoped_esql,
         spl=translated.spl,
         kql=translated.kql,
         explanation=translated.explanation,
@@ -342,6 +403,11 @@ async def execute_query(
         engine=engine,
         grammar_validated=True,
     )
+
+    if scope_error is not None:
+        # Whoever wrote the query (the deterministic translator or an LLM steered by the question), it names something the caller may not read: nothing is run.
+        base.execution_error = f"Refusing to execute: {scope_error}."
+        return base
 
     # Always resolve the ES URL from server-side settings — never from
     # user-supplied body fields — to prevent partial-SSRF attacks
@@ -354,7 +420,7 @@ async def execute_query(
 
     try:
         base.result = await _execute_esql(
-            translated.esql,
+            scoped_esql,
             es_url=es_url,
             es_api_key=es_api_key,
             max_rows=body.max_rows,

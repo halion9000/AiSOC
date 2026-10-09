@@ -257,6 +257,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_third_batch())
     flows.update(_fourth_batch())
     flows.update(_fifth_batch())
+    flows.update(_sixth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -496,6 +497,21 @@ def _fifth_batch() -> dict[str, list[Step]]:
             S("B's parser list excludes it", "B", "get", "/api/v1/data-lifecycle/parsers", expect=(200,), absent="pa"),
             S("B cannot delete it", "B", "delete", "/api/v1/data-lifecycle/parsers/{pa}", expect=ISO, nobody=True),
             S("A's parser is intact", "A", "get", "/api/v1/data-lifecycle/parsers", expect=(200,), check=lambda r, c: _has(r, c["pa"])),
+        ],
+    }
+
+
+def _sixth_batch() -> dict[str, list[Step]]:
+    """Natural-language queries: the caller picks the index pattern of a query that runs with the SERVER's Elasticsearch credentials, so it must only be able to name ordinary indices."""
+    q = {"question": "Show failed logins per user in the last day", "time_range_hours": 24}
+    return {
+        "nl_query": [
+            S("a normal index pattern translates", "B", "post", "/api/v1/nl-query/translate", over={**q, "index_pattern": "logs-*,aisoc-events-*"}, expect=(200,), check=lambda r, c: "FROM logs-*,aisoc-events-*" in r.text),
+            S("every index is refused", "B", "post", "/api/v1/nl-query/translate", over={**q, "index_pattern": "*"}, expect=(422,)),
+            S("system indices are refused", "B", "post", "/api/v1/nl-query/translate", over={**q, "index_pattern": ".security-*,.kibana*"}, expect=(422,)),
+            S("an injected pipeline is refused", "B", "post", "/api/v1/nl-query/translate", over={**q, "index_pattern": "logs-* | EVAL pwned = 1 | DROP message | LIMIT 5 //"}, expect=(422,)),
+            S("a newline-separated command is refused", "B", "post", "/api/v1/nl-query/translate", over={**q, "index_pattern": "logs-*\n| KEEP user.password"}, expect=(422,)),
+            S("execute refuses a hostile pattern too", "B", "post", "/api/v1/nl-query/execute", over={**q, "index_pattern": "*"}, expect=(422,)),
         ],
     }
 

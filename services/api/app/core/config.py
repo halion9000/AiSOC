@@ -311,6 +311,10 @@ class Settings(BaseSettings):
     # fallback for an always-empty one.
     OPENSEARCH_URL: str = "http://localhost:9200"
     ES_API_KEY: str = ""
+    # The Elasticsearch field that holds the tenant of each event, when ONE Elasticsearch is shared by several tenants. When set, the NL query endpoints add
+    # `| WHERE <field> == "<caller's tenant id>"` right after the source command of every query they run. Leave empty for a single-tenant Elasticsearch; set it
+    # for a shared one, or a tenant with lake:query can read every tenant's events through /nl-query/execute (which runs with the server's credentials).
+    NL_QUERY_TENANT_FIELD: str = ""
     SPLUNK_URL: str = ""
     SPLUNK_HMAC_TOKEN: str = ""
     CHRONICLE_PROJECT_ID: str = ""
