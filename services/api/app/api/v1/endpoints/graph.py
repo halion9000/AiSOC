@@ -6,6 +6,7 @@ AiSOC — open-source AI Security Operations Center (MIT License)
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -158,8 +159,11 @@ class UpsertCaseGraphRequest(BaseModel):
 async def _attack_path_from_relational(
     db: Any,
     case_id: str,
+    tenant_id: uuid.UUID,
 ) -> dict[str, Any] | None:
-    """Reconstruct an attack path graph from the relational case row.
+    """Reconstruct an attack path graph from the relational case row, ONLY if the case belongs to `tenant_id`.
+
+    This used to look the case up by id alone, and it runs not just when Neo4j is offline but whenever the (tenant-scoped) graph returns no nodes, which is exactly what a case id from ANOTHER tenant produces: so any caller with alerts:read could read another tenant's case title, severity, MITRE techniques and alert ids, with the graph online or not.
 
     Used as a fallback when the Neo4j knowledge graph is unreachable so the
     Attack Path tab still renders something meaningful in demo deployments
@@ -168,8 +172,8 @@ async def _attack_path_from_relational(
     """
     row = (
         await db.execute(
-            text("SELECT id, title, severity, mitre_techniques, alert_ids FROM aisoc_cases WHERE id = CAST(:cid AS UUID)").bindparams(
-                cid=case_id
+            text("SELECT id, title, severity, mitre_techniques, alert_ids FROM aisoc_cases WHERE id = CAST(:cid AS UUID) AND tenant_id = :tenant_id").bindparams(
+                cid=case_id, tenant_id=tenant_id
             )
         )
     ).fetchone()
@@ -278,7 +282,7 @@ async def get_attack_path(
         graph_offline = True
 
     if graph_offline or not data or not data.get("nodes"):
-        fallback = await _attack_path_from_relational(db, case_id)
+        fallback = await _attack_path_from_relational(db, case_id, current_user.tenant_id)
         if fallback is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

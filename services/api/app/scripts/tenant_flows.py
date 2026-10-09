@@ -355,6 +355,8 @@ def _third_batch() -> dict[str, list[Step]]:
             S("A reads the attack chain", "A", "get", child("attack-chain"), expect=(200,)),
             S("B cannot read A's attack chain", "B", "get", child("attack-chain"), expect=ISO),
             S("A reads the summary", "A", "get", child("summary"), expect=(200,), check=lambda r, c: _top_field_is(r, "headline", r.json().get("headline")) and "case" in r.json()),
+            S("A reads the graph attack path", "A", "get", "/api/v1/graph/attack-path/{cc}", expect=(200,), check=lambda r, c: _has(r, c["cc"])),
+            S("B cannot read A's graph attack path", "B", "get", "/api/v1/graph/attack-path/{cc}", expect=ISO),
             S("B cannot read A's summary", "B", "get", child("summary"), expect=ISO),
             S("B cannot read A's summary as HTML", "B", "get", child("summary"), params={"format": "html"}, expect=ISO),
             S("A reads the postmortem", "A", "get", child("postmortem"), expect=(200,)),
