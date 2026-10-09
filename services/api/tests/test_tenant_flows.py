@@ -133,12 +133,18 @@ class TestTheFlowDefinitionsMatchTheRealApi:
 
     def test_every_path_parameter_is_produced_by_an_earlier_step_of_the_same_flow(self):
         for flow, steps in tf.build_flows().items():
-            have: set[str] = set()
+            have: set[str] = set(tf.FLOW_SEEDS.get(flow, {}))
             for st in steps:
                 for name in re.findall(r"\{(\w+)\}", st.tpl):
                     assert name in have, f"{flow}: '{st.name}' needs {{{name}}} before any step captures it"
                 if st.capture:
                     have.add(st.capture[0])
+
+    def test_seeds_belong_to_real_flows_and_are_plain_strings(self):
+        flows = tf.build_flows()
+        for flow, seeds in tf.FLOW_SEEDS.items():
+            assert flow in flows, f"seed for a flow that does not exist: {flow}"
+            assert all(isinstance(k, str) and isinstance(v, str) and v for k, v in seeds.items())
 
     def test_step_names_are_unique_within_a_flow(self):
         for flow, steps in tf.build_flows().items():

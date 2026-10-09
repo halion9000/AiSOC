@@ -261,6 +261,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_seventh_batch())
     flows.update(_eighth_batch())
     flows.update(_ninth_batch())
+    flows.update(_tenth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -575,6 +576,33 @@ def _eighth_batch() -> dict[str, list[Step]]:
     }
 
 
+# Values a flow starts with, for a path parameter that is chosen by the caller rather than returned by the API (a connector type, a slug): {name} in a step's path is filled from here until a step captures it.
+FLOW_SEEDS: dict[str, dict[str, str]] = {"oauth_apps": {"ct": "github"}}
+
+
+def _tenth_batch() -> dict[str, list[Step]]:
+    """OAuth app credentials: a tenant's client id and client SECRET for a connector type. The secret is encrypted at rest and must never be returned; each tenant must see, replace and delete only its own."""
+    secret_a, secret_b = "alpha-secret-VALUE-1234", "bravo-secret-VALUE-5678"
+    none_of = lambda r: _lacks(r, secret_a) and _lacks(r, secret_b)  # noqa: E731  (neither tenant's secret appears in ANY response)
+    return {
+        "oauth_apps": [
+            S("A registers its OAuth app", "A", "put", "/api/v1/oauth/app/{ct}", over={"client_id": "alpha-client-id", "client_secret": secret_a}, expect=(200,), check=lambda r, c: none_of(r) and r.json()["has_secret"] is True and r.json()["client_id"] == "alpha-client-id"),
+            S("A reads it back (and the secret is not returned)", "A", "get", "/api/v1/oauth/app/{ct}", expect=(200,), check=lambda r, c: none_of(r) and _has(r, "alpha-client-id")),
+            S("B has no app for that connector", "B", "get", "/api/v1/oauth/app/{ct}", expect=(404,)),
+            S("B registers ITS OWN app for the same connector", "B", "put", "/api/v1/oauth/app/{ct}", over={"client_id": "bravo-client-id", "client_secret": secret_b}, expect=(200,), check=lambda r, c: none_of(r) and _has(r, "bravo-client-id") and _lacks(r, "alpha-client-id")),
+            S("A still has only its own", "A", "get", "/api/v1/oauth/app/{ct}", expect=(200,), check=lambda r, c: none_of(r) and _has(r, "alpha-client-id") and _lacks(r, "bravo-client-id")),
+            S("B has only its own", "B", "get", "/api/v1/oauth/app/{ct}", expect=(200,), check=lambda r, c: none_of(r) and _has(r, "bravo-client-id") and _lacks(r, "alpha-client-id")),
+            S("B deletes ITS app", "B", "delete", "/api/v1/oauth/app/{ct}", expect=(204,), nobody=True),
+            S("B's app is gone", "B", "get", "/api/v1/oauth/app/{ct}", expect=(404,)),
+            S("A's app survives B's delete", "A", "get", "/api/v1/oauth/app/{ct}", expect=(200,), check=lambda r, c: _has(r, "alpha-client-id") and r.json()["has_secret"] is True),
+            S("B deleting again finds nothing of B's and changes nothing of A's", "B", "delete", "/api/v1/oauth/app/{ct}", expect=(204,), nobody=True),
+            S("A's app still survives", "A", "get", "/api/v1/oauth/app/{ct}", expect=(200,), check=lambda r, c: _has(r, "alpha-client-id")),
+            S("A deletes its own", "A", "delete", "/api/v1/oauth/app/{ct}", expect=(204,), nobody=True),
+            S("A's app is gone", "A", "get", "/api/v1/oauth/app/{ct}", expect=(404,)),
+        ],
+    }
+
+
 def _ninth_batch() -> dict[str, list[Step]]:
     """Tenant user management and settings. B is a plain `admin` here: it holds every tenant-level permission but no platform permission, so it must be refused a platform_admin and allowed lower roles."""
     user_of = lambda r, uid: next((u for u in r.json() if u["id"] == uid), None)  # noqa: E731
@@ -647,7 +675,7 @@ async def run_flows(emails: tuple[str, str], password: str) -> list[list]:
                     raise SystemExit(f"login failed for tenant {user} ({email}): HTTP {r.status_code}")
                 tok[user] = {"Authorization": "Bearer " + r.json()["access_token"]}
             for flow, steps in build_flows().items():
-                ctx: dict[str, str] = {}
+                ctx: dict[str, str] = dict(FLOW_SEEDS.get(flow, {}))
                 for st in steps:
                     try:
                         path = st.tpl.format(**ctx) if "{" in st.tpl else st.tpl
