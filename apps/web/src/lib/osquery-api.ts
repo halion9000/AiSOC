@@ -54,7 +54,8 @@ export interface FimSummary {
 }
 
 export interface FimEventsParams {
-  tenant_id: string;
+  /** Omitted: your own tenant. Another tenant needs platform:cross_tenant_query. */
+  tenant_id?: string;
   page?: number;
   page_size?: number;
   action?: string;
@@ -64,7 +65,8 @@ export interface FimEventsParams {
 }
 
 export interface FimSummaryParams {
-  tenant_id: string;
+  /** Omitted: your own tenant. Another tenant needs platform:cross_tenant_query. */
+  tenant_id?: string;
   since?: string; // ISO-8601
 }
 

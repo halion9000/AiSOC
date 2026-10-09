@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
+import { TenantScopePicker } from '@/components/ui/TenantScopePicker';
 import { clsx } from 'clsx';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { formatDistanceToNow } from 'date-fns';
@@ -255,17 +256,20 @@ function EntityRow({
 
 function EntityDetailDrawer({
   entity,
+  tenantId,
   onClose,
 }: {
   entity: EntityRiskRecord;
+  /** The tenant being viewed, or null for the caller's own. */
+  tenantId: string | null;
   onClose: () => void;
 }) {
   const cfg = ENTITY_TYPE_CONFIG[entity.entity_type] ?? ENTITY_TYPE_CONFIG.user;
   // Pull a fresh detail record so contributions are up-to-date when the drawer
   // opens — falls back to the row data on error.
   const { data } = useSWR(
-    ['entity-risk-detail', entity.entity_type, entity.entity_value],
-    () => entityRiskApi.get(entity.entity_type, entity.entity_value),
+    ['entity-risk-detail', tenantId, entity.entity_type, entity.entity_value],
+    () => entityRiskApi.get(entity.entity_type, entity.entity_value, tenantId ?? undefined),
     { fallbackData: entity, refreshInterval: 30000 },
   );
   const record = data ?? entity;
@@ -406,15 +410,17 @@ const UNKNOWN = '\u2014';
 export function EntityRiskQueue() {
   const [promotedOnly, setPromotedOnly] = useState(false);
   const [selected, setSelected] = useState<EntityRiskRecord | null>(null);
+  // null = my own tenant (the default; nothing is sent and the server resolves it). Set only when someone who may look at other tenants picks one.
+  const [tenantId, setTenantId] = useState<string | null>(null);
 
   const { data: queue, error: queueError, isLoading: queueLoading, mutate: mutateQueue } = useSWR(
-    ['entity-risk-queue', promotedOnly],
-    () => entityRiskApi.queue({ limit: 50, promotedOnly }),
+    ['entity-risk-queue', tenantId, promotedOnly],
+    () => entityRiskApi.queue({ limit: 50, promotedOnly, tenantId: tenantId ?? undefined }),
     { refreshInterval: 30000 },
   );
   const { data: stats } = useSWR<EntityRiskStats>(
-    'entity-risk-stats',
-    () => entityRiskApi.stats(),
+    ['entity-risk-stats', tenantId],
+    () => entityRiskApi.stats(tenantId ?? undefined),
     { refreshInterval: 30000 },
   );
 
@@ -472,6 +478,13 @@ export function EntityRiskQueue() {
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap py-3 px-4 bg-gray-900/40 border border-gray-800/60 rounded-xl">
+        <TenantScopePicker
+          value={tenantId}
+          onChange={(next) => {
+            setTenantId(next);
+            setSelected(null); // an open drawer belongs to the tenant that was on screen
+          }}
+        />
         <div className="flex items-center gap-1">
           <button
             onClick={() => setPromotedOnly(false)}
@@ -555,6 +568,7 @@ export function EntityRiskQueue() {
       {selected && (
         <EntityDetailDrawer
           entity={selected}
+          tenantId={tenantId}
           onClose={() => setSelected(null)}
         />
       )}

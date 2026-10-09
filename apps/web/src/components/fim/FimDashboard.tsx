@@ -7,11 +7,7 @@ import type { FimEventsPage, FimSummary } from '@/lib/osquery-api';
 import { getFimEvents, getFimSummary } from '@/lib/osquery-api';
 import { FimSummaryCards } from './FimSummaryCards';
 import { FimEventsTable } from './FimEventsTable';
-
-const TENANT_ID =
-  typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_TENANT_ID ?? 'default')
-    : 'default';
+import { TenantScopePicker } from '@/components/ui/TenantScopePicker';
 
 const PAGE_SIZE = 25;
 
@@ -50,13 +46,15 @@ export function FimDashboard() {
   const [action, setAction] = useState('');
   const [pathPrefix, setPathPrefix] = useState('');
   const [since, setSince] = useState('24h');
+  // null = my own tenant: nothing is sent and the server resolves it from the login. (This used to send a build-time constant, 'default' unless configured, which the API only accepts for the demo tenant.)
+  const [tenantId, setTenantId] = useState<string | null>(null);
 
   // The SWR keys carry the window the user CHOSE ('24h'), never a timestamp: a key built from `new Date()` is different on every render, so every finished fetch caused a re-render, a new key and another fetch (about 80 requests a second from an idle page against a 20 ms server). The timestamp is computed when the request is made, so each 30 s refresh also uses a window that has moved with the clock.
 
   // Events feed
   const eventsKey = [
     'fim-events',
-    TENANT_ID,
+    tenantId,
     page,
     action,
     pathPrefix,
@@ -70,7 +68,7 @@ export function FimDashboard() {
     eventsKey,
     () =>
       getFimEvents({
-        tenant_id: TENANT_ID,
+        tenant_id: tenantId ?? undefined,
         page,
         page_size: PAGE_SIZE,
         action: action || undefined,
@@ -84,14 +82,14 @@ export function FimDashboard() {
   );
 
   // Summary cards
-  const summaryKey = ['fim-summary', TENANT_ID, since];
+  const summaryKey = ['fim-summary', tenantId, since];
   const {
     data: summaryData,
     error: summaryError,
     isLoading: summaryLoading,
   } = useSWR<FimSummary>(
     summaryKey,
-    () => getFimSummary({ tenant_id: TENANT_ID, since: sinceToISO(since) }),
+    () => getFimSummary({ tenant_id: tenantId ?? undefined, since: sinceToISO(since) }),
     {
       onError: () => toast.error('Failed to load FIM summary'),
       refreshInterval: 60_000,
@@ -101,6 +99,10 @@ export function FimDashboard() {
   function handleActionChange(v: string) {
     setAction(v);
     setPage(1);
+  }
+  function handleTenantChange(next: string | null) {
+    setTenantId(next);
+    setPage(1); // page 7 of one tenant's events means nothing in another's
   }
   function handleSinceChange(v: string) {
     setSince(v);
@@ -126,6 +128,8 @@ export function FimDashboard() {
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <TenantScopePicker tone="light" value={tenantId} onChange={handleTenantChange} />
+
         {/* Time window */}
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-gray-500">Time window</label>

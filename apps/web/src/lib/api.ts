@@ -404,6 +404,10 @@ export const tenantsApi = {
   async me(): Promise<MyTenant> {
     return request<MyTenant>('/api/v1/tenants/me/identity');
   },
+  /** The tenants this caller may choose between in a tenant picker: their own, plus every other one only if the server says they may look at others. Needs `alerts:read`. */
+  async selectable(): Promise<SelectableTenantsResponse> {
+    return request<SelectableTenantsResponse>('/api/v1/tenants/selectable');
+  },
   /** The full tenant record (name, plan, creation date). Needs `settings:read`; an analyst without it gets a 403. */
   async details(): Promise<TenantDetails> {
     return request<TenantDetails>('/api/v1/tenants/me');
@@ -1077,7 +1081,8 @@ export const entityRiskApi = {
   } = {}) =>
     request<EntityRiskQueueResponse>(`${FUSION_PATH}/entity-risk/queue`, {
       params: {
-        tenant_id: params.tenantId ?? TENANT_ID,
+        // Omitted means "my own tenant" (the server resolves it from the login). It used to default to the build-time TENANT_ID, which is 'default' (not a UUID) on a standard build.
+        tenant_id: params.tenantId,
         limit: params.limit ?? 25,
         promoted_only: params.promotedOnly ? 'true' : undefined,
       },
@@ -1086,7 +1091,7 @@ export const entityRiskApi = {
   /** Tenant-scoped queue stats for dashboards (banding, totals, threshold). */
   stats: (tenantId?: string) =>
     request<EntityRiskStats>(`${FUSION_PATH}/entity-risk/stats`, {
-      params: { tenant_id: tenantId ?? TENANT_ID },
+      params: { tenant_id: tenantId },
     }),
 
   /** Full risk record for a single entity (drawer detail). */
@@ -1094,10 +1099,26 @@ export const entityRiskApi = {
     const pathType = entityType === 'ip' ? 'src_ip' : entityType;
     return request<EntityRiskRecord>(
       `${FUSION_PATH}/entity-risk/${pathType}/${encodeURIComponent(entityValue)}`,
-      { params: { tenant_id: tenantId ?? TENANT_ID } },
+      { params: { tenant_id: tenantId } },
     );
   },
 };
+
+// ??? Tenant picker ???????????????????????????????????????????????????????????
+
+export interface SelectableTenant {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface SelectableTenantsResponse {
+  own_tenant_id: string;
+  /** True only for a caller who holds platform:cross_tenant_query. Everyone else is offered exactly their own tenant. */
+  can_select_other_tenants: boolean;
+  tenants: SelectableTenant[];
+}
+
 
 // ─── Cases ───────────────────────────────────────────────────────────────────
 
