@@ -259,6 +259,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_fifth_batch())
     flows.update(_sixth_batch())
     flows.update(_seventh_batch())
+    flows.update(_eighth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -547,6 +548,28 @@ def _seventh_batch() -> dict[str, list[Step]]:
             S("A is still untouched by B's upsert", "A", "get", "/api/v1/business-context/rules", expect=(200,), check=mine("marker-alpha", "marker-bravo")),
             S("B cleans up its own rule", "B", "delete", "/api/v1/business-context/rules/{rule_id}", expect=(200, 204), nobody=True),
             S("A removes its own rule", "A", "delete", "/api/v1/business-context/rules/{rule_id}", expect=(200, 204), nobody=True),
+        ],
+    }
+
+
+def _eighth_batch() -> dict[str, list[Step]]:
+    """Inbox tokens: a credential identified by a fingerprint (its last 8 characters). Rotating or revoking one is acting on a credential, so another tenant must get nothing, and must not even learn that the fingerprint exists."""
+    live = lambda c, r: [t for t in r.json() if t["fingerprint"] == c["fp"] and t["revoked_at"] is None]  # noqa: E731
+    return {
+        "inbox_tokens": [
+            S("A mints an inbox token", "A", "post", "/api/v1/inbox/tokens", over={"template_id": "generic-json"}, expect=(201,)),
+            S("A lists it (and we capture its fingerprint)", "A", "get", "/api/v1/inbox/tokens", expect=(200,), capture=("fp", "0.fingerprint")),
+            S("B's list does not contain A's fingerprint", "B", "get", "/api/v1/inbox/tokens", expect=(200,), check=lambda r, c: _lacks(r, c["fp"])),
+            S("B cannot rotate A's token", "B", "post", "/api/v1/inbox/tokens/{fp}/rotate", expect=(404,), nobody=True),
+            S("B cannot revoke A's token", "B", "delete", "/api/v1/inbox/tokens/{fp}", expect=(404,), nobody=True),
+            S("A's token is intact: present, not revoked, and still the only one", "A", "get", "/api/v1/inbox/tokens", expect=(200,), check=lambda r, c: len(r.json()) == 1 and len(live(c, r)) == 1),
+            # B proves the same routes work on B's OWN token, so the 404s above are about ownership and not about the routes being broken.
+            S("B mints its own token", "B", "post", "/api/v1/inbox/tokens", over={"template_id": "generic-json"}, expect=(201,)),
+            S("B lists only its own (capturing it)", "B", "get", "/api/v1/inbox/tokens", expect=(200,), capture=("fpb", "0.fingerprint"), check=lambda r, c: len(r.json()) == 1 and _lacks(r, c["fp"])),
+            S("B rotates its OWN token", "B", "post", "/api/v1/inbox/tokens/{fpb}/rotate", expect=(200,), nobody=True),
+            S("A's token is still untouched by B's rotation", "A", "get", "/api/v1/inbox/tokens", expect=(200,), check=lambda r, c: len(r.json()) == 1 and len(live(c, r)) == 1),
+            S("A revokes its own token", "A", "delete", "/api/v1/inbox/tokens/{fp}", expect=(204,), nobody=True),
+            S("A's revoked token no longer appears in its list (the list hides revoked tokens)", "A", "get", "/api/v1/inbox/tokens", expect=(200,), check=lambda r, c: r.json() == [] and _lacks(r, c["fp"])),
         ],
     }
 
