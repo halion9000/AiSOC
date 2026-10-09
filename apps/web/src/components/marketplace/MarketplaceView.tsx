@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import clsx from 'clsx';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { authFetch } from '@/lib/auth-session';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -261,6 +262,7 @@ function InstallButton({ item, installed, busy, onInstall, onUninstall }: Instal
           onClick={() => onUninstall(item)}
           disabled={busy}
           title="Remove from this tenant"
+          aria-label={`Uninstall ${item.name}`}
           className="rounded px-1.5 py-1 text-xs text-zinc-400 hover:text-rose-300 disabled:opacity-50"
         >
           {busy ? '…' : '×'}
@@ -552,6 +554,20 @@ export function MarketplaceView() {
     },
     [refreshInstalled, setBusyKey],
   );
+
+  // Uninstalling removes the item from this tenant's enabled set. Reinstalling is one click, but it is still a removal: ask first, naming the item.
+  const [uninstallTarget, setUninstallTarget] = useState<MarketplaceItem | null>(null);
+  const [uninstalling, setUninstalling] = useState(false);
+  const confirmUninstall = useCallback(async () => {
+    if (!uninstallTarget) return;
+    setUninstalling(true);
+    try {
+      await handleUninstall(uninstallTarget);
+    } finally {
+      setUninstalling(false);
+      setUninstallTarget(null);
+    }
+  }, [handleUninstall, uninstallTarget]);
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'playbook' | 'detection' | 'plugin'>('all');
@@ -987,12 +1003,21 @@ export function MarketplaceView() {
                 installed={installedSet.has(key)}
                 busy={busy.has(key)}
                 onInstall={handleInstall}
-                onUninstall={handleUninstall}
+                onUninstall={(item) => setUninstallTarget(item)}
               />
             );
           })}
         </div>
       )}
+      <ConfirmDialog
+        open={uninstallTarget !== null}
+        title="Uninstall this item?"
+        message={`Remove "${uninstallTarget?.name ?? ''}" from this tenant? It stops being enabled here. You can install it again from the marketplace at any time.`}
+        confirmLabel="Uninstall"
+        busy={uninstalling}
+        onConfirm={() => void confirmUninstall()}
+        onCancel={() => setUninstallTarget(null)}
+      />
     </div>
   );
 }
