@@ -45,9 +45,9 @@ async def get_settings(db: Any) -> PlatformAlertEmailSettings:
 
 
 async def update_settings(
-    db: Any, *, updated_by: str, enabled: bool | None = None, min_severity: str | None = None, recipients: Any = None, now: datetime | None = None
+    db: Any, *, updated_by: str, enabled: bool | None = None, min_severity: str | None = None, recipients: Any = None, now: datetime | None = None, commit: bool = True
 ) -> PlatformAlertEmailSettings:
-    """Change any of the three. Turning it ON needs at least one recipient and starts the clock: only alerts created AFTER that moment are ever emailed (switching on never mails a backlog). Commits."""
+    """Change any of the three. Turning it ON needs at least one recipient and starts the clock: only alerts created AFTER that moment are ever emailed (switching on never mails a backlog). Commits, unless `commit=False` (so a caller can write its audit event in the same transaction)."""
     now = now or datetime.now(UTC)
     row = await get_settings(db)
     if min_severity is not None:
@@ -64,5 +64,6 @@ async def update_settings(
         row.enabled = enabled
     row.updated_by_label = updated_by[:200]
     row.updated_at = now
-    await db.commit()
+    if commit:
+        await db.commit()
     return row

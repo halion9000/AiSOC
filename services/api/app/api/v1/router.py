@@ -61,6 +61,7 @@ from app.api.v1.endpoints import (
     passkeys,
     phishing,
     playbooks,
+    platform_alert_email,
     plugins,
     posture,
     push,
@@ -118,6 +119,7 @@ api_router.include_router(rule_tuning.router)
 api_router.include_router(federated.router)
 api_router.include_router(graph.router)
 api_router.include_router(playbooks.router)
+api_router.include_router(platform_alert_email.router)
 api_router.include_router(plugins.router)
 api_router.include_router(community.router)
 api_router.include_router(marketplace.router)
