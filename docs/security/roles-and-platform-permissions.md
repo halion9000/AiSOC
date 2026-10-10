@@ -36,8 +36,8 @@ From the command line, with database access:
 
 ```bash
 python -m app.scripts.platform_admin list
-python -m app.scripts.platform_admin grant  --email person@example.com
-python -m app.scripts.platform_admin revoke --email person@example.com [--to-role tenant_admin] [--force]
+python -m app.scripts.platform_admin grant  --name hal.liveoak            # the account name they sign in with (or --email person@example.com)
+python -m app.scripts.platform_admin revoke --name hal.liveoak [--to-role tenant_admin] [--force]
 ```
 
 Revoking the **last active** `platform_admin` is refused unless you pass `--force`, because nobody could then administer the platform.

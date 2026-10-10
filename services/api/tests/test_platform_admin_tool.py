@@ -16,8 +16,10 @@ from app.scripts import platform_admin as pa
 API = Path(__file__).resolve().parent.parent
 
 
-def user(email, role="admin", active=True):
-    return SimpleNamespace(id=uuid.uuid4(), email=email, role=role, is_active=active, tenant_id=uuid.uuid4())
+def user(email, role="admin", active=True, account_name=None):
+    """A user row; `email` may be None (an account need not have one)."""
+    name = account_name or (email.split("@")[0] if email else "nomail")
+    return SimpleNamespace(id=uuid.uuid4(), email=email, account_name=name, role=role, is_active=active, tenant_id=uuid.uuid4())
 
 
 class FakeSession:
@@ -41,6 +43,7 @@ class FakeSession:
         res = MagicMock()
         res.scalar_one_or_none.return_value = payload
         res.scalar_one.return_value = payload
+        res.scalars.return_value.first.return_value = None if isinstance(payload, (list, int)) else payload  # the shared lookups read with .scalars().first()
         res.scalars.return_value.all.return_value = payload if isinstance(payload, list) else []
         return res
 
@@ -81,7 +84,7 @@ class TestGrant:
         u = user("new@example.com", "tenant_admin")
         s = session(u, None)
         out = await pa.run("grant", "NEW@Example.com")
-        assert out == {"ok": True, "email": "new@example.com", "role": "platform_admin", "previous_role": "tenant_admin", "changed": True}
+        assert out == {"ok": True, "account_name": "new", "email": "new@example.com", "role": "platform_admin", "previous_role": "tenant_admin", "changed": True}
         assert len(s.updates) == 1 and "USERS" in s.updates[0]
         assert s.written_roles == ["platform_admin"]  # what is WRITTEN, not just what is reported
         s.commit.assert_awaited_once()
@@ -110,10 +113,11 @@ class TestGrant:
         assert out["changed"] is False and s.updates == []
         s.commit.assert_not_awaited()
 
-    async def test_an_email_is_required(self, session):
-        session()
-        with pytest.raises(pa.PlatformAdminError, match="--email"):
+    async def test_a_person_must_be_named(self, session):
+        s = session()
+        with pytest.raises(pa.PlatformAdminError, match="exactly one of --name"):
             await pa.run("grant", None)
+        assert s.statements == []
 
 
 @pytest.mark.asyncio
@@ -182,9 +186,9 @@ class TestCommandLine:
         run = AsyncMock(return_value={"ok": True})
         monkeypatch.setattr(pa, "run", run)
         pa.main(["revoke", "--email", "a@example.com", "--to-role", "viewer", "--force"])
-        run.assert_awaited_once_with("revoke", "a@example.com", to_role="viewer", force=True)
+        run.assert_awaited_once_with("revoke", "a@example.com", name=None, to_role="viewer", force=True)
 
-    def test_grant_and_revoke_require_an_email(self):
+    def test_grant_and_revoke_require_a_name_or_an_email(self):
         for argv in (["grant"], ["revoke"]):
             with pytest.raises(SystemExit):
                 pa.main(argv)
@@ -212,3 +216,99 @@ class TestMigration067:
     def test_it_touches_nothing_else(self):
         n = self.norm()
         assert n.count("UPDATE ") == 1 and "DELETE" not in n.upper() and "DROP" not in n.upper() and "INSERT" not in n.upper()
+
+
+@pytest.mark.asyncio
+class TestByAccountName:
+    """A person is named by the account name they sign in with. An account need not have an email, so the tool must be able to name one without it."""
+
+    async def test_it_grants_platform_power_to_an_account_that_has_no_email(self, session):
+        s = session(user(None, "tenant_admin", account_name="carol.jones"), None)
+        out = await pa.run("grant", name="Carol.Jones")
+        assert out == {"ok": True, "account_name": "carol.jones", "email": None, "role": "platform_admin", "previous_role": "tenant_admin", "changed": True}
+        assert s.written_roles == ["platform_admin"]
+        s.commit.assert_awaited_once()
+
+    async def test_the_name_lookup_is_case_insensitive_on_the_account_name_column_and_trims(self, session):
+        s = session(user(None, account_name="carol.jones"), None)
+        await pa.run("grant", name="  CAROL.Jones ")
+        assert "LOWER(USERS.ACCOUNT_NAME)" in s.statements[0] and "carol.jones" in s.bound[0].values()
+
+    async def test_an_unknown_name_is_an_error_naming_it_and_changes_nothing(self, session):
+        s = session(None)
+        with pytest.raises(pa.PlatformAdminError, match="No user with the account name 'ghost'"):
+            await pa.run("grant", name="Ghost")
+        assert s.updates == []
+
+    async def test_it_revokes_by_name(self, session):
+        s = session(user(None, "platform_admin", account_name="carol"), 1)
+        out = await pa.run("revoke", name="carol", to_role="viewer")
+        assert out["account_name"] == "carol" and out["email"] is None and out["role"] == "viewer" and s.written_roles == ["viewer"]
+
+    async def test_the_last_admin_protection_names_the_account_not_an_empty_email(self, session):
+        session(user(None, "platform_admin", account_name="carol"), 0)
+        with pytest.raises(pa.PlatformAdminError, match="carol is the last active platform_admin"):
+            await pa.run("revoke", name="carol")
+
+    async def test_a_deactivated_account_is_named_by_its_account_name(self, session):
+        session(user(None, "admin", active=False, account_name="dormant"))
+        with pytest.raises(pa.PlatformAdminError, match="dormant is deactivated"):
+            await pa.run("grant", name="dormant")
+
+    async def test_the_result_carries_both_the_account_name_and_the_email_when_there_is_one(self, session):
+        session(user("new@example.com", "tenant_admin", account_name="newbie"), None)
+        out = await pa.run("grant", email="NEW@example.com")
+        assert (out["account_name"], out["email"]) == ("newbie", "new@example.com")
+
+    @pytest.mark.parametrize("kw", [{}, {"email": "a@example.com", "name": "a"}])
+    async def test_exactly_one_of_name_and_email_and_nothing_is_touched_otherwise(self, session, kw):
+        s = session(user("a@example.com"))
+        with pytest.raises(pa.PlatformAdminError, match="exactly one of --name"):
+            await pa.run("grant", **kw)
+        assert s.statements == [] and s.updates == []
+
+    async def test_an_email_option_without_an_at_sign_is_pointed_at_name(self, session):
+        s = session(user("a@example.com"))
+        with pytest.raises(pa.PlatformAdminError, match="not an email address.*--name"):
+            await pa.run("grant", "carol.jones")
+        assert s.statements == []
+
+    async def test_a_name_option_is_never_looked_up_as_an_email(self, session):
+        s = session(user(None, account_name="carol"), None)
+        await pa.run("grant", name="carol")
+        assert "LOWER(USERS.EMAIL)" not in s.statements[0]
+
+    async def test_list_shows_the_account_name_and_a_missing_email_as_null(self, session):
+        a, b = user("a@example.com", "platform_admin", account_name="alice"), user(None, "platform_admin", account_name="nomail")
+        session([a, b])
+        out = await pa.run("list")
+        assert [(x["account_name"], x["email"]) for x in out["platform_admins"]] == [("alice", "a@example.com"), ("nomail", None)]
+
+    async def test_a_lookup_that_matches_more_than_one_row_cannot_crash_the_tool(self, session):
+        """The old tool did scalar_one_or_none(), which raises when a deployment still holds two accounts differing only in letter case (migration 070 warns about that); the shared lookup picks one deterministically."""
+        import inspect
+
+        src = inspect.getsource(pa.run)
+        assert "scalar_one_or_none" not in src and "find_user_by_email(" in src and "find_user_by_account_name(" in src
+
+
+class TestCommandLineByName:
+    def test_the_name_reaches_run_and_the_email_does_not(self, monkeypatch):
+        run = AsyncMock(return_value={"ok": True})
+        monkeypatch.setattr(pa, "run", run)
+        pa.main(["grant", "--name", "carol.jones"])
+        run.assert_awaited_once_with("grant", None, name="carol.jones", to_role="tenant_admin", force=False)
+
+    def test_revoke_by_name_with_options(self, monkeypatch):
+        run = AsyncMock(return_value={"ok": True})
+        monkeypatch.setattr(pa, "run", run)
+        pa.main(["revoke", "--name", "carol", "--to-role", "viewer", "--force"])
+        run.assert_awaited_once_with("revoke", None, name="carol", to_role="viewer", force=True)
+
+    @pytest.mark.parametrize("action", ["grant", "revoke"])
+    def test_name_and_email_together_are_refused_by_the_parser(self, action):
+        with pytest.raises(SystemExit):
+            pa.main([action, "--name", "a", "--email", "a@example.com"])
+
+    def test_the_docstring_tells_people_about_both_options(self):
+        assert "--name" in pa.__doc__ and "--email" in pa.__doc__ and "exactly one" in pa.__doc__
