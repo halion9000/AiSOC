@@ -18,6 +18,23 @@ Authorization: Bearer <jwt>
 Content-Type: application/json
 ```
 
+## Permissions
+
+GraphQL enforces the same permissions as the REST routes that serve the same data, for a signed-in user's role **and** for an API key's scopes. A field you may not read returns an error that names what is missing (for a key: `API key missing scope: rules:read`), exactly as REST would refuse you:
+
+| Query field | Needs |
+| --- | --- |
+| `alert`, `alerts` | `alerts:read` |
+| `case`, `cases` | `cases:read` |
+| `detectionRules` | `rules:read` |
+| `connectors` | `connectors:read` |
+| `playbooks`, `playbookRuns` | `playbooks:read` |
+| `socStats` | `alerts:read` and `cases:read` |
+
+Everything is scoped to **your own tenant**; playbooks and playbook runs are always those of the tenant you are signed in to. Note that an error in a non-null field makes GraphQL return `data: null` for the whole response, so ask for a field you may not read in its own query if you want the others.
+
+The query fields above are the ones the live schema implements. The schema overview further down is broader than what is currently implemented (for example the honeytoken fields, mutations and subscriptions are not part of the live schema); ask the server for its schema rather than relying on that page.
+
 ## Interactive Explorer
 
 When running locally, the GraphQL explorer is available at:

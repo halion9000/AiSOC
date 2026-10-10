@@ -18,6 +18,7 @@ import uuid
 
 import httpx
 import strawberry
+from fastapi import HTTPException
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, text
@@ -46,6 +47,20 @@ from app.core.internal_auth import internal_service_headers
 _AGENTS_URL = os.getenv("AGENTS_SERVICE_URL") or os.getenv("AGENTS_API_URL", "http://agents:8084")
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
+
+
+def _require(info: Info, *permissions: str) -> None:
+    """The caller must hold each permission, checked by the SAME function the REST route for the same data uses (CurrentUser.require_permission: roles, API-key scopes, and the
+    cross-tenant "full access" deny list). GraphQL used to check none, so any signed-in user, and any API key however narrow its scopes, could read alerts, cases, rules, connectors and
+    playbooks here that REST would have refused them (a key whose only scope was hunts:read read every detection rule). Every resolver calls this first."""
+    user = info.context.get("user")
+    if user is None:
+        raise PermissionError("Sign in to use this API.")
+    for permission in permissions:
+        try:
+            user.require_permission(permission)
+        except HTTPException as exc:
+            raise PermissionError(str(exc.detail)) from None
 
 
 def _escape_like(value: str) -> str:
@@ -241,11 +256,18 @@ def _orm_to_connector(row: Connector) -> ConnectorType:
     )
 
 
-async def _proxy_get(path: str, params: dict | None = None):  # noqa: ANN201
-    """Call the agents service and return JSON, or raise on failure."""
+async def _proxy_get(info: Info, path: str, params: dict | None = None):  # noqa: ANN201
+    """Call the agents service AS THE CALLER'S TENANT and return JSON, or raise on failure.
+
+    The agents service trusts the API's internal token, and for that caller it honours the `tenant_id` parameter and otherwise returns the UNSCOPED result: every tenant's playbook runs, each
+    with its trigger event (alert data). This used to send no tenant, so any signed-in user of any tenant read every tenant's runs through GraphQL. The REST proxy has always sent the tenant;
+    so does this, taken from the authenticated user and never from the query, and with no tenant nothing is sent at all."""
+    tenant = _tenant_id(info)
+    if tenant is None:
+        raise PermissionError("Your tenant could not be determined.")
     url = f"{_AGENTS_URL}/api/v1/playbooks{path}"
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get(url, params=params or {}, headers=internal_service_headers())
+        r = await client.get(url, params={**(params or {}), "tenant_id": str(tenant)}, headers=internal_service_headers())
     r.raise_for_status()
     return r.json()
 
@@ -259,6 +281,7 @@ class Query:
 
     @strawberry.field(description="Fetch a single alert by ID (tenant-scoped).")
     async def alert(self, info: Info, id: strawberry.ID) -> AlertType | None:
+        _require(info, "alerts:read")
         db = _db(info)
         tid = _tenant_id(info)
         if tid is None:
@@ -277,6 +300,7 @@ class Query:
         status: str | None = None,
         search: str | None = None,
     ) -> AlertPage:
+        _require(info, "alerts:read")
         db = _db(info)
         q = _scope(select(Alert), info, Alert)
 
@@ -307,6 +331,7 @@ class Query:
 
     @strawberry.field(description="Fetch a single case by ID (tenant-scoped).")
     async def case(self, info: Info, id: strawberry.ID) -> CaseType | None:
+        _require(info, "cases:read")
         db = _db(info)
         tid = _tenant_id(info)
         if tid is None:
@@ -323,6 +348,7 @@ class Query:
         priority: str | None = None,
         search: str | None = None,
     ) -> CasePage:
+        _require(info, "cases:read")
         db = _db(info)
         tid = _tenant_id(info)
         if tid is None:
@@ -341,6 +367,7 @@ class Query:
         severity: str | None = None,
         status: str | None = None,
     ) -> DetectionRulePage:
+        _require(info, "rules:read")
         db = _db(info)
         q = _scope(select(DetectionRule), info, DetectionRule)
 
@@ -374,6 +401,7 @@ class Query:
         page_size: int = 25,
         enabled: bool | None = None,
     ) -> ConnectorPage:
+        _require(info, "connectors:read")
         db = _db(info)
         q = _scope(select(Connector), info, Connector)
 
@@ -399,8 +427,9 @@ class Query:
 
     @strawberry.field(description="List automation playbooks from the agents service.")
     async def playbooks(self, info: Info, enabled_only: bool = False) -> list[PlaybookType]:
+        _require(info, "playbooks:read")
         try:
-            data = await _proxy_get("", {"enabled_only": enabled_only})
+            data = await _proxy_get(info, "", {"enabled_only": enabled_only})
         except Exception:
             return []
 
@@ -422,8 +451,9 @@ class Query:
 
     @strawberry.field(description="List recent playbook execution runs.")
     async def playbook_runs(self, info: Info, limit: int = 50) -> list[PlaybookRunType]:
+        _require(info, "playbooks:read")
         try:
-            data = await _proxy_get("/runs", {"limit": limit})
+            data = await _proxy_get(info, "/runs", {"limit": limit})
         except Exception:
             return []
 
@@ -447,6 +477,7 @@ class Query:
 
     @strawberry.field(description="High-level SOC statistics for the current tenant.")
     async def soc_stats(self, info: Info) -> SocStatsType:
+        _require(info, "alerts:read", "cases:read")
         from datetime import UTC, datetime, timedelta
 
         db = _db(info)

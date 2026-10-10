@@ -191,8 +191,15 @@ def schema():
 
 
 @pytest.mark.asyncio
+def admin(tid):
+    """A real signed-in user (the resolvers check permissions through CurrentUser, as the REST routes do); admin holds every tenant permission."""
+    from app.api.v1.deps import CurrentUser
+
+    return CurrentUser(user_id=uuid.uuid4(), tenant_id=tid, role="admin", email="a@example.com")
+
+
 class TestThroughTheSchema:
-    """Real GraphQL execution with a fake database: the resolvers wire to the helpers, and an anonymous caller gets nothing and touches no table."""
+    """Real GraphQL execution with a fake database: the resolvers wire to the helpers, and an anonymous caller is REFUSED and touches no table (it used to get an empty page: that hid the missing permission checks)."""
 
     async def run(self, query, db, user):
         return await schema().execute(query, context_value={"db": db, "user": user})
@@ -200,32 +207,34 @@ class TestThroughTheSchema:
     async def test_cases_resolves_from_the_database_rows(self):
         tid = uuid.uuid4()
         db = fake_db(rows=[row(title="one", severity="critical", tenant_id=tid)], count=1)
-        r = await self.run("{ cases { total pages page pageSize items { title priority severity caseNumber caseType } } }", db, SimpleNamespace(tenant_id=tid))
+        r = await self.run("{ cases { total pages page pageSize items { title priority severity caseNumber caseType } } }", db, admin(tid))
         assert r.errors is None
         cases = r.data["cases"]
         assert cases["total"] == 1 and cases["pages"] == 1 and cases["items"][0]["title"] == "one" and cases["items"][0]["priority"] == "critical" and cases["items"][0]["caseType"] == "unspecified"
 
-    async def test_an_anonymous_caller_gets_an_empty_page_and_no_query_runs(self):
+    async def test_an_anonymous_caller_is_refused_and_no_query_runs(self):
         db = fake_db(rows=[row()], count=9)
         r = await self.run("{ cases { total items { title } } }", db, None)
-        assert r.errors is None and r.data["cases"] == {"total": 0, "items": []} and db.executed == []
+        assert r.data is None and [e.message for e in r.errors] == ["Sign in to use this API."] and db.executed == []
 
     async def test_case_by_id_resolves_and_scopes(self):
         tid, rw = uuid.uuid4(), row(title="by-id")
         db = fake_db(first=rw)
-        r = await self.run('{ case(id: "%s") { title } }' % rw.id, db, SimpleNamespace(tenant_id=tid))
+        r = await self.run('{ case(id: "%s") { title } }' % rw.id, db, admin(tid))
         assert r.errors is None and r.data["case"] == {"title": "by-id"} and db.executed[0][1] == {"id": rw.id, "tid": tid}
 
-    async def test_case_by_id_is_null_for_an_anonymous_caller_and_for_an_invalid_id(self):
+    async def test_case_by_id_is_refused_for_an_anonymous_caller_and_null_for_an_invalid_id(self):
         db = fake_db(first=row())
-        assert (await self.run('{ case(id: "%s") { title } }' % uuid.uuid4(), db, None)).data["case"] is None
-        assert (await self.run('{ case(id: "nope") { title } }', db, SimpleNamespace(tenant_id=uuid.uuid4()))).data["case"] is None
+        anonymous = await self.run('{ case(id: "%s") { title } }' % uuid.uuid4(), db, None)
+        assert [e.message for e in anonymous.errors] == ["Sign in to use this API."]
+        invalid = await self.run('{ case(id: "nope") { title } }', db, admin(uuid.uuid4()))
+        assert invalid.errors is None and invalid.data["case"] is None, "a real user asking for an invalid id gets null, with no error"
         assert db.executed == []
 
     async def test_stats_count_open_cases_from_aisoc_cases(self):
         tid = uuid.uuid4()
         db = fake_db(count=4)
-        r = await self.run("{ socStats { openCases } }", db, SimpleNamespace(tenant_id=tid))
+        r = await self.run("{ socStats { openCases } }", db, admin(tid))
         assert r.errors is None and r.data["socStats"]["openCases"] == 4
         assert any("FROM aisoc_cases" in sql and "NOT IN ('resolved', 'closed')" in sql for sql, _ in db.executed)
 

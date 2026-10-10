@@ -5,6 +5,8 @@ authenticated the user, so its proxies vouch with x-internal-token. In
 development (no token configured) nothing is sent.
 """
 import asyncio
+import uuid
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -24,7 +26,7 @@ def _calls(token: str, monkeypatch) -> list[httpx.Request]:
         async def go():
             await playbooks_ep._proxy("GET", "")
             await cases_ep._agents_proxy("GET", "/api/v1/investigations")
-            await gql._proxy_get("")
+            await gql._proxy_get(SimpleNamespace(context={"user": SimpleNamespace(tenant_id=uuid.uuid4())}), "")
 
         asyncio.run(go())
         return [c.request for c in route.calls]
