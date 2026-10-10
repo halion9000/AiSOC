@@ -3,25 +3,33 @@
     "tool": "aisoc_detection_coverage",
     "method": "GET",
     "path": "/detection/coverage",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_detection_drift",
     "method": "GET",
     "path": "/detection/drift",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_detection_confidence",
     "method": "GET",
     "path": "/detection/confidence",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_tuning_summary",
     "method": "GET",
     "path": "/detection/tuning/summary",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_tuning_workbench",
@@ -32,8 +40,30 @@
       "suggestion",
       "search",
       "enabled_only",
-      "include_dismissed"
-    ]
+      "include_dismissed",
+      "page",
+      "page_size"
+    ],
+    "enums": {
+      "suggestion": [
+        "disable",
+        "add_suppression",
+        "raise_threshold",
+        "tune_confidence",
+        "review_stale",
+        "healthy"
+      ]
+    },
+    "numbers": {
+      "page": {
+        "min": 1,
+        "max": 1000
+      },
+      "page_size": {
+        "min": 1,
+        "max": 100
+      }
+    }
   },
   {
     "tool": "aisoc_list_rules",
@@ -44,13 +74,17 @@
       "rule_language",
       "include_builtin",
       "include_packs"
-    ]
+    ],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_get_rule",
     "method": "GET",
     "path": "/rules/{rule_id}",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_list_detection_proposals",
@@ -59,13 +93,22 @@
     "query": [
       "status",
       "limit"
-    ]
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      }
+    }
   },
   {
     "tool": "aisoc_get_detection_proposal",
     "method": "GET",
     "path": "/detection-proposals/{proposal_id}",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_detection_baselines",
@@ -73,18 +116,24 @@
     "path": "/detection-proposals/baselines",
     "query": [
       "suite"
-    ]
+    ],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_list_sigma_suggestions",
     "method": "GET",
     "path": "/detection-loop/suggestions",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_get_sigma_suggestion",
     "method": "GET",
     "path": "/detection-loop/suggestions/{suggestion_id}",
-    "query": []
+    "query": [],
+    "enums": {},
+    "numbers": {}
   }
 ]

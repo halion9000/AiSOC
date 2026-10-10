@@ -57,7 +57,7 @@ CIPHER_CALLS = [
     ("aisoc_detection_drift", "GET", "/detection/drift", [], None, False),
     ("aisoc_detection_confidence", "GET", "/detection/confidence", [], None, False),
     ("aisoc_tuning_summary", "GET", "/detection/tuning/summary", [], None, False),
-    ("aisoc_tuning_workbench", "GET", "/detection/tuning", ["severity", "suggestion", "search", "enabled_only", "include_dismissed"], None, False),
+    ("aisoc_tuning_workbench", "GET", "/detection/tuning", ["severity", "suggestion", "search", "enabled_only", "include_dismissed", "page", "page_size"], None, False),
     ("aisoc_list_rules", "GET", "/rules", ["category", "rule_language", "include_builtin", "include_packs"], None, False),
     ("aisoc_get_rule", "GET", "/rules/{rule_id}", [], None, False),
     ("aisoc_list_detection_proposals", "GET", "/detection-proposals", ["status", "limit"], None, False),
@@ -244,3 +244,40 @@ def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_
     if not CORE_CHECKOUT_CONTRACT.exists():
         pytest.skip("no CORE checkout next to this repository")
     assert json.loads(CORE_CHECKOUT_CONTRACT.read_text(encoding="utf-8")) == CONTRACT, "tests/fixtures/core_read_tools.json is out of date: copy hud/contracts/aisoc-read-tools.json from the CORE repo and update CIPHER_CALLS"
+
+
+def _query_parameters(row) -> dict:
+    return {p["name"]: p for p in _operation(row["method"], row["path"]).get("parameters", []) if p["in"] == "query"}
+
+
+@pytest.mark.parametrize("row", CONTRACT, ids=[r["tool"] for r in CONTRACT])
+def test_the_values_a_tool_allows_are_exactly_the_values_the_api_accepts(row):
+    """A tool that offers free text for a parameter the API restricts to a set only finds out at AiSOC (a 422); one that allows a different set is wrong either way."""
+    params = _query_parameters(row)
+    for name, values in row["enums"].items():
+        api_enum = _resolve(params[name]["schema"]).get("enum")
+        assert api_enum is not None, f"{row['tool']}.{name} is restricted to {values} by the tool, but {row['path']} accepts any value"
+        assert set(api_enum) == set(values), f"{row['tool']}.{name}: the tool allows {sorted(values)}, the API accepts {sorted(api_enum)}"
+    for name in row["query"]:
+        api_enum = _resolve(params[name]["schema"]).get("enum")
+        if api_enum is not None:
+            assert name in row["enums"], f"{row['tool']}.{name} is free text in the tool, but the API accepts only {sorted(api_enum)}: declare them in the tool's table"
+
+
+@pytest.mark.parametrize("row", [r for r in CONTRACT if r["numbers"]], ids=[r["tool"] for r in CONTRACT if r["numbers"]])
+def test_a_tools_numeric_clamp_never_sends_more_or_less_than_the_api_accepts(row):
+    """The tool clamps (so a careless number is not an error); the clamp must stay inside what the API accepts or it would become a 422 anyway."""
+    params = _query_parameters(row)
+    for name, bounds in row["numbers"].items():
+        schema = _resolve(params[name]["schema"])
+        assert schema.get("type") == "integer", f"{row['tool']}.{name} is a number in the tool but {schema.get('type')} in the API"
+        if "maximum" in schema:
+            assert bounds["max"] <= schema["maximum"], f"{row['tool']}.{name}: the tool sends up to {bounds['max']}, the API accepts at most {schema['maximum']}"
+        assert bounds["min"] >= schema.get("minimum", 0), f"{row['tool']}.{name}: the tool sends as low as {bounds['min']}, the API accepts at least {schema.get('minimum', 0)}"
+
+
+def test_the_paged_workbench_can_be_paged_and_the_sizes_match():
+    row = next(r for r in CONTRACT if r["tool"] == "aisoc_tuning_workbench")
+    assert {"page", "page_size"} <= set(row["query"]), "the workbench is paged: without these Cipher sees only the first page and cannot know"
+    schema = _resolve(_query_parameters(row)["page_size"]["schema"])
+    assert schema["maximum"] == row["numbers"]["page_size"]["max"] == 100
