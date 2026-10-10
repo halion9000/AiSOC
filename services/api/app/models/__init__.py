@@ -28,6 +28,7 @@ from app.models.mssp import (
     MSSPTenantMetrics,
     MSSPTenantNote,
 )
+from app.models.alert_email import AlertEmailLog, PlatformAlertEmailSettings
 from app.models.login_failure import LoginFailure
 from app.models.marketplace import MarketplaceInstall
 from app.models.tenant_access import TenantAccessGrant
@@ -86,7 +87,9 @@ __all__ = [
     "MSSPRulePackRule",
     "MSSPTenantMetrics",
     "MSSPTenantNote",
+    "AlertEmailLog",
     "LoginFailure",
+    "PlatformAlertEmailSettings",
     "MarketplaceInstall",
     "TenantAccessGrant",
     "OAuthAppCredential",

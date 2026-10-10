@@ -1,0 +1,1 @@
+"""Emailing alerts to PLATFORM administrators through Microsoft Graph (optional, off by default). See app/workers/alert_email_worker.py for how it runs and docs/security/alert-email.md for the design."""

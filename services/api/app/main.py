@@ -33,6 +33,7 @@ from app.middleware.audit_middleware import AuditMiddleware
 from app.middleware.demo_mode import DemoModeMiddleware
 from app.models import Base
 from app.services.plugin_manager import get_plugin_manager
+from app.workers.alert_email_worker import run_forever as run_alert_email
 from app.workers.hunt_scheduler import run_forever as run_hunt_scheduler
 from app.workers.retention_sweeper import run_retention_sweeper
 from app.workers.oauth_refresh import run_forever as run_oauth_refresh
@@ -54,6 +55,7 @@ _WEEKLY_DIGEST_LOCK_TTL_SECONDS = 5400
 # covers slow sweeps while still recovering quickly after replica loss.
 _HUNT_SCHEDULER_LOCK_TTL_SECONDS = 300
 _RETENTION_LOCK_TTL_SECONDS = 600
+_ALERT_EMAIL_LOCK_TTL_SECONDS = 120
 
 
 async def _run_guarded_scheduler_worker(
@@ -405,6 +407,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             logger.warning("hunt_scheduler worker failed to start", error=str(exc))
 
+    # Emailing alerts to platform administrators (optional, off by default): see app.workers.alert_email_worker. Even when this process-level switch is on it sends nothing until a platform administrator switches the setting on.
+    alert_email_task: asyncio.Task | None = None
+    if settings.ALERT_EMAIL_WORKER_ENABLED:
+        try:
+            alert_email_task = asyncio.create_task(
+                _run_guarded_scheduler_worker(job_name="alert_email", ttl_seconds=_ALERT_EMAIL_LOCK_TTL_SECONDS, worker=run_alert_email),
+                name="alert_email_worker",
+            )
+            logger.info("alert_email worker started")
+        except Exception as exc:
+            logger.warning("alert_email worker failed to start", error=str(exc))
+
     # Retention sweeper: deletes copilot conversations, detection suggestions and FINISHED response actions that have outlived their window. On by default (conservative windows); see the RETENTION_* settings.
     retention_task: asyncio.Task | None = None
     if settings.RETENTION_SWEEPER_ENABLED:
@@ -452,6 +466,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.debug("weekly_digest worker cancelled during shutdown")
         except Exception as exc:
             logger.warning("weekly_digest worker shutdown error", error=type(exc).__name__)
+
+    if alert_email_task is not None and not alert_email_task.done():
+        alert_email_task.cancel()
+        try:
+            await alert_email_task
+        except asyncio.CancelledError:
+            logger.debug("alert_email worker cancelled during shutdown")
+        except Exception as exc:
+            logger.warning("alert_email worker shutdown error", error=type(exc).__name__)
 
     if hunt_scheduler_task is not None and not hunt_scheduler_task.done():
         hunt_scheduler_task.cancel()

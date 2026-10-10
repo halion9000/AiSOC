@@ -268,6 +268,23 @@ class Settings(BaseSettings):
     HUNT_SCHEDULER_POLL_INTERVAL_SECONDS: int = 30
 
     # ------------------------------------------------------------------
+    # Emailing alerts to PLATFORM administrators through Microsoft Graph (app/services/alert_email, app/workers/alert_email_worker). OFF unless ALERT_EMAIL_WORKER_ENABLED is true AND a platform administrator
+    # has switched it on in the platform setting AND the four ALERT_EMAIL_* credentials below are set. The Graph credentials are an Entra app registration with the APPLICATION permission Mail.Send (client
+    # credentials flow), ideally restricted by an Exchange application access policy to the one sender mailbox. They live in the environment only: never in the database, never returned by the API, never logged.
+    # ------------------------------------------------------------------
+    ALERT_EMAIL_WORKER_ENABLED: bool = Field(default=False, validation_alias=AliasChoices("ALERT_EMAIL_WORKER_ENABLED", "AISOC_ALERT_EMAIL_WORKER_ENABLED"))
+    ALERT_EMAIL_POLL_INTERVAL_SECONDS: int = Field(default=60, ge=5)
+    ALERT_EMAIL_MAX_ALERTS_PER_EMAIL: int = Field(default=20, ge=1, le=100)
+    ALERT_EMAIL_MAX_ALERT_AGE_HOURS: int = Field(default=24, ge=1)
+    ALERT_EMAIL_LOG_RETENTION_DAYS: int = Field(default=90, ge=1)
+    ALERT_EMAIL_GRAPH_TENANT_ID: str = ""
+    ALERT_EMAIL_GRAPH_CLIENT_ID: str = ""
+    ALERT_EMAIL_GRAPH_CLIENT_SECRET: str = ""
+    ALERT_EMAIL_SENDER: str = ""
+    ALERT_EMAIL_GRAPH_BASE_URL: str = "https://graph.microsoft.com/v1.0"
+    ALERT_EMAIL_AUTHORITY: str = "https://login.microsoftonline.com"
+
+    # ------------------------------------------------------------------
     # Retention sweeper. Deletes data that has outlived its window from the tables that would otherwise grow without limit (copilot conversations, detection suggestions, finished response actions).
     # ON by default with conservative windows; RETENTION_SWEEPER_ENABLED=false turns it off and RETENTION_DRY_RUN=true makes it COUNT and log what it would delete without deleting anything. The first sweep
     # waits RETENTION_INITIAL_DELAY_SECONDS after startup. Every window is clamped to 1..3650 days. A finished response action follows its tenant's `audit_days` retention setting
