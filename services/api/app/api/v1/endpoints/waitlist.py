@@ -36,10 +36,16 @@ Auth
 The signup endpoint is the *one* unauthenticated mutating route in the
 v1 API surface. ``get_current_user`` is intentionally **not** wired in
 here; we'd otherwise reject the public form. The admin endpoints reuse
-the standard :class:`AuthUser` dependency and require the
-``admin:waitlist`` permission, which falls back to ``settings:write``
-on tenants whose RBAC tables haven't been migrated to the granular
-admin scope yet.
+the standard :class:`AuthUser` dependency and are PLATFORM operations:
+the waitlist is the platform's own sales funnel (prospects' names, emails, companies),
+not any tenant's data, so they need the platform permission ``mssp:onboard`` (the
+operator who triages the waitlist is the one who onboards the tenant), checked as a
+route dependency like every other platform route. A tenant administrator never holds it.
+
+HISTORY, so it is not reintroduced: these routes used to check ``admin:waitlist`` (a
+permission that was never created or granted to anyone) OR ``settings:write`` inside the
+handler. Every tenant's administrator holds ``settings:write``, so any tenant admin could
+read every prospect's details and change their status.
 """
 
 from __future__ import annotations
@@ -56,7 +62,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import AuthUser, DBSession, get_current_user
+from app.api.v1.deps import AuthUser, DBSession, get_current_user, require_permission
 from app.db.database import get_db
 from app.models.waitlist import (
     ALLOWED_WAITLIST_STATUSES,
@@ -274,23 +280,6 @@ def _to_wire(row: WaitlistEntry) -> WaitlistEntryWire:
     )
 
 
-async def _require_admin(user: AuthUser, db: AsyncSession) -> None:
-    """Centralised admin gate.
-
-    The granular RBAC layer prefers ``admin:waitlist``; tenants that
-    haven't migrated to the granular scope fall back to the legacy
-    ``settings:write`` role permission. Either grants access.
-    """
-    if await user.has_permission_db("admin:waitlist", db):
-        return
-    if await user.has_permission_db("settings:write", db):
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="admin:waitlist (or settings:write) required",
-    )
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -386,6 +375,7 @@ async def signup(
     "/entries",
     response_model=WaitlistEntriesResponse,
     summary="List waitlist entries (admin only).",
+    dependencies=[Depends(require_permission("mssp:onboard"))],
 )
 async def list_entries(
     db: DBSession,
@@ -393,7 +383,6 @@ async def list_entries(
     status_filter: str | None = None,
     limit: int = 100,
 ) -> WaitlistEntriesResponse:
-    await _require_admin(user, db)
     if status_filter is not None:
         normalized = status_filter.strip().lower()
         if normalized not in ALLOWED_WAITLIST_STATUSES:
@@ -421,6 +410,7 @@ async def list_entries(
     "/entries/{entry_id}",
     response_model=WaitlistEntryWire,
     summary="Update a waitlist entry's status (admin only).",
+    dependencies=[Depends(require_permission("mssp:onboard"))],
 )
 async def patch_entry(
     entry_id: uuid.UUID,
@@ -428,7 +418,6 @@ async def patch_entry(
     db: DBSession,
     user: AuthUser,
 ) -> WaitlistEntryWire:
-    await _require_admin(user, db)
     row = (await db.execute(select(WaitlistEntry).where(WaitlistEntry.id == entry_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="waitlist_entry_not_found")

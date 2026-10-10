@@ -81,4 +81,4 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **threat-intel**: 4 reads, 5 changes; protection: `threat_intel:read`, `threat_intel:write`; e.g. List actors; Create actor
 - **threatintel**: 4 reads, 3 changes; protection: `threat_intel:read`, `threat_intel:write`; e.g. List bundles; Create bundle
 - **translation**: 1 reads, 1 changes; protection: `rules:read`; e.g. List supported detection rule formats; Translate a detection rule across formats
-- **waitlist**: 1 reads, 2 changes; protection: 2 signed-in with no permission declared; 1 with no sign-in required; e.g. List waitlist entries (admin only).; Update a waitlist entry's status (admin only).
+- **waitlist**: 1 reads, 2 changes; protection: `mssp:onboard`; 1 with no sign-in required; e.g. List waitlist entries (admin only).; Update a waitlist entry's status (admin only).

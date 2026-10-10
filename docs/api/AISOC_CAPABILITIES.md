@@ -87,7 +87,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [threat-intel](#threat-intel) | 4 | 5 | `threat_intel:read`, `threat_intel:write` |
 | [threatintel](#threatintel) | 4 | 3 | `threat_intel:read`, `threat_intel:write` |
 | [translation](#translation) | 1 | 1 | `rules:read` |
-| [waitlist](#waitlist) | 1 | 2 | 2 signed-in with no permission declared; 1 with no sign-in required |
+| [waitlist](#waitlist) | 1 | 2 | `mssp:onboard`; 1 with no sign-in required |
 
 ## admin
 
@@ -938,6 +938,6 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/waitlist/entries` | List waitlist entries (admin only). | signed in, no permission declared (a check may be inside the handler) |
-| PATCH | `/waitlist/entries/{entry_id}` | Update a waitlist entry's status (admin only). | signed in, no permission declared (a check may be inside the handler) |
+| GET | `/waitlist/entries` | List waitlist entries (admin only). | `mssp:onboard` |
+| PATCH | `/waitlist/entries/{entry_id}` | Update a waitlist entry's status (admin only). | `mssp:onboard` |
 | POST | `/waitlist/signup` | Public waitlist signup (rate-limited per IP). | no sign-in required (public, or secured another way) |

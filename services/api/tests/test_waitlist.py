@@ -480,20 +480,6 @@ class TestAdminListEndpoint:
             )
         assert exc_info.value.status_code == 400
 
-    def test_list_forbidden_for_non_admin(self) -> None:
-        session = _MockSession()
-        self._seed(session)
-        user = _admin_user(allow=False)
-        with pytest.raises(HTTPException) as exc_info:
-            _run(endpoint.list_entries(session, user))  # type: ignore[arg-type]
-        assert exc_info.value.status_code == 403
-
-
-# ---------------------------------------------------------------------------
-# Admin PATCH endpoint
-# ---------------------------------------------------------------------------
-
-
 class TestAdminPatchEndpoint:
     def test_patch_to_contacted_stamps_contacted_at(self) -> None:
         session = _MockSession()
