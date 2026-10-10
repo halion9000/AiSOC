@@ -19,6 +19,7 @@ from app.services.user_lookup import find_user_by_login
 from app.core.security import known_permissions
 from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
 from app.core.security import (
+    capabilities_for_role,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -69,8 +70,16 @@ class UserMeResponse(BaseModel):
     role: str
     is_active: bool
     preferences: dict[str, Any] = {}
+    # What this person may do, for the console to decide which controls to show (see app.core.security.UI_CAPABILITIES). The server checks every action itself.
+    capabilities: list[str] = []
 
     model_config = {"from_attributes": True}
+
+
+def _me(user: User) -> UserMeResponse:
+    response = UserMeResponse.model_validate(user)
+    response.capabilities = capabilities_for_role(user.role)
+    return response
 
 
 class PreferencesPatch(BaseModel):
@@ -250,7 +259,7 @@ async def get_me(current_user: AuthUser, db: DBSession) -> UserMeResponse:
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return UserMeResponse.model_validate(user)
+    return _me(user)
 
 
 @router.patch("/me/preferences", response_model=UserMeResponse)
@@ -277,4 +286,4 @@ async def patch_me_preferences(
     # Re-fetch to return fresh state
     result = await db.execute(select(User).where(User.id == current_user.user_id))
     user = result.scalar_one_or_none()
-    return UserMeResponse.model_validate(user)
+    return _me(user)

@@ -19,6 +19,7 @@ from app.services.account_names import account_name_taken, unique_account_name
 from app.services.tenant_selection import selectable_tenants
 from app.services.audit import emit_audit
 from app.services.user_lookup import find_user_by_account_name
+from app.services.tenant_selection import CROSS_TENANT_PERMISSION
 from app.services.view_as import home_tenant_of, may_manage_access, viewable_tenants
 from app.models.tenant import Tenant, User
 from app.models.tenant_access import ACCESS_VIEW, TenantAccessGrant
@@ -148,7 +149,7 @@ async def list_viewable_tenants(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
     db: DBSession,
 ) -> ViewableTenantsResponse:
-    """The tenants this caller may VIEW (read-only) with the `X-View-As-Tenant` header: their own first, then their managed children (an MSSP operator) or every tenant (a platform admin).
+    """The tenants this caller may VIEW (read-only) with the `X-View-As-Tenant` header: their own first, then the tenants they were GRANTED (read-only; see `PUT /tenants/{id}/access/{account_name}`) or every tenant (a platform admin).
 
     It is the same rule the server applies when the header is sent (app.services.view_as), so the console can only offer what will be honoured. It always answers for the person's own account, whatever is being viewed.
     """
@@ -156,6 +157,39 @@ async def list_viewable_tenants(
     return ViewableTenantsResponse(
         home_tenant_id=home_tenant_of(current_user),
         tenants=[ViewableTenant(id=t.id, name=t.name, slug=t.slug, relationship=rel) for t, rel in rows],
+    )
+
+
+class ManageableTenant(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    # self: the caller's own tenant. child: a tenant whose parent is the caller's. other: any other tenant, for a platform admin.
+    relationship: Literal["self", "child", "other"]
+
+
+class ManageableTenantsResponse(BaseModel):
+    home_tenant_id: uuid.UUID
+    tenants: list[ManageableTenant]
+
+
+@router.get("/manageable", response_model=ManageableTenantsResponse)
+async def list_manageable_tenants(
+    current_user: Annotated[AuthUser, Depends(require_permission("users:read"))],
+    db: DBSession,
+) -> ManageableTenantsResponse:
+    """The tenants whose ACCESS this caller may manage (who may be granted a view of them): the tenants for which `PUT /tenants/{id}/access/{account_name}` would be allowed, own tenant first. It is built from the same rule as those routes
+    (`may_manage_access`), so the console can only offer what the server will honour. Empty for a role that cannot manage access."""
+    home = home_tenant_of(current_user)
+    query = select(Tenant).order_by(Tenant.name).limit(500)
+    if not current_user.holds(CROSS_TENANT_PERMISSION):
+        query = select(Tenant).where((Tenant.id == home) | (Tenant.parent_tenant_id == home)).order_by(Tenant.name).limit(500)
+    candidates = (await db.execute(query)).scalars().all()
+    managed = [t for t in candidates if may_manage_access(current_user, t)]
+    managed.sort(key=lambda t: (t.id != home, t.name.lower()))
+    return ManageableTenantsResponse(
+        home_tenant_id=home,
+        tenants=[ManageableTenant(id=t.id, name=t.name, slug=t.slug, relationship="self" if t.id == home else "child" if t.parent_tenant_id == home else "other") for t in managed],
     )
 
 

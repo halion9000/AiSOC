@@ -847,3 +847,85 @@ class TestTheGrantsTableAndTheRule:
                     return await go(s)
 
             assert asyncio.run(run_it()) == expected, who
+
+
+class TestCapabilities:
+    """What the console is told a person may do, so it does not show controls they cannot use. The server still checks every action."""
+
+    def test_the_capability_names_are_derived_from_real_permissions(self):
+        from app.core.security import UI_CAPABILITIES, capabilities_for_role
+
+        assert UI_CAPABILITIES == {"platform_admin": "platform:cross_tenant_query", "manage_users": "users:write"}
+        assert capabilities_for_role("platform_admin") == ["manage_users", "platform_admin"]
+        assert capabilities_for_role("no-such-role") == []
+
+    @pytest.mark.parametrize("who,expected", [("platform", ["manage_users", "platform_admin"]), ("p_admin", ["manage_users"]), ("c1_admin", ["manage_users"]), ("p_lead", []), ("p_analyst", []), ("p_viewer", []), ("p_service", [])])
+    def test_me_tells_the_console_what_each_kind_of_person_may_do(self, world, who, expected):
+        r = world.client.get("/api/v1/auth/me", headers=world.auth(who))
+        assert r.status_code == 200 and r.json()["capabilities"] == expected, who
+
+    def test_every_built_in_role_gets_the_right_capabilities(self):
+        from app.core.security import ROLE_PERMISSIONS, capabilities_for_role
+
+        got = {role: capabilities_for_role(role) for role in ROLE_PERMISSIONS}
+        assert got == {"platform_admin": ["manage_users", "platform_admin"], "admin": ["manage_users"], "tenant_admin": ["manage_users"], "soc_lead": [], "soc_analyst": [], "threat_hunter": [], "viewer": [], "api_service": []}
+
+    def test_a_capability_is_exactly_the_permission_it_stands_for(self):
+        """If a role holds the permission it has the capability, and never otherwise: nothing is granted by the name."""
+        from app.core.security import ROLE_PERMISSIONS, UI_CAPABILITIES, capabilities_for_role, has_permission
+
+        for role in ROLE_PERMISSIONS:
+            for name, permission in UI_CAPABILITIES.items():
+                assert (name in capabilities_for_role(role)) == has_permission(role, permission), (role, name)
+
+    def test_saving_a_preference_does_not_make_the_console_lose_them(self, world):
+        r = world.client.patch("/api/v1/auth/me/preferences", headers=world.auth("p_admin"), json={"preferences": {"theme": "dark"}})
+        assert r.status_code == 200 and r.json()["capabilities"] == ["manage_users"]
+
+
+class TestManageableTenants:
+    """GET /tenants/manageable: the tenants whose access this caller may manage. The same rule as the grant routes, so the screen can only offer what the server will honour."""
+
+    def listing(self, world, who):
+        r = world.client.get("/api/v1/tenants/manageable", headers=world.auth(who))
+        assert r.status_code == 200, r.text
+        return [(t["relationship"], t["id"]) for t in r.json()["tenants"]]
+
+    def test_a_platform_admin_may_manage_every_tenant_their_own_first(self, world):
+        T = world.tenants
+        got = self.listing(world, "platform")
+        assert got[0] == ("self", str(T["PL"].id)) and {i for _, i in got} == {str(t.id) for t in T.values()} and len(got) == len(T)
+        assert {r for r, _ in got[1:]} <= {"child", "other"}
+
+    def test_an_msps_admin_manages_their_own_tenant_and_their_customers(self, world):
+        T = world.tenants
+        assert self.listing(world, "p_admin") == [("self", str(T["P"].id)), ("child", str(T["C1"].id)), ("child", str(T["C2"].id))]
+
+    def test_a_customers_admin_manages_only_their_own_tenant_never_their_parent_or_a_sibling(self, world):
+        T = world.tenants
+        assert self.listing(world, "c1_admin") == [("self", str(T["C1"].id))] and self.listing(world, "x_admin") == [("self", str(T["X"].id))]
+
+    @pytest.mark.parametrize("who", ["p_viewer", "p_analyst", "p_service", "p_lead"])
+    def test_a_role_that_cannot_manage_access_is_offered_nothing(self, world, who):
+        r = world.client.get("/api/v1/tenants/manageable", headers=world.auth(who))
+        assert (r.status_code == 200 and r.json()["tenants"] == []) or r.status_code == 403
+
+    def test_what_the_list_offers_is_exactly_what_the_server_lets_them_grant_on(self, world):
+        """For every person and every tenant: it is in the list if and only if the server would accept a grant request for it (the manage check passes: not the 404)."""
+        for who in ("platform", "p_admin", "c1_admin", "c2_admin", "x_admin"):
+            offered = {i for _, i in self.listing(world, who)}
+            for name, t in world.tenants.items():
+                r = world.client.put(f"/api/v1/tenants/{t.id}/access/nobody-by-that-name", headers=world.auth(who))
+                allowed = r.status_code != 404 or r.json().get("detail") != "Tenant not found"
+                assert (str(t.id) in offered) == allowed, f"{who} -> {name}: offered={str(t.id) in offered} allowed={allowed} ({r.status_code} {r.text[:60]})"
+
+    def test_the_answer_names_the_callers_home_tenant(self, world):
+        r = world.client.get("/api/v1/tenants/manageable", headers=world.auth("p_admin"))
+        assert r.json()["home_tenant_id"] == str(world.tenants["P"].id)
+
+    def test_the_unauthenticated_are_refused(self, world, monkeypatch):
+        monkeypatch.setattr(deps, "is_dev_mode", lambda: False)
+        assert world.client.get("/api/v1/tenants/manageable").status_code in (401, 403)
+
+    def test_it_is_not_swallowed_by_a_tenant_id_route(self, world):
+        assert world.client.get("/api/v1/tenants/manageable", headers=world.auth("platform")).status_code == 200
