@@ -135,5 +135,59 @@
     "query": [],
     "enums": {},
     "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_hunts",
+    "method": "GET",
+    "path": "/hunts",
+    "query": [
+      "status",
+      "priority",
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_get_hunt",
+    "method": "GET",
+    "path": "/hunts/{hunt_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_saved_hunts",
+    "method": "GET",
+    "path": "/saved-hunts",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_get_saved_hunt",
+    "method": "GET",
+    "path": "/saved-hunts/{hunt_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_saved_searches",
+    "method": "GET",
+    "path": "/hunt/saved",
+    "query": [],
+    "enums": {},
+    "numbers": {}
   }
 ]

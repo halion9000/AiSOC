@@ -1,4 +1,4 @@
-"""Cipher (CORE's agent) operates AiSOC through 29 tools: 17 written out by hand and 12 read-only detection-engineering tools declared as a table in CORE (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
+"""Cipher (CORE's agent) operates AiSOC through 34 tools: 17 written out by hand and 17 read-only tools (12 detection engineering, 5 hunting) declared as a table in CORE (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
 
 CORE builds the requests in hud/src/aisoc-requests.ts and pins them in hud/src/aisoc-requests.test.ts. Comparing every call with this API's own
 OpenAPI schema on 2026-10-08 found six tools sending requests AiSOC did not understand, which no test on either side had noticed because nothing
@@ -65,6 +65,12 @@ CIPHER_CALLS = [
     ("aisoc_detection_baselines", "GET", "/detection-proposals/baselines", ["suite"], None, False),
     ("aisoc_list_sigma_suggestions", "GET", "/detection-loop/suggestions", [], None, False),
     ("aisoc_get_sigma_suggestion", "GET", "/detection-loop/suggestions/{suggestion_id}", [], None, False),
+    # Hunting: the DEFINITIONS of hunts (permission hunts:read). GET /hunts/{id}/runs (sampled event rows) is deliberately NOT here: it needs lake:query, which CORE's key does not hold.
+    ("aisoc_list_hunts", "GET", "/hunts", ["status", "priority", "limit", "offset"], None, False),
+    ("aisoc_get_hunt", "GET", "/hunts/{hunt_id}", [], None, False),
+    ("aisoc_list_saved_hunts", "GET", "/saved-hunts", [], None, False),
+    ("aisoc_get_saved_hunt", "GET", "/saved-hunts/{hunt_id}", [], None, False),
+    ("aisoc_list_saved_searches", "GET", "/hunt/saved", [], None, False),
 ]
 CALL_IDS = [c[0] for c in CIPHER_CALLS]
 MAX_PAGE_SIZE_CORE_SENDS = 200  # hud/src/aisoc-requests.ts: MAX_PAGE_SIZE
@@ -179,9 +185,9 @@ def test_the_page_size_cap_is_at_least_what_core_sends(path):
     assert page_size["schema"].get("maximum", 10**9) >= MAX_PAGE_SIZE_CORE_SENDS
 
 
-def test_the_table_covers_all_twenty_nine_tools():
+def test_the_table_covers_all_thirty_four_tools():
     tools = {re.sub(r" \(.*\)$", "", name) for name in CALL_IDS}
-    assert len(tools) == 29, sorted(tools)
+    assert len(tools) == 34, sorted(tools)
 
 
 READ_ONLY_TOOLS = [c for c in CIPHER_CALLS if c[1] == "GET"]
@@ -236,7 +242,7 @@ def test_every_tool_in_the_contract_is_a_get():
 
 def test_the_contract_has_no_tool_listed_twice():
     names = [r["tool"] for r in CONTRACT]
-    assert len(names) == len(set(names)) == 12
+    assert len(names) == len(set(names)) == 17
 
 
 def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_to_this_repo():
@@ -281,3 +287,27 @@ def test_the_paged_workbench_can_be_paged_and_the_sizes_match():
     assert {"page", "page_size"} <= set(row["query"]), "the workbench is paged: without these Cipher sees only the first page and cannot know"
     schema = _resolve(_query_parameters(row)["page_size"]["schema"])
     assert schema["maximum"] == row["numbers"]["page_size"]["max"] == 100
+
+
+HUNTING_TOOLS = ["aisoc_list_hunts", "aisoc_get_hunt", "aisoc_list_saved_hunts", "aisoc_get_saved_hunt", "aisoc_list_saved_searches"]
+
+
+@pytest.mark.parametrize("name", HUNTING_TOOLS)
+def test_a_hunting_tool_needs_exactly_hunts_read_and_nothing_that_queries_telemetry(name):
+    """The hunting tools read DEFINITIONS. If one ever needed lake:query it would be reading telemetry (or could be used to run something), which CORE's key must not hold."""
+    _tool, method, path, *_ = _case(name)
+    assert set(required_permissions(_route(method, path))) == {"hunts:read"}, f"{name}: {method} {path}"
+    assert "lake:query" not in CORE_KEY_SCOPES and "hunts:read" in CORE_KEY_SCOPES
+
+
+def test_no_tool_in_the_table_can_reach_a_run_a_result_or_a_query():
+    """Run results are event rows from the lake; running is a write. No Cipher tool, hand-written or declared, may name such a route."""
+    for name, method, path, *_ in CIPHER_CALLS:
+        for forbidden in ("/runs", "/run", "/execute", "/nl-query", "/lake", "/translate", "/backtest"):
+            assert forbidden not in path, f"{name} ({method} {path}) reaches a route containing {forbidden}"
+
+
+def test_the_hunt_list_limit_and_offset_the_tool_sends_are_within_what_the_api_accepts():
+    params = {p["name"]: _resolve(p["schema"]) for p in _operation("GET", "/hunts")["parameters"] if p["in"] == "query"}
+    assert params["limit"]["maximum"] >= 200 and params["limit"]["minimum"] <= 1
+    assert params["offset"]["minimum"] == 0 and "maximum" not in params["offset"], "the tool allows offsets up to 100000; if the API gains a maximum below that, the tool's bound must follow"
