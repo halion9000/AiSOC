@@ -12,7 +12,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
 
-ACCESS_VIEW = "view"
+ACCESS_VIEW = "view"  # read-only
+ACCESS_FULL = "full"  # read and write, as the person's own role allows (identity and credential administration excluded)
+ACCESS_LEVELS = (ACCESS_VIEW, ACCESS_FULL)
 
 
 class TenantAccessGrant(Base):
@@ -23,6 +25,18 @@ class TenantAccessGrant(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     access: Mapped[str] = mapped_column(String(16), nullable=False, default=ACCESS_VIEW)
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    granted_by_label: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AllTenantAccessGrant(Base):
+    """One person granted EVERY tenant (including ones created later), at 'view' or 'full' (migration 074). About the person, not one tenant, so there is no tenant_id and no row-level security; only platform administrators create these."""
+
+    __tablename__ = "all_tenant_access_grants"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    access: Mapped[str] = mapped_column(String(16), nullable=False)
     granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     granted_by_label: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -10,7 +10,8 @@ Send `X-View-As-Tenant: <tenant id>` on a request made with a signed-in session 
 | --- | --- |
 | anyone | their own tenant (naming it changes nothing) |
 | a holder of `platform:cross_tenant_query` (platform admin) | any tenant |
-| anyone | a tenant they have been **granted** (read-only; see "Granting access") |
+| anyone | a tenant they have been **granted**, at level `view` (read-only) or `full` (read and write); see "Granting access" |
+| anyone granted **all tenants** (platform administrators give these) | every tenant, including ones created later, at the level of that grant |
 | anyone else | nothing else. In particular, belonging to an MSSP's parent tenant confers **nothing** over its child tenants by itself |
 
 `GET /api/v1/tenants/viewable` lists exactly what the server will honour (the caller's tenant first, then the rest) and the caller's `home_tenant_id`. It is built from the same rule as the check, so a client can only offer what will work.
@@ -25,7 +26,8 @@ Each refusal carries `X-View-As-Error`:
 | --- | --- | --- |
 | 400 | `invalid` | the value is not a tenant id |
 | 403 | `forbidden` | the caller may not view that tenant, **or it does not exist** (the same answer, so it cannot be used to find out which tenants exist) |
-| 403 | `read_only` | any method other than GET, HEAD, OPTIONS, for a tenant the caller *may* view |
+| 403 | `read_only` | any method other than GET, HEAD, OPTIONS, for a tenant the caller may view but only at level `view` |
+| 403 | `not_allowed_here` | a write to a users, roles, API keys, access, platform or MSSP route while working in another tenant, even with `full` access |
 | 403 | `session_only` | an API key sent the header |
 
 A write to a tenant the caller may not view is `forbidden`, not `read_only`, so the answer reveals nothing. An empty or whitespace-only header counts as absent.
@@ -42,26 +44,54 @@ A refused write is audited by the middleware as any refused write is (status 403
 
 ## Granting access
 
-A person belongs to one tenant but may be **granted** read-only access to others (an MSP's technician at a customer, a consultant at several clients). Grants are rows in `tenant_access_grants` (migration 072), one per person and tenant, and are checked against the database on **every request**, so a revocation takes effect on the person's very next request.
+A person belongs to one tenant but may be **granted** access to others (an MSP's technician at a customer, a consultant at several clients), at one of two levels:
+
+* **`view`**: read-only (the default).
+* **`full`**: read **and write**, acting with the person's **own role's permissions, never more** (a role that cannot install a connector cannot do it in a customer either). Identity and credential administration stays refused whatever the level (see below).
+
+Grants are rows in `tenant_access_grants` (migration 072; levels added in 074), one per person and tenant, and are checked against the database on **every request**, so a revocation or a change of level takes effect on the person's very next request. A person can also be granted **all tenants** (see "All tenants").
 
 | Endpoint | What |
 | --- | --- |
-| `GET /api/v1/tenants/{tenant_id}/access` | who has been granted access to this tenant (their account name, email if any, and the tenant they belong to) |
-| `PUT /api/v1/tenants/{tenant_id}/access/{account_name}` | grant that person read-only access (idempotent) |
+| `GET /api/v1/tenants/{tenant_id}/access` | who has been granted access to this tenant (their account name, email if any, the tenant they belong to, and the level) |
+| `PUT /api/v1/tenants/{tenant_id}/access/{account_name}` with `{"access": "view" \| "full"}` (no body means `view`) | grant that level; idempotent; asking for a different level changes the existing grant (audited as `tenant:access_changed`, with before and after) |
 | `DELETE /api/v1/tenants/{tenant_id}/access/{account_name}` | revoke it (204) |
+| `GET /api/v1/tenants/viewable` | what the caller may view, each with its `access` level |
+| `GET /api/v1/tenants/manageable` | the tenants whose access the caller may manage (the same rule as the routes above) |
 
 **Who may grant, revoke and list** (`may_manage_access`): a holder of the platform-wide cross-tenant permission (any tenant); or a holder of `users:write` whose **home** tenant is the tenant concerned (a customer's administrators decide who may see their data) **or its parent** (an MSP's administrators decide which of their own staff may see which customers). A child tenant's administrators cannot manage their parent, and a role that can read users but not write them (`soc_lead`) cannot grant or list. Someone who may not manage a tenant gets the **same 404 "Tenant not found"** as for a tenant that does not exist. A request made from inside a view of another tenant is a write and is refused (`read_only`), so nobody can grant while viewing.
 
+### What `full` access cannot do
+
+A stolen technician login must not be able to plant a hidden administrator or a long-lived key in every customer. So, while working in another tenant, **even with `full` access**:
+
+* a write to **users, roles, API keys, who has access, platform or MSSP administration** is refused (`not_allowed_here`), by route path (`/tenants/me/users`, `/tenants/{id}/access`, `/api-keys`, `/rbac`, `/platform`, `/mssp`; whole path segments, so a lookalike such as `/api-keys-report` is not caught);
+* the permissions `users:write`, `mssp:manage`, `mssp:onboard`, `platform:cross_tenant_query` and `plugins:admin` are **not held**, whatever the role (the wildcard included);
+* an **API key** still cannot work in another tenant at all, and account-level routes (`/auth`, `/push`, `/passkeys`) still act as the person's own account.
+
+Reading the same places is not blocked. Whoever needs those actions uses an account in that tenant. Everything else a role allows (alerts, cases, connectors, playbooks, response actions, and so on) works.
+
+### Every write is recorded in the tenant's own log
+
+For a write made from another tenant, an event (`tenant:acted`: who, their **home tenant**, role, level, method and path) is written to the **tenant's own** hash-chained audit log **before** the write is carried out, and **if it cannot be written the write is not performed**. The audit middleware then adds the outcome (status, and again where the person came from and the level) to the same log, not to the person's home tenant's. Every write is recorded, not one per fifteen minutes like a view.
+
+### All tenants
+
+`all_tenant_access_grants` (migration 074) holds one row per person granted **every** tenant, at `view` or `full`, including tenants created later. **Only a platform administrator** can create or remove one (`GET`, `PUT`, `DELETE /api/v1/platform/all-tenant-access[/{account_name}]`), because a customer's own administrators, or an MSP's, must not be able to hand out the whole customer base. The level **must be stated** there (no default). The grant, and any change or removal, is audited in the platform administrator's own tenant log; what the person then does is audited in each tenant they work in. A person's effective level in a tenant is the **strongest** of: their own tenant (full), the platform permission (view), a grant for that tenant, and an all-tenants grant. A platform administrator on their own therefore still only **views** other tenants; to write they need an all-tenants `full` grant.
+
 A grant is refused (422) for a person who already belongs to that tenant, or whose account is deactivated; an unknown account name is a 404. Every grant and every revocation is written to the **target tenant's own** hash-chained audit log (`tenant:access_granted`, `tenant:access_revoked`: who, whom, and where they come from), and each view still writes `tenant:viewed` there.
 
-**This replaced a blanket rule.** Until migration 072, every user of an MSSP parent tenant (even a `viewer`) could view **all** of its child tenants through `mssp:read`. That rule is gone. Existing deployments start with **no grants**, so an MSP's staff lose their view of customers until it is granted, deliberately. People with the platform-wide permission are unaffected.
+**This replaced a blanket rule.** Until migration 072, every user of an MSSP parent tenant (even a `viewer`) could view **all** of its child tenants through `mssp:read`. That rule is gone. Existing deployments start with **no grants**, so an MSP's staff lose their view of customers until it is granted, deliberately (and every existing grant stays `view`). People with the platform-wide permission are unaffected.
 
 ## What this does not do
 
 * **Live updates.** The realtime push feed still follows the person's home tenant while viewing. Not changed.
 * **Pages that render on the server** (the cases page) do not follow the switcher; see "The console".
 * **Reads that write.** The rule is "read-only by HTTP method". A GET handler that creates something as a side effect (for example a default row) would still do so in the viewed tenant. I did not audit the codebase for such handlers.
-* **Grants are read-only.** A grant gives the same read-only view as above. Write access to another tenant is a separate, larger decision and is not built; the table has an `access` column (only `view` today) so it can be added without a new table.
+* **The console does not yet know about levels.** It still treats every other tenant as read-only (its banner says so and its switcher does not show the level). The server enforces the levels regardless; the console's level selector, "Working in ..." banner and the grant screens are the next piece of work.
+* **No per-action limits for `full`.** Beyond the identity-administration block, `full` is everything the person's role allows: there is no finer-grained "may close alerts but not run response actions" for a granted tenant. Narrow the person's role, or grant `view`.
+* **A parent's administrators can grant `full` on their customers without the customer's consent** (an MSP decides which of its staff work in which customer); a customer's administrators can grant on their own tenant, but cannot stop the parent's administrators or a platform administrator from doing so. Both are audited in the customer's log.
+* **`GET` handlers that write** are still not audited as writes (see "Reads that write" above).
 * **Tokens and API keys** are unchanged: a token is for the person's own tenant, and an API key may not view another tenant.
 
 ## The console

@@ -680,6 +680,20 @@ def _fourteenth_batch() -> dict[str, list[Step]]:
             S("B may list its OWN tenant's access", "B", "get", "/api/v1/tenants/{tb}/access", expect=(200,), check=lambda r, c: isinstance(r.json(), list)),
             S("A may manage its own (the permission check passes; there is just no such account)", "A", "put", "/api/v1/tenants/{ta}/access/{nobody}", expect=(404,), nobody=True, check=no_account),
             S("B may manage its own (the permission check passes; there is just no such account)", "B", "put", "/api/v1/tenants/{tb}/access/{nobody}", expect=(404,), nobody=True, check=no_account),
+            # FULL access (migration 074): the level is just another field of the same request, so the same tenant check comes first and the answer is the same 404
+            S("A cannot give full access to B", "A", "put", "/api/v1/tenants/{tb}/access/{nobody}", over={"access": "full"}, expect=(404,), check=not_found),
+            S("B cannot give full access to A", "B", "put", "/api/v1/tenants/{ta}/access/{nobody}", over={"access": "full"}, expect=(404,), check=not_found),
+            # EVERY tenant: only a platform administrator may hand it out; neither of these two plain administrators may use any of the three routes
+            S("A cannot list who holds every tenant", "A", "get", "/api/v1/platform/all-tenant-access", expect=(403,)),
+            S("A cannot give anyone every tenant", "A", "put", "/api/v1/platform/all-tenant-access/{nobody}", over={"access": "full"}, expect=(403,)),
+            S("A cannot take anyone's every-tenant access away", "A", "delete", "/api/v1/platform/all-tenant-access/{nobody}", expect=(403,), nobody=True),
+            S("B cannot list who holds every tenant", "B", "get", "/api/v1/platform/all-tenant-access", expect=(403,)),
+            S("B cannot give anyone every tenant", "B", "put", "/api/v1/platform/all-tenant-access/{nobody}", over={"access": "full"}, expect=(403,)),
+            S("B cannot take anyone's every-tenant access away", "B", "delete", "/api/v1/platform/all-tenant-access/{nobody}", expect=(403,), nobody=True),
+            # what each is offered to manage is only its own tenant, and the screen is told what it may do
+            S("A is offered only its own tenant to manage", "A", "get", "/api/v1/tenants/manageable", expect=(200,), check=lambda r, c: [t["id"] for t in r.json()["tenants"]] == [c["ta"]]),
+            S("B is offered only its own tenant to manage", "B", "get", "/api/v1/tenants/manageable", expect=(200,), check=lambda r, c: [t["id"] for t in r.json()["tenants"]] == [c["tb"]]),
+            S("A's capabilities do not include platform administration", "A", "get", "/api/v1/auth/me", expect=(200,), check=lambda r, c: "platform_admin" not in r.json()["capabilities"] and "manage_users" in r.json()["capabilities"]),
         ],
     }
 

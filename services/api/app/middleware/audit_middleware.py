@@ -88,6 +88,15 @@ def _extract_jwt_claims(request: Request) -> tuple[uuid.UUID | None, uuid.UUID |
         return None, None, None
 
 
+def _acting_context(request: Request) -> tuple[uuid.UUID, dict] | None:
+    """When the request was served for ANOTHER tenant (the person was granted it and chose to work in it), the dependency recorded that on the request: the outcome belongs in THAT tenant's audit log, not in the person's home tenant's (the token only names the home tenant)."""
+    state = getattr(request, "state", None)
+    tenant = getattr(state, "acting_tenant_id", None)
+    if tenant is None:
+        return None
+    return tenant, {"acting_from_tenant_id": str(getattr(state, "acting_home_tenant_id", "") or ""), "access": getattr(state, "acting_access", None)}
+
+
 def _truncate(value: str | None, limit: int) -> str | None:
     if value is None:
         return None
@@ -108,6 +117,9 @@ class AuditMiddleware(BaseHTTPMiddleware):
         user_id, tenant_id, email = _extract_jwt_claims(request)
         if tenant_id is None:
             return response  # unauthenticated
+        acting = _acting_context(request)
+        if acting is not None:
+            tenant_id = acting[0]
 
         try:
             action, resource = _label_for_path(request.method, request.url.path)
@@ -141,6 +153,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 if rid:
                     meta["request_id"] = rid
                 meta["status_code"] = response.status_code
+                if acting is not None:
+                    meta.update(acting[1])
 
                 created_at = datetime.now(UTC)
                 event = AuditLog(

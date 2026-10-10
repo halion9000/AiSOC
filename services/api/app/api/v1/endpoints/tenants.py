@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, model_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -20,7 +20,7 @@ from app.services.tenant_selection import selectable_tenants
 from app.services.audit import emit_audit
 from app.services.user_lookup import find_user_by_account_name
 from app.services.tenant_selection import CROSS_TENANT_PERMISSION
-from app.services.view_as import home_tenant_of, may_manage_access, viewable_tenants
+from app.services.view_as import home_tenant_of, may_manage_access, viewable_access
 from app.models.tenant import Tenant, User
 from app.models.tenant_access import ACCESS_VIEW, TenantAccessGrant
 
@@ -137,6 +137,8 @@ class ViewableTenant(BaseModel):
     slug: str
     # self: the caller's own tenant. granted: a tenant the caller has been granted (read-only). platform: any tenant, for a holder of the cross-tenant permission.
     relationship: Literal["self", "platform", "granted"]
+    # What they may do there: view (read-only) or full (read and write as their own role allows; identity administration excepted). Always full for their own tenant.
+    access: Literal["view", "full"] = "view"
 
 
 class ViewableTenantsResponse(BaseModel):
@@ -153,10 +155,10 @@ async def list_viewable_tenants(
 
     It is the same rule the server applies when the header is sent (app.services.view_as), so the console can only offer what will be honoured. It always answers for the person's own account, whatever is being viewed.
     """
-    rows = await viewable_tenants(db, current_user)
+    rows = await viewable_access(db, current_user)
     return ViewableTenantsResponse(
         home_tenant_id=home_tenant_of(current_user),
-        tenants=[ViewableTenant(id=t.id, name=t.name, slug=t.slug, relationship=rel) for t, rel in rows],
+        tenants=[ViewableTenant(id=t.id, name=t.name, slug=t.slug, relationship=rel, access=access) for t, rel, access in rows],
     )
 
 
@@ -191,6 +193,12 @@ async def list_manageable_tenants(
         home_tenant_id=home,
         tenants=[ManageableTenant(id=t.id, name=t.name, slug=t.slug, relationship="self" if t.id == home else "child" if t.parent_tenant_id == home else "other") for t in managed],
     )
+
+
+class GrantAccessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # `view` (the default, so a request with no body is read-only) or `full`: read and write as the person's own role allows, identity and credential administration excepted.
+    access: Literal["view", "full"] = "view"
 
 
 class AccessGrantResponse(BaseModel):
@@ -249,8 +257,11 @@ async def grant_tenant_access(
     account_name: str,
     current_user: Annotated[AuthUser, Depends(require_permission("users:write"))],
     db: DBSession,
+    body: GrantAccessRequest | None = None,
 ) -> AccessGrantResponse:
-    """Let the person with this account name VIEW this tenant, read-only. Idempotent. Takes effect on their next request. Recorded in this tenant's own audit log."""
+    """Let the person with this account name work in this tenant: `view` (read-only, the default) or `full` (read and write as their own role allows; users, roles, API keys and access administration excepted). Idempotent; asking for a different level changes
+    the existing grant. Takes effect on their next request. Recorded in this tenant's own audit log."""
+    level = body.access if body is not None else ACCESS_VIEW
     tenant = await _tenant_whose_access_the_caller_manages(db, current_user, tenant_id)
     grantee = await find_user_by_account_name(db, account_name)
     if grantee is None:
@@ -268,8 +279,22 @@ async def grant_tenant_access(
 
     existing = (await db.execute(find())).scalars().first()
     if existing is not None:
+        if existing.access == level:
+            return _grant_response(existing, grantee)
+        before, existing.access = existing.access, level
+        await emit_audit(
+            db=db,
+            tenant_id=tenant_pk,
+            actor_id=current_user.user_id,
+            actor_email=current_user.email,
+            action="tenant:access_changed",
+            resource="tenant_access",
+            resource_id=str(grantee_id),
+            changes={"account_name": grantee.account_name, "home_tenant_id": str(grantee.tenant_id), "before": before, "after": level},
+        )
+        await db.commit()
         return _grant_response(existing, grantee)
-    grant = TenantAccessGrant(user_id=grantee.id, tenant_id=tenant.id, access=ACCESS_VIEW, granted_by=current_user.user_id, granted_by_label=current_user.email or str(current_user.user_id))
+    grant = TenantAccessGrant(user_id=grantee.id, tenant_id=tenant.id, access=level, granted_by=current_user.user_id, granted_by_label=current_user.email or str(current_user.user_id))
     db.add(grant)
     try:
         await emit_audit(
@@ -280,7 +305,7 @@ async def grant_tenant_access(
             action="tenant:access_granted",
             resource="tenant_access",
             resource_id=str(grantee.id),
-            changes={"account_name": grantee.account_name, "home_tenant_id": str(grantee.tenant_id), "access": ACCESS_VIEW},
+            changes={"account_name": grantee.account_name, "home_tenant_id": str(grantee.tenant_id), "access": level},
         )
         await db.commit()
     except IntegrityError:

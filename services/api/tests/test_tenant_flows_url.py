@@ -248,9 +248,15 @@ class TestPortability:
         assert step.check(good, {}) and not step.check(leaky, {})
 
     def test_no_check_depends_on_a_seeded_tenant_slug(self):
+        """A flow must not assume the seeded tenants' slugs (tenant-a / tenant-b): that would make it fail on any real deployment. The match is a standalone token, so a route that merely contains those letters (/platform/all-tenant-access) is not mistaken for a slug."""
         import inspect
+        import re
 
-        assert "tenant-a" not in inspect.getsource(tf) and "tenant-b" not in inspect.getsource(tf)
+        slug = re.compile(r"(?<![\w-])tenant-[ab](?!\w)")
+        assert not slug.search(inspect.getsource(tf))
+        # the guard still catches real uses, and only those
+        assert slug.search("slug == 'tenant-a'") and slug.search('"tenant-b"') and slug.search("name = tenant-a-x") and slug.search("tenant-a")
+        assert not slug.search("/api/v1/platform/all-tenant-access/x") and not slug.search("tenant-access") and not slug.search("my-tenant-a") and not slug.search("tenant-ab")
 
     def test_run_flows_sends_every_request_through_the_retrying_sender(self):
         import inspect
