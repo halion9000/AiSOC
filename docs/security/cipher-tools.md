@@ -30,6 +30,16 @@ Before there was a test, **six of Cipher's seventeen tools were found sending re
 2. Copy it to `tests/fixtures/core_read_tools.json` here and add the row to `CIPHER_CALLS`. The tests then tell you if the route is missing, a query name is wrong, or the permission needed is not in `CORE_KEY_SCOPES`.
 3. If a scope is needed, add it to `CORE_KEY_SCOPES` **only if it grants nothing but reading** (check what else the permission guards: `lake:query` is the example of one that does not qualify). Existing deployments pick it up the next time bootstrap runs.
 
+## Verifying on a real deployment
+
+The tests use SQLite and stubs; this is the check against the real thing (it was run on Postgres as the restricted role, and it found real mistakes the tests could not).
+
+1. **The key before the upgrade fails, and says why.** With a key that has only the old five scopes: `GET /api/v1/rules` returns `403 {"detail":"API key missing scope: rules:read"}` (and `GET /api/v1/alerts/stats` still returns 200).
+2. **Run bootstrap again** (`python -m app.scripts.bootstrap_production --admin-email <the admin's email>`; it needs no password for an existing admin). Expect the log line `API key 'core-hud' scopes updated in place (same secret): added ['rules:read'], removed none` and `core_key_status: scopes-updated` with no new key returned. In the database the `core-hud` key keeps its `key_prefix` and `hashed_key`, and there is still one row.
+3. **The same key now works, with the server still running:** `GET /api/v1/rules`, `/detection/coverage`, `/detection/drift` return 200. A third bootstrap reports `kept-existing`.
+4. **What was not granted is still refused:** `POST /rules`, `DELETE /rules/{id}`, `GET /hunts` and `POST /nl-query/execute` with that key all return 403 (the last two say `API key missing scope: lake:query`).
+5. **Test with data, not an empty database.** An empty library makes every list `[]`, every id lookup a 404 and every coverage check pass vacuously. Seed rules (some `active`, some `testing`/`inactive`, one with a very long body), a proposal and a drafted suggestion, then call each tool. Things only data shows: long text is shortened in a list and is whole in the detail tool; a rule created through the API starts in `testing`, which coverage counts as **not** active; `stale` in the drift inbox is "no triggers yet" and includes a rule that was only just turned on; the id field is `id` for rules and proposals but `suggestion_id` for suggestions.
+
 ## Not built yet
 
 Hunting (waiting on a read-only hunts permission), posture and compliance, identity and insider threat, threat intelligence, MSSP and platform operations, and the generated capability reference that would let Cipher know every area of AiSOC. Cipher has no new write tools.
