@@ -59,6 +59,7 @@ VALID_SCOPES: frozenset[str] = frozenset(
         "plugins:admin",
         "rules:read",
         "rules:write",
+        "hunts:read",
         "users:read",
         "threat_intel:read",
         "threat_intel:write",

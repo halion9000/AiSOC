@@ -11,6 +11,15 @@ AiSOC separates what a person may do **inside their own tenant** from what acts 
 | `tenant_admin` | What a newly provisioned tenant's first administrator receives. A fixed list of tenant-level permissions. |
 | `soc_lead`, `soc_analyst`, `threat_hunter`, `viewer`, `api_service` | Narrower tenant-level roles. |
 
+## Reading hunts without being able to query: `hunts:read`
+
+`lake:query` is one permission for everything hunting does: creating, running and deleting hunts and saved hunts, and running arbitrary queries against telemetry. `hunts:read` is its read half, for exactly five routes: `GET /hunts`, `GET /hunts/{id}`, `GET /saved-hunts`, `GET /saved-hunts/{id}` and `GET /hunt/saved` (the hunt hypotheses with their queries and the analysts' findings, saved hunts, saved searches).
+
+* **Nobody loses anything.** `lake:query` implies `hunts:read` (in `permission_in`, which every check goes through: role maps, database roles and API-key scopes, including a `lake:*` wildcard), so every role that could read hunts still can, and no role was given anything new.
+* **It grants nothing else.** A principal holding only `hunts:read` can use those five routes and no others anywhere in the API (a test checks this over every route). It is what lets an integration, or a read-only custom role, see which hunts exist without being able to run a query.
+* **What a hunt found stays behind `lake:query`.** `GET /hunts/{id}/runs` returns `result_sample`, event rows sampled from the data lake, so it is telemetry and not a definition.
+* A key can be issued with the scope `hunts:read` (`POST /api-keys`); a custom role can be given the permission (migration `075` adds it to the catalog; it backfills nothing).
+
 ## Platform permissions
 
 These act on every tenant, so neither the `*` wildcard nor a resource wildcard such as `plugins:*` grants them. A principal holds one only if it is **named exactly**: in a role (only `platform_admin` lists them), in an API key's scopes, or in a database role.

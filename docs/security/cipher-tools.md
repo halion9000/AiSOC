@@ -8,9 +8,9 @@ What Cipher reads (alert titles, hostnames, usernames, rules drafted by a model 
 
 ## The key (least privilege, and why some things are left out)
 
-`CORE_KEY_SCOPES` in `app/scripts/bootstrap_production.py`: `alerts:read`, `alerts:write`, `cases:read`, `cases:write`, `connectors:read` and, for the detection-engineering tools, `rules:read`. No delete, no playbook execution, no rule **writes**.
+`CORE_KEY_SCOPES` in `app/scripts/bootstrap_production.py`: `alerts:read`, `alerts:write`, `cases:read`, `cases:write`, `connectors:read`, `rules:read` (the detection-engineering tools) and `hunts:read` (hunt definitions). No delete, no playbook execution, no rule **writes**.
 
-* **`lake:query` is deliberately not granted.** It is one permission for hunting's reads **and** its writes (create, run, delete) and for arbitrary natural-language queries against telemetry. Giving the key that so Cipher could *read* a hunt would let the key do all of it. Cipher gets hunting reads once AiSOC has a read-only permission for them.
+* **`lake:query` is deliberately not granted.** It is one permission for hunting's reads **and** its writes (create, run, delete), for arbitrary natural-language queries against telemetry, and for reading what a hunt's runs found. So AiSOC has a separate read-only `hunts:read` (see `roles-and-platform-permissions.md`): it covers hunt hypotheses, saved hunts and saved searches, and nothing else. A run's results (`result_sample`: event rows from the lake) stay behind `lake:query`, so Cipher can read what hunts exist and what the analysts concluded, not the telemetry a hunt returned.
 * `rules:read` also guards the routes that *run or backtest* a rule (compute, no writes). Cipher's tools never call those, and the key cannot change a rule.
 
 ## Rolling a new scope out: no key rotation needed
@@ -42,4 +42,4 @@ The tests use SQLite and stubs; this is the check against the real thing (it was
 
 ## Not built yet
 
-Hunting (waiting on a read-only hunts permission), posture and compliance, identity and insider threat, threat intelligence, MSSP and platform operations, and the generated capability reference that would let Cipher know every area of AiSOC. Cipher has no new write tools.
+Posture and compliance, identity and insider threat, threat intelligence, MSSP and platform operations, and the generated capability reference that would let Cipher know every area of AiSOC. Cipher has no new write tools.

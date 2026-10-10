@@ -53,7 +53,7 @@ def _coerce_uuid(value: str) -> uuid.UUID | None:
         return None
 
 
-@router.get("", dependencies=[Depends(require_permission("lake:query"))])
+@router.get("", dependencies=[Depends(require_permission("hunts:read"))])
 async def list_saved_searches(user: AuthUser, db: TenantDBSession) -> dict[str, list[SavedSearchOut]]:
     """The caller's tenant's saved searches, newest first."""
     rows = (await db.execute(select(SavedHuntSearch).where(SavedHuntSearch.tenant_id == user.tenant_id).order_by(SavedHuntSearch.created_at.desc()).limit(MAX_PER_TENANT))).scalars().all()

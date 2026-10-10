@@ -42,15 +42,15 @@ SEEDED_ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 SEEDED_ADMIN_EMAIL = "admin@aisoc.local"
 CORE_KEY_NAME = "core-hud"
 # Exactly what CORE calls: alerts (read, claim/escalate/snooze), cases and
-# investigations (cases:*), connector listing/health, and READ access to the
-# detection rules (rules:read: Cipher's detection-engineering tools). No delete
-# rights, no playbook execution, no connector changes, no rule WRITES, and
-# nothing that runs queries against the data lake (lake:query is one permission
-# for hunting's reads AND its writes and for arbitrary queries, so it is not
-# granted until AiSOC has a read-only hunts permission).
+# investigations (cases:*), connector listing/health, READ access to the
+# detection rules (rules:read) and to hunt definitions (hunts:read): Cipher's
+# detection-engineering and hunting tools. No delete rights, no playbook
+# execution, no connector changes, no rule WRITES, and nothing that runs queries
+# against the data lake: lake:query (create/run/delete hunts, arbitrary queries,
+# and reading what a hunt's runs found) is deliberately NOT granted.
 # Adding a scope here also widens the key on a deployment that already has it:
 # _ensure_key syncs an existing key's scopes in place (same secret).
-CORE_KEY_SCOPES = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read", "rules:read"]
+CORE_KEY_SCOPES = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read", "rules:read", "hunts:read"]
 # The agents service's own key, for background calls it makes without a user
 # behind them (attack-path, blast-radius and neighbor graphs during an
 # investigation). Those endpoints need only an authenticated caller; read-only.

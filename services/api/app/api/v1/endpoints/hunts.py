@@ -210,7 +210,7 @@ def _row_to_hunt(row: Any) -> HuntResponse:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-@router.get("", response_model=list[HuntResponse], summary="List hunt hypotheses", dependencies=[Depends(require_permission("lake:query"))])
+@router.get("", response_model=list[HuntResponse], summary="List hunt hypotheses", dependencies=[Depends(require_permission("hunts:read"))])
 async def list_hunts(
     db: DBSession,
     user: AuthUser,
@@ -291,7 +291,7 @@ async def create_hunt(body: CreateHuntRequest, db: DBSession, user: AuthUser) ->
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/{hunt_id}", response_model=HuntResponse, summary="Get hunt", dependencies=[Depends(require_permission("lake:query"))])
+@router.get("/{hunt_id}", response_model=HuntResponse, summary="Get hunt", dependencies=[Depends(require_permission("hunts:read"))])
 async def get_hunt(hunt_id: uuid.UUID, db: DBSession, user: AuthUser) -> HuntResponse:
     row = (
         await db.execute(

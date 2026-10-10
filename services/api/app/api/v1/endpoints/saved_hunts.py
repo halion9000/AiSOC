@@ -259,7 +259,7 @@ async def _load_owned_hunt(
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=list[SavedHuntModel], dependencies=[Depends(require_permission("lake:query"))])
+@router.get("", response_model=list[SavedHuntModel], dependencies=[Depends(require_permission("hunts:read"))])
 async def list_saved_hunts(
     user: AuthUser,
     db: TenantDBSession,
@@ -341,7 +341,7 @@ async def create_saved_hunt(
     return SavedHuntModel.from_orm(row)
 
 
-@router.get("/{hunt_id}", response_model=SavedHuntModel, dependencies=[Depends(require_permission("lake:query"))])
+@router.get("/{hunt_id}", response_model=SavedHuntModel, dependencies=[Depends(require_permission("hunts:read"))])
 async def get_saved_hunt(
     hunt_id: str,
     user: AuthUser,

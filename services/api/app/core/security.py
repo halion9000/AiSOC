@@ -284,13 +284,20 @@ def verify_ed25519_signature(public_key_bytes: bytes, message: bytes, signature:
 
 # Names that are enforced somewhere in the code but are not (yet) granted to any role
 # beyond the "*" wildcard holders. They are valid permission names.
-_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard"})
+_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
 
 
 def known_permissions() -> frozenset[str]:
     """Every permission name the API recognises (the "*" wildcard is not a permission)."""
     granted = {p for perms in ROLE_PERMISSIONS.values() for p in perms if p != "*"}
     return frozenset(granted | _UNGRANTED_PERMISSIONS)
+
+
+# A permission that holding another one always granted. `hunts:read` (read the DEFINITIONS of hunts: the hypothesis, the queries, the analysts' findings, saved hunts and saved searches) was
+# split out of `lake:query`, which is also the permission to create, run and delete hunts and to run arbitrary queries against telemetry. Everything that held `lake:query` (a role, a custom
+# database role, a wildcard like `lake:*`) still reads hunts exactly as before; a holder of `hunts:read` alone can read definitions and can do nothing that writes or queries. It is checked
+# in permission_in so every path (role map, database roles, API-key scopes) behaves the same. Reading what a hunt FOUND in telemetry (GET /hunts/{id}/runs: sampled event rows) stays `lake:query`.
+IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",)}
 
 
 def permission_in(granted: Iterable[str], permission: str) -> bool:
@@ -302,7 +309,9 @@ def permission_in(granted: Iterable[str], permission: str) -> bool:
         return permission in granted
     if "*" in granted or permission in granted:
         return True
-    return f"{permission.split(':')[0]}:*" in granted
+    if f"{permission.split(':')[0]}:*" in granted:
+        return True
+    return any(permission_in(granted, stronger) for stronger in IMPLIED_BY.get(permission, ()))
 
 
 def has_permission(role: str, permission: str) -> bool:
