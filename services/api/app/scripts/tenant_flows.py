@@ -976,9 +976,11 @@ async def run_flows(
         if True:  # (the block below was nested inside the in-process client's `async with`)
             tok: dict[str, dict] = {}
             for user, email in zip("AB", emails, strict=True):
-                r = await _send(c, "POST", "/api/v1/auth/login", json={"email": email, "password": (password_b or password) if user == "B" else password})
+                # An account name (the default), or an email if the server still allows email sign-in: an identifier with an '@' is sent as an email.
+                key = "email" if "@" in email else "account_name"
+                r = await _send(c, "POST", "/api/v1/auth/login", json={key: email, "password": (password_b or password) if user == "B" else password})
                 if r.status_code != 200:
-                    raise PreflightError(f"login failed for tenant {user} ({email}): HTTP {r.status_code}. Check the email and the password.")
+                    raise PreflightError(f"login failed for tenant {user} ({email}): HTTP {r.status_code}. Check the account name and the password (an email works only if the server has LOGIN_ALLOW_EMAIL on).")
                 tok[user] = {"Authorization": "Bearer " + r.json()["access_token"]}
             # Set up BEFORE anything is written: two different tenants, two plain tenant admins who can do what the flows do. Then the flows are built with the REAL tenant ids.
             TENANT_IDS.update(await preflight(c, tok))
@@ -1149,8 +1151,8 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", help="run the flows against the database DATABASE_URL points at")
     run.add_argument("--label", required=True)
     run.add_argument("--out", help="default: tenant_flows_<label>.json")
-    run.add_argument("--email-a", default="admin-a@example.com")
-    run.add_argument("--email-b", default="admin-b@example.com")
+    run.add_argument("--account-a", "--email-a", dest="email_a", default="admin-a", help="tenant A's admin: an account name (an email works only if the server allows email sign-in)")
+    run.add_argument("--account-b", "--email-b", dest="email_b", default="admin-b", help="tenant B's admin: an account name (see --account-a)")
     run.add_argument("--password-env", default="TENANT_FLOWS_PASSWORD")
     run.add_argument("--yes-write-test-data", action="store_true", help="required: the flows create (and some delete) data")
     url = sub.add_parser("run-url", help="run the flows against a DEPLOYED API over HTTP: a staging environment, NEVER production")
@@ -1158,8 +1160,8 @@ def main(argv: list[str] | None = None) -> int:
     url.add_argument("--confirm-host", required=True, help="the hostname of --base-url, typed again: a guard against pasting the wrong URL")
     url.add_argument("--label", required=True)
     url.add_argument("--out", help="default: tenant_flows_<label>.json")
-    url.add_argument("--email-a", required=True, help="a plain tenant ADMIN of one tenant")
-    url.add_argument("--email-b", required=True, help="a plain tenant ADMIN of a DIFFERENT tenant")
+    url.add_argument("--account-a", "--email-a", dest="email_a", required=True, help="a plain tenant ADMIN of one tenant, by account name (an email works only if the server allows email sign-in)")
+    url.add_argument("--account-b", "--email-b", dest="email_b", required=True, help="a plain tenant ADMIN of a DIFFERENT tenant, by account name (see --account-a)")
     url.add_argument("--password-env-a", default="TENANT_FLOWS_PASSWORD_A", help="env var holding A's password (falls back to TENANT_FLOWS_PASSWORD)")
     url.add_argument("--password-env-b", default="TENANT_FLOWS_PASSWORD_B", help="env var holding B's password (falls back to TENANT_FLOWS_PASSWORD)")
     url.add_argument("--spec-file", help="the OpenAPI document, if the deployment does not serve /openapi.json")

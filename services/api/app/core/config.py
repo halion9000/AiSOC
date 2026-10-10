@@ -149,9 +149,9 @@ class Settings(BaseSettings):
     LOGIN_MAX_FAILURES_PER_ACCOUNT: int = Field(default=5, ge=1)
     LOGIN_MAX_FAILURES_PER_IP: int = Field(default=20, ge=1)
     LOGIN_FAILURE_WINDOW_MINUTES: int = Field(default=15, ge=1)
-    # Signing in with an EMAIL (an identifier containing '@') as well as an account name. On by default so that nobody is locked out when account names arrive (everyone is given one by migration 071);
-    # turn it off once people know their account name. An account name never contains '@', so the two can never be confused.
-    LOGIN_ALLOW_EMAIL: bool = True
+    # Signing in with an EMAIL (an identifier containing '@') as well as an account name. OFF by default: people sign in with their ACCOUNT NAME (everyone was given one by migration 071). It was on during the transition so that nobody was locked out; set it to true only
+    # if people still need to sign in by email. An account name never contains '@', so the two can never be confused, and an email offered while this is off is answered exactly like a wrong password (same status, same body, same timing, and it counts toward the lockout).
+    LOGIN_ALLOW_EMAIL: bool = False
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
 

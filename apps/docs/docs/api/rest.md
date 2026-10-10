@@ -22,7 +22,7 @@ AiSOC exposes a fully documented OpenAPI 3.1 REST API.
 # Obtain a token
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@aisoc.local","password":"changeme"}'
+  -d '{"account_name":"admin","password":"changeme"}'
 
 # Use the token
 curl http://localhost:8000/api/v1/cases \

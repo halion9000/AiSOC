@@ -17,7 +17,7 @@ All examples assume:
 ```bash
 export AISOC_TOKEN="$(curl -sX POST http://localhost:8000/v1/auth/login \
   -H 'content-type: application/json' \
-  -d '{"email":"admin@aisoc.local","password":"changeme"}' | jq -r .access_token)"
+  -d '{"account_name":"admin","password":"changeme"}' | jq -r .access_token)"
 export AISOC_TENANT="00000000-0000-0000-0000-000000000001"
 ```
 

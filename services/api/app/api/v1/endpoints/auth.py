@@ -116,7 +116,7 @@ async def login(
         await login_throttle.record_failure(db, request.identifier, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect account name or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

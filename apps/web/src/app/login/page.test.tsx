@@ -142,7 +142,7 @@ describe('the sign-in page', () => {
     );
 
     it('a wrong password is still a plain "Account name or password incorrect."', async () => {
-      login.mockRejectedValue(refusal(401, '{"detail":"Incorrect email or password"}', 'API 401 Unauthorized - /api/v1/auth/login'));
+      login.mockRejectedValue(refusal(401, '{"detail":"Incorrect account name or password"}', 'API 401 Unauthorized - /api/v1/auth/login'));
       await attempt();
       expect(await screen.findByText('Account name or password incorrect.')).toBeInTheDocument();
     });

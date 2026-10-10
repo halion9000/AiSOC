@@ -382,7 +382,7 @@ class TestRunUrlCommand:
         """2 means 'fix the setup', 1 means 'the flows found a problem': a typo'd password must never look like an isolation failure."""
         assert 1 != 2
         async def bad_login(*a, **k):
-            raise tf.PreflightError("login failed for tenant A (a@x.com): HTTP 401. Check the email and the password.")
+            raise tf.PreflightError("login failed for tenant A (a@x.com): HTTP 401. Check the account name and the password.")
 
         monkeypatch.setattr(tf, "run_flows", bad_login)
         code, cap, _ = harness.go(self.ok())
@@ -416,8 +416,8 @@ class TestTheRealRunnerLogsIn:
     def server(self, monkeypatch):
         import httpx
 
-        seen = {"logins": [], "bases": [], "paths": []}
-        good = {"a@x.com": "pw-a", "b@x.com": "pw-b"}
+        seen = {"logins": [], "keys": [], "bases": [], "paths": []}
+        good = {"a@x.com": "pw-a", "b@x.com": "pw-b", "admin-a": "pw-a", "admin-b": "pw-b"}
 
         class FakeAsyncClient:
             def __init__(self, *a, base_url=None, **kw):
@@ -433,9 +433,11 @@ class TestTheRealRunnerLogsIn:
                 seen["paths"].append(path)
                 if path == "/api/v1/auth/login":
                     body = kw["json"]
-                    seen["logins"].append((body["email"], body["password"]))
-                    ok = good.get(body["email"]) == body["password"]
-                    return R(200, {"access_token": "t-" + body["email"][0]}) if ok else R(401, {"detail": "bad"})
+                    key = "email" if "email" in body else "account_name"
+                    seen["keys"].append(key)
+                    seen["logins"].append((body[key], body["password"]))
+                    ok = good.get(body[key]) == body["password"]
+                    return R(200, {"access_token": "t-" + body[key][0]}) if ok else R(401, {"detail": "bad"})
                 return R(500)  # nothing after the login matters here
 
         monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
@@ -453,13 +455,29 @@ class TestTheRealRunnerLogsIn:
             await self.run(password_b="WRONG")
 
     async def test_the_message_says_what_to_check(self, server):
-        with pytest.raises(tf.PreflightError, match="Check the email and the password"):
+        with pytest.raises(tf.PreflightError, match="Check the account name and the password"):
             await tf.run_flows(("a@x.com", "b@x.com"), "WRONG", base_url="http://x.example", spec={"paths": {}})
 
     async def test_each_tenant_logs_in_with_its_own_password(self, server):
         with pytest.raises(tf.PreflightError):  # stops at the preflight (the fake answers 500): after both logins
             await self.run(password_b="pw-b")
         assert server["logins"] == [("a@x.com", "pw-a"), ("b@x.com", "pw-b")]
+
+    async def test_an_account_name_is_sent_as_an_account_name_and_an_address_as_an_email(self, server):
+        for identifiers, keys in ((("admin-a", "admin-b"), ["account_name", "account_name"]), (("a@x.com", "b@x.com"), ["email", "email"]), (("admin-a", "b@x.com"), ["account_name", "email"])):
+            server["keys"].clear()
+            with pytest.raises(tf.PreflightError):  # stops at the preflight (the fake answers 500): after both logins
+                await tf.run_flows(identifiers, "pw-a", base_url="http://x.example", spec={"paths": {}}, password_b="pw-b")
+            assert server["keys"] == keys, identifiers
+
+    async def test_account_names_log_in_with_each_tenants_own_password_too(self, server):
+        with pytest.raises(tf.PreflightError):
+            await tf.run_flows(("admin-a", "admin-b"), "pw-a", base_url="http://x.example", spec={"paths": {}}, password_b="pw-b")
+        assert server["logins"] == [("admin-a", "pw-a"), ("admin-b", "pw-b")]
+
+    async def test_a_refused_account_name_login_names_the_tenant_and_says_what_to_check(self, server):
+        with pytest.raises(tf.PreflightError, match=r"login failed for tenant A \(admin-a\): HTTP 401.*account name.*LOGIN_ALLOW_EMAIL"):
+            await tf.run_flows(("admin-a", "admin-b"), "WRONG", base_url="http://x.example", spec={"paths": {}})
 
     async def test_without_a_separate_password_B_uses_the_same_one(self, server):
         with pytest.raises(tf.PreflightError, match=r"tenant B"):

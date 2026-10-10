@@ -204,7 +204,7 @@ Browse `http://localhost:3000`.
 # 1. Get a token
 TOKEN=$(curl -s -X POST http://localhost:8000/v1/auth/login \
   -H 'content-type: application/json' \
-  -d '{"email":"admin@aisoc.local","password":"changeme"}' | jq -r .access_token)
+  -d '{"account_name":"admin","password":"changeme"}' | jq -r .access_token)
 
 # 2. Send a synthetic event into Kafka
 docker exec -i aisoc-kafka kafka-console-producer \

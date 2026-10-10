@@ -34,6 +34,15 @@ HASH = get_password_hash(PASSWORD)
 APP = Path(__file__).resolve().parent.parent / "app"
 
 
+@pytest.fixture(autouse=True)
+def _email_sign_in_is_on_for_these_tests(monkeypatch):
+    """These tests are about an identifier that is an EMAIL ADDRESS (the lock keyed by what was typed; the case of an address; not revealing which addresses exist). Email sign-in is OFF by default since people sign in with their account name, so they say so here.
+    The account-name equivalents live in test_account_names.py and the default-off behaviour in TestEmailSignInIsOffByDefault."""
+    from settings_support import patch_login_allow_email
+
+    patch_login_allow_email(monkeypatch, True)
+
+
 @pytest.fixture
 def world(tmp_path):
     """Tenant A holds a lower-case account, a LEGACY mixed-case account and an inactive one; tenant B holds a legacy mixed-case account."""

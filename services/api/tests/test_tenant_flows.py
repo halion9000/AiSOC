@@ -221,6 +221,22 @@ class TestSafetyRefusals:
         code, err, called = self.run(monkeypatch, capsys, ["run", "--label", "x", "--yes-write-test-data"])
         assert code == 2 and "TENANT_FLOWS_PASSWORD" in err and called == []
 
+    @pytest.mark.parametrize("flags", [["--account-a", "ann", "--account-b", "ben"], ["--email-a", "ann", "--email-b", "ben"]])
+    def test_the_two_admins_can_be_named_by_either_spelling_of_the_option(self, monkeypatch, tmp_path, flags):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "ENVIRONMENT", "test")
+        monkeypatch.setenv("TENANT_FLOWS_PASSWORD", "p")
+        seen = {}
+
+        async def fake(emails, password):
+            seen["emails"] = emails
+            return [["f", "s", "A", 200, True, ""]]
+
+        monkeypatch.setattr(tf, "run_flows", fake)
+        assert tf.main(["run", "--label", "ok", "--out", str(tmp_path / "r.json"), "--yes-write-test-data", *flags]) == 0
+        assert seen["emails"] == ("ann", "ben")
+
     def test_it_runs_when_everything_is_in_order_and_writes_the_results(self, monkeypatch, capsys, tmp_path):
         from app.core.config import settings
 
@@ -235,7 +251,7 @@ class TestSafetyRefusals:
         monkeypatch.setattr(tf, "run_flows", fake)
         out = tmp_path / "r.json"
         assert tf.main(["run", "--label", "ok", "--out", str(out), "--yes-write-test-data"]) == 0
-        assert seen == {"emails": ("admin-a@example.com", "admin-b@example.com"), "password": "p"} and json.loads(out.read_text()) == [["f", "s", "A", 200, True, ""]]
+        assert seen == {"emails": ("admin-a", "admin-b"), "password": "p"} and json.loads(out.read_text()) == [["f", "s", "A", 200, True, ""]], "the default identifiers are account names"
         assert "[ok] 1 steps; as expected: 1" in capsys.readouterr().out
 
     def test_a_failing_step_makes_it_exit_1(self, monkeypatch, tmp_path):

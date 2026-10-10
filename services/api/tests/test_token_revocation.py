@@ -65,7 +65,7 @@ def bearer(token):
 
 
 def login(world, user="alice"):
-    r = world.client.post("/auth/login", json={"email": f"{user}@example.com", "password": PASSWORD})
+    r = world.client.post("/auth/login", json={"account_name": user, "password": PASSWORD})
     assert r.status_code == 200, r.text
     return r.json()
 

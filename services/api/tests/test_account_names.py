@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from app.api.v1 import deps
+from settings_support import patch_login_allow_email
+
 from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import tenants as tn
 from app.core import account_names as an
@@ -174,12 +176,13 @@ class TestFindingAPerson:
         assert run(world, lambda s: find_user_by_account_name(s, "dormant")).id == world.users["dormant"].id
         assert run(world, lambda s: find_user_by_account_name(s, "dormant", active_only=True)) is None
 
-    def test_a_login_identifier_without_an_at_is_a_name_and_with_one_an_email(self, world):
+    def test_a_login_identifier_without_an_at_is_a_name_and_with_one_an_email_when_email_sign_in_is_on(self, world, monkeypatch):
+        patch_login_allow_email(monkeypatch, True)  # off by default
         assert run(world, lambda s: find_user_by_login(s, "bob")).id == world.users["bob"].id
         assert run(world, lambda s: find_user_by_login(s, "BOB@B.example")).id == world.users["bob"].id
 
     def test_an_email_identifier_is_refused_when_email_sign_in_is_off_but_a_name_still_works(self, world, monkeypatch):
-        monkeypatch.setattr(settings, "LOGIN_ALLOW_EMAIL", False)
+        patch_login_allow_email(monkeypatch, False)
         assert run(world, lambda s: find_user_by_login(s, "bob@b.example")) is None
         assert run(world, lambda s: find_user_by_login(s, "bob")).id == world.users["bob"].id
 
@@ -196,11 +199,12 @@ class TestSigningIn:
     def test_by_account_name_in_any_case(self, world, typed):
         assert sign_in(world, typed).status_code == 200
 
-    def test_by_email_while_email_sign_in_is_on(self, world):
+    def test_by_email_while_email_sign_in_is_on(self, world, monkeypatch):
+        patch_login_allow_email(monkeypatch, True)  # off by default
         assert sign_in(world, "alice@a.example").status_code == 200 and sign_in(world, "ALICE@A.EXAMPLE").status_code == 200
 
     def test_by_email_is_refused_when_it_is_off_and_the_name_still_works(self, world, monkeypatch):
-        monkeypatch.setattr(settings, "LOGIN_ALLOW_EMAIL", False)
+        patch_login_allow_email(monkeypatch, False)
         assert sign_in(world, "alice@a.example").status_code == 401 and sign_in(world, "alice").status_code == 200
 
     def test_a_person_with_no_email_signs_in_by_name(self, world):
@@ -218,7 +222,7 @@ class TestSigningIn:
 
     def test_a_wrong_password_and_an_inactive_and_an_unknown_name_are_the_same_401(self, world):
         seen = {(sign_in(world, n, p).status_code, sign_in(world, n, p).json()["detail"]) for n, p in (("alice", "wrong"), ("dormant", PASSWORD), ("nobody", PASSWORD))}
-        assert seen == {(401, "Incorrect email or password")}
+        assert seen == {(401, "Incorrect account name or password")}
 
     def test_the_token_carries_the_account_name_and_a_label_for_who(self, world):
         claims = decode_token(sign_in(world, "alice").json()["access_token"])
@@ -316,7 +320,8 @@ class TestCreatingAUser:
     def test_an_optional_email_is_still_accepted_and_stored_lower_cased(self, world):
         out = self.create(world, account_name="carol", email="Carol@A.Example")
         assert out.email == "carol@a.example"
-        assert sign_in(world, "carol@a.example", "Str0ng-Passw0rd!").status_code == 200
+        assert sign_in(world, "carol@a.example", "Str0ng-Passw0rd!").status_code == 401, "an email is contact information: it does not sign anyone in by default"
+        assert sign_in(world, "carol", "Str0ng-Passw0rd!").status_code == 200
 
     @pytest.mark.parametrize("bad", ["ab", "has space", "x" * 40, "a@b.com", "-lead", "UNI\u00c7"])
     def test_an_invalid_name_is_a_422_with_the_rule(self, world, bad):
@@ -444,8 +449,8 @@ class TestEveryCreationPathSetsAName:
         src = (APP / "scripts/bootstrap_production.py").read_text(encoding="utf-8")
         assert "--admin-name" in src and "validate_account_name(admin_name)" in src and "unique_account_name(session, email)" in src
 
-    def test_the_default_for_email_sign_in_is_on_so_nobody_is_locked_out_by_the_change(self):
-        assert settings.LOGIN_ALLOW_EMAIL is True
+    def test_the_default_for_email_sign_in_is_off_people_sign_in_with_their_account_name(self):
+        assert settings.LOGIN_ALLOW_EMAIL is False
 
 
 class TestTheMigration:
@@ -467,3 +472,51 @@ class TestTheMigration:
 
     def test_it_never_rewrites_or_deletes_anything_else(self):
         assert "DELETE FROM users" not in self.SQL and "UPDATE users SET email" not in self.SQL and "UPDATE users SET username" not in self.SQL
+
+
+class TestEmailSignInIsOffByDefault:
+    """People sign in with their ACCOUNT NAME. An email offered while email sign-in is off must be answered exactly like a wrong password: no way to learn that the address belongs to a real account."""
+
+    def test_an_email_with_the_right_password_is_refused_exactly_like_a_wrong_password(self, world):
+        right = sign_in(world, "alice@a.example")
+        wrong = sign_in(world, "alice@a.example", "not the password")
+        unknown = sign_in(world, "nobody@a.example")
+        assert right.status_code == wrong.status_code == unknown.status_code == 401
+        assert right.json() == wrong.json() == unknown.json()
+        for header in ("www-authenticate", "retry-after", "x-ratelimit-remaining"):
+            assert right.headers.get(header) == wrong.headers.get(header) == unknown.headers.get(header), header
+
+    def test_it_costs_the_same_as_a_real_check_so_timing_does_not_give_it_away(self, world, monkeypatch):
+        """The equaliser (a hash check against a throwaway hash) runs for an email that is not accepted, just as for an unknown account name."""
+        calls: list[tuple] = []
+        real = auth.verify_password_or_equalise
+
+        def spy(plain, hashed):
+            calls.append((plain, hashed is None))
+            return real(plain, hashed)
+
+        monkeypatch.setattr(auth, "verify_password_or_equalise", spy)
+        sign_in(world, "alice@a.example")
+        sign_in(world, "no-such-name")
+        assert calls == [(PASSWORD, True), (PASSWORD, True)], "no real hash was consulted for the email, exactly as for an unknown name"
+
+    def test_failed_attempts_with_an_email_still_count_toward_the_lock(self, world, monkeypatch):
+        monkeypatch.setattr(settings, "LOGIN_MAX_FAILURES_PER_ACCOUNT", 2)
+        assert [sign_in(world, "alice@a.example").status_code for _ in range(2)] == [401, 401]
+        locked = sign_in(world, "alice@a.example")
+        assert locked.status_code == 429 and "try again" in locked.json()["detail"].lower()
+        assert sign_in(world, "alice").status_code == 200, "the person's account name is a different identifier and is not locked"
+
+    def test_the_same_email_signs_in_when_the_option_is_switched_on(self, world, monkeypatch):
+        patch_login_allow_email(monkeypatch, True)
+        assert sign_in(world, "alice@a.example").status_code == 200
+
+
+def test_no_test_patches_the_email_sign_in_setting_through_its_own_copy_of_the_settings_object():
+    """That passes alone and fails in the full run (see tests/settings_support.py). Use patch_login_allow_email. (This file is not scanned: it only mentions the pattern here.)"""
+    from pathlib import Path
+
+    pattern = 'setattr(settings, "LOGIN_ALLOW_EMAIL"'
+    offenders = [f"{path.name}:{n}" for path in sorted(Path(__file__).parent.glob("test_*.py")) if path.name != Path(__file__).name for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if pattern in line]
+    assert offenders == [], offenders
+    assert pattern in (Path(__file__).parent / "test_account_names.py").read_text(encoding="utf-8"), "the guard's own pattern is still the real one"

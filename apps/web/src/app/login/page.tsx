@@ -3,7 +3,7 @@
 /**
  * Desktop console login.
  *
- * Account name + password against ``POST /api/v1/auth/login`` (the old email still works while the server allows it) for the open-source
+ * Account name + password against ``POST /api/v1/auth/login`` (an email works only if the server has LOGIN_ALLOW_EMAIL on; it is off by default) for the open-source
  * console. The mobile responder PWA at ``/responder/login`` uses passkeys; this
  * page is the desktop counterpart and the link target from the responder login
  * footer ("Sign in on desktop").
