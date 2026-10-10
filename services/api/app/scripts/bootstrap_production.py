@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import json
 import os
 import re
@@ -41,9 +42,15 @@ SEEDED_ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 SEEDED_ADMIN_EMAIL = "admin@aisoc.local"
 CORE_KEY_NAME = "core-hud"
 # Exactly what CORE calls: alerts (read, claim/escalate/snooze), cases and
-# investigations (cases:*), and connector listing/health. No delete rights,
-# no playbook execution, no connector changes.
-CORE_KEY_SCOPES = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read"]
+# investigations (cases:*), connector listing/health, and READ access to the
+# detection rules (rules:read: Cipher's detection-engineering tools). No delete
+# rights, no playbook execution, no connector changes, no rule WRITES, and
+# nothing that runs queries against the data lake (lake:query is one permission
+# for hunting's reads AND its writes and for arbitrary queries, so it is not
+# granted until AiSOC has a read-only hunts permission).
+# Adding a scope here also widens the key on a deployment that already has it:
+# _ensure_key syncs an existing key's scopes in place (same secret).
+CORE_KEY_SCOPES = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read", "rules:read"]
 # The agents service's own key, for background calls it makes without a user
 # behind them (attack-path, blast-radius and neighbor graphs during an
 # investigation). Those endpoints need only an authenticated caller; read-only.
@@ -130,7 +137,16 @@ async def _ensure_key(session, name: str, scopes: list[str], owner_id, rotate: b
         )
     ).scalars().all()
     if active and not rotate:
-        return None, "kept-existing"
+        # An existing key keeps its SECRET but is brought to exactly the scopes wanted now. Without this, a scope added here (or removed: least privilege) would
+        # only ever reach a fresh install, and every deployment already running would get 403s from the new tools until someone rotated the key and re-fed
+        # the new secret to CORE. The operator running bootstrap is the authority for these two keys; the change is reported, never silent.
+        wanted = sorted(set(scopes))
+        changed = [key for key in active if sorted(set(key.scopes or [])) != wanted]
+        for key in changed:
+            added, removed = sorted(set(wanted) - set(key.scopes or [])), sorted(set(key.scopes or []) - set(wanted))
+            logging.getLogger(__name__).warning("API key %r scopes updated in place (same secret): added %s, removed %s", name, added or "none", removed or "none")
+            key.scopes = list(scopes)
+        return None, ("scopes-updated" if changed else "kept-existing")
     for old in active:
         old.is_active = False
     raw_key, prefix, hashed_key = generate_api_key()

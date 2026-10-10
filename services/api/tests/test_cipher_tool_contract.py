@@ -1,4 +1,4 @@
-"""Cipher (CORE's agent) operates AiSOC through 17 tools. Every call they make must be one this API actually accepts.
+"""Cipher (CORE's agent) operates AiSOC through 29 tools: 17 written out by hand and 12 read-only detection-engineering tools declared as a table in CORE (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
 
 CORE builds the requests in hud/src/aisoc-requests.ts and pins them in hud/src/aisoc-requests.test.ts. Comparing every call with this API's own
 OpenAPI schema on 2026-10-08 found six tools sending requests AiSOC did not understand, which no test on either side had noticed because nothing
@@ -51,6 +51,20 @@ CIPHER_CALLS = [
     ("aisoc_update_case", "PATCH", "/cases/{id}", [], ["status"], False),
     ("aisoc_escalate_alert", "POST", "/alerts/{id}/escalate", [], ["reason"], True),
     ("aisoc_close_investigation", "POST", "/investigations/{id}/close", [], ["analyst_note"], False),
+    # The read-only tools declared in CORE's hud/src/aisoc-read-tools.ts (detection engineering). Same names, paths and query parameters as that table; a path parameter is written
+    # with the route's own name so the lookup below finds exactly that route and not a literal sibling (/detection-proposals/baselines also fits /detection-proposals/{id}).
+    ("aisoc_detection_coverage", "GET", "/detection/coverage", [], None, False),
+    ("aisoc_detection_drift", "GET", "/detection/drift", [], None, False),
+    ("aisoc_detection_confidence", "GET", "/detection/confidence", [], None, False),
+    ("aisoc_tuning_summary", "GET", "/detection/tuning/summary", [], None, False),
+    ("aisoc_tuning_workbench", "GET", "/detection/tuning", ["severity", "suggestion", "search", "enabled_only", "include_dismissed"], None, False),
+    ("aisoc_list_rules", "GET", "/rules", ["category", "rule_language", "include_builtin", "include_packs"], None, False),
+    ("aisoc_get_rule", "GET", "/rules/{rule_id}", [], None, False),
+    ("aisoc_list_detection_proposals", "GET", "/detection-proposals", ["status", "limit"], None, False),
+    ("aisoc_get_detection_proposal", "GET", "/detection-proposals/{proposal_id}", [], None, False),
+    ("aisoc_detection_baselines", "GET", "/detection-proposals/baselines", ["suite"], None, False),
+    ("aisoc_list_sigma_suggestions", "GET", "/detection-loop/suggestions", [], None, False),
+    ("aisoc_get_sigma_suggestion", "GET", "/detection-loop/suggestions/{suggestion_id}", [], None, False),
 ]
 CALL_IDS = [c[0] for c in CIPHER_CALLS]
 MAX_PAGE_SIZE_CORE_SENDS = 200  # hud/src/aisoc-requests.ts: MAX_PAGE_SIZE
@@ -90,6 +104,9 @@ def _resolve(schema):
 
 
 def _operation(method: str, template: str) -> dict:
+    for path, ops in SPEC["paths"].items():  # the route written exactly as the template first: a wildcard can also fit a literal sibling
+        if _strip(path) == template and method.lower() in ops:
+            return ops[method.lower()]
     for path, ops in SPEC["paths"].items():
         if _matches(template, _strip(path)) and method.lower() in ops:
             return ops[method.lower()]
@@ -97,6 +114,9 @@ def _operation(method: str, template: str) -> dict:
 
 
 def _route(method: str, template: str) -> APIRoute:
+    exact = [r for p, r in ROUTES if p == template and method in r.methods]
+    if exact:  # see _operation: the route written exactly as the template wins over a wildcard match
+        return exact[0]
     found = [r for p, r in ROUTES if _matches(template, p) and method in r.methods]
     assert found, f"{method} {template}: no such route in this API"
     return found[0]
@@ -159,6 +179,68 @@ def test_the_page_size_cap_is_at_least_what_core_sends(path):
     assert page_size["schema"].get("maximum", 10**9) >= MAX_PAGE_SIZE_CORE_SENDS
 
 
-def test_the_table_covers_all_seventeen_tools():
+def test_the_table_covers_all_twenty_nine_tools():
     tools = {re.sub(r" \(.*\)$", "", name) for name in CALL_IDS}
-    assert len(tools) == 17, sorted(tools)
+    assert len(tools) == 29, sorted(tools)
+
+
+READ_ONLY_TOOLS = [c for c in CIPHER_CALLS if c[1] == "GET"]
+
+
+@pytest.mark.parametrize("name", [c[0] for c in READ_ONLY_TOOLS])
+def test_a_tool_that_only_reads_never_needs_a_permission_that_writes(name):
+    """A GET tool must not need `:write`, `:delete`, `:execute` or `lake:query` (which is one permission for hunting's reads, writes and arbitrary queries): CORE's key is least privilege on purpose."""
+    _tool, method, path, *_ = _case(name)
+    for permission in required_permissions(_route(method, path)):
+        assert not permission.endswith((":write", ":delete", ":execute")) and permission != "lake:query", f"{name} ({method} {path}) needs {permission}"
+
+
+@pytest.mark.parametrize("name", [c[0] for c in READ_ONLY_TOOLS])
+def test_a_read_tool_resolves_to_exactly_the_route_it_names(name):
+    """The wildcard lookup used to be able to check a different route than the one named; every path here must be found written exactly as it is."""
+    _tool, method, path, *_ = _case(name)
+    if "{id}" in path:
+        pytest.skip("older rows use {id} as a wildcard")
+    assert path in {p for p, _ in ROUTES}, f"{method} {path} is not a route of this API as written"
+
+
+def test_a_tool_that_reads_one_item_cannot_be_confused_with_a_literal_sibling_route():
+    """/detection-proposals/baselines and /detection-proposals/{proposal_id} both fit the wildcard; each tool must resolve to its own route."""
+    assert _route("GET", "/detection-proposals/baselines").path.endswith("/baselines")
+    assert _route("GET", "/detection-proposals/{proposal_id}").path.endswith("{proposal_id}")
+    assert _operation("GET", "/detection-proposals/baselines")["operationId"] != _operation("GET", "/detection-proposals/{proposal_id}")["operationId"]
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+# The shared contract with CORE: hud/contracts/aisoc-read-tools.json in the CORE repo (copied to tests/fixtures/core_read_tools.json). CORE tests its tool table against ITS file;
+# this tests THIS table against the copy. A tool changed on one side fails a test until the other side matches, so the two cannot drift apart unnoticed
+# (before a table like this existed, six of seventeen tools were found sending requests AiSOC does not accept).
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+CONTRACT = json.loads((Path(__file__).parent / "fixtures" / "core_read_tools.json").read_text(encoding="utf-8"))
+CORE_CHECKOUT_CONTRACT = Path(__file__).resolve().parents[3].parent / "Jarvis" / "hud" / "contracts" / "aisoc-read-tools.json"
+
+
+def test_this_table_lists_exactly_the_read_tools_core_declares_with_the_same_path_and_query_names():
+    mine = {name: (method, path, query) for name, method, path, query, _body, _ignored in CIPHER_CALLS if name in {r["tool"] for r in CONTRACT}}
+    assert set(mine) == {r["tool"] for r in CONTRACT}, f"CORE declares tools this table lacks: {sorted({r['tool'] for r in CONTRACT} - set(mine))}"
+    for row in CONTRACT:
+        assert mine[row["tool"]] == (row["method"], row["path"], row["query"]), f"{row['tool']}: CORE sends {row['method']} {row['path']} {row['query']}, this table says {mine[row['tool']]}"
+
+
+def test_every_tool_in_the_contract_is_a_get():
+    assert all(r["method"] == "GET" for r in CONTRACT)
+
+
+def test_the_contract_has_no_tool_listed_twice():
+    names = [r["tool"] for r in CONTRACT]
+    assert len(names) == len(set(names)) == 12
+
+
+def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_to_this_repo():
+    """Only when the CORE repo is checked out beside this one (it is on the machine that develops both); otherwise there is nothing to compare."""
+    if not CORE_CHECKOUT_CONTRACT.exists():
+        pytest.skip("no CORE checkout next to this repository")
+    assert json.loads(CORE_CHECKOUT_CONTRACT.read_text(encoding="utf-8")) == CONTRACT, "tests/fixtures/core_read_tools.json is out of date: copy hud/contracts/aisoc-read-tools.json from the CORE repo and update CIPHER_CALLS"
