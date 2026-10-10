@@ -44,6 +44,10 @@ The tests use SQLite and stubs; this is the check against the real thing (it was
 4. **What was not granted is still refused:** `POST /rules`, `DELETE /rules/{id}`, `GET /hunts` and `POST /nl-query/execute` with that key all return 403 (the last two say `API key missing scope: lake:query`).
 5. **Test with data, not an empty database.** An empty library makes every list `[]`, every id lookup a 404 and every coverage check pass vacuously. Seed rules (some `active`, some `testing`/`inactive`, one with a very long body), a proposal and a drafted suggestion, then call each tool. Things only data shows: long text is shortened in a list and is whole in the detail tool; a rule created through the API starts in `testing`, which coverage counts as **not** active; `stale` in the drift inbox is "no triggers yet" and includes a rule that was only just turned on; the id field is `id` for rules and proposals but `suggestion_id` for suggestions.
 
+## What else AiSOC can do (the capability reference)
+
+Cipher has tools for only some areas. `docs/api/aisoc-areas.md` is a generated map of every area (how many reads and changes, what protects them, example operations); Cipher's knowledge file in the CORE repo is a copy, so it can say what AiSOC does even where it has no tool, and must not guess or invent a tool. `docs/api/AISOC_CAPABILITIES.md` is the full per-operation reference. Regenerate both with `python -m app.scripts.export_capabilities --full ../../docs/api/AISOC_CAPABILITIES.md --index ../../docs/api/aisoc-areas.md` (from `services/api`); `--check` and a test fail when they are stale, and a test compares the copy in a CORE checkout beside this repo. The reference describes protection only as far as the routes' dependencies show it; a check inside a handler is not visible.
+
 ## Not built yet
 
 Posture and compliance, identity and insider threat, threat intelligence, MSSP and platform operations, and the generated capability reference that would let Cipher know every area of AiSOC. Cipher has no new write tools.
