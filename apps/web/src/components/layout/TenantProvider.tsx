@@ -23,8 +23,10 @@ export interface TenantOption {
   id: string;
   /** Human-readable display name. */
   name: string;
-  /** How the signed-in person relates to it: their own, one they were granted (read-only), or any tenant (platform admin). */
+  /** How the signed-in person relates to it: their own, one they were granted, or any tenant (platform admin). */
   relationship: ViewableTenant['relationship'];
+  /** What they may do there: `view` (read-only) or `full` (read and write). `null` when it is not known (the list of tenants could not be read), which is never shown as either. */
+  access: 'view' | 'full' | null;
 }
 
 interface TenantContextValue {
@@ -51,7 +53,8 @@ interface TenantContextValue {
 const TenantContext = createContext<TenantContextValue | null>(null);
 
 function toOption(t: ViewableTenant): TenantOption {
-  return { id: t.id, name: t.name, relationship: t.relationship };
+  // An older API sends no level: their own tenant is theirs to change; anything else is read-only until the server says otherwise.
+  return { id: t.id, name: t.name, relationship: t.relationship, access: t.access ?? (t.relationship === 'self' ? 'full' : 'view') };
 }
 
 /**
@@ -115,11 +118,11 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         // Still render something usable, and never claim "your own tenant" while a view is in force (requests would still carry it).
         const chosen = getViewedTenantId();
         if (user) {
-          const own: TenantOption = { id: user.tenant_id, name: 'My tenant', relationship: 'self' };
+          const own: TenantOption = { id: user.tenant_id, name: 'My tenant', relationship: 'self', access: 'full' };
           setHome(own);
           setAvailable([own]);
           setCurrent(
-            chosen ? { id: chosen, name: 'Another tenant', relationship: 'granted' } : own,
+            chosen ? { id: chosen, name: 'Another tenant', relationship: 'granted', access: null } : own,
           );
         }
       } finally {

@@ -24,6 +24,13 @@ interface TenantSwitcherProps {
  * dropdown) so the chrome still telegraphs the active tenant without
  * pretending switching is possible.
  */
+/** What each entry says about the person's relationship to it AND what they may do there (so nobody mistakes a tenant they can change for one they can only look at). */
+export function accessLabel(t: { relationship: string; access: 'view' | 'full' | null }): string {
+  if (t.relationship === 'self') return 'Your tenant';
+  const level = t.access === 'full' ? 'full access' : t.access === 'view' ? 'read-only' : 'access unknown';
+  return t.relationship === 'platform' ? `Platform: ${level}` : `Granted: ${level}`;
+}
+
 export function TenantSwitcher({ className }: TenantSwitcherProps) {
   const { current, available, setTenant, loading, error } = useTenant();
   const [open, setOpen] = useState(false);
@@ -230,7 +237,7 @@ export function TenantSwitcher({ className }: TenantSwitcherProps) {
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate font-medium">{t.name}</span>
                       <span className="truncate text-[10px] uppercase tracking-wide text-fg-subtle">
-                        {t.relationship === 'platform' ? 'Platform view' : t.relationship === 'granted' ? 'Granted access' : 'Your tenant'}
+                        {accessLabel(t)}
                       </span>
                     </span>
                     {isActive && (

@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { TenantSwitcher } from './TenantSwitcher';
+import { TenantSwitcher, accessLabel } from './TenantSwitcher';
 import { TenantProvider } from './TenantProvider';
 
 const currentUserMock = vi.fn();
@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 
 /** What `GET /tenants/viewable` answers: the person's own tenant first, then the rest. */
-const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'granted' | 'platform' }[] = []) =>
+const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'granted' | 'platform'; access?: 'view' | 'full' }[] = []) =>
   viewableMock.mockResolvedValue({
     home_tenant_id: home.id,
     tenants: [{ ...home, slug: home.id, relationship: 'self' }, ...others.map((o) => ({ ...o, slug: o.id }))],
@@ -182,7 +182,7 @@ describe('TenantSwitcher', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Active tenant/i }));
     const [own, granted] = await screen.findAllByRole('option');
     expect(own).toHaveTextContent('Your tenant');
-    expect(granted).toHaveTextContent('Granted access');
+    expect(granted).toHaveTextContent('Granted: read-only');
   });
 
   it('labels the other tenants a platform admin may view as a platform view, not as your own', async () => {
@@ -193,7 +193,7 @@ describe('TenantSwitcher', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Active tenant/i }));
     const options = await screen.findAllByRole('option');
     expect(options[0]).toHaveTextContent('Your tenant');
-    expect(options[1]).toHaveTextContent('Platform view');
+    expect(options[1]).toHaveTextContent('Platform: read-only');
   });
 
   it('shows the tenant being viewed as active, and offers the own tenant as a choice', async () => {
@@ -207,5 +207,39 @@ describe('TenantSwitcher', () => {
     await userEvent.click(trigger);
     expect(await screen.findByRole('option', { name: /Customer A/i })).toBeDisabled();
     expect(screen.getByRole('option', { name: /MSSP Holdings/i })).toBeEnabled();
+  });
+});
+
+
+describe('accessLabel: each entry says what the person may do there', () => {
+  it.each([
+    ['self', 'full', 'Your tenant'],
+    ['self', 'view', 'Your tenant'],
+    ['self', null, 'Your tenant'],
+    ['granted', 'view', 'Granted: read-only'],
+    ['granted', 'full', 'Granted: full access'],
+    ['granted', null, 'Granted: access unknown'],
+    ['platform', 'view', 'Platform: read-only'],
+    ['platform', 'full', 'Platform: full access'],
+    ['platform', null, 'Platform: access unknown'],
+  ] as const)('%s / %s reads "%s"', (relationship, access, expected) => {
+    expect(accessLabel({ relationship, access })).toBe(expected);
+  });
+
+  it('is shown in the list, so nobody mistakes a tenant they can change for one they can only look at', async () => {
+    currentUserMock.mockReturnValue({ id: 'u1', email: 'tech@x.com', role: 'admin', tenant_id: 'home-t' });
+    isAuthenticatedMock.mockReturnValue(true);
+    viewable({ id: 'home-t', name: 'MSP' }, [
+      { id: 'c1', name: 'Customer A', relationship: 'granted', access: 'full' },
+      { id: 'c2', name: 'Customer B', relationship: 'granted', access: 'view' },
+    ]);
+    renderSwitcher();
+    await userEvent.click(await screen.findByRole('button', { name: /Active tenant/i }));
+    const [own, working, looking] = await screen.findAllByRole('option');
+    expect(own).toHaveTextContent('Your tenant');
+    expect(working).toHaveTextContent('Customer A');
+    expect(working).toHaveTextContent('Granted: full access');
+    expect(looking).toHaveTextContent('Customer B');
+    expect(looking).toHaveTextContent('Granted: read-only');
   });
 });

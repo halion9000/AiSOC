@@ -243,6 +243,8 @@ export interface AuthUser {
   tenant_id: string;
   is_active?: boolean;
   preferences?: Record<string, unknown>;
+  /** What the person may do, for deciding which controls to show (the server checks every action itself): `platform_admin`, `manage_users`. */
+  capabilities?: string[];
 }
 
 export interface TokenResponse {
@@ -401,8 +403,10 @@ export interface ViewableTenant {
   id: string;
   name: string;
   slug: string;
-  /** self: their own tenant. granted: a tenant they were granted access to (read-only). platform: any tenant, for a platform admin. */
+  /** self: their own tenant. granted: a tenant they were granted access to. platform: any tenant, for a platform admin. */
   relationship: 'self' | 'platform' | 'granted';
+  /** What they may do there: `view` (read-only) or `full` (read and write as their own role allows; users, roles, API keys and access administration excepted). Absent from an older API: treated as `view` (`full` for their own tenant). */
+  access?: 'view' | 'full';
 }
 
 export interface ViewableTenantsResponse {

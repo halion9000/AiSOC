@@ -50,7 +50,7 @@ const signedIn = (tenant_id: string, role = 'analyst') => {
 };
 
 /** What `GET /tenants/viewable` answers: the person's own tenant first, then the rest. */
-const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'granted' | 'platform' }[] = []) =>
+const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'granted' | 'platform'; access?: 'view' | 'full' }[] = []) =>
   viewableMock.mockResolvedValue({
     home_tenant_id: home.id,
     tenants: [{ ...home, slug: home.id, relationship: 'self' }, ...others.map((o) => ({ ...o, slug: o.id }))],
@@ -85,7 +85,7 @@ describe('TenantProvider', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.userRole).toBe('analyst');
-    expect(result.current.current).toEqual({ id: 't1', name: 'Acme Corp', relationship: 'self' });
+    expect(result.current.current).toEqual({ id: 't1', name: 'Acme Corp', relationship: 'self', access: 'full' });
     expect(result.current.home).toEqual(result.current.current);
     expect(result.current.available).toHaveLength(1);
     expect(result.current.viewingOther).toBe(false);
@@ -166,7 +166,7 @@ describe('TenantProvider', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBe('boom');
-    expect(result.current.current).toEqual({ id: 't1', name: 'My tenant', relationship: 'self' });
+    expect(result.current.current).toEqual({ id: 't1', name: 'My tenant', relationship: 'self', access: 'full' });
     expect(result.current.available).toHaveLength(1);
     expect(result.current.viewingOther).toBe(false);
   });
@@ -181,8 +181,8 @@ describe('TenantProvider', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     // Requests still carry the view, so the console must say another tenant is being viewed (and offer the way back), not show the own tenant.
     expect(result.current.viewingOther).toBe(true);
-    expect(result.current.current).toEqual({ id: 'c1', name: 'Another tenant', relationship: 'granted' }); // named for what is known: a tenant other than their own, reached by a grant
-    expect(result.current.home).toEqual({ id: 'parent-t', name: 'My tenant', relationship: 'self' });
+    expect(result.current.current).toEqual({ id: 'c1', name: 'Another tenant', relationship: 'granted', access: null }); // named for what is known: a tenant other than their own, reached by a grant
+    expect(result.current.home).toEqual({ id: 'parent-t', name: 'My tenant', relationship: 'self', access: 'full' });
     expect(result.current.available).toEqual([result.current.home]); // nothing else is offered: the list could not be read
     expect(setActiveTenantIdMock).not.toHaveBeenCalled();
   });
@@ -293,5 +293,55 @@ describe('TenantProvider integration with consumers', () => {
       expect(screen.getByTestId('current')).toHaveTextContent('Acme');
       expect(screen.getByTestId('count')).toHaveTextContent('1');
     });
+  });
+});
+
+
+describe('TenantProvider: what the person may do in each tenant', () => {
+  it('carries the level the server states for each tenant', async () => {
+    signedIn('parent-t', 'admin');
+    viewable(PARENT, [
+      { id: 'c1', name: 'Customer A', relationship: 'granted', access: 'full' },
+      { id: 'c2', name: 'Customer B', relationship: 'granted', access: 'view' },
+      { id: 'pl', name: 'Tenant P', relationship: 'platform', access: 'full' },
+    ]);
+    const { result } = renderHook(() => useTenant(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.available.map((t) => [t.id, t.relationship, t.access])).toEqual([
+      ['parent-t', 'self', 'full'],
+      ['c1', 'granted', 'full'],
+      ['c2', 'granted', 'view'],
+      ['pl', 'platform', 'full'],
+    ]);
+  });
+
+  it('when an older API sends no level, their own tenant is full and every other tenant is read-only until the server says otherwise', async () => {
+    signedIn('parent-t', 'admin');
+    viewable(PARENT, CHILDREN);
+    const { result } = renderHook(() => useTenant(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.available.map((t) => t.access)).toEqual(['full', 'view', 'view']);
+  });
+
+  it('the tenant being worked in carries its own level, so the banner can say working or viewing', async () => {
+    signedIn('parent-t', 'admin');
+    getViewedTenantIdMock.mockReturnValue('c1');
+    viewable(PARENT, [
+      { id: 'c1', name: 'Customer A', relationship: 'granted', access: 'full' },
+      { id: 'c2', name: 'Customer B', relationship: 'granted', access: 'view' },
+    ]);
+    const { result } = renderHook(() => useTenant(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.viewingOther).toBe(true);
+    expect(result.current.current).toMatchObject({ id: 'c1', access: 'full' });
+    expect(result.current.home).toMatchObject({ id: 'parent-t', access: 'full' });
+  });
+
+  it('a level the server does not recognise is read-only, never full', async () => {
+    signedIn('parent-t', 'admin');
+    viewableMock.mockResolvedValue({ home_tenant_id: 'parent-t', tenants: [{ ...PARENT, slug: 'p', relationship: 'self' }, { id: 'c1', name: 'Customer A', slug: 'c1', relationship: 'granted', access: undefined }] });
+    const { result } = renderHook(() => useTenant(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.available[1].access).toBe('view');
   });
 });
