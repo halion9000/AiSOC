@@ -43,7 +43,7 @@ Alert text comes from monitored systems, so from attackers. Every alert-derived 
    | `ALERT_EMAIL_POLL_INTERVAL_SECONDS` (60), `ALERT_EMAIL_MAX_ALERTS_PER_EMAIL` (20), `ALERT_EMAIL_MAX_ALERT_AGE_HOURS` (24), `ALERT_EMAIL_LOG_RETENTION_DAYS` (90) | tuning |
    | `ALERT_EMAIL_GRAPH_BASE_URL`, `ALERT_EMAIL_AUTHORITY` | for sovereign clouds or a test stand-in (defaults: commercial Microsoft cloud) |
 
-4. **Choose recipients and send a test.** As a platform administrator:
+4. **Choose recipients and send a test.** As a platform administrator, either in the console (**Settings → Alert email**: recipients one per line, the minimum severity, a switch, a **Send a test email** button, the status with what is missing and the last error, and the recently emailed alerts; saving asks first when it turns the feature on or changes who receives other tenants' alert titles), or through the API:
 
    ```
    PUT  /api/v1/platform/alert-email        {"recipients": ["ops@yourmsp.example"], "min_severity": "high"}

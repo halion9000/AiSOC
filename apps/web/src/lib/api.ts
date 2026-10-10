@@ -141,6 +141,26 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The API's own explanation for a refusal, for showing to a person: the `detail` sentence, or the messages of a validation failure (a list), else null.
+ * (Only a read-only refusal while viewing another tenant carries that sentence as the error's message; every other refusal reads "API 404 ..." and keeps the
+ * explanation in its body, which is what this reads.)
+ */
+export function apiErrorDetail(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  try {
+    const d = (JSON.parse(err.body) as { detail?: unknown }).detail;
+    if (typeof d === 'string' && d) return d;
+    if (Array.isArray(d)) {
+      const messages = d.map((item) => (item && typeof (item as { msg?: unknown }).msg === 'string' ? (item as { msg: string }).msg : null)).filter((m): m is string => !!m);
+      return messages.length ? messages.join('; ') : null;
+    }
+  } catch {
+    /* not JSON */
+  }
+  return null;
+}
+
 /** The API's own explanation (`detail`) from an error body, when it has one. */
 function detailOf(body: string): string | null {
   try {
@@ -5506,3 +5526,133 @@ export default {
   apiKeys: apiKeysApi,
   shifts: shiftsApi,
 };
+
+// ─── Who may work in which tenant, and the alert email setting (server: tenants.py, platform_tenant_access.py, platform_alert_email.py) ───
+
+export type AccessLevel = 'view' | 'full';
+
+export interface ManageableTenant {
+  id: string;
+  name: string;
+  slug: string;
+  /** self: their own tenant. child: a tenant whose parent is theirs. other: any other tenant (platform admins). */
+  relationship: 'self' | 'child' | 'other';
+}
+
+export interface ManageableTenantsResponse {
+  home_tenant_id: string;
+  tenants: ManageableTenant[];
+}
+
+/** A person granted access to ONE tenant. */
+export interface AccessGrant {
+  tenant_id: string;
+  user_id: string;
+  account_name: string;
+  email: string | null;
+  username: string | null;
+  /** The tenant the person belongs to. */
+  home_tenant_id: string;
+  access: AccessLevel;
+  granted_by: string;
+  created_at: string;
+}
+
+/** A person granted EVERY tenant (including ones created later). */
+export interface AllTenantAccessGrant {
+  user_id: string;
+  account_name: string;
+  email: string | null;
+  username: string | null;
+  home_tenant_id: string;
+  access: AccessLevel;
+  granted_by: string;
+  created_at: string;
+}
+
+export const tenantAccessApi = {
+  /** The tenants whose access the caller may manage (the same rule the grant routes use). */
+  manageable(): Promise<ManageableTenantsResponse> {
+    return request<ManageableTenantsResponse>('/api/v1/tenants/manageable');
+  },
+  list(tenantId: string): Promise<AccessGrant[]> {
+    return request<AccessGrant[]>(`/api/v1/tenants/${encodeURIComponent(tenantId)}/access`);
+  },
+  /** Grant (or change the level of) a person's access to one tenant. Idempotent. */
+  grant(tenantId: string, accountName: string, access: AccessLevel): Promise<AccessGrant> {
+    return request<AccessGrant>(`/api/v1/tenants/${encodeURIComponent(tenantId)}/access/${encodeURIComponent(accountName)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ access }),
+    });
+  },
+  revoke(tenantId: string, accountName: string): Promise<void> {
+    return request<void>(`/api/v1/tenants/${encodeURIComponent(tenantId)}/access/${encodeURIComponent(accountName)}`, { method: 'DELETE' });
+  },
+  // Every tenant: platform administrators only (the server refuses everyone else).
+  listAll(): Promise<AllTenantAccessGrant[]> {
+    return request<AllTenantAccessGrant[]>('/api/v1/platform/all-tenant-access');
+  },
+  grantAll(accountName: string, access: AccessLevel): Promise<AllTenantAccessGrant> {
+    return request<AllTenantAccessGrant>(`/api/v1/platform/all-tenant-access/${encodeURIComponent(accountName)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ access }),
+    });
+  },
+  revokeAll(accountName: string): Promise<void> {
+    return request<void>(`/api/v1/platform/all-tenant-access/${encodeURIComponent(accountName)}`, { method: 'DELETE' });
+  },
+};
+
+export interface AlertEmailStatus {
+  enabled: boolean;
+  min_severity: AlertSeverity;
+  recipients: string[];
+  enabled_since: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+  last_sent_at: string | null;
+  last_error: string | null;
+  last_error_at: string | null;
+  consecutive_failures: number;
+  /** ALERT_EMAIL_WORKER_ENABLED: the deployment's switch for the background worker. */
+  worker_enabled: boolean;
+  credentials_configured: boolean;
+  /** Environment variable NAMES that are not set (never values). */
+  missing_credentials: string[];
+  sender: string | null;
+  warnings: string[];
+}
+
+export interface AlertEmailUpdate {
+  enabled?: boolean;
+  min_severity?: AlertSeverity;
+  recipients?: string[];
+}
+
+export interface SentAlertEmail {
+  alert_id: string;
+  tenant_id: string;
+  tenant_name: string | null;
+  severity: string;
+  title: string;
+  sent_at: string;
+  batch_id: string;
+  recipient_count: number;
+}
+
+export const alertEmailApi = {
+  get(): Promise<AlertEmailStatus> {
+    return request<AlertEmailStatus>('/api/v1/platform/alert-email');
+  },
+  update(body: AlertEmailUpdate): Promise<AlertEmailStatus> {
+    return request<AlertEmailStatus>('/api/v1/platform/alert-email', { method: 'PUT', body: JSON.stringify(body) });
+  },
+  /** Sends one real test message to the recipients (the server allows one every 10 seconds). */
+  test(): Promise<{ sent_to: string[] }> {
+    return request<{ sent_to: string[] }>('/api/v1/platform/alert-email/test', { method: 'POST' });
+  },
+  log(limit = 50): Promise<SentAlertEmail[]> {
+    return request<SentAlertEmail[]>('/api/v1/platform/alert-email/log', { params: { limit } });
+  },
+};
+

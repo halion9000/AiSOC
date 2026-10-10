@@ -49,6 +49,9 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Field, PanelHeader, inputClass } from './panel-parts';
+import { AlertEmailPanel } from './AlertEmailPanel';
+import { TenantAccessPanel } from './TenantAccessPanel';
 import { AutonomyPolicyPanel } from '@/components/settings/AutonomyPolicy';
 import { useTheme, type ThemePreference } from '@/components/theme/ThemeProvider';
 import { authFetch } from '@/lib/auth-session';
@@ -61,6 +64,8 @@ type TabId =
   | 'integrations'
   | 'autonomy'
   | 'api-keys'
+  | 'tenant-access'
+  | 'alert-email'
   | 'notifications'
   | 'appearance'
   | 'deployment'
@@ -179,7 +184,8 @@ function savePreferences(prefs: Preferences) {
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
-const TABS: { id: TabId; label: string; description: string }[] = [
+/** `requires`: shown only to a person whose /auth/me capabilities include it. The server checks every action itself; this only keeps the screen from offering what a person cannot use. */
+const TABS: { id: TabId; label: string; description: string; requires?: 'manage_users' | 'platform_admin' }[] = [
   {
     id: 'profile',
     label: 'Profile',
@@ -204,6 +210,18 @@ const TABS: { id: TabId; label: string; description: string }[] = [
     id: 'api-keys',
     label: 'API keys',
     description: 'Programmatic access for pipelines and integrations.',
+  },
+  {
+    id: 'tenant-access',
+    label: 'Tenant access',
+    description: 'Who may work in which tenant.',
+    requires: 'manage_users',
+  },
+  {
+    id: 'alert-email',
+    label: 'Alert email',
+    description: 'Email alerts to platform admins.',
+    requires: 'platform_admin',
   },
   {
     id: 'notifications',
@@ -236,7 +254,15 @@ const TABS: { id: TabId; label: string; description: string }[] = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SettingsView() {
-  const [tab, setTab] = useState<TabId>('profile');
+  const [pickedTab, setTab] = useState<TabId>('profile');
+  // What this person may do, from /auth/me at sign-in. Read after mount so the first paint is the same on the server and the client.
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  useEffect(() => {
+    setCapabilities(authApi.currentUser()?.capabilities ?? []);
+  }, []);
+  const visibleTabs = TABS.filter((t) => !t.requires || capabilities.includes(t.requires));
+  // A tab the person cannot see is never the active one.
+  const tab: TabId = visibleTabs.some((t) => t.id === pickedTab) ? pickedTab : 'profile';
 
   return (
     <div className="space-y-5">
@@ -256,7 +282,7 @@ export function SettingsView() {
           className="lg:sticky lg:top-4 lg:w-64 lg:shrink-0"
         >
           <ul className="space-y-1 rounded-xl border border-gray-800 bg-gray-900/40 p-2">
-            {TABS.map((t) => {
+            {visibleTabs.map((t) => {
               const active = tab === t.id;
               return (
                 <li key={t.id}>
@@ -297,6 +323,8 @@ export function SettingsView() {
               {tab === 'integrations' && <IntegrationsPanel />}
               {tab === 'autonomy' && <AutonomyPolicyPanel />}
               {tab === 'api-keys' && <ApiKeysPanel />}
+              {tab === 'tenant-access' && <TenantAccessPanel canGrantAll={capabilities.includes('platform_admin')} />}
+              {tab === 'alert-email' && <AlertEmailPanel />}
               {tab === 'notifications' && <NotificationsPanel />}
               {tab === 'appearance' && <AppearancePanel />}
               {tab === 'deployment' && <DeploymentAIPanel />}
@@ -311,51 +339,6 @@ export function SettingsView() {
 }
 
 // ─── Shared panel chrome ──────────────────────────────────────────────────────
-
-function PanelHeader({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-3 border-b border-gray-800 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-100">{title}</h2>
-        <p className="mt-1 max-w-xl text-sm text-gray-500">{description}</p>
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-gray-300">{label}</span>
-      {children}
-      {hint ? <span className="text-xs text-gray-500">{hint}</span> : null}
-    </label>
-  );
-}
-
-function inputClass() {
-  return clsx(
-    'w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm text-gray-100',
-    'placeholder:text-gray-600 focus:border-blue-500/60 focus:outline-none focus:ring-1 focus:ring-blue-500/40',
-  );
-}
 
 function Toggle({
   checked,
