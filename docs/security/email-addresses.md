@@ -1,5 +1,7 @@
 # Email addresses
 
+> **Update:** people now sign in with an **account name** (`account-names.md`); an email is optional contact information. This page describes how an email address that *is* given is compared and stored.
+
 ## One address, one account, whatever its letter case
 
 `Alice@Example.com` and `alice@example.com` are the same mailbox for every mail system. Here they used to be two accounts: `users.email` was UNIQUE only case-sensitively, login matched the exact text, and the check that stops one organisation claiming another's address could be bypassed by changing a letter's case.

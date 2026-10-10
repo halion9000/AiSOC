@@ -43,12 +43,23 @@ class Tenant(Base):
     external_asset_drift: Mapped[list["ExternalAssetDrift"]] = relationship("ExternalAssetDrift", back_populates="tenant", lazy="noload")  # type: ignore[name-defined]
 
 
+def _default_account_name(context) -> str:
+    """If code creates a User without naming it, derive a valid name from the username or email (never silently invent a colliding one: the unique index makes a clash an error). Code that creates accounts for real sets it, uniquely."""
+    from app.core.account_names import suggest_account_name
+
+    params = context.get_current_parameters()
+    return suggest_account_name(params.get("username") or params.get("email") or "")
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    # Optional contact information (migration 071): not required, not verified, and used to sign in only while LOGIN_ALLOW_EMAIL is on. Still unique when present.
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    # What the person signs in with (app/core/account_names.py): unique across the platform, compared case-insensitively. The database enforces the shape and the uniqueness (a CHECK and a unique index on lower(account_name)).
+    account_name: Mapped[str] = mapped_column(String(32), nullable=False, default=_default_account_name)
     username: Mapped[str] = mapped_column(String(100), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="soc_analyst")

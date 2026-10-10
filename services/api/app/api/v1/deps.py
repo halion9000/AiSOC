@@ -226,7 +226,7 @@ async def _resolve_api_key(raw_key: str, db: AsyncSession) -> CurrentUser:
         user = user_res.scalar_one_or_none()
         if user is not None:
             role = user.role
-            email = user.email
+            email = user.email or user.account_name  # the label for 'who': the email if there is one, else the account name
             user_id = user.id
 
     return CurrentUser(
@@ -340,7 +340,7 @@ async def _authenticate(
         user_id=user.id,
         tenant_id=user.tenant_id,
         role=user.role,
-        email=user.email,
+        email=user.email or user.account_name,  # the label for 'who' (audit etc.): the email if there is one, else the account name
     )
 
 

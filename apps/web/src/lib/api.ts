@@ -234,7 +234,10 @@ import { getViewedTenantId, homeTenantId, setViewedTenantId, VIEW_AS_ERROR_HEADE
 
 export interface AuthUser {
   id: string;
-  email: string;
+  /** What the person signs in with. Optional only for a response from an older API. */
+  account_name?: string;
+  /** Optional contact information: an account need not have one. */
+  email?: string | null;
   username?: string | null;
   role: string;
   tenant_id: string;
@@ -277,10 +280,11 @@ export const authApi = {
    * helper attaches the JWT automatically and a single login covers desktop
    * + mobile.
    */
-  async login(email: string, password: string): Promise<LoginResult> {
+  /** Sign in with an ACCOUNT NAME (or, while the server allows it, the old email). */
+  async login(accountName: string, password: string): Promise<LoginResult> {
     const tokens = await request<TokenResponse>('/api/v1/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ account_name: accountName, password }),
     });
     // Stash the access token now so the `me` request flows through the
     // standard `Authorization: Bearer …` path in `request()`.
@@ -384,7 +388,8 @@ export interface TenantDetails {
 
 export interface TenantUser {
   id: string;
-  email: string;
+  account_name: string;
+  email: string | null;
   username: string | null;
   role: string;
   is_active: boolean;

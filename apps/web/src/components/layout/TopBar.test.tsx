@@ -197,6 +197,46 @@ describe('TopBar: who is signed in, and signing out', () => {
     expect(screen.getByText('hal@example.com')).toBeInTheDocument();
   });
 
+  describe('with an account name', () => {
+    const named = { id: 'u1', account_name: 'hal.liveoak', role: 'tenant_admin', tenant_id: 't1' };
+
+    it('shows the account name for a person who has no email and no display name', async () => {
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(named));
+      renderTopBar();
+      expect(await screen.findByText('hal.liveoak')).toBeInTheDocument();
+      expect(screen.getByText('HA')).toBeInTheDocument();
+      expect(screen.queryByText('undefined')).not.toBeInTheDocument();
+      expect(screen.queryByText('null')).not.toBeInTheDocument();
+    });
+
+    it('prefers the account name to the email when there is no display name', async () => {
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ ...named, email: 'hal@example.com' }));
+      renderTopBar();
+      expect(await screen.findByText('hal.liveoak')).toBeInTheDocument();
+      expect(screen.queryByText('hal@example.com')).not.toBeInTheDocument();
+    });
+
+    it('shows the display name with the account name beneath it, not the email', async () => {
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ ...named, username: 'Hal M', email: 'hal@example.com' }));
+      renderTopBar();
+      expect(await screen.findByText('Hal M')).toBeInTheDocument();
+      expect(screen.getByText('hal.liveoak')).toBeInTheDocument();
+      expect(screen.queryByText('hal@example.com')).not.toBeInTheDocument();
+    });
+
+    it('shows the display name with the account name beneath it when there is no email at all', async () => {
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ ...named, username: 'Hal M' }));
+      renderTopBar();
+      expect(await screen.findByText('Hal M')).toBeInTheDocument();
+      expect(screen.getByText('hal.liveoak')).toBeInTheDocument();
+    });
+
+    it('still shows an older stored login that has only an email', async () => {
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ id: 'u1', email: 'old@example.com', role: 'tenant_admin', tenant_id: 't1' }));
+      renderTopBar();
+      expect(await screen.findByText('old@example.com')).toBeInTheDocument();
+    });
+  });
   it('claims no identity when nobody is stored, and Sign out still works', async () => {
     renderTopBar();
     expect(screen.queryByText('SOC Analyst')).not.toBeInTheDocument();

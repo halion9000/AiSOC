@@ -12,6 +12,8 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from app.core.account_names import looks_like_email, normalize_account_name
+from app.core.config import settings
 from app.core.emails import normalize_email
 from app.models.tenant import User
 
@@ -24,3 +26,18 @@ async def find_user_by_email(db: Any, email: str, *, active_only: bool = False, 
         stmt = stmt.where(User.tenant_id == tenant_id)
     stmt = stmt.order_by((User.email == email).desc(), User.created_at.asc()).limit(1)
     return (await db.execute(stmt)).scalars().first()
+
+
+async def find_user_by_account_name(db: Any, name: str, *, active_only: bool = False) -> User | None:
+    """The account with this name (case-insensitive; names are unique across the platform, so there is at most one)."""
+    stmt = select(User).where(func.lower(User.account_name) == normalize_account_name(name))
+    if active_only:
+        stmt = stmt.where(User.is_active.is_(True))
+    return (await db.execute(stmt.limit(1))).scalars().first()
+
+
+async def find_user_by_login(db: Any, identifier: str, *, active_only: bool = False) -> User | None:
+    """The account a sign-in identifier names: an account name, or (while LOGIN_ALLOW_EMAIL is on) an email address. An account name never contains an `@`, so the two cannot be confused."""
+    if looks_like_email(identifier):
+        return await find_user_by_email(db, identifier, active_only=active_only) if settings.LOGIN_ALLOW_EMAIL else None
+    return await find_user_by_account_name(db, identifier, active_only=active_only)

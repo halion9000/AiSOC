@@ -41,7 +41,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from sqlalchemy import and_, select, update
 
 from app.api.v1.deps import SessionUser, DBSession
@@ -50,7 +50,7 @@ from app.core.security import create_access_token, create_refresh_token
 from app.db.rls import TenantDBSession
 from app.models.responder import PasskeyChallenge, PasskeyCredential
 from app.models.tenant import User
-from app.services.user_lookup import find_user_by_email
+from app.services.user_lookup import find_user_by_login
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,11 @@ class FinishRequest(BaseModel):
 
 
 class AuthenticateBeginRequest(BaseModel):
-    email: EmailStr | None = None
+    """Who is signing in, as typed: an account name (or, while LOGIN_ALLOW_EMAIL is on, an email). The JSON key `email` still works; `account_name` and `username` are accepted too. Omit it for a discoverable-credential sign-in."""
+
+    identifier: str | None = Field(default=None, max_length=320, validation_alias=AliasChoices("account_name", "username", "email", "identifier"))
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class AuthenticateFinishResponse(BaseModel):
@@ -224,8 +228,8 @@ async def passkey_register_begin(
         rp_id=settings.PASSKEY_RP_ID,
         rp_name=settings.PASSKEY_RP_NAME,
         user_id=str(user.user_id).encode("utf-8"),
-        user_name=user_row.email,
-        user_display_name=user_row.username or user_row.email,
+        user_name=user_row.account_name,
+        user_display_name=user_row.username or user_row.account_name,
         exclude_credentials=[{"id": _b64url_decode(cid), "type": "public-key"} for cid in existing_rows],
     )
 
@@ -236,7 +240,7 @@ async def passkey_register_begin(
         challenge=options.challenge,
         user_id=user.user_id,
         tenant_id=user.tenant_id,
-        email_hint=user_row.email,
+        email_hint=user_row.email or user_row.account_name,
     )
 
     # Carry the encoded challenge alongside the publicKey options so the
@@ -322,8 +326,8 @@ async def passkey_authenticate_begin(
     allow_credentials: list[dict[str, Any]] = []
     target_user: User | None = None
 
-    if body.email:
-        user_row = await find_user_by_email(db, body.email, active_only=True)
+    if body.identifier:
+        user_row = await find_user_by_login(db, body.identifier, active_only=True)
         if user_row is not None:
             target_user = user_row
             cred_rows = (
@@ -359,7 +363,7 @@ async def passkey_authenticate_begin(
         challenge=options.challenge,
         user_id=target_user.id if target_user else None,
         tenant_id=target_user.tenant_id if target_user else None,
-        email_hint=body.email,
+        email_hint=body.identifier,
     )
 
     return {"publicKey": options_json, "challenge": encoded_challenge}
@@ -433,7 +437,8 @@ async def passkey_authenticate_finish(
         "sub": str(user_row.id),
         "tenant_id": str(user_row.tenant_id),
         "role": user_row.role,
-        "email": user_row.email,
+        "email": user_row.email or user_row.account_name,
+        "account_name": user_row.account_name,
     }
     return AuthenticateFinishResponse(
         access_token=create_access_token(token_data),

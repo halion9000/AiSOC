@@ -91,7 +91,7 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
       setSigningOut(false);
     }
   };
-  const identity = user?.username || user?.email || null;
+  const identity = user?.username || user?.account_name || user?.email || null;
   const initials = identity ? identity.slice(0, 2).toUpperCase() : '?';
 
   // Update the clock every second on the client only (avoids hydration drift).
@@ -277,7 +277,7 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
           {identity ? (
             <div className="hidden lg:block min-w-0">
               <p className="text-xs font-medium text-fg-secondary truncate max-w-[12rem]">{identity}</p>
-              {user?.username ? <p className="text-xs text-fg-subtle truncate max-w-[12rem]">{user.email}</p> : null}
+              {user?.username && (user.account_name || user.email) ? <p className="text-xs text-fg-subtle truncate max-w-[12rem]">{user.account_name || user.email}</p> : null}
             </div>
           ) : null}
         </div>

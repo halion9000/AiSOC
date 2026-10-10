@@ -1642,6 +1642,7 @@ async def _ensure_user(session, tenant: Tenant) -> User:
         id=DEMO_USER_ID,
         tenant_id=tenant.id,
         email=DEMO_USER_EMAIL,
+        account_name="demo",
         username="demo",
         hashed_password=hashed,
         role=DEMO_USER_ROLE,

@@ -209,7 +209,7 @@ class TestNoCodeComparesTheAddressByExactCase:
     def test_every_place_that_creates_a_user_stores_a_normalised_address(self):
         """The addresses these pass must be lower-case: normalize_email(...), the bootstrap's already-normalised `email`, or a constant (checked below)."""
         expected = {
-            "api/v1/endpoints/tenants.py": "email=normalize_email(request.email)",
+            "api/v1/endpoints/tenants.py": "email = normalize_email(request.email) if request.email else None",
             "services/tenant_provision/provisioner.py": "email=normalize_email(entry.email)",
             "scripts/bootstrap_production.py": "email = email.strip().lower()",
             "scripts/seed_demo.py": "email=DEMO_USER_EMAIL",
@@ -224,8 +224,12 @@ class TestNoCodeComparesTheAddressByExactCase:
             assert value == normalize_email(value)
 
     def test_the_sign_in_paths_use_the_helper(self):
-        for rel in ("api/v1/endpoints/auth.py", "api/v1/endpoints/passkeys.py", "scripts/bootstrap_production.py", "services/tenant_provision/provisioner.py"):
+        # sign-in and passkey sign-in go through find_user_by_login (an account name, or an email); it uses find_user_by_email for an email
+        for rel in ("api/v1/endpoints/auth.py", "api/v1/endpoints/passkeys.py"):
+            assert "find_user_by_login(" in (APP / rel).read_text(encoding="utf-8"), rel
+        for rel in ("scripts/bootstrap_production.py", "services/tenant_provision/provisioner.py"):
             assert "find_user_by_email(" in (APP / rel).read_text(encoding="utf-8"), rel
+        assert "find_user_by_email(" in (APP / "services/user_lookup.py").read_text(encoding="utf-8")
 
     def test_the_failed_sign_in_lock_counts_by_the_same_rule(self):
         from app.services import login_throttle

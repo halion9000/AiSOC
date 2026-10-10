@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 
 from app.api.v1.deps import AuthUser, DBSession, SessionUser, bearer_scheme, get_current_user
@@ -15,7 +15,7 @@ __all__ = ["router", "get_current_user"]
 from app.core.config import settings
 from app.core.trusted_proxy import resolve_client_ip
 from app.services import login_throttle
-from app.services.user_lookup import find_user_by_email
+from app.services.user_lookup import find_user_by_login
 from app.core.security import known_permissions
 from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
 from app.core.security import (
@@ -30,8 +30,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    """What the person types is their ACCOUNT NAME (or, while LOGIN_ALLOW_EMAIL is on, their email). The JSON key `email` still works, so existing clients keep signing in; `account_name` and `username` are accepted too."""
+
+    identifier: str = Field(min_length=1, max_length=320, validation_alias=AliasChoices("account_name", "username", "email", "identifier"))
     password: str
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TokenResponse(BaseModel):
@@ -59,7 +63,8 @@ class LogoutResponse(BaseModel):
 class UserMeResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    email: str
+    email: str | None = None
+    account_name: str
     username: str
     role: str
     is_active: bool
@@ -91,22 +96,22 @@ async def login(
             client_ip = resolve_client_ip(http_request)
         except Exception:  # noqa: BLE001  # an unattributable client is limited by address only, never allowed to break sign-in
             client_ip = None
-    await login_throttle.ensure_not_locked(db, request.email, client_ip)
+    await login_throttle.ensure_not_locked(db, request.identifier, client_ip)
 
-    user = await find_user_by_email(db, request.email, active_only=True)
+    user = await find_user_by_login(db, request.identifier, active_only=True)
 
     # The password is checked whether or not the account exists (or is active), so "no such account" takes as long as "wrong password": the answer and its timing must not reveal which email addresses are registered.
     password_ok = verify_password_or_equalise(request.password, None if user is None else user.hashed_password)
     if user is None or not password_ok:
         # Committed here: raising below rolls the session back, and a failure that is not stored is not counted.
-        await login_throttle.record_failure(db, request.email, client_ip)
+        await login_throttle.record_failure(db, request.identifier, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    await login_throttle.clear_failures(db, request.email)  # this address starts again (the client address's count stays)
+    await login_throttle.clear_failures(db, request.identifier)  # this name starts again (the client address's count stays)
 
     # Update last login
     await db.execute(update(User).where(User.id == user.id).values(last_login=datetime.now(UTC)))
@@ -115,7 +120,9 @@ async def login(
         "sub": str(user.id),
         "tenant_id": str(user.tenant_id),
         "role": user.role,
-        "email": user.email,
+        # `email` is the label other code shows for "who": the email if the account has one, else the account name.
+        "email": user.email or user.account_name,
+        "account_name": user.account_name,
     }
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
@@ -198,7 +205,8 @@ async def refresh_token(request: RefreshRequest, db: DBSession) -> TokenResponse
         "sub": str(user.id),
         "tenant_id": str(user.tenant_id),
         "role": user.role,
-        "email": user.email,
+        "email": user.email or user.account_name,
+        "account_name": user.account_name,
     }
     return TokenResponse(
         access_token=create_access_token(token_data),

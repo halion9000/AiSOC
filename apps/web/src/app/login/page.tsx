@@ -3,7 +3,7 @@
 /**
  * Desktop console login.
  *
- * Email + password against ``POST /api/v1/auth/login`` for the open-source
+ * Account name + password against ``POST /api/v1/auth/login`` (the old email still works while the server allows it) for the open-source
  * console. The mobile responder PWA at ``/responder/login`` uses passkeys; this
  * page is the desktop counterpart and the link target from the responder login
  * footer ("Sign in on desktop").
@@ -62,7 +62,7 @@ function LoginInner() {
   const search = useSearchParams();
   const next = sanitizeNext(search?.get('next'));
 
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +80,7 @@ function LoginInner() {
     setError(null);
 
     try {
-      await authApi.login(email.trim(), password);
+      await authApi.login(identifier.trim(), password);
       setPhase('success');
       router.replace(next);
     } catch (err) {
@@ -92,7 +92,7 @@ function LoginInner() {
       if (locked) {
         setError(locked);
       } else if (/401|incorrect/i.test(message)) {
-        setError('Email or password incorrect.');
+        setError('Account name or password incorrect.');
       } else {
         setError(message);
       }
@@ -136,17 +136,17 @@ function LoginInner() {
           <form onSubmit={submit} className="space-y-4" noValidate>
             <label className="block">
               <span className="block text-xs uppercase tracking-wider text-zinc-500 mb-2">
-                Email
+                Account name
               </span>
               <input
-                type="email"
+                type="text"
                 autoComplete="username"
-                inputMode="email"
+                inputMode="text"
                 autoCapitalize="off"
                 spellCheck={false}
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your.account.name"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 disabled={phase === 'pending'}
                 required
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 disabled:opacity-60"
@@ -171,7 +171,7 @@ function LoginInner() {
 
             <button
               type="submit"
-              disabled={phase === 'pending' || !email || !password}
+              disabled={phase === 'pending' || !identifier || !password}
               className="w-full bg-indigo-500 hover:bg-indigo-400 active:bg-indigo-600 text-white font-medium rounded-xl py-3 px-4 transition flex items-center justify-center gap-2 disabled:bg-zinc-800 disabled:text-zinc-500"
             >
               {phase === 'pending' ? (

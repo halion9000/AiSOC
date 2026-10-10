@@ -7,12 +7,15 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
+from app.core.account_names import InvalidAccountName, validate_account_name
 from app.core.emails import normalize_email
 from app.core.security import get_password_hash
+from app.services.account_names import account_name_taken, unique_account_name
 from app.services.tenant_selection import selectable_tenants
 from app.services.view_as import home_tenant_of, viewable_tenants
 from app.models.tenant import Tenant, User
@@ -56,7 +59,8 @@ class TenantResponse(BaseModel):
 class UserResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    email: str
+    email: str | None = None
+    account_name: str
     username: str
     role: str
     is_active: bool
@@ -67,10 +71,20 @@ class UserResponse(BaseModel):
 
 
 class CreateUserRequest(BaseModel):
-    email: EmailStr
-    username: str
+    """`account_name` is what the person signs in with (3-32 lower-case letters, digits, '.', '_', '-'; unique across the platform). If it is left out (an older client) one is made from `username`, or from the email, and made unique.
+    `email` is optional contact information: it is not verified and not needed to sign in. `username` is a display name and defaults to the account name."""
+
+    account_name: str | None = None
+    email: EmailStr | None = None
+    username: str | None = None
     password: str
     role: str = "soc_analyst"
+
+    @model_validator(mode="after")
+    def _needs_a_name(self) -> "CreateUserRequest":
+        if not (self.account_name or self.username or self.email):
+            raise ValueError("give an account_name (or a username or email to make one from)")
+        return self
 
 
 class UpdateUserRequest(BaseModel):
@@ -224,27 +238,47 @@ async def create_user(
 ) -> UserResponse:
     """Create a new user in the current tenant."""
     _require_grantable_role(current_user, request.role)
-    # Email addresses are unique across ALL tenants (login is by email alone), so a clash may be with a user of another organisation. Say so only for the caller's own tenant, whose users the caller can list anyway; for another
+
+    # The account name. Chosen explicitly: it must be valid and free (a name is not sensitive, so "taken" is said plainly). Not chosen (an older client): made from the username or email and made unique.
+    if request.account_name is not None:
+        try:
+            name = validate_account_name(request.account_name)
+        except InvalidAccountName as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from None
+        if await account_name_taken(db, name):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That account name is already taken. Choose another.")
+    else:
+        name = await unique_account_name(db, request.username or request.email or "")
+
+    # The optional email. Addresses are unique across ALL tenants, so a clash may be with a user of another organisation. Say so only for the caller's own tenant, whose users the caller can list anyway; for another
     # tenant's user do not confirm that the address is registered anywhere (that would tell this admin who uses the platform), and record the attempt so probing can be seen.
-    owner_tenant = (await db.execute(select(User.tenant_id).where(func.lower(User.email) == normalize_email(request.email)).order_by(User.created_at.asc()).limit(1))).scalar_one_or_none()
-    if owner_tenant is not None:
-        if owner_tenant == current_user.tenant_id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists in your organization.")
-        logger.warning(
-            "user creation refused: the email belongs to a user of another tenant",
-            extra={"acting_tenant": str(current_user.tenant_id), "acting_user": str(current_user.user_id), "email_sha256": hashlib.sha256(request.email.encode()).hexdigest()[:16]},
-        )
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email address cannot be used. Choose a different one.")
+    email = normalize_email(request.email) if request.email else None  # stored lower-cased: `Alice@x` and `alice@x` are one address (app/core/emails.py)
+    if email is not None:
+        owner_tenant = (await db.execute(select(User.tenant_id).where(func.lower(User.email) == email).order_by(User.created_at.asc()).limit(1))).scalar_one_or_none()
+        if owner_tenant is not None:
+            if owner_tenant == current_user.tenant_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists in your organization.")
+            logger.warning(
+                "user creation refused: the email belongs to a user of another tenant",
+                extra={"acting_tenant": str(current_user.tenant_id), "acting_user": str(current_user.user_id), "email_sha256": hashlib.sha256(email.encode()).hexdigest()[:16]},
+            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email address cannot be used. Choose a different one.")
 
     user = User(
         tenant_id=current_user.tenant_id,
-        email=normalize_email(request.email),  # stored lower-cased: `Alice@x` and `alice@x` are one address (app/core/emails.py)
-        username=request.username,
+        email=email,
+        account_name=name,
+        username=request.username or name,
         hashed_password=get_password_hash(request.password),
         role=request.role,
     )
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two requests took the same name (or email) at once: the database's unique index decided.
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That account name (or email) was just taken. Choose another.") from None
     await db.refresh(user)
     return UserResponse.model_validate(user)
 

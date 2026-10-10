@@ -77,9 +77,14 @@ class FakeDB:
             obj.is_active = True
 
     async def _execute(self, stmt, *a, **k):
-        self.statements.append(" ".join(str(stmt).split()).upper())
-        payload = self.queue.pop(0) if self.queue else None
+        text = " ".join(str(stmt).split()).upper()
+        self.statements.append(text)
         res = MagicMock()
+        if "LOWER(USERS.ACCOUNT_NAME)" in text:
+            # "Is this account name free?": always, and it does not use up a payload queued for the OTHER lookups (the email check).
+            res.first.return_value = None
+            return res
+        payload = self.queue.pop(0) if self.queue else None
         res.scalar_one_or_none.return_value = payload
         return res
 
@@ -91,7 +96,7 @@ class FakeDB:
 def row(role, uid=None, active=True):
     from app.models.tenant import User  # the ORM user, built without a database
 
-    return User(id=uid or uuid.uuid4(), tenant_id=TENANT, email=f"{role}-{uuid.uuid4().hex[:4]}@example.test", username="u", hashed_password="x", role=role, is_active=active, created_at=datetime.now(UTC))
+    return User(id=uid or uuid.uuid4(), tenant_id=TENANT, email=f"{role}-{uuid.uuid4().hex[:4]}@example.test", account_name=f"user-{uuid.uuid4().hex[:8]}", username="u", hashed_password="x", role=role, is_active=active, created_at=datetime.now(UTC))
 
 
 @pytest.mark.asyncio

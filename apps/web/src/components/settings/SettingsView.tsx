@@ -112,6 +112,9 @@ const LEGACY_PROFILE_KEY = 'aisoc:settings:profile';
 
 export interface ProfileData {
   displayName: string;
+  /** What the person signs in with. */
+  accountName: string;
+  /** Optional contact address: an account need not have one (empty when it does not). */
   email: string;
   title: string;
   timezone: string;
@@ -130,8 +133,9 @@ export function profileFromAccount(user: AuthUser | null): ProfileData | null {
   const saved = (user.preferences?.profile ?? {}) as Record<string, unknown>;
   const text = (value: unknown): string | null => (typeof value === 'string' ? value : null);
   return {
-    displayName: text(saved.displayName) ?? user.username ?? '',
-    email: user.email,
+    displayName: text(saved.displayName) ?? user.username ?? user.account_name ?? '',
+    accountName: user.account_name ?? '',
+    email: user.email ?? '',
     title: text(saved.title) ?? '',
     timezone: text(saved.timezone) || browserTimezone(),
   };
@@ -448,7 +452,7 @@ function ProfilePanel() {
     );
   }
 
-  const label = profile.displayName || profile.email;
+  const label = profile.displayName || profile.accountName || profile.email;
   const initials = label
     .split(/[\s@.]+/)
     .filter(Boolean)
@@ -485,7 +489,7 @@ function ProfilePanel() {
           </div>
           <div className="min-w-0">
             <p className="truncate text-base font-semibold text-gray-100">{profile.displayName || 'Unnamed user'}</p>
-            <p className="truncate text-sm text-gray-400">{profile.email}</p>
+            <p className="truncate text-sm text-gray-400">{profile.accountName || profile.email}</p>
             <p className="mt-1 text-xs text-gray-500">
               Avatar generated from initials.{' '}
               <span className="inline-flex items-center gap-1">
@@ -502,8 +506,11 @@ function ProfilePanel() {
           <Field label="Display name">
             <input className={inputClass()} value={profile.displayName} onChange={(e) => update('displayName', e.target.value)} placeholder="Your name" />
           </Field>
-          <Field label="Email" hint="The address on your account. It is used to sign in.">
-            <input type="email" className={inputClass()} value={profile.email} readOnly aria-readonly="true" />
+          <Field label="Account name" hint="What you sign in with.">
+            <input className={inputClass()} value={profile.accountName} readOnly aria-readonly="true" />
+          </Field>
+          <Field label="Email" hint="Optional contact address. It is not needed to sign in.">
+            <input type="email" className={inputClass()} value={profile.email} readOnly aria-readonly="true" placeholder="None" />
           </Field>
           <Field label="Job title">
             <input className={inputClass()} value={profile.title} onChange={(e) => update('title', e.target.value)} placeholder="e.g. SOC Analyst" />
@@ -572,8 +579,8 @@ function WorkspacePanel() {
               {members.map((m) => (
                 <li key={m.id} className="flex items-center justify-between px-4 py-3 text-sm">
                   <div className="min-w-0">
-                    <p className="truncate text-gray-100">{m.username || m.email}</p>
-                    <p className="truncate text-xs text-gray-500">{m.email}</p>
+                    <p className="truncate text-gray-100">{m.username || m.account_name}</p>
+                    <p className="truncate text-xs text-gray-500">{m.account_name}{m.email ? ` · ${m.email}` : ''}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {m.is_active ? null : <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-xs text-red-300 ring-1 ring-red-500/30">Disabled</span>}

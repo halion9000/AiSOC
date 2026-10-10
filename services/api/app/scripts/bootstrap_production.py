@@ -3,7 +3,7 @@
 Run inside the api container once the database is up:
 
     AISOC_BOOTSTRAP_ADMIN_PASSWORD=... \\
-    python -m app.scripts.bootstrap_production --admin-email you@example.com
+    python -m app.scripts.bootstrap_production --admin-email you@example.com [--admin-name you]
 
 What it does, in order (every step is safe to repeat):
   1. Applies every SQL migration and FAILS if any did not apply. (The plain
@@ -163,7 +163,7 @@ def plan_seeded_admin_update(seeded) -> tuple[bool, dict | None]:
     return newly_disabled, {"is_active": False, "hashed_password": SEEDED_ADMIN_DISABLED_HASH, "role": SEEDED_ADMIN_DISABLED_ROLE}
 
 
-async def run(email: str, password: str | None, rotate_core_key: bool, rotate_agents_key: bool = False) -> dict:
+async def run(email: str, password: str | None, rotate_core_key: bool, rotate_agents_key: bool = False, admin_name: str | None = None) -> dict:
     from datetime import UTC, datetime  # noqa: PLC0415
 
     from sqlalchemy import select, update  # noqa: PLC0415
@@ -171,6 +171,8 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
     from app.core.security import generate_api_key, get_password_hash  # noqa: PLC0415
     from app.db.database import AsyncSessionLocal  # noqa: PLC0415
     from app.models.tenant import ApiKey, User  # noqa: PLC0415
+    from app.core.account_names import InvalidAccountName, validate_account_name  # noqa: PLC0415
+    from app.services.account_names import account_name_taken, unique_account_name  # noqa: PLC0415
     from app.services.user_lookup import find_user_by_email  # noqa: PLC0415
 
     email = email.strip().lower()
@@ -194,10 +196,21 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
                 raise BootstrapError(
                     "AISOC_BOOTSTRAP_ADMIN_PASSWORD is required to create the admin account (it does not exist yet)."
                 )
+            if admin_name:
+                try:
+                    chosen_name = validate_account_name(admin_name)
+                except InvalidAccountName as exc:
+                    raise BootstrapError(f"--admin-name {admin_name!r}: {exc}") from None
+                if await account_name_taken(session, chosen_name):
+                    raise BootstrapError(f"--admin-name {chosen_name!r} is already taken.")
+            else:
+                chosen_name = await unique_account_name(session, email)  # made from the email, made unique
+            result["admin_account_name"] = chosen_name
             admin = User(
                 id=uuid.uuid4(),
                 tenant_id=DEFAULT_TENANT_ID,
                 email=email,
+                account_name=chosen_name,
                 username=email,
                 hashed_password=get_password_hash(password),
                 # The primary administrator is the one default holder of PLATFORM permissions (plugin administration, tenant onboarding, cross-tenant search). Others get them only by being granted
@@ -227,13 +240,14 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--admin-email", required=True)
+    parser.add_argument("--admin-name", help="the account name the admin signs in with (3-32 lower-case letters, digits, . _ -); made from the email if omitted")
     parser.add_argument("--rotate-core-key", action="store_true")
     parser.add_argument("--rotate-agents-key", action="store_true")
     args = parser.parse_args(argv)
     password = os.environ.get("AISOC_BOOTSTRAP_ADMIN_PASSWORD") or None
     try:
         validate_inputs(args.admin_email, password)
-        result = asyncio.run(run(args.admin_email, password, args.rotate_core_key, args.rotate_agents_key))
+        result = asyncio.run(run(args.admin_email, password, args.rotate_core_key, args.rotate_agents_key, args.admin_name))
     except BootstrapError as exc:
         print(RESULT_MARKER + json.dumps({"ok": False, "error": str(exc)}))
         return 1

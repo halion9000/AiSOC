@@ -64,6 +64,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.emails import normalize_email
 from app.models.tenant import Tenant, User
+from app.services.account_names import unique_account_name
 from app.services.user_lookup import find_user_by_email
 from app.models.waitlist import (
     WAITLIST_STATUS_ONBOARDED,
@@ -397,6 +398,7 @@ async def provision_from_waitlist(
     admin_user = User(
         tenant_id=tenant.id,
         email=normalize_email(entry.email),
+        account_name=await unique_account_name(db, entry.email),  # made from the waitlist address, made unique: nobody chose one yet
         username=entry.email.split("@", 1)[0][:100],
         hashed_password="!invite-pending",
         role="tenant_admin",

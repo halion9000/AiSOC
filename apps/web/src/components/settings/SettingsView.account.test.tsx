@@ -33,9 +33,9 @@ import { SettingsView, profileFromAccount, workspaceProblem } from './SettingsVi
 // date computed as "96 days ago") and five made-up members. Now both show the real account and tenant.
 const DEMO = ['Sasha Lin', 'sasha.lin@example.com', 'Senior SOC Analyst', 'AiSOC Demo', 'tenant_demo_01H0XE4T2WJ9N6', 'us-east-1', 'Avi Sharma', 'Diego Vega', 'Mia Ocampo', 'CI Service', 'demo data'];
 
-const account: AuthUser = { id: 'u1', email: 'owner@liveoak.test', username: 'hal', role: 'admin', tenant_id: 't1', preferences: {} };
+const account: AuthUser = { id: 'u1', account_name: 'hal.owner', email: 'owner@liveoak.test', username: 'hal', role: 'admin', tenant_id: 't1', preferences: {} };
 const tenant: TenantDetails = { id: '0b6f2a52-1c1e-4a8e-9a55-0c4a3f1d9d11', name: 'Live Oak IT', slug: 'live-oak-it', plan: 'open-source', is_active: true, created_at: '2026-10-07T03:00:00Z' };
-const member = (over: Partial<TenantUser> & { email: string }): TenantUser => ({ id: over.email, username: null, role: 'analyst', is_active: true, last_login: null, created_at: '2026-10-07T03:00:00Z', ...over });
+const member = (over: Partial<TenantUser> & { email: string }): TenantUser => ({ id: over.email, account_name: over.email.split('@')[0], username: null, role: 'analyst', is_active: true, last_login: null, created_at: '2026-10-07T03:00:00Z', ...over });
 
 function renderSettings() {
   return render(
@@ -59,11 +59,25 @@ describe('profileFromAccount', () => {
 
   it('prefers what was saved on the account', () => {
     const saved = { ...account, preferences: { profile: { displayName: 'Hal M', title: 'Owner', timezone: 'America/Los_Angeles' } } };
-    expect(profileFromAccount(saved)).toEqual({ displayName: 'Hal M', email: 'owner@liveoak.test', title: 'Owner', timezone: 'America/Los_Angeles' });
+    expect(profileFromAccount(saved)).toEqual({ displayName: 'Hal M', accountName: 'hal.owner', email: 'owner@liveoak.test', title: 'Owner', timezone: 'America/Los_Angeles' });
+  });
+
+  it('has the account name, and an empty email when the account has none', () => {
+    expect(profileFromAccount(account)).toMatchObject({ accountName: 'hal.owner', email: 'owner@liveoak.test' });
+    expect(profileFromAccount({ ...account, email: null })).toMatchObject({ accountName: 'hal.owner', email: '' });
+    expect(profileFromAccount({ ...account, email: undefined })).toMatchObject({ email: '' });
+    expect(profileFromAccount({ ...account, account_name: undefined })).toMatchObject({ accountName: '' });
+  });
+
+  it('the default display name is the username, else the account name: never blank for a real account', () => {
+    expect(profileFromAccount(account)).toMatchObject({ displayName: 'hal' });
+    expect(profileFromAccount({ ...account, username: undefined })).toMatchObject({ displayName: 'hal.owner' });
+    expect(profileFromAccount({ ...account, username: null })).toMatchObject({ displayName: 'hal.owner' });
+    expect(profileFromAccount({ ...account, username: undefined, account_name: undefined })).toMatchObject({ displayName: '' });
   });
 
   it('ignores saved values of the wrong type, and returns null when nobody is signed in', () => {
-    expect(profileFromAccount({ ...account, username: undefined, preferences: { profile: { displayName: 7, title: {} } } })).toMatchObject({ displayName: '', title: '' });
+    expect(profileFromAccount({ ...account, username: undefined, preferences: { profile: { displayName: 7, title: {} } } })).toMatchObject({ displayName: 'hal.owner', title: '' });
     expect(profileFromAccount(null)).toBeNull();
   });
 });
@@ -84,6 +98,36 @@ describe('Settings > Profile', () => {
     renderSettings();
     const email = await screen.findByDisplayValue('owner@liveoak.test');
     expect(email).toHaveAttribute('readonly');
+  });
+
+  it('shows the account name, read-only: it is what the person signs in with', async () => {
+    currentUser.mockReturnValue(account);
+    renderSettings();
+    const name = await screen.findByDisplayValue('hal.owner');
+    expect(name).toHaveAttribute('readonly');
+    expect(screen.getByText('What you sign in with.')).toBeInTheDocument();
+  });
+
+  it('says the email is optional and not needed to sign in', async () => {
+    currentUser.mockReturnValue(account);
+    renderSettings();
+    expect(await screen.findByText('Optional contact address. It is not needed to sign in.')).toBeInTheDocument();
+    expect(screen.queryByText(/It is used to sign in/)).not.toBeInTheDocument();
+  });
+
+  it('shows an account with NO email: the account name, and an empty read-only email', async () => {
+    currentUser.mockReturnValue({ ...account, email: null, username: null });
+    const { container } = renderSettings();
+    const accountName = (await screen.findByLabelText(/^Account name/)) as HTMLInputElement;
+    expect(accountName.value).toBe('hal.owner');
+    expect(accountName).toHaveAttribute('readonly');
+    expect((screen.getByLabelText(/^Display name/) as HTMLInputElement).value).toBe('hal.owner'); // no username: the display name falls back to the account name
+    const email = screen.getByLabelText(/^Email/) as HTMLInputElement;
+    expect(email.value).toBe('');
+    expect(email).toHaveAttribute('readonly');
+    expect(email).toHaveAttribute('placeholder', 'None');
+    expect(container.textContent).not.toContain('null');
+    expect(container.textContent).not.toContain('undefined');
   });
 
   it('saves the display name, title and timezone to the account', async () => {
@@ -157,7 +201,7 @@ describe('Settings > Workspace', () => {
     expect(screen.getByText('October 7th, 2026')).toBeInTheDocument();
     expect(await screen.findByText('2 members in this workspace.')).toBeInTheDocument();
     expect(screen.getByText('hal')).toBeInTheDocument();
-    expect(screen.getAllByText('tech@liveoak.test').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/tech@liveoak\.test/).length).toBeGreaterThan(0);
     expect(screen.getByText('Disabled')).toBeInTheDocument();
     for (const demo of DEMO) expect(container.textContent).not.toContain(demo);
     expect(screen.queryByText('Region')).not.toBeInTheDocument(); // there is no source for a region
