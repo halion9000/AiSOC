@@ -13,12 +13,17 @@ work) and the live ``tenants`` table:
   triage view. Supports a couple of optional filters (``q=`` on slug or
   name, ``managed_only=`` to scope to managed-instance tenants).
 
-Both endpoints are admin-only. We reuse the same permission resolution
-the rest of the API uses (``has_permission_db``) and gate on a new
-``admin:tenants`` permission, falling back to ``settings:write`` for
-operators whose RBAC rows have not been migrated to the new permission
-yet. The fallback keeps existing admins unblocked while the seed-data
-migration that introduces ``admin:tenants`` lands separately.
+Both endpoints are PLATFORM operations, so they need a PLATFORM permission, which a
+tenant's own administrator never holds (neither the ``*`` wildcard nor ``<resource>:*``
+covers one; see PLATFORM_PERMISSIONS in app/core/security.py): creating a tenant needs
+``mssp:onboard`` ("onboard a new tenant") and listing every tenant needs
+``platform:cross_tenant_query``. They are checked as route dependencies, like every other
+platform route, so the permission is visible to the route tests and the capability reference.
+
+HISTORY, so it is not reintroduced: these routes used to check ``admin:tenants`` (a permission
+that was never created or granted to anyone) OR ``settings:write`` inside the handler. Every
+tenant's administrator holds ``settings:write``, so any tenant admin could list EVERY tenant on
+the platform (names, slugs, plans) and promote waitlist entries into new live tenants.
 
 Everything in this file is endpoint glue: validation, auth, response
 shaping. The actual provisioning *logic* lives in
@@ -32,13 +37,12 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, or_, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.models.tenant import Tenant
 from app.services.tenant_provision import (
     ProvisioningError,
@@ -134,18 +138,6 @@ class TenantListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _require_admin(user: AuthUser, db: AsyncSession) -> None:
-    """Gate on ``admin:tenants`` (preferred) or ``settings:write`` (fallback)."""
-    if await user.has_permission_db("admin:tenants", db):
-        return
-    if await user.has_permission_db("settings:write", db):
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="admin:tenants (or settings:write) required",
-    )
-
-
 def _result_to_wire(result: ProvisionResult) -> TenantProvisionResponse:
     return TenantProvisionResponse(
         tenant_id=str(result.tenant_id),
@@ -202,6 +194,7 @@ def _tenant_to_wire(row: Tenant) -> TenantListEntry:
     response_model=TenantProvisionResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Promote a waitlist entry into a live managed tenant.",
+    dependencies=[Depends(require_permission("mssp:onboard"))],
 )
 async def provision_tenant(
     payload: TenantProvisionRequest,
@@ -216,8 +209,6 @@ async def provision_tenant(
     support team from creating duplicate tenants if they click the
     button twice on a flaky network.
     """
-    await _require_admin(user, db)
-
     invite_base = (payload.invite_base_url or _DEFAULT_INVITE_BASE_URL).strip()
     if not invite_base:
         invite_base = _DEFAULT_INVITE_BASE_URL
@@ -269,6 +260,7 @@ async def provision_tenant(
     "",
     response_model=TenantListResponse,
     summary="List tenants for the support team.",
+    dependencies=[Depends(require_permission("platform:cross_tenant_query"))],
 )
 async def list_tenants(
     db: DBSession,
@@ -278,7 +270,6 @@ async def list_tenants(
     limit: int = 200,
 ) -> TenantListResponse:
     """Read-only tenant list, sorted by creation time descending."""
-    await _require_admin(user, db)
 
     capped_limit = max(1, min(int(limit), _MAX_LIST_LIMIT))
 

@@ -596,22 +596,6 @@ class TestProvisionEndpoint:
         assert response.aisoc_credential_key_fingerprint != ""
         assert session.commit_calls == 1
 
-    def test_provision_forbidden_for_non_admin(self) -> None:
-        session = _MockSession()
-        entry = _waitlist_row()
-        session.waitlist[entry.id] = entry
-        user = _admin_user(allow=False)
-
-        with pytest.raises(HTTPException) as exc_info:
-            _run(
-                endpoint.provision_tenant(
-                    endpoint.TenantProvisionRequest(waitlist_entry_id=entry.id, seed_demo=False),
-                    session,  # type: ignore[arg-type]
-                    user,
-                )
-            )
-        assert exc_info.value.status_code == 403
-
     def test_provision_missing_entry_returns_404(self) -> None:
         session = _MockSession()
         user = _admin_user()
@@ -697,14 +681,6 @@ class TestListTenantsEndpoint:
         # Order by created_at desc.
         assert result.tenants[0].slug == "self-hosted-corp"
         assert result.tenants[1].slug == "acme"
-
-    def test_list_forbidden_for_non_admin(self) -> None:
-        session = _MockSession()
-        self._seed_two_tenants(session)
-        user = _admin_user(allow=False)
-        with pytest.raises(HTTPException) as exc_info:
-            _run(endpoint.list_tenants(session, user))  # type: ignore[arg-type]
-        assert exc_info.value.status_code == 403
 
     def test_list_reports_managed_flag(self) -> None:
         session = _MockSession()
