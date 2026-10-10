@@ -23,9 +23,7 @@ export interface TenantOption {
   id: string;
   /** Human-readable display name. */
   name: string;
-  /** What kind of tenant this is (parent / child / standalone), for the label in the switcher. */
-  role: 'parent' | 'child' | 'standalone';
-  /** How the signed-in person relates to it: their own, a customer of their MSSP, or any tenant (platform admin). */
+  /** How the signed-in person relates to it: their own, one they were granted (read-only), or any tenant (platform admin). */
   relationship: ViewableTenant['relationship'];
 }
 
@@ -52,11 +50,8 @@ interface TenantContextValue {
 
 const TenantContext = createContext<TenantContextValue | null>(null);
 
-function toOption(t: ViewableTenant, hasChildren: boolean): TenantOption {
-  // "MSSP parent" only for a tenant that actually has children; a platform admin's own tenant, listed beside every other tenant, is not one.
-  const role: TenantOption['role'] =
-    t.relationship === 'child' ? 'child' : t.relationship === 'self' && hasChildren ? 'parent' : 'standalone';
-  return { id: t.id, name: t.name, role, relationship: t.relationship };
+function toOption(t: ViewableTenant): TenantOption {
+  return { id: t.id, name: t.name, relationship: t.relationship };
 }
 
 /**
@@ -94,8 +89,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       try {
         const viewable = await tenantsApi.viewable();
         if (cancelled) return;
-        const hasChildren = viewable.tenants.some((t) => t.relationship === 'child');
-        const list = viewable.tenants.map((t) => toOption(t, hasChildren));
+        const list = viewable.tenants.map(toOption);
         const homeOption = list.find((t) => t.id === viewable.home_tenant_id) ?? list[0] ?? null;
 
         const chosen = getViewedTenantId();
@@ -121,11 +115,11 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         // Still render something usable, and never claim "your own tenant" while a view is in force (requests would still carry it).
         const chosen = getViewedTenantId();
         if (user) {
-          const own: TenantOption = { id: user.tenant_id, name: 'My tenant', role: 'standalone', relationship: 'self' };
+          const own: TenantOption = { id: user.tenant_id, name: 'My tenant', relationship: 'self' };
           setHome(own);
           setAvailable([own]);
           setCurrent(
-            chosen ? { id: chosen, name: 'Another tenant', role: 'child', relationship: 'child' } : own,
+            chosen ? { id: chosen, name: 'Another tenant', relationship: 'granted' } : own,
           );
         }
       } finally {

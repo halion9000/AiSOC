@@ -50,7 +50,7 @@ const signedIn = (tenant_id: string, role = 'analyst') => {
 };
 
 /** What `GET /tenants/viewable` answers: the person's own tenant first, then the rest. */
-const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'child' | 'platform' }[] = []) =>
+const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'granted' | 'platform' }[] = []) =>
   viewableMock.mockResolvedValue({
     home_tenant_id: home.id,
     tenants: [{ ...home, slug: home.id, relationship: 'self' }, ...others.map((o) => ({ ...o, slug: o.id }))],
@@ -58,8 +58,8 @@ const viewable = (home: { id: string; name: string }, others: { id: string; name
 
 const PARENT = { id: 'parent-t', name: 'MSSP Holdings' };
 const CHILDREN = [
-  { id: 'c1', name: 'Customer A', relationship: 'child' as const },
-  { id: 'c2', name: 'Customer B', relationship: 'child' as const },
+  { id: 'c1', name: 'Customer A', relationship: 'granted' as const },
+  { id: 'c2', name: 'Customer B', relationship: 'granted' as const },
 ];
 
 describe('TenantProvider', () => {
@@ -85,13 +85,13 @@ describe('TenantProvider', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.userRole).toBe('analyst');
-    expect(result.current.current).toEqual({ id: 't1', name: 'Acme Corp', role: 'standalone', relationship: 'self' });
+    expect(result.current.current).toEqual({ id: 't1', name: 'Acme Corp', relationship: 'self' });
     expect(result.current.home).toEqual(result.current.current);
     expect(result.current.available).toHaveLength(1);
     expect(result.current.viewingOther).toBe(false);
   });
 
-  it('lists [parent, ...children] for an MSSP parent operator, as the server says', async () => {
+  it('lists the own tenant first and then the tenants the person was granted, as the server says', async () => {
     signedIn('parent-t', 'mssp-admin');
     viewable(PARENT, CHILDREN);
 
@@ -99,22 +99,21 @@ describe('TenantProvider', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.available.map((t) => t.id)).toEqual(['parent-t', 'c1', 'c2']);
-    expect(result.current.available.map((t) => t.role)).toEqual(['parent', 'child', 'child']);
-    expect(result.current.available.map((t) => t.relationship)).toEqual(['self', 'child', 'child']);
+    expect(result.current.available.map((t) => t.relationship)).toEqual(['self', 'granted', 'granted']);
     expect(result.current.current?.id).toBe('parent-t');
     expect(result.current.viewingOther).toBe(false);
   });
 
-  it("a platform admin's own tenant is not called an MSSP parent, and the others are labelled for what they are", async () => {
+  it("a platform admin's own tenant is 'self' and every other tenant is 'platform'", async () => {
     signedIn('pl', 'platform_admin');
     viewable({ id: 'pl', name: 'Platform' }, [{ id: 'x', name: 'Tenant X', relationship: 'platform' }]);
 
     const { result } = renderHook(() => useTenant(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.available.map((t) => [t.id, t.role, t.relationship])).toEqual([
-      ['pl', 'standalone', 'self'],
-      ['x', 'standalone', 'platform'],
+    expect(result.current.available.map((t) => [t.id, t.relationship])).toEqual([
+      ['pl', 'self'],
+      ['x', 'platform'],
     ]);
   });
 
@@ -167,7 +166,7 @@ describe('TenantProvider', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBe('boom');
-    expect(result.current.current).toEqual({ id: 't1', name: 'My tenant', role: 'standalone', relationship: 'self' });
+    expect(result.current.current).toEqual({ id: 't1', name: 'My tenant', relationship: 'self' });
     expect(result.current.available).toHaveLength(1);
     expect(result.current.viewingOther).toBe(false);
   });
@@ -182,12 +181,13 @@ describe('TenantProvider', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     // Requests still carry the view, so the console must say another tenant is being viewed (and offer the way back), not show the own tenant.
     expect(result.current.viewingOther).toBe(true);
-    expect(result.current.current?.id).toBe('c1');
-    expect(result.current.home?.id).toBe('parent-t');
+    expect(result.current.current).toEqual({ id: 'c1', name: 'Another tenant', relationship: 'granted' }); // named for what is known: a tenant other than their own, reached by a grant
+    expect(result.current.home).toEqual({ id: 'parent-t', name: 'My tenant', relationship: 'self' });
+    expect(result.current.available).toEqual([result.current.home]); // nothing else is offered: the list could not be read
     expect(setActiveTenantIdMock).not.toHaveBeenCalled();
   });
 
-  it('an MSSP parent with no children is a standalone as far as the switcher goes', async () => {
+  it('a person with no grants has only their own tenant to switch to', async () => {
     signedIn('parent-t', 'mssp-admin');
     viewable(PARENT, []);
 
@@ -196,7 +196,7 @@ describe('TenantProvider', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
     expect(result.current.available).toHaveLength(1);
-    expect(result.current.available[0].role).toBe('standalone');
+    expect(result.current.available[0].relationship).toBe('self');
   });
 
   it('throws when useTenant() is called outside the provider', () => {

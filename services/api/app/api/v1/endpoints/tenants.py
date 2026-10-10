@@ -17,8 +17,11 @@ from app.core.emails import normalize_email
 from app.core.security import get_password_hash
 from app.services.account_names import account_name_taken, unique_account_name
 from app.services.tenant_selection import selectable_tenants
-from app.services.view_as import home_tenant_of, viewable_tenants
+from app.services.audit import emit_audit
+from app.services.user_lookup import find_user_by_account_name
+from app.services.view_as import home_tenant_of, may_manage_access, viewable_tenants
 from app.models.tenant import Tenant, User
+from app.models.tenant_access import ACCESS_VIEW, TenantAccessGrant
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +134,8 @@ class ViewableTenant(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
-    # self: the caller's own tenant. child: a tenant managed by the caller's (MSSP parent). platform: any tenant, for a holder of the cross-tenant permission.
-    relationship: Literal["self", "child", "platform"]
+    # self: the caller's own tenant. granted: a tenant the caller has been granted (read-only). platform: any tenant, for a holder of the cross-tenant permission.
+    relationship: Literal["self", "platform", "granted"]
 
 
 class ViewableTenantsResponse(BaseModel):
@@ -154,6 +157,136 @@ async def list_viewable_tenants(
         home_tenant_id=home_tenant_of(current_user),
         tenants=[ViewableTenant(id=t.id, name=t.name, slug=t.slug, relationship=rel) for t, rel in rows],
     )
+
+
+class AccessGrantResponse(BaseModel):
+    tenant_id: uuid.UUID  # the tenant the access is TO
+    user_id: uuid.UUID
+    account_name: str
+    email: str | None = None
+    username: str | None = None
+    home_tenant_id: uuid.UUID  # the tenant the person belongs to
+    access: str
+    granted_by: str
+    created_at: datetime
+
+
+def _grant_response(grant: TenantAccessGrant, user: User) -> AccessGrantResponse:
+    return AccessGrantResponse(
+        tenant_id=grant.tenant_id,
+        user_id=user.id,
+        account_name=user.account_name,
+        email=user.email,
+        username=user.username,
+        home_tenant_id=user.tenant_id,
+        access=grant.access,
+        granted_by=grant.granted_by_label,
+        created_at=grant.created_at,
+    )
+
+
+async def _tenant_whose_access_the_caller_manages(db: Any, current_user: Any, tenant_id: uuid.UUID) -> Tenant:
+    """The tenant, if the caller may manage who has access to it; otherwise the SAME 404 as for a tenant that does not exist, so this cannot be used to find out which tenants exist."""
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalars().first()
+    if tenant is None or not may_manage_access(current_user, tenant):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+    return tenant
+
+
+@router.get("/{tenant_id}/access", response_model=list[AccessGrantResponse])
+async def list_tenant_access(
+    tenant_id: uuid.UUID,
+    current_user: Annotated[AuthUser, Depends(require_permission("users:read"))],
+    db: DBSession,
+) -> list[AccessGrantResponse]:
+    """Who has been GRANTED read-only access to this tenant (people who belong to other tenants). For a platform admin, this tenant's own administrators, or the administrators of its parent."""
+    tenant = await _tenant_whose_access_the_caller_manages(db, current_user, tenant_id)
+    rows = (
+        await db.execute(
+            select(TenantAccessGrant, User).join(User, User.id == TenantAccessGrant.user_id).where(TenantAccessGrant.tenant_id == tenant.id).order_by(User.account_name)
+        )
+    ).all()
+    return [_grant_response(g, u) for g, u in rows]
+
+
+@router.put("/{tenant_id}/access/{account_name}", response_model=AccessGrantResponse)
+async def grant_tenant_access(
+    tenant_id: uuid.UUID,
+    account_name: str,
+    current_user: Annotated[AuthUser, Depends(require_permission("users:write"))],
+    db: DBSession,
+) -> AccessGrantResponse:
+    """Let the person with this account name VIEW this tenant, read-only. Idempotent. Takes effect on their next request. Recorded in this tenant's own audit log."""
+    tenant = await _tenant_whose_access_the_caller_manages(db, current_user, tenant_id)
+    grantee = await find_user_by_account_name(db, account_name)
+    if grantee is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No account with that name")
+    if grantee.tenant_id == tenant.id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="That account already belongs to this tenant; a grant is for people who belong to another one.")
+    if grantee.is_active is False:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="That account is deactivated.")
+
+    # Plain values, taken now: a rollback expires every object loaded in the session, and reading an expired one would try to do IO where it cannot.
+    grantee_id, tenant_pk = grantee.id, tenant.id
+
+    def find() -> Any:
+        return select(TenantAccessGrant).where(TenantAccessGrant.user_id == grantee_id, TenantAccessGrant.tenant_id == tenant_pk)
+
+    existing = (await db.execute(find())).scalars().first()
+    if existing is not None:
+        return _grant_response(existing, grantee)
+    grant = TenantAccessGrant(user_id=grantee.id, tenant_id=tenant.id, access=ACCESS_VIEW, granted_by=current_user.user_id, granted_by_label=current_user.email or str(current_user.user_id))
+    db.add(grant)
+    try:
+        await emit_audit(
+            db=db,
+            tenant_id=tenant.id,
+            actor_id=current_user.user_id,
+            actor_email=current_user.email,
+            action="tenant:access_granted",
+            resource="tenant_access",
+            resource_id=str(grantee.id),
+            changes={"account_name": grantee.account_name, "home_tenant_id": str(grantee.tenant_id), "access": ACCESS_VIEW},
+        )
+        await db.commit()
+    except IntegrityError:
+        # Two requests granted the same person at once: the database's unique constraint decided, and this one is the "already granted" case.
+        await db.rollback()
+        existing = (await db.execute(find())).scalars().first()
+        if existing is None:
+            raise
+        return _grant_response(existing, await find_user_by_account_name(db, account_name))  # the person is read again: the rollback expired the copy loaded above
+    await db.refresh(grant)
+    return _grant_response(grant, grantee)
+
+
+@router.delete("/{tenant_id}/access/{account_name}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_tenant_access(
+    tenant_id: uuid.UUID,
+    account_name: str,
+    current_user: Annotated[AuthUser, Depends(require_permission("users:write"))],
+    db: DBSession,
+) -> None:
+    """Take the person's access to this tenant away. Takes effect on their next request. Recorded in this tenant's own audit log."""
+    tenant = await _tenant_whose_access_the_caller_manages(db, current_user, tenant_id)
+    grantee = await find_user_by_account_name(db, account_name)
+    grant = None
+    if grantee is not None:
+        grant = (await db.execute(select(TenantAccessGrant).where(TenantAccessGrant.user_id == grantee.id, TenantAccessGrant.tenant_id == tenant.id))).scalars().first()
+    if grantee is None or grant is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such grant")
+    await db.delete(grant)
+    await emit_audit(
+        db=db,
+        tenant_id=tenant.id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        action="tenant:access_revoked",
+        resource="tenant_access",
+        resource_id=str(grantee.id),
+        changes={"account_name": grantee.account_name, "home_tenant_id": str(grantee.tenant_id)},
+    )
+    await db.commit()
 
 
 @router.get("/me/identity", response_model=TenantHeaderResponse)

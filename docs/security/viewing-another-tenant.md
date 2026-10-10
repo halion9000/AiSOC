@@ -10,8 +10,8 @@ Send `X-View-As-Tenant: <tenant id>` on a request made with a signed-in session 
 | --- | --- |
 | anyone | their own tenant (naming it changes nothing) |
 | a holder of `platform:cross_tenant_query` (platform admin) | any tenant |
-| a holder of `mssp:read` | a tenant whose `parent_tenant_id` is the caller's own tenant (an MSSP's customers) |
-| anyone else | nothing else |
+| anyone | a tenant they have been **granted** (read-only; see "Granting access") |
+| anyone else | nothing else. In particular, belonging to an MSSP's parent tenant confers **nothing** over its child tenants by itself |
 
 `GET /api/v1/tenants/viewable` lists exactly what the server will honour (the caller's tenant first, then the rest) and the caller's `home_tenant_id`. It is built from the same rule as the check, so a client can only offer what will work.
 
@@ -40,12 +40,28 @@ The audit middleware records only **writes**, under the caller's **home** tenant
 
 A refused write is audited by the middleware as any refused write is (status 403, in the caller's home tenant).
 
+## Granting access
+
+A person belongs to one tenant but may be **granted** read-only access to others (an MSP's technician at a customer, a consultant at several clients). Grants are rows in `tenant_access_grants` (migration 072), one per person and tenant, and are checked against the database on **every request**, so a revocation takes effect on the person's very next request.
+
+| Endpoint | What |
+| --- | --- |
+| `GET /api/v1/tenants/{tenant_id}/access` | who has been granted access to this tenant (their account name, email if any, and the tenant they belong to) |
+| `PUT /api/v1/tenants/{tenant_id}/access/{account_name}` | grant that person read-only access (idempotent) |
+| `DELETE /api/v1/tenants/{tenant_id}/access/{account_name}` | revoke it (204) |
+
+**Who may grant, revoke and list** (`may_manage_access`): a holder of the platform-wide cross-tenant permission (any tenant); or a holder of `users:write` whose **home** tenant is the tenant concerned (a customer's administrators decide who may see their data) **or its parent** (an MSP's administrators decide which of their own staff may see which customers). A child tenant's administrators cannot manage their parent, and a role that can read users but not write them (`soc_lead`) cannot grant or list. Someone who may not manage a tenant gets the **same 404 "Tenant not found"** as for a tenant that does not exist. A request made from inside a view of another tenant is a write and is refused (`read_only`), so nobody can grant while viewing.
+
+A grant is refused (422) for a person who already belongs to that tenant, or whose account is deactivated; an unknown account name is a 404. Every grant and every revocation is written to the **target tenant's own** hash-chained audit log (`tenant:access_granted`, `tenant:access_revoked`: who, whom, and where they come from), and each view still writes `tenant:viewed` there.
+
+**This replaced a blanket rule.** Until migration 072, every user of an MSSP parent tenant (even a `viewer`) could view **all** of its child tenants through `mssp:read`. That rule is gone. Existing deployments start with **no grants**, so an MSP's staff lose their view of customers until it is granted, deliberately. People with the platform-wide permission are unaffected.
+
 ## What this does not do
 
 * **Live updates.** The realtime push feed still follows the person's home tenant while viewing. Not changed.
 * **Pages that render on the server** (the cases page) do not follow the switcher; see "The console".
 * **Reads that write.** The rule is "read-only by HTTP method". A GET handler that creates something as a side effect (for example a default row) would still do so in the viewed tenant. I did not audit the codebase for such handlers.
-* **Who may view children.** The gate for an MSSP operator is `mssp:read`, which nearly every built-in role holds (even `viewer`; `api_service` does not). That matches what the old switcher offered. If viewers of an MSSP's own staff should not see customers' data, it needs a narrower permission.
+* **Grants are read-only.** A grant gives the same read-only view as above. Write access to another tenant is a separate, larger decision and is not built; the table has an `access` column (only `view` today) so it can be added without a new table.
 * **Tokens and API keys** are unchanged: a token is for the person's own tenant, and an API key may not view another tenant.
 
 ## The console
@@ -63,4 +79,4 @@ Deploy the API first. A console that still sends `X-Tenant-Id` keeps working exa
 
 ## Verified
 
-Unit tests against a real database with an MSSP parent, two children, an unrelated tenant and a platform tenant (every caller against every tenant: the list offers a tenant if and only if viewing it is honoured). On real Postgres, as the non-superuser role with row-level security enforced: an operator viewing a child reads that child's protected rows, a write is refused, an unrelated tenant and a made-up tenant get the same answer, and the audit event lands in the viewed tenant's log once, hash-chained, and not in the viewer's own log.
+Unit tests against a real database with an MSSP parent, two children, an unrelated tenant and a platform tenant (every caller against every tenant: the list offers a tenant if and only if viewing it is honoured; plus the full who-may-grant matrix). On real Postgres, as the non-superuser role with row-level security enforced: an operator viewing a child reads that child's protected rows, a write is refused, an unrelated tenant and a made-up tenant get the same answer, and the audit event lands in the viewed tenant's log once, hash-chained, and not in the viewer's own log.

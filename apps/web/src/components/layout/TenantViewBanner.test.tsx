@@ -9,8 +9,8 @@ import { TenantViewBanner } from './TenantViewBanner';
 const tenantState = vi.fn();
 vi.mock('./TenantProvider', () => ({ useTenant: () => tenantState() }));
 
-const parent = { id: 'p', name: 'MSSP Holdings', role: 'parent', relationship: 'self' };
-const customer = { id: 'c1', name: 'Customer A', role: 'child', relationship: 'child' };
+const parent = { id: 'p', name: 'MSSP Holdings', relationship: 'self' };
+const customer = { id: 'c1', name: 'Customer A', relationship: 'granted' };
 const returnToHome = vi.fn();
 
 beforeEach(() => {

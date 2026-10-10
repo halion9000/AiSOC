@@ -336,6 +336,7 @@ def build_flows() -> dict[str, list[Step]]:
     flows.update(_eleventh_batch())
     flows.update(_twelfth_batch())
     flows.update(_thirteenth_batch())
+    flows.update(_fourteenth_batch())
     flows["fresh"] = fresh + _more_fresh()  # still last: A creating objects B has never mentioned
     return flows
 
@@ -654,7 +655,33 @@ def _eighth_batch() -> dict[str, list[Step]]:
 
 # Values a flow starts with, for a path parameter that is chosen by the caller rather than returned by the API (a connector type, a slug): {name} in a step's path is filled from here until a step captures it.
 # A seed may be a callable, evaluated when the flow starts (so it can depend on this run's tag). The OAuth flow registers an app for a connector type NAMED FOR THIS RUN: the API accepts any [a-zA-Z0-9_-] name, so it never touches a real 'github' (or any other) app.
-FLOW_SEEDS: dict[str, dict[str, Any]] = {"oauth_apps": {"ct": lambda: _t("flowtest")}, "tenant_selection": {"etype": "user", "evalue": "alice"}}
+FLOW_SEEDS: dict[str, dict[str, Any]] = {
+    "oauth_apps": {"ct": lambda: _t("flowtest")},
+    "tenant_selection": {"etype": "user", "evalue": "alice"},
+    "access_grants_isolation": {"ta": lambda: TENANT_IDS["A"], "tb": lambda: TENANT_IDS["B"], "nobody": "flow-nobody", "ghost": "00000000-0000-4000-8000-0000000000cd"},  # the REAL ids of the two tenants, known only once the run has identified them
+}
+
+
+def _fourteenth_batch() -> dict[str, list[Step]]:
+    """Per-person access grants (`/tenants/{id}/access`, migration 072). A and B are unrelated plain admins: neither may list, grant or revoke access on the OTHER's tenant, and the answer must be the SAME 404 ("Tenant not found") as for a
+    tenant that does not exist, so it is no way to find out which tenants exist. The positive controls: each may manage its OWN tenant's access (the 404 there is "No account with that name", which shows the permission check passed first)."""
+    not_found = lambda r, c: r.json().get("detail") == "Tenant not found"  # noqa: E731
+    no_account = lambda r, c: r.json().get("detail") == "No account with that name"  # noqa: E731
+    return {
+        "access_grants_isolation": [
+            S("A cannot list who has access to B", "A", "get", "/api/v1/tenants/{tb}/access", expect=(404,), check=not_found),
+            S("A cannot grant access to B", "A", "put", "/api/v1/tenants/{tb}/access/{nobody}", expect=(404,), nobody=True, check=not_found),
+            S("A cannot revoke access to B", "A", "delete", "/api/v1/tenants/{tb}/access/{nobody}", expect=(404,), nobody=True, check=not_found),
+            S("B cannot list who has access to A", "B", "get", "/api/v1/tenants/{ta}/access", expect=(404,), check=not_found),
+            S("B cannot grant access to A", "B", "put", "/api/v1/tenants/{ta}/access/{nobody}", expect=(404,), nobody=True, check=not_found),
+            S("B cannot revoke access to A", "B", "delete", "/api/v1/tenants/{ta}/access/{nobody}", expect=(404,), nobody=True, check=not_found),
+            S("a tenant that does not exist gets the same answer", "A", "put", "/api/v1/tenants/{ghost}/access/{nobody}", expect=(404,), nobody=True, check=not_found),
+            S("A may list its OWN tenant's access", "A", "get", "/api/v1/tenants/{ta}/access", expect=(200,), check=lambda r, c: isinstance(r.json(), list)),
+            S("B may list its OWN tenant's access", "B", "get", "/api/v1/tenants/{tb}/access", expect=(200,), check=lambda r, c: isinstance(r.json(), list)),
+            S("A may manage its own (the permission check passes; there is just no such account)", "A", "put", "/api/v1/tenants/{ta}/access/{nobody}", expect=(404,), nobody=True, check=no_account),
+            S("B may manage its own (the permission check passes; there is just no such account)", "B", "put", "/api/v1/tenants/{tb}/access/{nobody}", expect=(404,), nobody=True, check=no_account),
+        ],
+    }
 
 
 def _thirteenth_batch() -> dict[str, list[Step]]:

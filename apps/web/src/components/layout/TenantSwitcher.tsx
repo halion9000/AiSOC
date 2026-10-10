@@ -230,13 +230,7 @@ export function TenantSwitcher({ className }: TenantSwitcherProps) {
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate font-medium">{t.name}</span>
                       <span className="truncate text-[10px] uppercase tracking-wide text-fg-subtle">
-                        {t.role === 'parent'
-                          ? 'MSSP parent'
-                          : t.role === 'child'
-                            ? 'Child tenant'
-                            : t.relationship === 'platform'
-                              ? 'Platform view'
-                              : 'Standalone'}
+                        {t.relationship === 'platform' ? 'Platform view' : t.relationship === 'granted' ? 'Granted access' : 'Your tenant'}
                       </span>
                     </span>
                     {isActive && (

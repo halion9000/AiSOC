@@ -32,6 +32,6 @@ So **some people's name will differ from what they expect**. They can see it at 
 * **`platform_admin` now takes `--name`** (or `--email`; exactly one), so it can target an account that has no email, and it reports the account name in every result. `login_lockout` takes any string (`--email alice` works for an account name too).
 * **Email is still unique while `LOGIN_ALLOW_EMAIL` is on** (an email sign-in must be unambiguous), so an optional email can still hit "this address cannot be used". That goes away when email sign-in is retired.
 * **The web console has no user-creation form** (users are created through the API); nothing to change there, but a form that asks for an account name is a natural addition.
-* **Granting a person access to specific tenants, and super-admin roles that can see all,** is a separate change (see `viewing-another-tenant.md` for what exists).
+* **Granting a person access to specific tenants** (read-only) exists: see `viewing-another-tenant.md`. Write access to another tenant, and a console screen for managing grants, are not built.
 * **The audit table's column is still called `actor_email`**; it now holds the label described above.
 * Names are guessable (`admin`); the failed-sign-in lock and the identical refusals are what cover that.

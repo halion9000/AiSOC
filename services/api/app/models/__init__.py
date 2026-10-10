@@ -30,6 +30,7 @@ from app.models.mssp import (
 )
 from app.models.login_failure import LoginFailure
 from app.models.marketplace import MarketplaceInstall
+from app.models.tenant_access import TenantAccessGrant
 from app.models.oauth import OAuthAppCredential, OAuthState
 from app.models.posture import PostureDriftEvent, PostureFinding, PostureScanRun
 from app.models.published_replay import PublishedReplay
@@ -87,6 +88,7 @@ __all__ = [
     "MSSPTenantNote",
     "LoginFailure",
     "MarketplaceInstall",
+    "TenantAccessGrant",
     "OAuthAppCredential",
     "OAuthState",
     "TenantInboxToken",

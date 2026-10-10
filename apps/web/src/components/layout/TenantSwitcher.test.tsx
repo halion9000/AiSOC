@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 
 /** What `GET /tenants/viewable` answers: the person's own tenant first, then the rest. */
-const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'child' | 'platform' }[] = []) =>
+const viewable = (home: { id: string; name: string }, others: { id: string; name: string; relationship: 'granted' | 'platform' }[] = []) =>
   viewableMock.mockResolvedValue({
     home_tenant_id: home.id,
     tenants: [{ ...home, slug: home.id, relationship: 'self' }, ...others.map((o) => ({ ...o, slug: o.id }))],
@@ -87,8 +87,8 @@ describe('TenantSwitcher', () => {
     });
     isAuthenticatedMock.mockReturnValue(true);
     viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [
-      { id: 'c1', name: 'Customer A', relationship: 'child' },
-      { id: 'c2', name: 'Customer B', relationship: 'child' },
+      { id: 'c1', name: 'Customer A', relationship: 'granted' },
+      { id: 'c2', name: 'Customer B', relationship: 'granted' },
     ]);
 
     renderSwitcher();
@@ -115,7 +115,7 @@ describe('TenantSwitcher', () => {
       tenant_id: 'parent-t',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'granted' }]);
 
     // Stub out window.location.reload so the test runner doesn't bomb out.
     const reloadSpy = vi.fn();
@@ -144,7 +144,7 @@ describe('TenantSwitcher', () => {
       tenant_id: 'parent-t',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'granted' }]);
 
     renderSwitcher();
 
@@ -164,7 +164,7 @@ describe('TenantSwitcher', () => {
       tenant_id: 'parent-t',
     });
     isAuthenticatedMock.mockReturnValue(true);
-    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'granted' }]);
 
     renderSwitcher();
 
@@ -174,25 +174,25 @@ describe('TenantSwitcher', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: /Switch tenant/i })).not.toBeInTheDocument();
   });
-  it('labels each entry for what it is: the MSSP parent, its customers, and a platform view', async () => {
+  it('labels each entry for what it is: your own tenant, one you were granted, and a platform view', async () => {
     currentUserMock.mockReturnValue({ id: 'u1', email: 'a@mssp.com', role: 'mssp-admin', tenant_id: 'parent-t' });
     isAuthenticatedMock.mockReturnValue(true);
-    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'granted' }]);
     renderSwitcher();
     await userEvent.click(await screen.findByRole('button', { name: /Active tenant/i }));
-    const [parent, child] = await screen.findAllByRole('option');
-    expect(parent).toHaveTextContent('MSSP parent');
-    expect(child).toHaveTextContent('Child tenant');
+    const [own, granted] = await screen.findAllByRole('option');
+    expect(own).toHaveTextContent('Your tenant');
+    expect(granted).toHaveTextContent('Granted access');
   });
 
-  it('labels the other tenants a platform admin may view as a platform view, not as standalone', async () => {
+  it('labels the other tenants a platform admin may view as a platform view, not as your own', async () => {
     currentUserMock.mockReturnValue({ id: 'u1', email: 'p@x.com', role: 'platform_admin', tenant_id: 'pl' });
     isAuthenticatedMock.mockReturnValue(true);
     viewable({ id: 'pl', name: 'Platform' }, [{ id: 'x', name: 'Tenant X', relationship: 'platform' }]);
     renderSwitcher();
     await userEvent.click(await screen.findByRole('button', { name: /Active tenant/i }));
     const options = await screen.findAllByRole('option');
-    expect(options[0]).toHaveTextContent('Standalone');
+    expect(options[0]).toHaveTextContent('Your tenant');
     expect(options[1]).toHaveTextContent('Platform view');
   });
 
@@ -200,7 +200,7 @@ describe('TenantSwitcher', () => {
     currentUserMock.mockReturnValue({ id: 'u1', email: 'a@mssp.com', role: 'mssp-admin', tenant_id: 'parent-t' });
     isAuthenticatedMock.mockReturnValue(true);
     getViewedTenantIdMock.mockReturnValue('c1');
-    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'child' }]);
+    viewable({ id: 'parent-t', name: 'MSSP Holdings' }, [{ id: 'c1', name: 'Customer A', relationship: 'granted' }]);
     renderSwitcher();
     const trigger = await screen.findByRole('button', { name: /Active tenant/i });
     expect(trigger).toHaveTextContent('Customer A');

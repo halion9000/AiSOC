@@ -7,8 +7,12 @@ THE RULE. A request may ask to view a tenant with the explicit header `X-View-As
 
   * the caller's OWN tenant: nothing changes.
   * ANY tenant, for a holder of `platform:cross_tenant_query` (the same permission that lets /nl-query and entity risk name another tenant).
-  * a tenant that is a CHILD of the caller's own (`parent_tenant_id` = the caller's tenant), for a holder of `mssp:read` (the permission that lists children).
-  * anything else, including a tenant that does not exist, is 403 (the same answer for both, so it is not a way to find out which tenants exist).
+  * a tenant the person has been GRANTED (a row in `tenant_access_grants`, migration 072; read-only). A grant is checked against the database on every request, so a revocation takes effect at once.
+  * anything else, including a tenant that does not exist, is 403 (the same answer for both, so it is not a way to find out which tenants exist). In particular being a member of an MSSP parent tenant confers NOTHING over its
+    child tenants by itself: that blanket rule (every parent user could view every child, even a `viewer`) was replaced by explicit grants.
+
+WHO MAY GRANT (`may_manage_access`): a holder of the platform-wide permission (any tenant); or a holder of `users:write` whose HOME tenant is the tenant concerned, or is that tenant's PARENT (so an MSP's administrators decide which
+of their own staff may see which customers, and a customer's administrators decide who may see theirs).
 
 While viewing, the request acts as the caller's role (a role grants the same permissions everywhere) but on the viewed tenant: `tenant_id` is the viewed tenant, so every query and the row-level-security context follow it, and `home_tenant_id` is still the caller's.
 Writes are refused (403): a write that quietly landed in the caller's HOME tenant, or in a customer's, while the screen said otherwise would be worse than the bug being fixed. A bad request is never silently ignored: an unusable value is 400, and an API key
@@ -24,6 +28,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
+from collections.abc import Collection
 from typing import Any, Literal
 
 from fastapi import HTTPException, status
@@ -31,13 +36,14 @@ from sqlalchemy import select
 
 from app.models.audit import AuditLog
 from app.models.tenant import Tenant
+from app.models.tenant_access import TenantAccessGrant
 from app.services.audit import emit_audit
 from app.services.tenant_selection import CROSS_TENANT_PERMISSION
 
 VIEW_AS_HEADER = "X-View-As-Tenant"
 VIEWING_HEADER = "X-Viewing-Tenant"  # on the response: the tenant the data is for
 ERROR_HEADER = "X-View-As-Error"  # on a refusal: invalid | forbidden | read_only | session_only
-MSSP_READ_PERMISSION = "mssp:read"
+MANAGE_ACCESS_PERMISSION = "users:write"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 LIST_LIMIT = 500
 VIEW_AUDIT_ACTION = "tenant:viewed"
@@ -46,7 +52,7 @@ VIEW_AUDIT_WINDOW = timedelta(minutes=15)
 # Routes about the PERSON's account, not about a tenant: they always act as the signed-in person, whatever is being viewed (a user must be able to sign out, and the tenant list must not change when they switch).
 ACCOUNT_LEVEL_PATH = re.compile(r"^/api/v\d+/(auth|push|passkeys)(/|$)|^/api/v\d+/tenants/viewable$")
 
-Relationship = Literal["self", "child", "platform"]
+Relationship = Literal["self", "platform", "granted"]
 
 
 def home_tenant_of(user: Any) -> uuid.UUID:
@@ -58,14 +64,30 @@ def is_account_level(path: str) -> bool:
     return bool(ACCOUNT_LEVEL_PATH.match(path))
 
 
-def may_view_tenant(user: Any, tenant: Tenant) -> bool:
-    """May `user` view `tenant`? (Their own: always.)"""
-    home = home_tenant_of(user)
-    if tenant.id == home:
+async def granted_tenant_ids(db: Any, user: Any) -> set[uuid.UUID]:
+    """The tenants this PERSON has been granted (by their own account, never by the tenant a request happens to be for)."""
+    rows = (await db.execute(select(TenantAccessGrant.tenant_id).where(TenantAccessGrant.user_id == user.user_id))).scalars().all()
+    return set(rows)
+
+
+def may_view_tenant(user: Any, tenant: Tenant, granted: Collection[uuid.UUID] = ()) -> bool:
+    """May `user` view `tenant`? Their own: always. Any tenant: a holder of the platform-wide permission. Otherwise only a tenant they have been granted (`granted`: see granted_tenant_ids)."""
+    if tenant.id == home_tenant_of(user):
         return True
     if user.holds(CROSS_TENANT_PERMISSION):
         return True
-    return bool(user.holds(MSSP_READ_PERMISSION) and tenant.parent_tenant_id is not None and tenant.parent_tenant_id == home)
+    return tenant.id in granted
+
+
+def may_manage_access(user: Any, tenant: Tenant) -> bool:
+    """May `user` grant and revoke other people's access to `tenant`, and see who has it? A holder of the platform-wide permission: any tenant. Otherwise a holder of `users:write` whose home tenant is `tenant`
+    (a customer's administrators decide who may see their data) or is its parent (an MSP's administrators decide which of their staff may see which customers). Never from inside a view of another tenant: `home_tenant_of`."""
+    if user.holds(CROSS_TENANT_PERMISSION):
+        return True
+    if not user.holds(MANAGE_ACCESS_PERMISSION):
+        return False
+    home = home_tenant_of(user)
+    return tenant.id == home or (tenant.parent_tenant_id is not None and tenant.parent_tenant_id == home)
 
 
 async def viewable_tenants(db: Any, user: Any) -> list[tuple[Tenant, Relationship]]:
@@ -76,10 +98,12 @@ async def viewable_tenants(db: Any, user: Any) -> list[tuple[Tenant, Relationshi
     if user.holds(CROSS_TENANT_PERMISSION):
         others = (await db.execute(select(Tenant).where(Tenant.id != home).order_by(Tenant.name).limit(LIST_LIMIT))).scalars().all()
         return out + [(t, "platform") for t in others]
-    if user.holds(MSSP_READ_PERMISSION):
-        children = (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == home).order_by(Tenant.name).limit(LIST_LIMIT))).scalars().all()
-        return out + [(t, "child") for t in children]
-    return out
+    granted = (
+        (await db.execute(select(Tenant).join(TenantAccessGrant, TenantAccessGrant.tenant_id == Tenant.id).where(TenantAccessGrant.user_id == user.user_id, Tenant.id != home).order_by(Tenant.name).limit(LIST_LIMIT)))
+        .scalars()
+        .all()
+    )
+    return out + [(t, "granted") for t in granted]
 
 
 async def record_view(db: Any, user: Any, target: uuid.UUID, request: Any = None) -> bool:
@@ -127,7 +151,7 @@ async def resolve_view_as(db: Any, user: Any, requested: str, method: str) -> uu
     if target == home_tenant_of(user):
         return None
     tenant = (await db.execute(select(Tenant).where(Tenant.id == target))).scalars().first()
-    if tenant is None or not may_view_tenant(user, tenant):
+    if tenant is None or not may_view_tenant(user, tenant, await granted_tenant_ids(db, user)):
         raise _refuse(status.HTTP_403_FORBIDDEN, "forbidden", "You may not view that tenant.")
     if method.upper() not in SAFE_METHODS:
         raise _refuse(status.HTTP_403_FORBIDDEN, "read_only", "This tenant is read-only while you are viewing it as another tenant. Switch back to your own tenant to make changes.")

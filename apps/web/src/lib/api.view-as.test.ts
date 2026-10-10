@@ -93,7 +93,7 @@ describe('a refusal while viewing another tenant', () => {
 });
 
 describe('tenantsApi.viewable', () => {
-  const body = { home_tenant_id: 'home', tenants: [{ id: 'home', name: 'MSP', slug: 'msp', relationship: 'self' }, { id: 'c1', name: 'Customer', slug: 'c', relationship: 'child' }] };
+  const body = { home_tenant_id: 'home', tenants: [{ id: 'home', name: 'MSP', slug: 'msp', relationship: 'self' }, { id: 'c1', name: 'Customer', slug: 'c', relationship: 'granted' }] };
 
   it('reads the tenant list the server will honour', async () => {
     install(() => json(200, body));

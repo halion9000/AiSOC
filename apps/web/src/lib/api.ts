@@ -401,8 +401,8 @@ export interface ViewableTenant {
   id: string;
   name: string;
   slug: string;
-  /** self: their own tenant. child: a customer of their MSSP. platform: any tenant, for a platform admin. */
-  relationship: 'self' | 'child' | 'platform';
+  /** self: their own tenant. granted: a tenant they were granted access to (read-only). platform: any tenant, for a platform admin. */
+  relationship: 'self' | 'platform' | 'granted';
 }
 
 export interface ViewableTenantsResponse {
