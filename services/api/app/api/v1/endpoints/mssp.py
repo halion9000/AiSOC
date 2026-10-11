@@ -533,6 +533,15 @@ async def create_rule_override(
     if body.action not in ("exclude", "customize"):
         raise HTTPException(status_code=422, detail="action must be 'exclude' or 'customize'")
     await _require_owned_child(db, current_user, body.child_tenant_id)
+    # The rule must be one that can reach the child: a platform built-in, the parent's own, or the child's own (the layers of
+    # resolve_effective_rules). Anything else cannot take effect, and without this check the foreign key alone would be an existence oracle
+    # for other tenants' rule ids (and an unhandled IntegrityError). The refusal is the same 404 as for a missing id.
+    rule = await db.get(DetectionRule, body.rule_id)
+    reachable = rule is not None and (
+        (rule.tenant_id is None and rule.is_builtin) or rule.tenant_id in (current_user.tenant_id, body.child_tenant_id)
+    )
+    if not reachable:
+        raise HTTPException(status_code=404, detail="Detection rule not found")
     override = MSSPRuleOverride(
         parent_tenant_id=current_user.tenant_id,
         child_tenant_id=body.child_tenant_id,

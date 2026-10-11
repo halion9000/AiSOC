@@ -202,3 +202,45 @@ class TestTheResolver:
             assert "parents-own-rule" not in names
 
         run(go)
+
+
+class TestOverrides:
+    """`POST /mssp/overrides` verified the CHILD but not the rule: any rule id was accepted, so the foreign key alone was an existence
+    oracle for other tenants' rule ids (and an unhandled IntegrityError). The rule must be one that can reach the child: a built-in,
+    the parent's own, or the child's own."""
+
+    @staticmethod
+    async def _override(s, w, rule_id, child=None):
+        body = mssp.RuleOverrideCreate(child_tenant_id=(child or w.child).id, rule_id=rule_id, action="exclude")
+        return await mssp.create_rule_override(body=body, db=s, current_user=SimpleNamespace(tenant_id=w.parent.id, id=uuid.uuid4()))
+
+    def test_a_builtin_the_parents_own_rule_and_the_childs_own_rule_can_be_overridden(self):
+        async def go(s, w):
+            for rule in (w.builtin, w.own, w.childs):
+                assert (await self._override(s, w, rule.id)).rule_id == rule.id
+
+        run(go)
+
+    def test_another_tenants_rule_is_refused_with_the_same_404_as_a_missing_id(self):
+        async def go(s, w):
+            with pytest.raises(HTTPException) as foreign:
+                await self._override(s, w, w.foreign.id)
+            with pytest.raises(HTTPException) as missing:
+                await self._override(s, w, uuid.uuid4())
+            assert (
+                (foreign.value.status_code, foreign.value.detail)
+                == (missing.value.status_code, missing.value.detail)
+                == (404, "Detection rule not found")
+            )
+            stored = (await s.execute(select(MSSPRuleOverride))).scalars().all()
+            assert stored == []
+
+        run(go)
+
+    def test_the_child_check_still_comes_first(self):
+        async def go(s, w):
+            with pytest.raises(HTTPException) as refused:
+                await self._override(s, w, w.own.id, child=w.stranger)
+            assert refused.value.detail == "Child tenant not found"
+
+        run(go)

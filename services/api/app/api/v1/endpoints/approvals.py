@@ -29,7 +29,9 @@ from sqlalchemy import and_, func, select
 from app.api.v1.deps import AuthUser, require_permission, require_signed_in_session
 from app.core.config import settings
 from app.db.rls import TenantDBSession
+from app.models.investigation import InvestigationRun
 from app.models.responder import AgentApproval
+from app.models.tenant import User
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,21 @@ async def create_approval(
     notification via the realtime service so the PWA buzzes the right
     on-call analyst.
     """
+    # What the approval points at must be the caller's own. A foreign key is checked for EXISTENCE only, and by the database's owner
+    # privileges, so it ignores row-level security: without this, a tenant could store another tenant's run or user id here (and probe
+    # whether such an id exists, from the foreign-key error). The `users` table has no RLS, so the approver's tenant must be compared
+    # explicitly; the run is read through the tenant-scoped session and compared too.
+    if body.run_id is not None:
+        run = await db.get(InvestigationRun, body.run_id)
+        if run is None or run.tenant_id != user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="run_id is not one of your tenant's investigation runs",
+            )
+    if body.required_user_id is not None:
+        approver = await db.get(User, body.required_user_id)
+        if approver is None or approver.tenant_id != user.tenant_id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="required_user_id is not a user of your tenant")
     row = AgentApproval(
         tenant_id=user.tenant_id,
         run_id=body.run_id,
