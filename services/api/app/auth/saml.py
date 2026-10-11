@@ -151,7 +151,9 @@ async def saml_login(request: Request, redirect: str = "/") -> Response:
         )
     except Exception as exc:
         logger.exception("SAML login error")
-        raise HTTPException(status_code=500, detail=f"SAML error: {exc}") from exc
+        # Generic: this endpoint is reachable before authentication, and the exception text can carry configuration detail (certificate
+        # paths, setting names). The full exception is logged just above.
+        raise HTTPException(status_code=500, detail="SAML login failed") from exc
 
 
 @router.post("/acs")

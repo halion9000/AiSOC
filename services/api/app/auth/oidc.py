@@ -141,7 +141,8 @@ async def oidc_login(request: Request, redirect: str = "/") -> Response:
     try:
         provider = await _discover(issuer)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OIDC discovery failed: {exc}") from exc
+        logger.warning("oidc.discovery_failed: %s", exc)  # the detail stays in the log; the caller (unauthenticated) gets a generic message
+        raise HTTPException(status_code=502, detail="OIDC discovery failed") from exc
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -197,7 +198,8 @@ async def oidc_callback(
     try:
         provider = await _discover(issuer)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OIDC discovery failed: {exc}") from exc
+        logger.warning("oidc.discovery_failed: %s", exc)  # the detail stays in the log; the caller (unauthenticated) gets a generic message
+        raise HTTPException(status_code=502, detail="OIDC discovery failed") from exc
 
     # Exchange code for tokens
     token_params: dict[str, str] = {

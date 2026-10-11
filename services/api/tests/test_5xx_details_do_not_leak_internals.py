@@ -147,49 +147,48 @@ STILL_INTERPOLATING = {
         1,
         "a JSON parse error of a local index file: names a line and column, no path: low risk, NOT reviewed further",
     ),
-    "auth/oidc.py": (
-        2,
-        "OIDC discovery failure (502): includes the HTTP client's text, which names the configured issuer URL: NOT yet narrowed",
-    ),
-    "auth/saml.py": (1, "an unexpected SAML error (500): the exception text is returned after being logged: NOT yet narrowed"),
 }
+
+
+def _five_xx(call):
+    for kw in call.keywords:
+        if kw.arg == "status_code":
+            v = kw.value
+            if isinstance(v, ast.Constant) and isinstance(v.value, int):
+                return 500 <= v.value < 600
+            if isinstance(v, ast.Attribute):
+                return bool(re.search(r"HTTP_5\d\d", v.attr))
+    return False
+
+
+def _count(source: str) -> int:
+    """How many HTTPException(5xx, detail=f"...{exception...}...") a piece of source contains."""
+    found = 0
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "HTTPException" and _five_xx(node):
+            for kw in node.keywords:
+                if kw.arg == "detail" and isinstance(kw.value, ast.JoinedStr):
+                    for part in kw.value.values:
+                        base = part.value if isinstance(part, ast.FormattedValue) else None
+                        while isinstance(base, ast.Attribute):
+                            base = base.value
+                        if isinstance(base, ast.Name) and base.id in {"exc", "e", "err", "error", "ex"}:
+                            found += 1
+    return found
 
 
 def _sites():
     found = {}
-
-    def five_xx(call):
-        for kw in call.keywords:
-            if kw.arg == "status_code":
-                v = kw.value
-                if isinstance(v, ast.Constant) and isinstance(v.value, int):
-                    return 500 <= v.value < 600
-                if isinstance(v, ast.Attribute):
-                    return bool(re.search(r"HTTP_5\d\d", v.attr))
-        return False
-
     for path in sorted(APP.rglob("*.py")):
         rel = str(path.relative_to(APP))
         if rel.startswith("tests/"):
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            n = _count(path.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
             continue
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and getattr(node.func, "id", getattr(node.func, "attr", None)) == "HTTPException"
-                and five_xx(node)
-            ):
-                for kw in node.keywords:
-                    if kw.arg == "detail" and isinstance(kw.value, ast.JoinedStr):
-                        for part in kw.value.values:
-                            base = part.value if isinstance(part, ast.FormattedValue) else None
-                            while isinstance(base, ast.Attribute):
-                                base = base.value
-                            if isinstance(base, ast.Name) and base.id in {"exc", "e", "err", "error", "ex"}:
-                                found[rel] = found.get(rel, 0) + 1
+        if n:
+            found[rel] = n
     return found
 
 
@@ -200,12 +199,25 @@ def test_the_sites_that_put_an_exception_in_a_5xx_detail_are_exactly_the_listed_
         found.keys() <= allowed.keys()
     ), f"NEW site(s) (make the detail generic and log the exception, or list it above with a reason): {sorted(set(found) - set(allowed))}"
     assert all(found[f] <= allowed[f] for f in found), {f: (found[f], allowed[f]) for f in found if found[f] > allowed[f]}
-    assert (
-        found == allowed
-    ), f"a listed site was fixed: lower the number or remove the entry: {({f: (found.get(f, 0), allowed[f]) for f in allowed if found.get(f, 0) != allowed[f]})}"  # noqa: E501
+    stale = {f: (found.get(f, 0), allowed[f]) for f in allowed if found.get(f, 0) != allowed[f]}
+    assert found == allowed, f"a listed site was fixed: lower the number or remove the entry: {stale}"
 
 
-def test_the_ratchet_sees_what_it_claims_to_and_every_entry_has_a_reason():
-    assert sum(_sites().values()) >= 10, "the scan found almost nothing: it would pass vacuously"
+LEAKS = 'raise HTTPException(status_code=502, detail=f"upstream failed: {exc}")\n'
+
+
+def test_positive_control_the_scanner_flags_an_exception_in_a_5xx_detail():
+    """Replaces a count threshold, which stops being valid as the allow-list shrinks: this stays valid however far it does."""
+    assert _count(LEAKS) == 1 and _count(LEAKS.replace("502", "status.HTTP_502_BAD_GATEWAY")) == 1
+
+
+def test_the_scanner_does_not_flag_a_generic_detail_or_a_non_5xx_or_a_value_that_is_not_an_exception():
+    assert _count('raise HTTPException(status_code=502, detail="upstream failed")\n') == 0
+    assert _count(LEAKS.replace("502", "400")) == 0, "a 4xx that echoes the caller's own input is out of scope"
+    assert _count('raise HTTPException(status_code=502, detail=f"case {case_id} not found")\n') == 0
+
+
+def test_every_entry_has_a_reason_and_the_fixed_sites_stay_fixed():
     assert all(reason.strip() for _, reason in STILL_INTERPOLATING.values())
-    assert "api/v1/endpoints/graph.py" not in _sites() and "api/v1/endpoints/inbox_itsm.py" not in _sites()
+    fixed = {"api/v1/endpoints/graph.py", "api/v1/endpoints/inbox_itsm.py", "auth/saml.py", "auth/oidc.py"}
+    assert not (fixed & set(_sites())), fixed & set(_sites())
