@@ -42,6 +42,12 @@ from app.core.config import (
     is_dev_env,
     is_dev_mode_runtime,
 )
+from cryptography.fernet import Fernet
+
+# A throwaway Fernet key, generated per run. These tests only need SOME valid AISOC_CREDENTIAL_KEY to satisfy production-mode validation; a
+# committed key (even a fake one) is a secret-shaped string in the repository, and a valid one could be copied into a real deployment by
+# mistake.
+TEST_CREDENTIAL_KEY = Fernet.generate_key().decode()
 
 # ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -54,7 +60,7 @@ def _make_settings(**overrides) -> Settings:
         "SECRET_KEY": "a" * 64,
         "METRICS_TOKEN": "long-random-token",
         "PLUGIN_TRUST_MODE": "strict",
-        "AISOC_CREDENTIAL_KEY": "Z7t9fM3pZ8U_bN5oVxQYr1w2kLsHd4aJiTvE6cNxYpA=",
+        "AISOC_CREDENTIAL_KEY": TEST_CREDENTIAL_KEY,
     }
     base.update(overrides)
     return Settings(_env_file=None, **base)
@@ -280,7 +286,7 @@ def test_reconcile_mirrors_environment_to_env_when_only_environment_set():
         # leave ENV at its class default
         SECRET_KEY="a" * 64,
         METRICS_TOKEN="long-random-token",
-        AISOC_CREDENTIAL_KEY="Z7t9fM3pZ8U_bN5oVxQYr1w2kLsHd4aJiTvE6cNxYpA=",
+        AISOC_CREDENTIAL_KEY=TEST_CREDENTIAL_KEY,
     )
     assert s.ENVIRONMENT == "production"
     assert s.ENV == "production"
@@ -294,7 +300,7 @@ def test_reconcile_mirrors_env_to_environment_when_only_env_set():
         # leave ENVIRONMENT at its class default
         SECRET_KEY="a" * 64,
         METRICS_TOKEN="long-random-token",
-        AISOC_CREDENTIAL_KEY="Z7t9fM3pZ8U_bN5oVxQYr1w2kLsHd4aJiTvE6cNxYpA=",
+        AISOC_CREDENTIAL_KEY=TEST_CREDENTIAL_KEY,
     )
     assert s.ENV == "production"
     assert s.ENVIRONMENT == "production"
@@ -345,7 +351,7 @@ def test_reconcile_default_env_with_explicit_environment_no_warning():
             # ENV omitted → stays at class default "development"
             SECRET_KEY="a" * 64,
             METRICS_TOKEN="long-random-token",
-            AISOC_CREDENTIAL_KEY="Z7t9fM3pZ8U_bN5oVxQYr1w2kLsHd4aJiTvE6cNxYpA=",
+            AISOC_CREDENTIAL_KEY=TEST_CREDENTIAL_KEY,
         )
         assert s.ENV == "production"
         assert s.ENVIRONMENT == "production"
@@ -359,7 +365,7 @@ def test_reconcile_both_default_stays_development():
     s = Settings(
         _env_file=None,
         SECRET_KEY="a" * 64,
-        AISOC_CREDENTIAL_KEY="Z7t9fM3pZ8U_bN5oVxQYr1w2kLsHd4aJiTvE6cNxYpA=",
+        AISOC_CREDENTIAL_KEY=TEST_CREDENTIAL_KEY,
     )
     assert s.ENV == "development"
     assert s.ENVIRONMENT == "development"

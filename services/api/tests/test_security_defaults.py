@@ -21,8 +21,14 @@ from app.core.config import (
     enforce_secure_defaults,
     warn_if_insecure_defaults,
 )
+from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+# A throwaway Fernet key, generated per run. These tests only need SOME valid AISOC_CREDENTIAL_KEY to satisfy production-mode validation; a
+# committed key (even a fake one) is a secret-shaped string in the repository, and a valid one could be copied into a real deployment by
+# mistake.
+TEST_CREDENTIAL_KEY = Fernet.generate_key().decode()
 
 
 def _make_settings(**overrides) -> Settings:
@@ -33,7 +39,7 @@ def _make_settings(**overrides) -> Settings:
         "METRICS_TOKEN": "long-random-token",
         "PLUGIN_TRUST_MODE": "strict",
         # Pre-generated Fernet key. Real deployments mount this via Fly secret.
-        "AISOC_CREDENTIAL_KEY": "Z7t9fM3pZ8U_bN5oVxQYr1w2kLsHd4aJiTvE6cNxYpA=",
+        "AISOC_CREDENTIAL_KEY": TEST_CREDENTIAL_KEY,
         # SAML/OIDC session signing secret. Empty/placeholder values now warn
         # in prod (issue #130, finding #10), so the "clean prod" baseline
         # has to set a real value.
