@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, model_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
+from app.db.rls_scope import acting_as_argument
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.account_names import InvalidAccountName, validate_account_name
 from app.core.emails import normalize_email
@@ -227,6 +228,9 @@ def _grant_response(grant: TenantAccessGrant, user: User) -> AccessGrantResponse
     )
 
 
+acting_as_tenant_in_path = acting_as_argument("tenant_id")
+
+
 async def _tenant_whose_access_the_caller_manages(db: Any, current_user: Any, tenant_id: uuid.UUID) -> Tenant:
     """The tenant, if the caller may manage who has access to it; otherwise the SAME 404 as for a tenant that does not exist, so this cannot be used to find out which tenants exist."""
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalars().first()
@@ -236,6 +240,7 @@ async def _tenant_whose_access_the_caller_manages(db: Any, current_user: Any, te
 
 
 @router.get("/{tenant_id}/access", response_model=list[AccessGrantResponse])
+@acting_as_tenant_in_path
 async def list_tenant_access(
     tenant_id: uuid.UUID,
     current_user: Annotated[AuthUser, Depends(require_permission("users:read"))],
@@ -252,6 +257,7 @@ async def list_tenant_access(
 
 
 @router.put("/{tenant_id}/access/{account_name}", response_model=AccessGrantResponse)
+@acting_as_tenant_in_path
 async def grant_tenant_access(
     tenant_id: uuid.UUID,
     account_name: str,
@@ -320,6 +326,7 @@ async def grant_tenant_access(
 
 
 @router.delete("/{tenant_id}/access/{account_name}", status_code=status.HTTP_204_NO_CONTENT)
+@acting_as_tenant_in_path
 async def revoke_tenant_access(
     tenant_id: uuid.UUID,
     account_name: str,

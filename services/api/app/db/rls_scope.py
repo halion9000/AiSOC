@@ -10,6 +10,7 @@ docs/security/rls-fail-closed-plan.md.
 from __future__ import annotations
 
 import contextlib
+import functools
 import inspect
 import uuid
 from collections.abc import AsyncIterator
@@ -52,21 +53,33 @@ async def _rescoped(session: AsyncSession, setting: str, tag: str | None) -> Asy
     if tag is not None:
         session.info["rls_tenant_id"] = tag
     await session.execute(text("SELECT set_config('app.current_tenant_id', :t, TRUE)"), {"t": setting} if setting else {"t": ""})
-    failed = False
+    outcome = "ok"
     try:
         yield
-    except BaseException:
-        failed = True
+    except Exception:
+        outcome = "error"
+        raise
+    except BaseException:  # cancellation and the like: awaiting in `finally` is not safe, so nothing is sent
+        outcome = "abort"
         raise
     finally:
         session.info.pop("rls_tenant_id", None)
         if old_tag is not None:
             session.info["rls_tenant_id"] = old_tag
-        if not failed:
-            await session.flush()
-            restore = previous or ""
-            if restore != setting:
-                await session.execute(text("SELECT set_config('app.current_tenant_id', :t, TRUE)"), {"t": restore})
+        if outcome != "abort":
+            try:
+                if outcome == "ok":
+                    await session.flush()
+                restore = previous or ""
+                if restore != setting:
+                    await session.execute(text("SELECT set_config('app.current_tenant_id', :t, TRUE)"), {"t": restore})
+            except Exception:
+                # After an ordinary error the restore is best-effort: if the transaction is aborted the statement raises, and the rollback
+                # resets the setting anyway.
+                # After success a failure here is real and propagates. Never flush after an error: the pending writes may be the reason it
+                # failed.
+                if outcome == "ok":
+                    raise
 
 
 @contextlib.asynccontextmanager
@@ -116,3 +129,34 @@ async def acting_as_tenant(session: AsyncSession, tenant_id: uuid.UUID) -> Async
     """
     async with _rescoped(session, str(tenant_id), str(tenant_id)):
         yield
+
+
+def acting_as_argument(name: str, *, session: str = "db"):
+    """Decorator: run the wrapped coroutine in `acting_as_tenant(<its argument `name`>)`, using its argument `session` (default "db") as
+    the session.
+
+    For a handler whose path names the tenant it acts on, and which may legitimately act on a tenant that is not the caller's own: a
+    platform holder on any tenant, an MSP parent on its children
+    (app/api/v1/endpoints/tenants.py, access management: it reads and writes the TARGET tenant's access grants and writes an audit event
+    into the TARGET's log).
+
+    The scope is applied around the whole handler, after FastAPI has authenticated the caller and checked the permission the route
+    declares. The handler's own check that the caller may manage
+    that tenant runs inside the block; nothing it reads before that check is covered by a tenant policy (the tenants table has none), so
+    the scope exposes nothing that check protects.
+    `functools.wraps` keeps the signature, so FastAPI still sees the route's parameters and dependencies (checked against the generated
+    OpenAPI).
+    """
+
+    def decorate(fn):
+        signature = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            bound = signature.bind(*args, **kwargs).arguments
+            async with acting_as_tenant(bound[session], uuid.UUID(str(bound[name]))):
+                return await fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorate

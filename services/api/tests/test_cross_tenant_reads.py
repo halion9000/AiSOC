@@ -13,6 +13,7 @@ import uuid
 
 import pytest
 from app.db.rls import acting_as_tenant, cross_tenant_reads
+from app.db.rls_scope import acting_as_argument
 from app.services import mssp_rule_resolver as resolver
 
 TENANT = str(uuid.uuid4())
@@ -101,16 +102,46 @@ async def test_a_tagged_session_is_untagged_inside_the_block_so_the_hook_cannot_
 
 
 @pytest.mark.asyncio
-async def test_when_the_block_fails_the_tag_is_restored_and_the_error_propagates_without_a_statement_on_the_failed_transaction():
+async def test_when_the_block_fails_the_tag_and_setting_are_put_back_and_pending_writes_are_not_flushed():
     session = FakeSession(current=TENANT, tag=TENANT)
     with pytest.raises(RuntimeError, match="boom"):
         async with cross_tenant_reads(session):
             raise RuntimeError("boom")
     assert session.info["rls_tenant_id"] == TENANT, "the next transaction must be tagged again"
-    assert session.log[-1] == (
-        "clear",
-        "",
-    ), "no re-apply statement is sent on a failed transaction (it would itself raise); the rollback resets the setting"
+    assert session.log[-1] == ("set", TENANT), "an ordinary error is not necessarily a failed transaction: the setting is put back"
+    assert (
+        session.log.count(("flush", None)) == 1
+    ), "only the flush on ENTRY: nothing is flushed after an error (the pending writes may be why it failed)"
+
+
+@pytest.mark.asyncio
+async def test_if_the_restore_itself_fails_after_an_error_the_original_error_is_the_one_that_propagates():
+    """An aborted transaction rejects the restore statement; the caller must see the real error, not 'current transaction is aborted'."""
+
+    class Aborted(FakeSession):
+        async def execute(self, statement, params=None):
+            if params and params.get("t") == TENANT:
+                raise RuntimeError("current transaction is aborted")
+            return await super().execute(statement, params)
+
+    session = Aborted(current=TENANT, tag=TENANT)
+    with pytest.raises(ValueError, match="the real error"):
+        async with cross_tenant_reads(session):
+            raise ValueError("the real error")
+    assert session.info["rls_tenant_id"] == TENANT
+
+
+@pytest.mark.asyncio
+async def test_if_the_restore_fails_after_a_SUCCESSFUL_block_that_failure_is_real_and_propagates():
+    class Broken(FakeSession):
+        async def execute(self, statement, params=None):
+            if params and params.get("t") == TENANT:
+                raise RuntimeError("restore failed")
+            return await super().execute(statement, params)
+
+    with pytest.raises(RuntimeError, match="restore failed"):
+        async with cross_tenant_reads(Broken(current=TENANT, tag=TENANT)):
+            pass
 
 
 @pytest.mark.asyncio
@@ -269,7 +300,11 @@ class TestActingAsTenant:
             async with acting_as_tenant(session, uuid.UUID(TARGET)):
                 raise RuntimeError("boom")
         assert session.info["rls_tenant_id"] == HOME
-        assert session.log[-1] == ("set", TARGET), "no flush and no restore on a failed transaction: the rollback resets the setting"
+        assert session.log[-1] == (
+            "set",
+            HOME,
+        ), "an ordinary error (here a 404 from business logic) is not a failed transaction: the session must not stay scoped to the target"
+        assert session.current == HOME
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("dialect", ["sqlite", "mysql"])
@@ -411,3 +446,113 @@ class TestViewAsUsesThem:
         }.items():
             fn = getattr(view_as, name)
             assert fn.__name__ == name and list(inspect.signature(fn).parameters) == params
+
+
+class TestActingAsArgument:
+    """The decorator for a handler whose path names the tenant it acts on (tenants.py access management: a platform holder may manage any
+    tenant, an MSP parent its children)."""
+
+    @pytest.mark.asyncio
+    async def test_the_handler_runs_under_the_scope_of_the_argument_it_names_and_the_result_passes_through(self):
+        session, seen = FakeSession(current=HOME, tag=HOME), {}
+
+        @acting_as_argument("tenant_id")
+        async def route(tenant_id, db, note="x"):
+            seen["current"], seen["tag"] = db.current, db.info.get("rls_tenant_id")
+            return ("ok", tenant_id, note)
+
+        assert await route(uuid.UUID(TARGET), session, note="y") == ("ok", uuid.UUID(TARGET), "y")
+        assert seen == {"current": TARGET, "tag": TARGET}
+        assert session.current == HOME and session.info["rls_tenant_id"] == HOME
+
+    @pytest.mark.asyncio
+    async def test_positional_and_keyword_calls_both_find_the_argument_and_the_session(self):
+        scopes = []
+
+        @acting_as_argument("tenant_id")
+        async def route(tenant_id, other, db):
+            scopes.append(db.current)
+
+        await route(uuid.UUID(TARGET), 1, FakeSession(current=HOME))
+        await route(tenant_id=uuid.UUID(TARGET), other=1, db=FakeSession(current=HOME))
+        assert scopes == [TARGET, TARGET]
+
+    @pytest.mark.asyncio
+    async def test_a_different_session_argument_name_can_be_given(self):
+        seen = []
+
+        @acting_as_argument("child", session="session")
+        async def route(child, session):
+            seen.append(session.current)
+
+        await route(uuid.UUID(TARGET), FakeSession(current=HOME))
+        assert seen == [TARGET]
+
+    @pytest.mark.asyncio
+    async def test_an_error_in_the_handler_propagates_and_the_tag_is_restored(self):
+        session = FakeSession(current=HOME, tag=HOME)
+
+        @acting_as_argument("tenant_id")
+        async def route(tenant_id, db):
+            raise ValueError("nope")
+
+        with pytest.raises(ValueError, match="nope"):
+            await route(uuid.UUID(TARGET), session)
+        assert session.info["rls_tenant_id"] == HOME
+
+    def test_the_signature_and_name_are_kept_so_fastapi_still_sees_the_routes_parameters(self):
+        @acting_as_argument("tenant_id")
+        async def route(tenant_id: uuid.UUID, account_name: str, db=None):
+            return None
+
+        assert route.__name__ == "route" and list(inspect.signature(route).parameters) == ["tenant_id", "account_name", "db"]
+
+    @pytest.mark.asyncio
+    async def test_it_is_a_no_op_on_a_session_that_is_not_postgresql(self):
+        session = FakeSession(current=HOME, tag=HOME, dialect="sqlite")
+
+        @acting_as_argument("tenant_id")
+        async def route(tenant_id, db):
+            return db.log
+
+        assert await route(uuid.UUID(TARGET), session) == [] and session.info["rls_tenant_id"] == HOME
+
+
+class TestTheTenantAccessRoutesUseIt:
+    """tenants.py: list, grant and revoke act on the TARGET tenant's access grants and audit log, and the target may not be the caller's
+    own tenant."""
+
+    ROUTES = {
+        "list_tenant_access": {},
+        "grant_tenant_access": {"account_name": "someone"},
+        "revoke_tenant_access": {"account_name": "someone"},
+    }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", list(ROUTES))
+    async def test_each_route_runs_its_work_under_the_path_tenants_scope(self, name, monkeypatch):
+        from app.api.v1.endpoints import tenants
+        from fastapi import HTTPException
+
+        session, seen = FakeSession(current=HOME, tag=HOME), []
+
+        async def helper(db, current_user, tenant_id):
+            seen.append((db.current, db.info.get("rls_tenant_id")))
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        monkeypatch.setattr(tenants, "_tenant_whose_access_the_caller_manages", helper)
+        with pytest.raises(HTTPException):
+            await getattr(tenants, name)(tenant_id=uuid.UUID(TARGET), current_user=object(), db=session, **self.ROUTES[name])
+        assert seen == [(TARGET, TARGET)], f"{name} must run as the tenant named in its path"
+        assert session.current == HOME and session.info["rls_tenant_id"] == HOME
+
+    def test_all_three_routes_are_decorated_and_the_set_is_complete(self):
+        """Every route in tenants.py with a {tenant_id}/access path must be scoped: a new one added without the decorator would break
+        under the hook."""
+        from app.api.v1.endpoints import tenants
+
+        access = [r for r in tenants.router.routes if "/access" in getattr(r, "path", "") and "{tenant_id}" in r.path]
+        assert {r.endpoint.__name__ for r in access} == set(self.ROUTES)
+        assert all(hasattr(r.endpoint, "__wrapped__") for r in access), [
+            r.endpoint.__name__ for r in access if not hasattr(r.endpoint, "__wrapped__")
+        ]
