@@ -192,14 +192,16 @@ def schema():
 
 @pytest.mark.asyncio
 def admin(tid):
-    """A real signed-in user (the resolvers check permissions through CurrentUser, as the REST routes do); admin holds every tenant permission."""
+    """A real signed-in user (the resolvers check permissions through CurrentUser, as the REST routes do); admin holds every tenant
+    permission."""
     from app.api.v1.deps import CurrentUser
 
     return CurrentUser(user_id=uuid.uuid4(), tenant_id=tid, role="admin", email="a@example.com")
 
 
 class TestThroughTheSchema:
-    """Real GraphQL execution with a fake database: the resolvers wire to the helpers, and an anonymous caller is REFUSED and touches no table (it used to get an empty page: that hid the missing permission checks)."""
+    """Real GraphQL execution with a fake database: the resolvers wire to the helpers, and an anonymous caller is REFUSED and touches no
+    table (it used to get an empty page: that hid the missing permission checks)."""
 
     async def run(self, query, db, user):
         return await schema().execute(query, context_value={"db": db, "user": user})
@@ -220,12 +222,12 @@ class TestThroughTheSchema:
     async def test_case_by_id_resolves_and_scopes(self):
         tid, rw = uuid.uuid4(), row(title="by-id")
         db = fake_db(first=rw)
-        r = await self.run('{ case(id: "%s") { title } }' % rw.id, db, admin(tid))
+        r = await self.run(f'{{ case(id: "{rw.id}") {{ title }} }}', db, admin(tid))
         assert r.errors is None and r.data["case"] == {"title": "by-id"} and db.executed[0][1] == {"id": rw.id, "tid": tid}
 
     async def test_case_by_id_is_refused_for_an_anonymous_caller_and_null_for_an_invalid_id(self):
         db = fake_db(first=row())
-        anonymous = await self.run('{ case(id: "%s") { title } }' % uuid.uuid4(), db, None)
+        anonymous = await self.run(f'{{ case(id: "{uuid.uuid4()}") {{ title }} }}', db, None)
         assert [e.message for e in anonymous.errors] == ["Sign in to use this API."]
         invalid = await self.run('{ case(id: "nope") { title } }', db, admin(uuid.uuid4()))
         assert invalid.errors is None and invalid.data["case"] is None, "a real user asking for an invalid id gets null, with no error"

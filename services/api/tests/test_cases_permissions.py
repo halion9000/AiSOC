@@ -19,9 +19,11 @@ CASE = uuid.uuid4()
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 EXPECTED_BY_METHOD = {"GET": "cases:read", "POST": "cases:write", "PUT": "cases:write", "PATCH": "cases:write", "DELETE": "cases:delete"}
-# Three routes need the NARROW cases:work instead (cases:write implies it, so nobody loses access): the ones CORE's agent calls to update a case, comment on it and launch an investigation from it.
-# cases:write also guards creating cases, attaching alerts, notes, observables, tasks, approvals and replays, which an integration that only works on cases should not get.
-NARROWED = {("PATCH", "/cases/{case_id}"): "cases:work", ("POST", "/cases/{case_id}/comments"): "cases:work", ("POST", "/cases/{case_id}/investigate"): "cases:work"}
+# Three routes need the NARROW cases:work instead (cases:write implies it, so nobody loses access): the ones CORE's agent calls to update a
+# case, comment on it and launch an investigation from it.
+# cases:write also guards creating cases, attaching alerts, notes, observables, tasks, approvals and replays, which an integration that only
+# works on cases should not get.
+NARROWED = {("PATCH", "/cases/{case_id}"): "cases:work", ("POST", "/cases/{case_id}/comments"): "cases:work", ("POST", "/cases/{case_id}/investigate"): "cases:work"}  # noqa: E501
 
 
 def _required_permissions(route: APIRoute) -> list[str]:
@@ -85,12 +87,13 @@ READS = [("GET", "/api/v1/cases"), ("GET", f"/api/v1/cases/{CASE}"), ("GET", f"/
 WRITES = [("POST", "/api/v1/cases"), ("PATCH", f"/api/v1/cases/{CASE}"), ("POST", f"/api/v1/cases/{CASE}/comments"),
           ("POST", f"/api/v1/cases/{CASE}/notes"), ("POST", f"/api/v1/cases/{CASE}/tasks"), ("POST", f"/api/v1/cases/{CASE}/investigate")]
 
-NARROWED_CONCRETE = {("PATCH", f"/api/v1/cases/{CASE}"), ("POST", f"/api/v1/cases/{CASE}/comments"), ("POST", f"/api/v1/cases/{CASE}/investigate")}
+NARROWED_CONCRETE = {("PATCH", f"/api/v1/cases/{CASE}"), ("POST", f"/api/v1/cases/{CASE}/comments"), ("POST", f"/api/v1/cases/{CASE}/investigate")}  # noqa: E501
 
 
 @pytest.mark.parametrize("method,path", WRITES)
 def test_a_key_with_only_cases_work_does_exactly_the_narrowed_writes_and_is_refused_the_rest(method, path):
-    """The narrow scope CORE's key holds: the three routes it needs pass authorization; creating a case, notes and tasks (still cases:write) are refused, naming the scope."""
+    """The narrow scope CORE's key holds: the three routes it needs pass authorization; creating a case, notes and tasks (still cases:write)
+    are refused, naming the scope."""
     r = _client(_user("admin", scopes=["cases:work"])).request(method, path, json={})
     if (method, path) in NARROWED_CONCRETE:
         assert r.status_code != 403, f"{method} {path} must pass authorization with cases:work"

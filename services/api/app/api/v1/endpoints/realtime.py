@@ -47,9 +47,12 @@ class RealtimeTicket(BaseModel):
     tenant_id: str = Field(..., description="Tenant the ticket is scoped to.")
 
 
-# The ticket opens the tenant's live streams: alert.fused, case.updated, agent events, insights and graph.update (full entity and relationship data). It carries only the tenant, no
-# permission, so WHO MAY HAVE ONE is the whole check. It used to be any signed-in caller, including an API key whose only scope was hunts:read. REST needs alerts:read for the alert data and
-# cases:read for the case data; the ticket must too. (Every standard role holds both, so the console is unaffected; a key or custom role without them can no longer open the streams.)
+# The ticket opens the tenant's live streams: alert.fused, case.updated, agent events, insights and graph.update (full entity and
+# relationship data). It carries only the tenant, no
+# permission, so WHO MAY HAVE ONE is the whole check. It used to be any signed-in caller, including an API key whose only scope was
+# hunts:read. REST needs alerts:read for the alert data and
+# cases:read for the case data; the ticket must too. (Every standard role holds both, so the console is unaffected; a key or custom role
+# without them can no longer open the streams.)
 @router.post(
     "/ticket",
     response_model=RealtimeTicket,

@@ -423,7 +423,8 @@ def rate(db_path, who, score, plugin_id="plug-1"):
 
 
 class TestRatingsCannotBeSteered:
-    """The rating is shown to every tenant and orders the marketplace. It used to take every call as a new vote (one person could repeat the call to move it anywhere) and accepted ratings for pending and rejected plugins."""
+    """The rating is shown to every tenant and orders the marketplace. It used to take every call as a new vote (one person could repeat the
+    call to move it anywhere) and accepted ratings for pending and rejected plugins."""
 
     @pytest.fixture
     def approved(self, db_path):
@@ -462,7 +463,7 @@ class TestRatingsCannotBeSteered:
 
     def test_a_plugin_that_was_rejected_cannot_be_rated(self, db_path):
         publish_plugin(db_path, person(), plugin_id="rejected-1")
-        run(db_path, lambda s: community.review_community_plugin("rejected-1", community.ReviewAction(action="reject", notes="no"), current_user=person(), db=s))
+        run(db_path, lambda s: community.review_community_plugin("rejected-1", community.ReviewAction(action="reject", notes="no"), current_user=person(), db=s))  # noqa: E501
         with pytest.raises(HTTPException) as refused:
             rate(db_path, person(), 5, plugin_id="rejected-1")
         assert refused.value.status_code == 404
@@ -516,14 +517,15 @@ BAD_RULES = {
     "an id that is a list": "title: t\nid: [a, b]\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n",
     "an id that is a number": "title: t\nid: 12345\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n",
     "an id that is blank": "title: t\nid: '  '\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n",
-    "a logsource that is a list (logsource.get raised AttributeError)": "title: t\nid: abc\nstatus: s\ndescription: d\nlogsource: [process_creation]\ndetection: {condition: x}\n",
+    "a logsource that is a list (logsource.get raised AttributeError)": "title: t\nid: abc\nstatus: s\ndescription: d\nlogsource: [process_creation]\ndetection: {condition: x}\n",  # noqa: E501
     "a logsource that is a string": "title: t\nid: abc\nstatus: s\ndescription: d\nlogsource: windows\ndetection: {condition: x}\n",
     "a logsource that is null": "title: t\nid: abc\nstatus: s\ndescription: d\nlogsource:\ndetection: {condition: x}\n",
 }
 
 
 class TestPublishingARuleThatIsNotARule:
-    """Found by fuzzing the OpenAPI spec against a real server: an empty submission was an unhandled TypeError (HTTP 500), and several other shapes were the same kind of crash. Every one of these must be a clear 400, and nothing may be stored."""
+    """Found by fuzzing the OpenAPI spec against a real server: an empty submission was an unhandled TypeError (HTTP 500), and several other
+    shapes were the same kind of crash. Every one of these must be a clear 400, and nothing may be stored."""
 
     @pytest.mark.parametrize("label", list(BAD_RULES))
     def test_it_is_a_400_with_a_reason_not_an_unhandled_error(self, db_path, label):
@@ -543,11 +545,11 @@ class TestPublishingARuleThatIsNotARule:
         assert list_detections_count(db_path) == 1, "positive control: the counter used by the not-stored test can see a stored rule"
 
     def test_a_logsource_with_extra_keys_and_a_rule_with_unusual_but_valid_optional_fields_still_work(self, db_path):
-        content = "title: t\nid: ok-2\nstatus: s\ndescription: d\nlogsource: {category: c, product: p, service: svc}\ndetection: {condition: x}\ntags: [a, b]\nlevel: high\nauthor: me\n"
+        content = "title: t\nid: ok-2\nstatus: s\ndescription: d\nlogsource: {category: c, product: p, service: svc}\ndetection: {condition: x}\ntags: [a, b]\nlevel: high\nauthor: me\n"  # noqa: E501
         assert _publish_raw(db_path, content)["id"] == "ok-2"
 
     def test_the_messages_say_what_is_wrong(self, db_path):
-        for content, expect in (("", "mapping"), ("title: t\nid: [a]\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n", "`id`"), ("title: t\nid: a\nstatus: s\ndescription: d\nlogsource: [x]\ndetection: {condition: x}\n", "`logsource`")):
+        for content, expect in (("", "mapping"), ("title: t\nid: [a]\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n", "`id`"), ("title: t\nid: a\nstatus: s\ndescription: d\nlogsource: [x]\ndetection: {condition: x}\n", "`logsource`")):  # noqa: E501
             with pytest.raises(HTTPException) as refused:
                 _publish_raw(db_path, content)
             assert expect in refused.value.detail, refused.value.detail

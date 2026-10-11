@@ -254,9 +254,12 @@ async def _fetch_model_costs(
 ) -> list[ModelCostBreakdown]:
     """Fetch per-model cost rows from ``aisoc_run_costs`` for one run OF THIS TENANT.
 
-    The agents service's ``CostTracker`` writes ``run_id`` and ``tenant_id`` as TEXT, so both are compared as text. The table has NO row-level security, and its own key is (run_id, tenant_id,
-    model), so the same run_id may exist under more than one tenant: the tenant is therefore part of THIS query, not something that relies on the caller having checked the run first (it used to:
-    ``WHERE run_id = :run_id``). Returns an empty list when no telemetry rows exist: runs that predate the cost-tracker rollout still load cleanly.
+    The agents service's ``CostTracker`` writes ``run_id`` and ``tenant_id`` as TEXT, so both are compared as text. The table has NO
+    row-level security, and its own key is (run_id, tenant_id,
+    model), so the same run_id may exist under more than one tenant: the tenant is therefore part of THIS query, not something that relies
+    on the caller having checked the run first (it used to:
+    ``WHERE run_id = :run_id``). Returns an empty list when no telemetry rows exist: runs that predate the cost-tracker rollout still load
+    cleanly.
     """
     result = await db.execute(
         text(

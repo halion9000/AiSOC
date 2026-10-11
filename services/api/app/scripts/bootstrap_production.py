@@ -157,14 +157,16 @@ async def _ensure_key(session, name: str, scopes: list[str], owner_id, rotate: b
         )
     ).scalars().all()
     if active and not rotate:
-        # An existing key keeps its SECRET but is brought to exactly the scopes wanted now. Without this, a scope added here (or removed: least privilege) would
-        # only ever reach a fresh install, and every deployment already running would get 403s from the new tools until someone rotated the key and re-fed
+        # An existing key keeps its SECRET but is brought to exactly the scopes wanted now. Without this, a scope added here (or removed:
+        # least privilege) would
+        # only ever reach a fresh install, and every deployment already running would get 403s from the new tools until someone rotated the
+        # key and re-fed
         # the new secret to CORE. The operator running bootstrap is the authority for these two keys; the change is reported, never silent.
         wanted = sorted(set(scopes))
         changed = [key for key in active if sorted(set(key.scopes or [])) != wanted]
         for key in changed:
             added, removed = sorted(set(wanted) - set(key.scopes or [])), sorted(set(key.scopes or []) - set(wanted))
-            logging.getLogger(__name__).warning("API key %r scopes updated in place (same secret): added %s, removed %s", name, added or "none", removed or "none")
+            logging.getLogger(__name__).warning("API key %r scopes updated in place (same secret): added %s, removed %s", name, added or "none", removed or "none")  # noqa: E501
             key.scopes = list(scopes)
         return None, ("scopes-updated" if changed else "kept-existing")
     for old in active:

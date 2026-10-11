@@ -10,7 +10,6 @@ import re
 import uuid
 
 import pytest
-
 from app.scripts import tenant_flows as tf
 
 SPEC = {
@@ -252,7 +251,7 @@ class TestSafetyRefusals:
         monkeypatch.setattr(tf, "run_flows", fake)
         out = tmp_path / "r.json"
         assert tf.main(["run", "--label", "ok", "--out", str(out), "--yes-write-test-data"]) == 0
-        assert seen == {"emails": ("admin-a", "admin-b"), "password": "p"} and json.loads(out.read_text()) == [["f", "s", "A", 200, True, ""]], "the default identifiers are account names"
+        assert seen == {"emails": ("admin-a", "admin-b"), "password": "p"} and json.loads(out.read_text()) == [["f", "s", "A", 200, True, ""]], "the default identifiers are account names"  # noqa: E501
         assert "[ok] 1 steps; as expected: 1" in capsys.readouterr().out
 
     def test_a_failing_step_makes_it_exit_1(self, monkeypatch, tmp_path):
@@ -422,8 +421,11 @@ class TestTemplatingInBodiesAndQueries:
 
 
 class TestCanaries:
-    """The FRESH ids only cover the kinds of object the flows create, so a response listing another tenant's TENANT ROW, or platform data that belongs to no tenant, was invisible to the sweep: exactly how GET /admin/tenants and GET /waitlist/entries leaked to ordinary tenant admins. Two canaries close that.
-    Verified end to end (not just here): run against the commit BEFORE those fixes, the sweep failed with LEAKS on /api/v1/admin/tenants (A's tenant id) and /api/v1/waitlist/entries (the planted prospect); against the fixed code it passes (435 steps, all as expected)."""
+    """The FRESH ids only cover the kinds of object the flows create, so a response listing another tenant's TENANT ROW, or platform data
+    that belongs to no tenant, was invisible to the sweep: exactly how GET /admin/tenants and GET /waitlist/entries leaked to ordinary
+    tenant admins. Two canaries close that.
+    Verified end to end (not just here): run against the commit BEFORE those fixes, the sweep failed with LEAKS on /api/v1/admin/tenants
+    (A's tenant id) and /api/v1/waitlist/entries (the planted prospect); against the fixed code it passes (435 steps, all as expected)."""
 
     A = "aaaaaaaa-0000-0000-0000-000000000001"
     FRESH = {"11111111-1111-1111-1111-111111111111": "fresh case"}
@@ -432,22 +434,22 @@ class TestCanaries:
     def test_leaks_in_reports_each_watched_value_found_with_the_path_and_status(self):
         watch = {**self.FRESH, **self.CANARIES}
         body = f'{{"tenants": [{{"id": "{self.A}"}}], "case": "11111111-1111-1111-1111-111111111111"}}'
-        assert sorted(tf.leaks_in(body, "/api/v1/x", 200, watch)) == sorted([["/api/v1/x", "A's tenant id", 200], ["/api/v1/x", "fresh case", 200]])
+        assert sorted(tf.leaks_in(body, "/api/v1/x", 200, watch)) == sorted([["/api/v1/x", "A's tenant id", 200], ["/api/v1/x", "fresh case", 200]])  # noqa: E501
 
     def test_leaks_in_finds_nothing_in_a_clean_response_and_ignores_an_empty_watched_value(self):
-        assert tf.leaks_in('{"tenants": [{"id": "bbbbbbbb-0000-0000-0000-000000000002"}]}', "/api/v1/x", 200, {**self.FRESH, **self.CANARIES}) == []
+        assert tf.leaks_in('{"tenants": [{"id": "bbbbbbbb-0000-0000-0000-000000000002"}]}', "/api/v1/x", 200, {**self.FRESH, **self.CANARIES}) == []  # noqa: E501
         assert tf.leaks_in("anything at all", "/api/v1/x", 200, {"": "an empty value would match every response"}) == []
         assert tf.leaks_in("", "/api/v1/x", 404, self.CANARIES) == []
 
     def test_leaks_in_finds_a_prospects_email_inside_a_larger_text(self):
-        assert tf.leaks_in("name,email\nPat,canary-prospect@example.test\n", "/api/v1/waitlist/entries", 200, self.CANARIES) == [["/api/v1/waitlist/entries", "a prospect from the PUBLIC waitlist", 200]]
+        assert tf.leaks_in("name,email\nPat,canary-prospect@example.test\n", "/api/v1/waitlist/entries", 200, self.CANARIES) == [["/api/v1/waitlist/entries", "a prospect from the PUBLIC waitlist", 200]]  # noqa: E501
 
     def test_the_audit_endpoints_do_not_watch_for_As_tenant_id_because_they_record_Bs_own_requests(self):
         assert tf.RECORDS_B_OWN_REQUESTS == {"/api/v1/audit", "/api/v1/audit/export"}
         for path in tf.RECORDS_B_OWN_REQUESTS:
             watched = tf.watched_on(path, self.FRESH, self.CANARIES, self.A)
             assert self.A not in watched
-            assert "11111111-1111-1111-1111-111111111111" in watched and "canary-prospect@example.test" in watched, "everything else is still watched there"
+            assert "11111111-1111-1111-1111-111111111111" in watched and "canary-prospect@example.test" in watched, "everything else is still watched there"  # noqa: E501
 
     def test_every_other_endpoint_watches_for_all_of_it(self):
         for path in ("/api/v1/admin/tenants", "/api/v1/waitlist/entries", "/api/v1/cases", "/api/v1/audit/summary", "/api/v1/auditx"):
@@ -462,11 +464,11 @@ class TestCanaries:
         src = inspect.getsource(tf.run_flows)
         assert 'canaries: dict[str, str] = {TENANT_IDS["A"]: "A\'s tenant id"}' in src
         assert "watched_on(p, fresh_ids, canaries, TENANT_IDS[\"A\"])" in src
-        assert src.count("fresh_ids[") == 1, "canaries must not be written into fresh_ids: cleanup tries to delete each of those through its create path"
+        assert src.count("fresh_ids[") == 1, "canaries must not be written into fresh_ids: cleanup tries to delete each of those through its create path"  # noqa: E501
 
     def test_the_waitlist_canary_is_planted_only_on_a_scratch_database_never_on_a_deployed_environment(self):
         src = inspect.getsource(tf.run_flows)
-        assert "if sweep and base_url is None:" in src and src.index("if sweep and base_url is None:") < src.index('"/api/v1/waitlist/signup"')
+        assert "if sweep and base_url is None:" in src and src.index("if sweep and base_url is None:") < src.index('"/api/v1/waitlist/signup"')  # noqa: E501
 
     def test_the_sweep_row_says_how_many_canaries_were_planted(self):
         assert "and {len(canaries)} canaries were planted" in inspect.getsource(tf.run_flows)

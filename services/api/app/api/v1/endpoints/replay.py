@@ -175,10 +175,17 @@ async def _unique_slug(db: DBSession) -> str:
     raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not allocate a unique slug; retry.")
 
 
-# PUBLISHING makes the investigation readable by ANYONE with the link (GET /r/{slug} needs no sign-in). The review step (the preview with its alias map) exists so a person looks at what will be hidden,
-# so publishing needs cases:write AND a signed-in session: an API key, whatever its scopes, is refused. It used to need cases:write alone, so CORE's own key could publish to the open internet unreviewed.
+# PUBLISHING makes the investigation readable by ANYONE with the link (GET /r/{slug} needs no sign-in). The review step (the preview with
+# its alias map) exists so a person looks at what will be hidden,
+# so publishing needs cases:write AND a signed-in session: an API key, whatever its scopes, is refused. It used to need cases:write alone,
+# so CORE's own key could publish to the open internet unreviewed.
 # (Unpublishing stays as it was: it only reduces exposure.)
-@router.post("/{run_id}/publish", response_model=PublishResult, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_signed_in_session)])
+@router.post(
+    "/{run_id}/publish",
+    response_model=PublishResult,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_signed_in_session)],
+)  # noqa: E501
 async def publish_replay(
     run_id: uuid.UUID,
     body: PublishRequest,

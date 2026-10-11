@@ -41,9 +41,10 @@ INTENDED = {
     "assets": {**m(R, "list_assets", "list_vulnerabilities", "get_asset", "list_asset_vulnerabilities"), **m(W, "create_asset", "create_vulnerability", "update_asset"), **m(D, "delete_asset")},
     "identity_graph": {**m(R, "get_alert_identity_links", "list_edges", "list_nodes", "get_node", "get_node_edges"), **m(W, "link_alert_to_identity", "create_edge", "create_node")},
     "insider_threat": {**m(R, "list_indicators", "list_peer_groups", "list_profiles", "get_profile"), **m(W, "update_watchlist", "create_indicator", "acknowledge_indicator", "create_peer_group")},
-    # hunts:read reads the DEFINITIONS (hypothesis, queries, findings); list_runs stays lake:query because a run's result_sample is event rows sampled from the lake.
-    "hunts": {**m("hunts:read", "list_hunts", "get_hunt"), **m("lake:query", "list_runs", "update_hunt", "create_hunt", "add_findings", "run_hunt")},
-    "saved_hunts": {**m("hunts:read", "list_saved_hunts", "get_saved_hunt"), **m("lake:query", "delete_saved_hunt", "create_saved_hunt", "run_saved_hunt")},
+    # hunts:read reads the DEFINITIONS (hypothesis, queries, findings); list_runs stays lake:query because a run's result_sample is event
+    # rows sampled from the lake.
+    "hunts": {**m("hunts:read", "list_hunts", "get_hunt"), **m("lake:query", "list_runs", "update_hunt", "create_hunt", "add_findings", "run_hunt")},  # noqa: E501
+    "saved_hunts": {**m("hunts:read", "list_saved_hunts", "get_saved_hunt"), **m("lake:query", "delete_saved_hunt", "create_saved_hunt", "run_saved_hunt")},  # noqa: E501
     "knowledge_base": {**m(R, "list_documents", "get_document", "query_kb"), **m("settings:write", "ingest", "delete_document")},
     "compliance": {**m("reports:read", "list_evidence", "get_evidence", "compliance_report"), **m("reports:write", "collect_evidence", "review_evidence")},
     "feedback": {**m(R, "list_overrides_endpoint", "get_override_summary"), **m(W, "submit_alert_override", "apply_redisposition_endpoint")},

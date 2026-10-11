@@ -54,8 +54,10 @@ def _is_graph_unavailable(exc: BaseException) -> bool:
 async def _or_503(call: Any) -> Any:
     """Await a graph WRITE, turning "the graph database cannot be reached" into HTTP 503 instead of an unhandled error (a raw 500).
 
-    The query routes above already answer 503 when Neo4j is down; the four upsert routes did not, so fuzzing the API with Neo4j down produced a 500 on each of them. A connectivity failure gets a
-    generic message (the driver's own text names the internal host and port, which the caller has no need of); any OTHER exception still propagates, so a real bug stays a visible 500.
+    The query routes above already answer 503 when Neo4j is down; the four upsert routes did not, so fuzzing the API with Neo4j down
+    produced a 500 on each of them. A connectivity failure gets a
+    generic message (the driver's own text names the internal host and port, which the caller has no need of); any OTHER exception still
+    propagates, so a real bug stays a visible 500.
     """
     try:
         return await call
@@ -69,7 +71,8 @@ async def _or_503(call: Any) -> Any:
 
 
 def _query_failed(exc: BaseException) -> HTTPException:
-    """The 503 for a failed graph QUERY. It used to be `detail=f"Graph query failed: {exc}"`, which put the driver's own text (the internal host and port, resolved addresses) in the response to
+    """The 503 for a failed graph QUERY. It used to be `detail=f"Graph query failed: {exc}"`, which put the driver's own text (the internal
+    host and port, resolved addresses) in the response to
     any caller who could read the graph. The exception is logged here, in full, and the caller gets a generic message."""
     logger.warning("graph query failed (%s): %s", type(exc).__name__, exc)
     return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Graph query failed")

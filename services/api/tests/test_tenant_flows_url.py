@@ -464,7 +464,7 @@ class TestTheRealRunnerLogsIn:
         assert server["logins"] == [("a@x.com", "pw-a"), ("b@x.com", "pw-b")]
 
     async def test_an_account_name_is_sent_as_an_account_name_and_an_address_as_an_email(self, server):
-        for identifiers, keys in ((("admin-a", "admin-b"), ["account_name", "account_name"]), (("a@x.com", "b@x.com"), ["email", "email"]), (("admin-a", "b@x.com"), ["account_name", "email"])):
+        for identifiers, keys in ((("admin-a", "admin-b"), ["account_name", "account_name"]), (("a@x.com", "b@x.com"), ["email", "email"]), (("admin-a", "b@x.com"), ["account_name", "email"])):  # noqa: E501
             server["keys"].clear()
             with pytest.raises(tf.PreflightError):  # stops at the preflight (the fake answers 500): after both logins
                 await tf.run_flows(identifiers, "pw-a", base_url="http://x.example", spec={"paths": {}}, password_b="pw-b")

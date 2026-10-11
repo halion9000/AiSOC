@@ -271,8 +271,10 @@ async def rate_community_plugin(
 ) -> dict[str, Any]:
     """Rate a community plugin: one rating per person (rating again replaces your own), and only a plugin an administrator has approved.
 
-    The score is shown to EVERY tenant and orders the marketplace, so it must not be steerable. It used to be a running average that took every call as a new vote, so one signed-in user
-    could repeat the call to push a plugin's rating anywhere, and it accepted ratings for pending and rejected submissions (which are not listed, viewable or installable). A plugin that
+    The score is shown to EVERY tenant and orders the marketplace, so it must not be steerable. It used to be a running average that took
+    every call as a new vote, so one signed-in user
+    could repeat the call to push a plugin's rating anywhere, and it accepted ratings for pending and rejected submissions (which are not
+    listed, viewable or installable). A plugin that
     is not approved is the same 404 as one that does not exist, and the submitter may not rate their own submission."""
     p = await PLUGINS.get(db, plugin_id, lock=True)  # read-modify-write: lock the row so two ratings cannot both read the same average
     if not p or p.get("status") != PublishStatus.APPROVED:
@@ -282,7 +284,8 @@ async def rate_community_plugin(
     if p.get("submitted_by") == person:
         raise HTTPException(status_code=403, detail="You cannot rate a plugin you submitted")
 
-    # `ratings` maps each person to their one score. Ratings recorded before it existed live only in the aggregate (rating x rating_count); they stay counted.
+    # `ratings` maps each person to their one score. Ratings recorded before it existed live only in the aggregate (rating x rating_count);
+    # they stay counted.
     ratings = dict(p.get("ratings") or {})
     count = p["rating_count"]
     total = p["rating"] * count
@@ -341,8 +344,10 @@ async def publish_detection(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid YAML: {exc}") from exc
 
-    # yaml.safe_load returns whatever the text says: None for an empty body, a string, a list or a number are all valid YAML. Without this check an empty submission was an unhandled
-    # TypeError (a 500), and a string was worse: `"id" in "some text"` is a SUBSTRING test, so text that merely mentioned the field names passed the check below.
+    # yaml.safe_load returns whatever the text says: None for an empty body, a string, a list or a number are all valid YAML. Without this
+    # check an empty submission was an unhandled
+    # TypeError (a 500), and a string was worse: `"id" in "some text"` is a SUBSTRING test, so text that merely mentioned the field names
+    # passed the check below.
     if not isinstance(rule, dict):
         raise HTTPException(status_code=400, detail="A Sigma rule must be a YAML mapping (key: value pairs)")
 
@@ -350,7 +355,8 @@ async def publish_detection(
     missing = [f for f in required if f not in rule]
     if missing:
         raise HTTPException(status_code=400, detail=f"Missing required Sigma fields: {missing}")
-    # The id is used as the storage key and the logsource is read with .get(): a list, a number or a mapping in either place was an unhandled error (a 500).
+    # The id is used as the storage key and the logsource is read with .get(): a list, a number or a mapping in either place was an
+    # unhandled error (a 500).
     if not isinstance(rule["id"], str) or not rule["id"].strip():
         raise HTTPException(status_code=400, detail="The Sigma `id` must be a non-empty string")
     if not isinstance(rule["logsource"], dict):

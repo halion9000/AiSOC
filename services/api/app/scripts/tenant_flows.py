@@ -53,17 +53,21 @@ DESTRUCTIVE_FLOWS = frozenset({"business_context_rules", "tenant_settings", "mar
 
 
 def leaks_in(text: str, path: str, status: int, watch: dict[str, str]) -> list[list]:
-    """What B's response from `path` contains that B must never see: one [path, what it is, status] per watched value found in the body (a value is an id, a tenant id or an email, matched as text)."""
+    """What B's response from `path` contains that B must never see: one [path, what it is, status] per watched value found in the body (a
+    value is an id, a tenant id or an email, matched as text)."""
     return [[path, kind, status] for value, kind in watch.items() if value and value in text]
 
 
-# The endpoints that RECORD THE CALLER'S OWN REQUESTS. B's probes of A's objects put A's tenant id in their URLs (a PATCH or DELETE of A's tenant, answered 404), and the audit log faithfully records them under B's
-# tenant, so A's tenant id legitimately appears there. (Found by running the tenant-id canary: its only hits were B's own tenants:update and tenants:delete attempts against A, each recorded with status 404.)
+# The endpoints that RECORD THE CALLER'S OWN REQUESTS. B's probes of A's objects put A's tenant id in their URLs (a PATCH or DELETE of A's
+# tenant, answered 404), and the audit log faithfully records them under B's
+# tenant, so A's tenant id legitimately appears there. (Found by running the tenant-id canary: its only hits were B's own tenants:update and
+# tenants:delete attempts against A, each recorded with status 404.)
 RECORDS_B_OWN_REQUESTS = frozenset({"/api/v1/audit", "/api/v1/audit/export"})
 
 
 def watched_on(path: str, fresh_ids: dict[str, str], canaries: dict[str, str], tenant_a: str) -> dict[str, str]:
-    """What B's response from `path` must not contain. On the endpoints that record B's own requests, A's tenant id is not watched (B sent it); every other value still is, there and everywhere else."""
+    """What B's response from `path` must not contain. On the endpoints that record B's own requests, A's tenant id is not watched (B sent
+    it); every other value still is, there and everywhere else."""
     if path in RECORDS_B_OWN_REQUESTS:
         return {**fresh_ids, **{value: kind for value, kind in canaries.items() if value != tenant_a}}
     return {**fresh_ids, **canaries}
@@ -993,11 +997,12 @@ async def run_flows(
         if True:  # (the block below was nested inside the in-process client's `async with`)
             tok: dict[str, dict] = {}
             for user, email in zip("AB", emails, strict=True):
-                # An account name (the default), or an email if the server still allows email sign-in: an identifier with an '@' is sent as an email.
+                # An account name (the default), or an email if the server still allows email sign-in: an identifier with an '@' is sent as
+                # an email.
                 key = "email" if "@" in email else "account_name"
-                r = await _send(c, "POST", "/api/v1/auth/login", json={key: email, "password": (password_b or password) if user == "B" else password})
+                r = await _send(c, "POST", "/api/v1/auth/login", json={key: email, "password": (password_b or password) if user == "B" else password})  # noqa: E501
                 if r.status_code != 200:
-                    raise PreflightError(f"login failed for tenant {user} ({email}): HTTP {r.status_code}. Check the account name and the password (an email works only if the server has LOGIN_ALLOW_EMAIL on).")
+                    raise PreflightError(f"login failed for tenant {user} ({email}): HTTP {r.status_code}. Check the account name and the password (an email works only if the server has LOGIN_ALLOW_EMAIL on).")  # noqa: E501
                 tok[user] = {"Authorization": "Bearer " + r.json()["access_token"]}
             # Set up BEFORE anything is written: two different tenants, two plain tenant admins who can do what the flows do. Then the flows are built with the REAL tenant ids.
             TENANT_IDS.update(await preflight(c, tok))
@@ -1074,20 +1079,23 @@ async def run_flows(
                         except Exception:  # noqa: BLE001
                             ok = False
                     out.append([flow, st.name, st.user, r.status_code, ok, "" if ok else r.text[:140]])
-            # CANARIES: things B must not see that are not "an object A created". The FRESH ids only cover the kinds of object the flow creates, so a response listing another tenant's TENANT ROW, or platform
-            # data that belongs to no tenant at all, was invisible to this sweep: exactly how GET /admin/tenants (it listed every tenant) and GET /waitlist/entries (every prospect) leaked to ordinary tenant
-            # admins. A's tenant id must never appear in anything B can read; and (on a scratch database only: it leaves a row nobody can delete through the API) a PUBLIC waitlist signup is platform data
+            # CANARIES: things B must not see that are not "an object A created". The FRESH ids only cover the kinds of object the flow
+            # creates, so a response listing another tenant's TENANT ROW, or platform
+            # data that belongs to no tenant at all, was invisible to this sweep: exactly how GET /admin/tenants (it listed every tenant)
+            # and GET /waitlist/entries (every prospect) leaked to ordinary tenant
+            # admins. A's tenant id must never appear in anything B can read; and (on a scratch database only: it leaves a row nobody can
+            # delete through the API) a PUBLIC waitlist signup is platform data
             # that only a platform operator may read, so its email must never appear either.
             canaries: dict[str, str] = {TENANT_IDS["A"]: "A's tenant id"}
             if sweep and base_url is None:
                 prospect = f"canary-prospect{('-' + RUN['tag']) if RUN['tag'] else ''}@example.test"
                 joined = await asyncio.wait_for(
-                    _send(c, "POST", "/api/v1/waitlist/signup", json={"email": prospect, "name": "Canary Prospect", "company": "Canary Corp", "role": "CISO", "company_size": "1000+", "message": "leak canary", "motivation": "leak canary"}),
+                    _send(c, "POST", "/api/v1/waitlist/signup", json={"email": prospect, "name": "Canary Prospect", "company": "Canary Corp", "role": "CISO", "company_size": "1000+", "message": "leak canary", "motivation": "leak canary"}),  # noqa: E501
                     timeout,
                 )
                 if joined.status_code == 200:
                     canaries[prospect] = "a prospect from the PUBLIC waitlist (platform data, no tenant's)"
-                out.append(["CANARY", "an anonymous visitor joins the waitlist (the canary B must never see)", "-", joined.status_code, joined.status_code == 200, "" if joined.status_code == 200 else joined.text[:140]])
+                out.append(["CANARY", "an anonymous visitor joins the waitlist (the canary B must never see)", "-", joined.status_code, joined.status_code == 200, "" if joined.status_code == 200 else joined.text[:140]])  # noqa: E501
             if sweep:  # B calls every GET endpoint and looks for the FRESH ids A created (see the fresh flow) and for the canaries above
                 gets = sorted(p for p, ops in spec["paths"].items() if "get" in ops and "{" not in p and p.startswith("/api/v1"))
                 sem, leaks = asyncio.Semaphore(concurrency), []
@@ -1102,7 +1110,7 @@ async def run_flows(
 
                 await asyncio.gather(*[sweep(p) for p in gets])
                 leaks.sort()
-                out.append(["SWEEP", f"B called {len(gets)} GET endpoints; A created {len(fresh_ids)} FRESH ids that B never mentioned, and {len(canaries)} canaries were planted", "B", 200, not leaks, f"LEAKS: {leaks}" if leaks else ""])
+                out.append(["SWEEP", f"B called {len(gets)} GET endpoints; A created {len(fresh_ids)} FRESH ids that B never mentioned, and {len(canaries)} canaries were planted", "B", 200, not leaks, f"LEAKS: {leaks}" if leaks else ""])  # noqa: E501
             if cleanup:  # the sweep has finished with them: delete what the FRESH flow created, so the next run starts clean (routes come from the API's own spec: <create path>/<id>)
                 for ident, name in fresh_ids.items():
                     try:
@@ -1182,8 +1190,8 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", help="run the flows against the database DATABASE_URL points at")
     run.add_argument("--label", required=True)
     run.add_argument("--out", help="default: tenant_flows_<label>.json")
-    run.add_argument("--account-a", "--email-a", dest="email_a", default="admin-a", help="tenant A's admin: an account name (an email works only if the server allows email sign-in)")
-    run.add_argument("--account-b", "--email-b", dest="email_b", default="admin-b", help="tenant B's admin: an account name (see --account-a)")
+    run.add_argument("--account-a", "--email-a", dest="email_a", default="admin-a", help="tenant A's admin: an account name (an email works only if the server allows email sign-in)")  # noqa: E501
+    run.add_argument("--account-b", "--email-b", dest="email_b", default="admin-b", help="tenant B's admin: an account name (see --account-a)")  # noqa: E501
     run.add_argument("--password-env", default="TENANT_FLOWS_PASSWORD")
     run.add_argument("--yes-write-test-data", action="store_true", help="required: the flows create (and some delete) data")
     url = sub.add_parser("run-url", help="run the flows against a DEPLOYED API over HTTP: a staging environment, NEVER production")
@@ -1191,8 +1199,8 @@ def main(argv: list[str] | None = None) -> int:
     url.add_argument("--confirm-host", required=True, help="the hostname of --base-url, typed again: a guard against pasting the wrong URL")
     url.add_argument("--label", required=True)
     url.add_argument("--out", help="default: tenant_flows_<label>.json")
-    url.add_argument("--account-a", "--email-a", dest="email_a", required=True, help="a plain tenant ADMIN of one tenant, by account name (an email works only if the server allows email sign-in)")
-    url.add_argument("--account-b", "--email-b", dest="email_b", required=True, help="a plain tenant ADMIN of a DIFFERENT tenant, by account name (see --account-a)")
+    url.add_argument("--account-a", "--email-a", dest="email_a", required=True, help="a plain tenant ADMIN of one tenant, by account name (an email works only if the server allows email sign-in)")  # noqa: E501
+    url.add_argument("--account-b", "--email-b", dest="email_b", required=True, help="a plain tenant ADMIN of a DIFFERENT tenant, by account name (see --account-a)")  # noqa: E501
     url.add_argument("--password-env-a", default="TENANT_FLOWS_PASSWORD_A", help="env var holding A's password (falls back to TENANT_FLOWS_PASSWORD)")
     url.add_argument("--password-env-b", default="TENANT_FLOWS_PASSWORD_B", help="env var holding B's password (falls back to TENANT_FLOWS_PASSWORD)")
     url.add_argument("--spec-file", help="the OpenAPI document, if the deployment does not serve /openapi.json")

@@ -284,7 +284,9 @@ def verify_ed25519_signature(public_key_bytes: bytes, message: bytes, signature:
 
 # Names that are enforced somewhere in the code but are not (yet) granted to any role
 # beyond the "*" wildcard holders. They are valid permission names.
-_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read", "intel:read", "alerts:triage", "rules:view", "connectors:view", "cases:work"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
+_UNGRANTED_PERMISSIONS = frozenset(
+    {"sla:write", "mssp:onboard", "hunts:read", "intel:read", "alerts:triage", "rules:view", "connectors:view", "cases:work"}
+)  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own  # noqa: E501
 
 
 def known_permissions() -> frozenset[str]:
@@ -293,27 +295,51 @@ def known_permissions() -> frozenset[str]:
     return frozenset(granted | _UNGRANTED_PERMISSIONS)
 
 
-# A permission that holding another one always granted. `hunts:read` (read the DEFINITIONS of hunts: the hypothesis, the queries, the analysts' findings, saved hunts and saved searches) was
-# split out of `lake:query`, which is also the permission to create, run and delete hunts and to run arbitrary queries against telemetry. Everything that held `lake:query` (a role, a custom
-# database role, a wildcard like `lake:*`) still reads hunts exactly as before; a holder of `hunts:read` alone can read definitions and can do nothing that writes or queries. It is checked
-# in permission_in so every path (role map, database roles, API-key scopes) behaves the same. Reading what a hunt FOUND in telemetry (GET /hunts/{id}/runs: sampled event rows) stays `lake:query`.
-# `intel:read` (read the tenant's stored threat intelligence: indicators, actor profiles and published STIX) was split out of `threat_intel:read`, which ALSO guards the feed list (a feed's free-form `config` can
-# hold credentials) and the enrichment routes (they send an indicator to outside providers). Everything that held `threat_intel:read` still reads intelligence exactly as before; a holder of `intel:read` alone can
+# A permission that holding another one always granted. `hunts:read` (read the DEFINITIONS of hunts: the hypothesis, the queries, the
+# analysts' findings, saved hunts and saved searches) was
+# split out of `lake:query`, which is also the permission to create, run and delete hunts and to run arbitrary queries against telemetry.
+# Everything that held `lake:query` (a role, a custom
+# database role, a wildcard like `lake:*`) still reads hunts exactly as before; a holder of `hunts:read` alone can read definitions and can
+# do nothing that writes or queries. It is checked
+# in permission_in so every path (role map, database roles, API-key scopes) behaves the same. Reading what a hunt FOUND in telemetry (GET
+# /hunts/{id}/runs: sampled event rows) stays `lake:query`.
+# `intel:read` (read the tenant's stored threat intelligence: indicators, actor profiles and published STIX) was split out of
+# `threat_intel:read`, which ALSO guards the feed list (a feed's free-form `config` can
+# hold credentials) and the enrichment routes (they send an indicator to outside providers). Everything that held `threat_intel:read` still
+# reads intelligence exactly as before; a holder of `intel:read` alone can
 # read those five routes and nothing else: CORE's key holds only this one.
-# `alerts:triage` (claim, escalate and snooze an alert) was split out of `alerts:write`, which ALSO guards submitting and patching alerts and 24 routes in other areas (creating assets, posture findings, identity
-# graph nodes, honeytokens, graph entities, insider-threat indicators and watchlists, feedback, phishing re-triage...). Everything that held `alerts:write` still triages exactly as before; a holder of `alerts:triage`
-# alone can do those three things and nothing else in the API: CORE's key holds only this one, because those three are the only alerts:write routes CORE calls.
-# `rules:view` (read the detection rules and their coverage, drift, confidence, tuning and proposals: 13 GET routes) was split out of `rules:read`, which ALSO guards five routes that COMPUTE: run rules over events the
-# caller sends (/rules/hunt, /rules/{id}/execute, /detection/test), translate a rule (/translation/translate) and BACKTEST a rule, which runs it over up to 365 days of the tenant's real events in the data lake and returns
-# `sample_matches`, the matching event rows: telemetry, the very thing lake:query exists to gate. Everything that held `rules:read` still reads rules exactly as before; a holder of `rules:view` alone can use those 13 reads
+# `alerts:triage` (claim, escalate and snooze an alert) was split out of `alerts:write`, which ALSO guards submitting and patching alerts
+# and 24 routes in other areas (creating assets, posture findings, identity
+# graph nodes, honeytokens, graph entities, insider-threat indicators and watchlists, feedback, phishing re-triage...). Everything that held
+# `alerts:write` still triages exactly as before; a holder of `alerts:triage`
+# alone can do those three things and nothing else in the API: CORE's key holds only this one, because those three are the only alerts:write
+# routes CORE calls.
+# `rules:view` (read the detection rules and their coverage, drift, confidence, tuning and proposals: 13 GET routes) was split out of
+# `rules:read`, which ALSO guards five routes that COMPUTE: run rules over events the
+# caller sends (/rules/hunt, /rules/{id}/execute, /detection/test), translate a rule (/translation/translate) and BACKTEST a rule, which
+# runs it over up to 365 days of the tenant's real events in the data lake and returns
+# `sample_matches`, the matching event rows: telemetry, the very thing lake:query exists to gate. Everything that held `rules:read` still
+# reads rules exactly as before; a holder of `rules:view` alone can use those 13 reads
 # and nothing else in the API: CORE's key holds only this one.
-# `connectors:view` (list the connectors, the catalog, health, one connector and when it last saw an event: 5 GET routes) was split out of `connectors:read`, which ALSO guards POST /federated/search (a free-text or
-# indicator query run across the tenant's connected SIEMs with their stored credentials, returning the merged rows: telemetry from the customer's own systems), the inbox token and template lists, the OAuth app view and
-# the agent tool list. Everything that held `connectors:read` still reads connectors exactly as before; a holder of `connectors:view` alone can use those five reads and nothing else in the API: CORE's key holds only this one.
-# `cases:work` (update a case, comment on it, launch an investigation from it, close an investigation: 4 routes) was split out of `cases:write`, which ALSO guards creating cases, attaching alerts, notes, observables and
-# tasks, raising and deciding approvals (the human sign-off for destructive agent actions) and publishing or unpublishing investigation replays: 14 routes. Everything that held `cases:write` still works on cases exactly as
+# `connectors:view` (list the connectors, the catalog, health, one connector and when it last saw an event: 5 GET routes) was split out of
+# `connectors:read`, which ALSO guards POST /federated/search (a free-text or
+# indicator query run across the tenant's connected SIEMs with their stored credentials, returning the merged rows: telemetry from the
+# customer's own systems), the inbox token and template lists, the OAuth app view and
+# the agent tool list. Everything that held `connectors:read` still reads connectors exactly as before; a holder of `connectors:view` alone
+# can use those five reads and nothing else in the API: CORE's key holds only this one.
+# `cases:work` (update a case, comment on it, launch an investigation from it, close an investigation: 4 routes) was split out of
+# `cases:write`, which ALSO guards creating cases, attaching alerts, notes, observables and
+# tasks, raising and deciding approvals (the human sign-off for destructive agent actions) and publishing or unpublishing investigation
+# replays: 14 routes. Everything that held `cases:write` still works on cases exactly as
 # before; a holder of `cases:work` alone can do those four things and nothing else in the API: CORE's key holds only this one.
-IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",), "connectors:view": ("connectors:read",), "cases:work": ("cases:write",)}
+IMPLIED_BY: dict[str, tuple[str, ...]] = {
+    "hunts:read": ("lake:query",),
+    "intel:read": ("threat_intel:read",),
+    "alerts:triage": ("alerts:write",),
+    "rules:view": ("rules:read",),
+    "connectors:view": ("connectors:read",),
+    "cases:work": ("cases:write",),
+}  # noqa: E501
 
 
 def permission_in(granted: Iterable[str], permission: str) -> bool:

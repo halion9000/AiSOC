@@ -50,9 +50,12 @@ _AGENTS_URL = os.getenv("AGENTS_SERVICE_URL") or os.getenv("AGENTS_API_URL", "ht
 
 
 def _require(info: Info, *permissions: str) -> None:
-    """The caller must hold each permission, checked by the SAME function the REST route for the same data uses (CurrentUser.require_permission: roles, API-key scopes, and the
-    cross-tenant "full access" deny list). GraphQL used to check none, so any signed-in user, and any API key however narrow its scopes, could read alerts, cases, rules, connectors and
-    playbooks here that REST would have refused them (a key whose only scope was hunts:read read every detection rule). Every resolver calls this first."""
+    """The caller must hold each permission, checked by the SAME function the REST route for the same data uses
+    (CurrentUser.require_permission: roles, API-key scopes, and the
+    cross-tenant "full access" deny list). GraphQL used to check none, so any signed-in user, and any API key however narrow its scopes,
+    could read alerts, cases, rules, connectors and
+    playbooks here that REST would have refused them (a key whose only scope was hunts:read read every detection rule). Every resolver calls
+    this first."""
     user = info.context.get("user")
     if user is None:
         raise PermissionError("Sign in to use this API.")
@@ -259,8 +262,10 @@ def _orm_to_connector(row: Connector) -> ConnectorType:
 async def _proxy_get(info: Info, path: str, params: dict | None = None):  # noqa: ANN201
     """Call the agents service AS THE CALLER'S TENANT and return JSON, or raise on failure.
 
-    The agents service trusts the API's internal token, and for that caller it honours the `tenant_id` parameter and otherwise returns the UNSCOPED result: every tenant's playbook runs, each
-    with its trigger event (alert data). This used to send no tenant, so any signed-in user of any tenant read every tenant's runs through GraphQL. The REST proxy has always sent the tenant;
+    The agents service trusts the API's internal token, and for that caller it honours the `tenant_id` parameter and otherwise returns the
+    UNSCOPED result: every tenant's playbook runs, each
+    with its trigger event (alert data). This used to send no tenant, so any signed-in user of any tenant read every tenant's runs through
+    GraphQL. The REST proxy has always sent the tenant;
     so does this, taken from the authenticated user and never from the query, and with no tenant nothing is sent at all."""
     tenant = _tenant_id(info)
     if tenant is None:

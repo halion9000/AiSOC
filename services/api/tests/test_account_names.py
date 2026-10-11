@@ -320,7 +320,7 @@ class TestCreatingAUser:
     def test_an_optional_email_is_still_accepted_and_stored_lower_cased(self, world):
         out = self.create(world, account_name="carol", email="Carol@A.Example")
         assert out.email == "carol@a.example"
-        assert sign_in(world, "carol@a.example", "Str0ng-Passw0rd!").status_code == 401, "an email is contact information: it does not sign anyone in by default"
+        assert sign_in(world, "carol@a.example", "Str0ng-Passw0rd!").status_code == 401, "an email is contact information: it does not sign anyone in by default"  # noqa: E501
         assert sign_in(world, "carol", "Str0ng-Passw0rd!").status_code == 200
 
     @pytest.mark.parametrize("bad", ["ab", "has space", "x" * 40, "a@b.com", "-lead", "UNI\u00c7"])
@@ -475,7 +475,8 @@ class TestTheMigration:
 
 
 class TestEmailSignInIsOffByDefault:
-    """People sign in with their ACCOUNT NAME. An email offered while email sign-in is off must be answered exactly like a wrong password: no way to learn that the address belongs to a real account."""
+    """People sign in with their ACCOUNT NAME. An email offered while email sign-in is off must be answered exactly like a wrong password:
+    no way to learn that the address belongs to a real account."""
 
     def test_an_email_with_the_right_password_is_refused_exactly_like_a_wrong_password(self, world):
         right = sign_in(world, "alice@a.example")
@@ -487,7 +488,8 @@ class TestEmailSignInIsOffByDefault:
             assert right.headers.get(header) == wrong.headers.get(header) == unknown.headers.get(header), header
 
     def test_it_costs_the_same_as_a_real_check_so_timing_does_not_give_it_away(self, world, monkeypatch):
-        """The equaliser (a hash check against a throwaway hash) runs for an email that is not accepted, just as for an unknown account name."""
+        """The equaliser (a hash check against a throwaway hash) runs for an email that is not accepted, just as for an unknown account
+        name."""
         calls: list[tuple] = []
         real = auth.verify_password_or_equalise
 
@@ -513,10 +515,11 @@ class TestEmailSignInIsOffByDefault:
 
 
 def test_no_test_patches_the_email_sign_in_setting_through_its_own_copy_of_the_settings_object():
-    """That passes alone and fails in the full run (see tests/settings_support.py). Use patch_login_allow_email. (This file is not scanned: it only mentions the pattern here.)"""
+    """That passes alone and fails in the full run (see tests/settings_support.py). Use patch_login_allow_email. (This file is not scanned:
+    it only mentions the pattern here.)"""
     from pathlib import Path
 
     pattern = 'setattr(settings, "LOGIN_ALLOW_EMAIL"'
-    offenders = [f"{path.name}:{n}" for path in sorted(Path(__file__).parent.glob("test_*.py")) if path.name != Path(__file__).name for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if pattern in line]
+    offenders = [f"{path.name}:{n}" for path in sorted(Path(__file__).parent.glob("test_*.py")) if path.name != Path(__file__).name for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if pattern in line]  # noqa: E501
     assert offenders == [], offenders
-    assert pattern in (Path(__file__).parent / "test_account_names.py").read_text(encoding="utf-8"), "the guard's own pattern is still the real one"
+    assert pattern in (Path(__file__).parent / "test_account_names.py").read_text(encoding="utf-8"), "the guard's own pattern is still the real one"  # noqa: E501

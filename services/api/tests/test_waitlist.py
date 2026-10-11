@@ -480,6 +480,7 @@ class TestAdminListEndpoint:
             )
         assert exc_info.value.status_code == 400
 
+
 class TestAdminPatchEndpoint:
     def test_patch_to_contacted_stamps_contacted_at(self) -> None:
         session = _MockSession()
