@@ -28,6 +28,8 @@ AUDIT. The audit middleware records only writes, and under the caller's HOME ten
 """
 from __future__ import annotations
 
+import functools
+import inspect
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -38,6 +40,7 @@ from typing import Any, Literal
 from fastapi import HTTPException, status
 from sqlalchemy import select
 
+from app.db.rls_scope import acting_as_tenant, cross_tenant_reads
 from app.models.audit import AuditLog
 from app.models.tenant import Tenant
 from app.models.tenant_access import ACCESS_FULL, ACCESS_VIEW, AllTenantAccessGrant, TenantAccessGrant
@@ -67,6 +70,43 @@ IDENTITY_ADMIN_PATH = re.compile(r"^/api/v\d+/(tenants/(me/users|[^/]+/access)|a
 ACTING_DENIED_PERMISSIONS = frozenset({"users:write", "mssp:manage", "mssp:onboard", "platform:cross_tenant_query", "plugins:admin"})
 
 
+def _across_tenants(fn):
+    """The wrapped coroutine READS rows that belong to other tenants (a person's grants are rows of the tenants they were granted, not of
+    their home tenant), so it runs in `cross_tenant_reads`.
+
+    Today a plain get_db session carries no tenant and the policies are fail-open, so this changes nothing; it is what keeps "view another
+    tenant" working once sessions are tagged with the
+    caller's tenant (docs/security/rls-fail-closed-plan.md).
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(db, *args, **kwargs):
+        async with cross_tenant_reads(db):
+            return await fn(db, *args, **kwargs)
+
+    return wrapper
+
+
+def _as_target(fn):
+    """The wrapped coroutine reads AND WRITES the TARGET tenant's audit log (the `target` argument), so it runs in
+    `acting_as_tenant(target)`.
+
+    The chain head is read and the event is added under ONE scope: with the session tagged with the viewer's home tenant the insert is
+    rejected by the audit_log policy, and the chain read
+    returns None, which reads as "genesis" and would fork the target's hash chain if only the insert were let through (measured on a real
+    Postgres; see app/db/rls.py).
+    """
+    parameters = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    async def wrapper(db, *args, **kwargs):
+        target = parameters.bind(db, *args, **kwargs).arguments["target"]
+        async with acting_as_tenant(db, target):
+            return await fn(db, *args, **kwargs)
+
+    return wrapper
+
+
 def home_tenant_of(user: Any) -> uuid.UUID:
     """The tenant the PERSON belongs to. Every rule here is relative to it, never to the tenant a request happens to be for: a principal that is already viewing a child must not be able to reason from that child's position."""
     return getattr(user, "home_tenant_id", None) or user.tenant_id
@@ -76,6 +116,7 @@ def is_account_level(path: str) -> bool:
     return bool(ACCOUNT_LEVEL_PATH.match(path))
 
 
+@_across_tenants
 async def granted_tenant_ids(db: Any, user: Any) -> set[uuid.UUID]:
     """The tenants this PERSON has been granted individually, at any level (by their own account, never by the tenant a request happens to be for)."""
     rows = (await db.execute(select(TenantAccessGrant.tenant_id).where(TenantAccessGrant.user_id == user.user_id))).scalars().all()
@@ -90,6 +131,7 @@ class Grants:
     all_tenants: str | None = None
 
 
+@_across_tenants
 async def access_grants(db: Any, user: Any) -> Grants:
     rows = (await db.execute(select(TenantAccessGrant.tenant_id, TenantAccessGrant.access).where(TenantAccessGrant.user_id == user.user_id))).all()
     everywhere = (await db.execute(select(AllTenantAccessGrant.access).where(AllTenantAccessGrant.user_id == user.user_id))).scalars().first()
@@ -127,6 +169,7 @@ def may_manage_access(user: Any, tenant: Tenant) -> bool:
     return tenant.id == home or (tenant.parent_tenant_id is not None and tenant.parent_tenant_id == home)
 
 
+@_across_tenants
 async def viewable_access(db: Any, user: Any) -> list[tuple[Tenant, Relationship, Access]]:
     """Every tenant `user` may view, their own first, each with what they may do there. This and `access_level` are the same rule."""
     home = home_tenant_of(user)
@@ -154,6 +197,7 @@ async def viewable_tenants(db: Any, user: Any) -> list[tuple[Tenant, Relationshi
     return [(t, rel) for t, rel, _ in await viewable_access(db, user)]
 
 
+@_as_target
 async def record_view(db: Any, user: Any, target: uuid.UUID, request: Any = None) -> bool:
     """Write the `tenant:viewed` event into the VIEWED tenant's audit log, unless this person already has one there within the window. True when a row was written.
 
@@ -220,6 +264,7 @@ async def resolve_view_as(db: Any, user: Any, requested: str, method: str, path:
     return ViewTarget(tenant_id=target, access=level)  # type: ignore[arg-type]
 
 
+@_as_target
 async def record_act_as(db: Any, user: Any, target: uuid.UUID, access: str, request: Any) -> None:
     """Write an event into the TARGET tenant's own audit log BEFORE a write made from another tenant is carried out: who, from where, with which role, what method and path. An error is NOT swallowed: a write that cannot be recorded is not performed.
     (The audit middleware adds the outcome afterwards, also in this tenant's log.)"""

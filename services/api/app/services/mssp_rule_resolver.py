@@ -29,7 +29,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.rls import cross_tenant_reads
+from app.db.rls_scope import cross_tenant_reads
 from app.models.detection_rule import DetectionRule
 from app.models.mssp import (
     MSSPRuleOverride,
