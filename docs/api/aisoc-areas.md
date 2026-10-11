@@ -15,7 +15,7 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **auth**: 8 reads, 6 changes; protection: 4 signed-in with no permission declared; 10 with no sign-in required; e.g. Authorize; Login
 - **autonomy-policy**: 1 reads, 2 changes; protection: 3 signed-in with no permission declared; e.g. Get autonomy policy; Reset action threshold
 - **business-context**: 1 reads, 4 changes; protection: 5 signed-in with no permission declared; e.g. Get rules; Replace rules
-- **cases**: 14 reads, 9 changes; protection: `cases:read`, `cases:write`; e.g. List cases; Create case
+- **cases**: 14 reads, 9 changes; protection: `cases:read`, `cases:work`, `cases:write`; e.g. List cases; Create case
 - **community**: 5 reads, 10 changes; protection: `playbooks:admin`, `playbooks:write`, `plugins:admin`, `rules:admin`, `rules:write`, `settings:write`; 2 signed-in with no permission declared; 5 with no sign-in required; e.g. List community detections; Publish detection
 - **compliance**: 5 reads, 3 changes; protection: `reports:read`, `reports:write`; e.g. List evidence items; Collect evidence item
 - **connectors**: 5 reads, 8 changes; protection: `connectors:delete`, `connectors:view`, `connectors:write`; e.g. List connectors; Create connector
@@ -43,7 +43,7 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **inbox**: 2 reads, 4 changes; protection: `connectors:read`, `connectors:write`; 1 with no sign-in required; e.g. Inbound ITSM webhook (Jira / ServiceNow → AiSOC case); List templates
 - **insider-threat**: 4 reads, 4 changes; protection: `alerts:read`, `alerts:write`; e.g. List indicators; Create indicator
 - **insights**: 1 reads, 0 changes; protection: `alerts:read`; e.g. SOC Insights dashboard aggregate (T3.1)
-- **investigations**: 10 reads, 1 changes; protection: `cases:read`, `cases:write`; e.g. List runs; Aggregate costs
+- **investigations**: 10 reads, 1 changes; protection: `cases:read`, `cases:work`; e.g. List runs; Aggregate costs
 - **kb**: 2 reads, 3 changes; protection: `alerts:read`, `settings:write`; e.g. List KB documents; Remove KB document
 - **lake**: 1 reads, 1 changes; protection: `lake:query`, `lake:read_schema`; e.g. Get lake schema; Execute lake sql
 - **ledger**: 1 reads, 3 changes; protection: `cases:read`, `cases:write`; e.g. Unpublish replay; Publish replay

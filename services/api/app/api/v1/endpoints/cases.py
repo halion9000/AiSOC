@@ -551,7 +551,7 @@ async def get_case(case_id: str, db: DBSession, user: Annotated[AuthUser, Depend
 
 
 @router.patch("/{case_id}", response_model=CaseResponse, summary="Update case")
-async def update_case(case_id: str, body: UpdateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
+async def update_case(case_id: str, body: UpdateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]) -> CaseResponse:
     import json as _json
 
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
@@ -740,7 +740,7 @@ async def update_observables(case_id: str, body: UpdateObservablesRequest, db: D
 
 
 @router.post("/{case_id}/comments", response_model=CommentResponse, status_code=201, summary="Add comment")
-async def add_comment(case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CommentResponse:
+async def add_comment(case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]) -> CommentResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (
         await db.execute(
@@ -1135,7 +1135,7 @@ async def case_investigate(
     case_id: str,
     body: InvestigateRequest,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:write"))],
+    user: Annotated[AuthUser, Depends(require_permission("cases:work"))],
 ) -> dict[str, Any]:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (

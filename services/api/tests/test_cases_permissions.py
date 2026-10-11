@@ -19,6 +19,9 @@ CASE = uuid.uuid4()
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 EXPECTED_BY_METHOD = {"GET": "cases:read", "POST": "cases:write", "PUT": "cases:write", "PATCH": "cases:write", "DELETE": "cases:delete"}
+# Three routes need the NARROW cases:work instead (cases:write implies it, so nobody loses access): the ones CORE's agent calls to update a case, comment on it and launch an investigation from it.
+# cases:write also guards creating cases, attaching alerts, notes, observables, tasks, approvals and replays, which an integration that only works on cases should not get.
+NARROWED = {("PATCH", "/cases/{case_id}"): "cases:work", ("POST", "/cases/{case_id}/comments"): "cases:work", ("POST", "/cases/{case_id}/investigate"): "cases:work"}
 
 
 def _required_permissions(route: APIRoute) -> list[str]:
@@ -45,8 +48,9 @@ def test_every_case_route_enforces_the_permission_for_its_method(router):
     for r in routes:
         for method in r.methods - {"HEAD", "OPTIONS"}:
             perms = _required_permissions(r)
-            if perms != [EXPECTED_BY_METHOD[method]]:
-                problems.append(f"{method} {r.path}: requires {perms or 'nothing (any logged-in user)'}, expected {EXPECTED_BY_METHOD[method]}")
+            wanted = NARROWED.get((method, r.path), EXPECTED_BY_METHOD[method])
+            if perms != [wanted]:
+                problems.append(f"{method} {r.path}: requires {perms or 'nothing (any logged-in user)'}, expected {wanted}")
     assert not problems, "case routes with the wrong or missing permission:\n  " + "\n  ".join(problems)
 
 
@@ -81,6 +85,18 @@ READS = [("GET", "/api/v1/cases"), ("GET", f"/api/v1/cases/{CASE}"), ("GET", f"/
 WRITES = [("POST", "/api/v1/cases"), ("PATCH", f"/api/v1/cases/{CASE}"), ("POST", f"/api/v1/cases/{CASE}/comments"),
           ("POST", f"/api/v1/cases/{CASE}/notes"), ("POST", f"/api/v1/cases/{CASE}/tasks"), ("POST", f"/api/v1/cases/{CASE}/investigate")]
 
+NARROWED_CONCRETE = {("PATCH", f"/api/v1/cases/{CASE}"), ("POST", f"/api/v1/cases/{CASE}/comments"), ("POST", f"/api/v1/cases/{CASE}/investigate")}
+
+
+@pytest.mark.parametrize("method,path", WRITES)
+def test_a_key_with_only_cases_work_does_exactly_the_narrowed_writes_and_is_refused_the_rest(method, path):
+    """The narrow scope CORE's key holds: the three routes it needs pass authorization; creating a case, notes and tasks (still cases:write) are refused, naming the scope."""
+    r = _client(_user("admin", scopes=["cases:work"])).request(method, path, json={})
+    if (method, path) in NARROWED_CONCRETE:
+        assert r.status_code != 403, f"{method} {path} must pass authorization with cases:work"
+    else:
+        assert r.status_code == 403 and "API key missing scope: cases:write" in r.text
+
 
 def _status(client, method, path):
     return client.request(method, path, json={}).status_code
@@ -106,7 +122,8 @@ def test_working_roles_are_not_locked_out(role, method, path):
 def test_read_only_api_key_cannot_write(method, path):
     r = _client(_user("admin", scopes=["alerts:read", "cases:read"])).request(method, path, json={})
     assert r.status_code == 403
-    assert "cases:write" in r.text  # says which scope is missing
+    needed = "cases:work" if (method, path) in NARROWED_CONCRETE else "cases:write"
+    assert f"API key missing scope: {needed}" in r.text  # says which scope is missing
 
 
 @pytest.mark.parametrize("method,path", READS)

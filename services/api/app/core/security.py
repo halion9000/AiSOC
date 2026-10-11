@@ -284,7 +284,7 @@ def verify_ed25519_signature(public_key_bytes: bytes, message: bytes, signature:
 
 # Names that are enforced somewhere in the code but are not (yet) granted to any role
 # beyond the "*" wildcard holders. They are valid permission names.
-_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read", "intel:read", "alerts:triage", "rules:view", "connectors:view"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
+_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read", "intel:read", "alerts:triage", "rules:view", "connectors:view", "cases:work"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
 
 
 def known_permissions() -> frozenset[str]:
@@ -310,7 +310,10 @@ def known_permissions() -> frozenset[str]:
 # `connectors:view` (list the connectors, the catalog, health, one connector and when it last saw an event: 5 GET routes) was split out of `connectors:read`, which ALSO guards POST /federated/search (a free-text or
 # indicator query run across the tenant's connected SIEMs with their stored credentials, returning the merged rows: telemetry from the customer's own systems), the inbox token and template lists, the OAuth app view and
 # the agent tool list. Everything that held `connectors:read` still reads connectors exactly as before; a holder of `connectors:view` alone can use those five reads and nothing else in the API: CORE's key holds only this one.
-IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",), "connectors:view": ("connectors:read",)}
+# `cases:work` (update a case, comment on it, launch an investigation from it, close an investigation: 4 routes) was split out of `cases:write`, which ALSO guards creating cases, attaching alerts, notes, observables and
+# tasks, raising and deciding approvals (the human sign-off for destructive agent actions) and publishing or unpublishing investigation replays: 14 routes. Everything that held `cases:write` still works on cases exactly as
+# before; a holder of `cases:work` alone can do those four things and nothing else in the API: CORE's key holds only this one.
+IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",), "connectors:view": ("connectors:read",), "cases:work": ("cases:write",)}
 
 
 def permission_in(granted: Iterable[str], permission: str) -> bool:

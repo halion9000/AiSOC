@@ -84,6 +84,21 @@ AiSOC separates what a person may do **inside their own tenant** from what acts 
 * The GraphQL `connectors` field mirrors `GET /connectors`, so it needs `connectors:view` too (a test pins that parity).
 * A key can be issued with the scope `connectors:view` (`POST /api-keys`); a custom role can be given the permission (migration `079` adds it to the catalog; it backfills nothing). CORE's integration key holds `connectors:view` and not `connectors:read`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`.
 
+
+## Working on a case without the rest of `cases:write`: `cases:work`
+
+`cases:write` guards 14 routes: updating a case, commenting on it, launching an investigation from it and closing one, but also creating cases, attaching alerts, notes, observables and tasks, updating a task, **raising and deciding approvals** (the human sign-off for destructive agent actions) and publishing or unpublishing investigation replays. So an integration that only works on cases it is pointed at (CORE's agent) could not be given `cases:write` without all of that. `cases:work` is exactly four routes:
+
+| Route | Needs |
+| --- | --- |
+| `PATCH /cases/{id}`, `POST /cases/{id}/comments`, `POST /cases/{id}/investigate`, `POST /investigations/{id}/close` | `cases:work` |
+| `POST /cases`, `POST /cases/{id}/alerts`, `/notes`, `/observables`, `/tasks`, `PATCH /cases/{id}/tasks/{task_id}` | `cases:write` |
+| `POST /approvals`, `POST /approvals/{id}/decide` (also needs a signed-in person), `POST /ledger/{run_id}/publish` (also needs a signed-in person), `DELETE /ledger/publish/{slug}` | `cases:write` |
+
+* **Nobody loses anything.** `cases:write` implies `cases:work` (in `permission_in`, which every check goes through: role maps, database roles and API-key scopes, including a `cases:*` wildcard); the implication runs one way only. Every standard role except `viewer` holds `cases:write` and so works on cases exactly as before.
+* **It grants nothing else.** A principal holding only `cases:work` can use those four routes and no other route anywhere in the API (a test checks this over every route). It does not grant `cases:delete`.
+* A key can be issued with the scope `cases:work` (`POST /api-keys`); a custom role can be given the permission (migration `080` adds it to the catalog; it backfills nothing). CORE's integration key holds `cases:work` and not `cases:write`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`, naming both the scope it adds and the one it removes.
+
 ## Platform permissions
 
 These act on every tenant, so neither the `*` wildcard nor a resource wildcard such as `plugins:*` grants them. A principal holds one only if it is **named exactly**: in a role (only `platform_admin` lists them), in an API key's scopes, or in a database role.

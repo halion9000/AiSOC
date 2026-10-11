@@ -883,7 +883,7 @@ def _build_summary_markdown(
 async def close_investigation(
     run_id: uuid.UUID,
     body: CloseRequest,
-    current_user: Annotated[AuthUser, Depends(require_permission("cases:write"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("cases:work"))],
     db: TenantDBSession,
 ) -> ClosedSummary:
     """Close an investigation run and persist an auto-generated summary artifact.

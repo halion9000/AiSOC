@@ -52,6 +52,9 @@ CORE_KEY_NAME = "core-hud"
 # no connector changes, no rule WRITES, and nothing that runs queries against the
 # data lake: lake:query (create/run/delete hunts, arbitrary queries, and reading
 # what a hunt's runs found) is deliberately NOT granted.
+# NOR is cases:write: cases:work is its narrow half (update a case, comment, launch an investigation,
+# close an investigation: the four case routes CORE calls). cases:write ALSO guards creating cases,
+# attaching alerts, notes, observables, tasks, raising and deciding approvals and publishing replays.
 # NOR is connectors:read: connectors:view is its narrow read half (the five GET /connectors
 # routes). connectors:read ALSO guards POST /federated/search, which runs a free-text or
 # indicator query across the tenant's connected SIEMs with their stored credentials and
@@ -67,7 +70,7 @@ CORE_KEY_NAME = "core-hud"
 # in-place sync below removes that from an existing key, same secret.)
 # Adding a scope here also widens the key on a deployment that already has it:
 # _ensure_key syncs an existing key's scopes in place (same secret).
-CORE_KEY_SCOPES = ["alerts:read", "alerts:triage", "cases:read", "cases:write", "connectors:view", "rules:view", "hunts:read", "intel:read"]
+CORE_KEY_SCOPES = ["alerts:read", "alerts:triage", "cases:read", "cases:work", "connectors:view", "rules:view", "hunts:read", "intel:read"]
 # The agents service's own key, for background calls it makes without a user
 # behind them (attack-path, blast-radius and neighbor graphs during an
 # investigation). Those endpoints need only an authenticated caller; read-only.

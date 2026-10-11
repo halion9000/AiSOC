@@ -21,7 +21,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [auth](#auth) | 8 | 6 | 4 signed-in with no permission declared; 10 with no sign-in required |
 | [autonomy-policy](#autonomy-policy) | 1 | 2 | 3 signed-in with no permission declared |
 | [business-context](#business-context) | 1 | 4 | 5 signed-in with no permission declared |
-| [cases](#cases) | 14 | 9 | `cases:read`, `cases:write` |
+| [cases](#cases) | 14 | 9 | `cases:read`, `cases:work`, `cases:write` |
 | [community](#community) | 5 | 10 | `playbooks:admin`, `playbooks:write`, `plugins:admin`, `rules:admin`, `rules:write`, `settings:write`; 2 signed-in with no permission declared; 5 with no sign-in required |
 | [compliance](#compliance) | 5 | 3 | `reports:read`, `reports:write` |
 | [connectors](#connectors) | 5 | 8 | `connectors:delete`, `connectors:view`, `connectors:write` |
@@ -49,7 +49,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [inbox](#inbox) | 2 | 4 | `connectors:read`, `connectors:write`; 1 with no sign-in required |
 | [insider-threat](#insider-threat) | 4 | 4 | `alerts:read`, `alerts:write` |
 | [insights](#insights) | 1 | 0 | `alerts:read` |
-| [investigations](#investigations) | 10 | 1 | `cases:read`, `cases:write` |
+| [investigations](#investigations) | 10 | 1 | `cases:read`, `cases:work` |
 | [kb](#kb) | 2 | 3 | `alerts:read`, `settings:write` |
 | [lake](#lake) | 1 | 1 | `lake:query`, `lake:read_schema` |
 | [ledger](#ledger) | 1 | 3 | `cases:read`, `cases:write` |
@@ -206,13 +206,13 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | GET | `/cases` | List cases | `cases:read` |
 | POST | `/cases` | Create case | `cases:write` |
 | GET | `/cases/{case_id}` | Get case | `cases:read` |
-| PATCH | `/cases/{case_id}` | Update case | `cases:write` |
+| PATCH | `/cases/{case_id}` | Update case | `cases:work` |
 | POST | `/cases/{case_id}/alerts` | Link alerts to a case | `cases:write` |
 | GET | `/cases/{case_id}/attack-chain` | Get attack chain | `cases:read` |
 | GET | `/cases/{case_id}/comments` | List case comments | `cases:read` |
-| POST | `/cases/{case_id}/comments` | Add comment | `cases:write` |
+| POST | `/cases/{case_id}/comments` | Add comment | `cases:work` |
 | GET | `/cases/{case_id}/evidence` | Export evidence chain report | `cases:read` |
-| POST | `/cases/{case_id}/investigate` | Launch investigation for case | `cases:write` |
+| POST | `/cases/{case_id}/investigate` | Launch investigation for case | `cases:work` |
 | GET | `/cases/{case_id}/investigations` | List investigation runs for a case | `cases:read` |
 | GET | `/cases/{case_id}/investigations/{run_id}` | Get investigation run | `cases:read` |
 | GET | `/cases/{case_id}/investigations/{run_id}/report.pdf` | Download investigation PDF report | `cases:read` |
@@ -525,7 +525,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | GET | `/investigations/{run_id}` | Get run | `cases:read` |
 | GET | `/investigations/{run_id}/artifacts` | List artifacts | `cases:read` |
 | GET | `/investigations/{run_id}/artifacts/{artifact_id}` | Get artifact | `cases:read` |
-| POST | `/investigations/{run_id}/close` | Close investigation | `cases:write` |
+| POST | `/investigations/{run_id}/close` | Close investigation | `cases:work` |
 | GET | `/investigations/{run_id}/events` | List events | `cases:read` |
 | GET | `/investigations/{run_id}/explain` | Explain step | `cases:read` |
 | GET | `/investigations/{run_id}/replay` | Replay run | `cases:read` |
