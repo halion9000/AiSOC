@@ -499,3 +499,64 @@ class TestRatingsCannotBeSteered:
         (plugin,) = list_plugins(db_path).items
         assert "ratings" not in plugin.model_dump() and plugin.rating == 4.0 and plugin.rating_count == 1
 
+
+
+def _publish_raw(db_path, content):
+    return run(db_path, lambda s: community.publish_detection(content=content, current_user=person(), db=s))
+
+
+BAD_RULES = {
+    "an empty body (safe_load gives None: this was an unhandled TypeError)": "",
+    "only whitespace": "   \n",
+    "YAML null": "null",
+    "a bare number": "42",
+    "a bare string that merely MENTIONS the field names (a substring test passed it)": "title id status description logsource detection",
+    "a list": "- title\n- id\n",
+    "a list of mappings": "- title: x\n  id: y\n",
+    "an id that is a list": "title: t\nid: [a, b]\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n",
+    "an id that is a number": "title: t\nid: 12345\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n",
+    "an id that is blank": "title: t\nid: '  '\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n",
+    "a logsource that is a list (logsource.get raised AttributeError)": "title: t\nid: abc\nstatus: s\ndescription: d\nlogsource: [process_creation]\ndetection: {condition: x}\n",
+    "a logsource that is a string": "title: t\nid: abc\nstatus: s\ndescription: d\nlogsource: windows\ndetection: {condition: x}\n",
+    "a logsource that is null": "title: t\nid: abc\nstatus: s\ndescription: d\nlogsource:\ndetection: {condition: x}\n",
+}
+
+
+class TestPublishingARuleThatIsNotARule:
+    """Found by fuzzing the OpenAPI spec against a real server: an empty submission was an unhandled TypeError (HTTP 500), and several other shapes were the same kind of crash. Every one of these must be a clear 400, and nothing may be stored."""
+
+    @pytest.mark.parametrize("label", list(BAD_RULES))
+    def test_it_is_a_400_with_a_reason_not_an_unhandled_error(self, db_path, label):
+        with pytest.raises(HTTPException) as refused:
+            _publish_raw(db_path, BAD_RULES[label])
+        assert refused.value.status_code == 400 and refused.value.detail, label
+
+    def test_nothing_is_stored_by_any_of_them(self, db_path):
+        for content in BAD_RULES.values():
+            with pytest.raises(HTTPException):
+                _publish_raw(db_path, content)
+        assert list_detections_count(db_path) == 0
+
+    def test_a_valid_rule_is_still_accepted_exactly_as_before(self, db_path):
+        result = _publish_raw(db_path, SIGMA.format(rule_id="valid-rule-1"))
+        assert result["id"] == "valid-rule-1" and result["status"] == "pending" and result["message"] == "Detection submitted for review"
+        assert list_detections_count(db_path) == 1, "positive control: the counter used by the not-stored test can see a stored rule"
+
+    def test_a_logsource_with_extra_keys_and_a_rule_with_unusual_but_valid_optional_fields_still_work(self, db_path):
+        content = "title: t\nid: ok-2\nstatus: s\ndescription: d\nlogsource: {category: c, product: p, service: svc}\ndetection: {condition: x}\ntags: [a, b]\nlevel: high\nauthor: me\n"
+        assert _publish_raw(db_path, content)["id"] == "ok-2"
+
+    def test_the_messages_say_what_is_wrong(self, db_path):
+        for content, expect in (("", "mapping"), ("title: t\nid: [a]\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n", "`id`"), ("title: t\nid: a\nstatus: s\ndescription: d\nlogsource: [x]\ndetection: {condition: x}\n", "`logsource`")):
+            with pytest.raises(HTTPException) as refused:
+                _publish_raw(db_path, content)
+            assert expect in refused.value.detail, refused.value.detail
+
+
+def list_detections_count(db_path):
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with Session(engine) as s:
+            return s.query(CommunityCatalogItem).filter(CommunityCatalogItem.kind == "detection").count()
+    finally:
+        engine.dispose()

@@ -200,7 +200,7 @@ async def list_community_plugins(
     tags: str | None = Query(None, description="Comma-separated tags"),
     sort: str = Query("install_count", pattern="^(install_count|rating|submitted_at|name)$"),
     order: str = Query("desc", pattern="^(asc|desc)$"),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100_000),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> CommunityPluginListOut:
@@ -341,10 +341,20 @@ async def publish_detection(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid YAML: {exc}") from exc
 
+    # yaml.safe_load returns whatever the text says: None for an empty body, a string, a list or a number are all valid YAML. Without this check an empty submission was an unhandled
+    # TypeError (a 500), and a string was worse: `"id" in "some text"` is a SUBSTRING test, so text that merely mentioned the field names passed the check below.
+    if not isinstance(rule, dict):
+        raise HTTPException(status_code=400, detail="A Sigma rule must be a YAML mapping (key: value pairs)")
+
     required = ["title", "id", "status", "description", "logsource", "detection"]
     missing = [f for f in required if f not in rule]
     if missing:
         raise HTTPException(status_code=400, detail=f"Missing required Sigma fields: {missing}")
+    # The id is used as the storage key and the logsource is read with .get(): a list, a number or a mapping in either place was an unhandled error (a 500).
+    if not isinstance(rule["id"], str) or not rule["id"].strip():
+        raise HTTPException(status_code=400, detail="The Sigma `id` must be a non-empty string")
+    if not isinstance(rule["logsource"], dict):
+        raise HTTPException(status_code=400, detail="The Sigma `logsource` must be a mapping (for example category: process_creation)")
 
     detection_id = rule.get("id", str(uuid.uuid4()))
     if await DETECTIONS.get(db, detection_id) is not None:
@@ -377,7 +387,7 @@ async def publish_detection(
 
 @router.get("/detections")
 async def list_community_detections(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100_000),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
     logsource_category: str | None = Query(None),
@@ -540,7 +550,7 @@ async def submit_playbook(
 
 @router.get("/playbooks")
 async def list_community_playbooks(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100_000),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
     sort_by: str = Query("install_count", pattern="^(install_count|rating|name)$"),
