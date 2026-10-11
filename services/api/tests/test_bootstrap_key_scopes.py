@@ -18,7 +18,7 @@ from app.models.tenant import ApiKey, Tenant, User
 from app.scripts import bootstrap_production as bp
 
 OLD = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read"]
-NEW = [*OLD, "rules:read", "hunts:read"]
+NEW = [*OLD, "rules:read", "hunts:read", "threat_intel:read"]
 OWNER = uuid.uuid4()
 OTHER_TENANT = uuid.uuid4()
 
@@ -60,13 +60,14 @@ def world(tmp_path, monkeypatch):
 
 
 class TestTheScopes:
-    def test_core_key_scopes_are_exactly_these_and_include_rules_read_and_hunts_read(self):
+    def test_core_key_scopes_are_exactly_these_and_include_rules_read_hunts_read_and_threat_intel_read(self):
         assert sorted(bp.CORE_KEY_SCOPES) == sorted(NEW)
 
     def test_the_key_is_still_least_privilege_nothing_that_writes_rules_runs_queries_or_deletes(self):
         for scope in bp.CORE_KEY_SCOPES:
             assert scope not in {"*", "rules:write", "lake:query", "playbooks:execute"} and not scope.endswith(":delete"), scope
         assert "rules:write" not in bp.CORE_KEY_SCOPES and "lake:query" not in bp.CORE_KEY_SCOPES
+        assert "threat_intel:read" in bp.CORE_KEY_SCOPES and "threat_intel:write" not in bp.CORE_KEY_SCOPES, "intelligence is read through threat_intel:read; adding, deleting or publishing needs threat_intel:write, which the key must not hold"
         assert "hunts:read" in bp.CORE_KEY_SCOPES, "hunt definitions are read through hunts:read, never through lake:query"
 
     def test_the_agents_service_key_did_not_change(self):
@@ -97,7 +98,7 @@ class TestAnExistingKey:
         assert sorted(key.scopes) == sorted(NEW) and key.hashed_key == "hash-original" and key.key_prefix == "ak_orig" and key.is_active
         assert len(world.rows()) == 1, "no second key"
         message = next(r.getMessage() for r in caplog.records if "scopes updated" in r.getMessage())
-        assert "'core-hud'" in message and "same secret" in message and "['hunts:read', 'rules:read']" in message and "removed none" in message
+        assert "'core-hud'" in message and "same secret" in message and "['hunts:read', 'rules:read', 'threat_intel:read']" in message and "removed none" in message
 
     def test_an_extra_scope_is_taken_away_least_privilege_is_restored(self, world, caplog):
         kid = world.add(scopes=[*NEW, "alerts:delete", "lake:query"])

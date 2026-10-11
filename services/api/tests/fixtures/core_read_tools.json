@@ -189,5 +189,75 @@
     "query": [],
     "enums": {},
     "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_iocs",
+    "method": "GET",
+    "path": "/threat-intel/iocs",
+    "query": [
+      "ioc_type",
+      "severity",
+      "is_active",
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_get_ioc",
+    "method": "GET",
+    "path": "/threat-intel/iocs/{ioc_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_threat_actors",
+    "method": "GET",
+    "path": "/threat-intel/actors",
+    "query": [
+      "is_active",
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_list_stix_indicators",
+    "method": "GET",
+    "path": "/threatintel/stix/indicators",
+    "query": [
+      "label"
+    ],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_stix_bundles",
+    "method": "GET",
+    "path": "/threatintel/stix/bundles",
+    "query": [],
+    "enums": {},
+    "numbers": {}
   }
 ]

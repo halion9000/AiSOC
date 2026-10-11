@@ -1,4 +1,4 @@
-"""Cipher (CORE's agent) operates AiSOC through 34 tools: 17 written out by hand and 17 read-only tools (12 detection engineering, 5 hunting) declared as a table in CORE (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
+"""Cipher (CORE's agent) operates AiSOC through 39 tools: 17 written out by hand and 22 read-only tools (12 detection engineering, 5 hunting, 5 threat intelligence) declared as a table in CORE (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
 
 CORE builds the requests in hud/src/aisoc-requests.ts and pins them in hud/src/aisoc-requests.test.ts. Comparing every call with this API's own
 OpenAPI schema on 2026-10-08 found six tools sending requests AiSOC did not understand, which no test on either side had noticed because nothing
@@ -71,6 +71,12 @@ CIPHER_CALLS = [
     ("aisoc_list_saved_hunts", "GET", "/saved-hunts", [], None, False),
     ("aisoc_get_saved_hunt", "GET", "/saved-hunts/{hunt_id}", [], None, False),
     ("aisoc_list_saved_searches", "GET", "/hunt/saved", [], None, False),
+    # Threat intelligence: INTERNAL data (permission threat_intel:read). GET /enrichment/lookup and POST /enrichment/bulk (indicators sent to outside providers: egress and quota) are deliberately NOT here although they need only threat_intel:read, nor are /threat-intel/feeds (a feed's `config` can hold credentials), MISP health (an outside call) or the TAXII collections (an empty stub).
+    ("aisoc_list_iocs", "GET", "/threat-intel/iocs", ["ioc_type", "severity", "is_active", "limit", "offset"], None, False),
+    ("aisoc_get_ioc", "GET", "/threat-intel/iocs/{ioc_id}", [], None, False),
+    ("aisoc_list_threat_actors", "GET", "/threat-intel/actors", ["is_active", "limit", "offset"], None, False),
+    ("aisoc_list_stix_indicators", "GET", "/threatintel/stix/indicators", ["label"], None, False),
+    ("aisoc_list_stix_bundles", "GET", "/threatintel/stix/bundles", [], None, False),
 ]
 CALL_IDS = [c[0] for c in CIPHER_CALLS]
 MAX_PAGE_SIZE_CORE_SENDS = 200  # hud/src/aisoc-requests.ts: MAX_PAGE_SIZE
@@ -185,9 +191,9 @@ def test_the_page_size_cap_is_at_least_what_core_sends(path):
     assert page_size["schema"].get("maximum", 10**9) >= MAX_PAGE_SIZE_CORE_SENDS
 
 
-def test_the_table_covers_all_thirty_four_tools():
+def test_the_table_covers_all_thirty_nine_tools():
     tools = {re.sub(r" \(.*\)$", "", name) for name in CALL_IDS}
-    assert len(tools) == 34, sorted(tools)
+    assert len(tools) == 39, sorted(tools)
 
 
 READ_ONLY_TOOLS = [c for c in CIPHER_CALLS if c[1] == "GET"]
@@ -242,7 +248,7 @@ def test_every_tool_in_the_contract_is_a_get():
 
 def test_the_contract_has_no_tool_listed_twice():
     names = [r["tool"] for r in CONTRACT]
-    assert len(names) == len(set(names)) == 17
+    assert len(names) == len(set(names)) == 22
 
 
 def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_to_this_repo():
@@ -303,7 +309,7 @@ def test_a_hunting_tool_needs_exactly_hunts_read_and_nothing_that_queries_teleme
 def test_no_tool_in_the_table_can_reach_a_run_a_result_or_a_query():
     """Run results are event rows from the lake; running is a write. No Cipher tool, hand-written or declared, may name such a route."""
     for name, method, path, *_ in CIPHER_CALLS:
-        for forbidden in ("/runs", "/run", "/execute", "/nl-query", "/lake", "/translate", "/backtest"):
+        for forbidden in ("/runs", "/run", "/execute", "/nl-query", "/lake", "/translate", "/backtest", "/enrichment", "/feeds", "/misp", "/taxii"):
             assert forbidden not in path, f"{name} ({method} {path}) reaches a route containing {forbidden}"
 
 
@@ -311,3 +317,30 @@ def test_the_hunt_list_limit_and_offset_the_tool_sends_are_within_what_the_api_a
     params = {p["name"]: _resolve(p["schema"]) for p in _operation("GET", "/hunts")["parameters"] if p["in"] == "query"}
     assert params["limit"]["maximum"] >= 200 and params["limit"]["minimum"] <= 1
     assert params["offset"]["minimum"] == 0 and "maximum" not in params["offset"], "the tool allows offsets up to 100000; if the API gains a maximum below that, the tool's bound must follow"
+
+
+INTEL_TOOLS = ["aisoc_list_iocs", "aisoc_get_ioc", "aisoc_list_threat_actors", "aisoc_list_stix_indicators", "aisoc_list_stix_bundles"]
+
+
+@pytest.mark.parametrize("name", INTEL_TOOLS)
+def test_a_threat_intelligence_tool_needs_exactly_threat_intel_read(name):
+    """The intelligence tools read this tenant's own stored intelligence. threat_intel:write (adding or deleting indicators, actors, feeds, publishing STIX) must never be needed, or granted to CORE's key."""
+    _tool, method, path, *_ = _case(name)
+    assert method == "GET" and set(required_permissions(_route(method, path))) == {"threat_intel:read"}, f"{name}: {method} {path}"
+    assert "threat_intel:read" in CORE_KEY_SCOPES and "threat_intel:write" not in CORE_KEY_SCOPES
+
+
+def test_the_routes_that_send_indicators_to_outside_services_are_not_reachable_by_any_tool():
+    """GET /enrichment/lookup and POST /enrichment/bulk need only threat_intel:read (the same scope CORE's key now holds) but send the indicator to third parties. They are not tools, and the key's scope is the only other guard: this test is where that is written down."""
+    reachable = {(m, p) for _n, m, p, *_ in CIPHER_CALLS}
+    assert ("GET", "/enrichment/lookup") not in reachable and ("POST", "/enrichment/bulk") not in reachable
+    for route in (("GET", "/enrichment/lookup"), ("POST", "/enrichment/bulk")):
+        assert set(required_permissions(_route(*route))) == {"threat_intel:read"}, "if these ever get their own permission, grant the key what it needs and update this test and the changelog"
+
+
+def test_a_feed_which_can_hold_credentials_in_its_config_is_not_reachable_by_any_tool():
+    """KNOWN WIDTH, confirmed live: CORE's key (threat_intel:read) CAN read GET /threat-intel/feeds, `config` included, though no tool does. This test is where that is written down: if feeds ever get their own permission, the key stops reaching them and this should say so."""
+    assert set(required_permissions(_route("GET", "/threat-intel/feeds"))) == {"threat_intel:read"}
+    assert all("/feeds" not in p for _n, _m, p, *_ in CIPHER_CALLS)
+    assert "config" in SPEC["components"]["schemas"]["FeedOut"]["properties"], "FeedOut no longer has a free-form `config`: the reason for excluding feeds should be re-read"
+
