@@ -84,8 +84,8 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [shifts](#shifts) | 3 | 2 | `alerts:read`, `shifts:read`, `shifts:write` |
 | [sla](#sla) | 3 | 3 | `sla:read`, `sla:write` |
 | [tenants](#tenants) | 7 | 5 | `alerts:read`, `settings:read`, `settings:write`, `users:read`, `users:write`; 1 signed-in with no permission declared |
-| [threat-intel](#threat-intel) | 4 | 5 | `threat_intel:read`, `threat_intel:write` |
-| [threatintel](#threatintel) | 4 | 3 | `threat_intel:read`, `threat_intel:write` |
+| [threat-intel](#threat-intel) | 4 | 5 | `intel:read`, `threat_intel:read`, `threat_intel:write` |
+| [threatintel](#threatintel) | 4 | 3 | `intel:read`, `threat_intel:read`, `threat_intel:write` |
 | [translation](#translation) | 1 | 1 | `rules:read` |
 | [waitlist](#waitlist) | 1 | 2 | `mssp:onboard`; 1 with no sign-in required |
 
@@ -905,23 +905,23 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/threat-intel/actors` | List actors | `threat_intel:read` |
+| GET | `/threat-intel/actors` | List actors | `intel:read` |
 | POST | `/threat-intel/actors` | Create actor | `threat_intel:write` |
 | GET | `/threat-intel/feeds` | List feeds | `threat_intel:read` |
 | POST | `/threat-intel/feeds` | Create feed | `threat_intel:write` |
 | DELETE | `/threat-intel/feeds/{feed_id}` | Delete feed | `threat_intel:write` |
-| GET | `/threat-intel/iocs` | List iocs | `threat_intel:read` |
+| GET | `/threat-intel/iocs` | List iocs | `intel:read` |
 | POST | `/threat-intel/iocs` | Create ioc | `threat_intel:write` |
 | DELETE | `/threat-intel/iocs/{ioc_id}` | Delete ioc | `threat_intel:write` |
-| GET | `/threat-intel/iocs/{ioc_id}` | Get ioc | `threat_intel:read` |
+| GET | `/threat-intel/iocs/{ioc_id}` | Get ioc | `intel:read` |
 
 ## threatintel
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/threatintel/stix/bundles` | List bundles | `threat_intel:read` |
+| GET | `/threatintel/stix/bundles` | List bundles | `intel:read` |
 | POST | `/threatintel/stix/bundles` | Create bundle | `threat_intel:write` |
-| GET | `/threatintel/stix/indicators` | List indicators | `threat_intel:read` |
+| GET | `/threatintel/stix/indicators` | List indicators | `intel:read` |
 | POST | `/threatintel/stix/indicators` | Create indicator | `threat_intel:write` |
 | POST | `/threatintel/stix/misp/dry-run` | Misp push dry run | `threat_intel:write` |
 | GET | `/threatintel/stix/misp/health` | Misp push health | `threat_intel:read` |

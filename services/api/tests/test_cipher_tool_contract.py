@@ -71,7 +71,7 @@ CIPHER_CALLS = [
     ("aisoc_list_saved_hunts", "GET", "/saved-hunts", [], None, False),
     ("aisoc_get_saved_hunt", "GET", "/saved-hunts/{hunt_id}", [], None, False),
     ("aisoc_list_saved_searches", "GET", "/hunt/saved", [], None, False),
-    # Threat intelligence: INTERNAL data (permission threat_intel:read). GET /enrichment/lookup and POST /enrichment/bulk (indicators sent to outside providers: egress and quota) are deliberately NOT here although they need only threat_intel:read, nor are /threat-intel/feeds (a feed's `config` can hold credentials), MISP health (an outside call) or the TAXII collections (an empty stub).
+    # Threat intelligence: INTERNAL data (permission intel:read, the narrow read half of threat_intel:read). GET /enrichment/lookup and POST /enrichment/bulk (indicators sent to outside providers: egress and quota) are deliberately NOT here although they need only threat_intel:read, nor are /threat-intel/feeds (a feed's `config` can hold credentials), MISP health (an outside call) or the TAXII collections (an empty stub).
     ("aisoc_list_iocs", "GET", "/threat-intel/iocs", ["ioc_type", "severity", "is_active", "limit", "offset"], None, False),
     ("aisoc_get_ioc", "GET", "/threat-intel/iocs/{ioc_id}", [], None, False),
     ("aisoc_list_threat_actors", "GET", "/threat-intel/actors", ["is_active", "limit", "offset"], None, False),
@@ -323,24 +323,25 @@ INTEL_TOOLS = ["aisoc_list_iocs", "aisoc_get_ioc", "aisoc_list_threat_actors", "
 
 
 @pytest.mark.parametrize("name", INTEL_TOOLS)
-def test_a_threat_intelligence_tool_needs_exactly_threat_intel_read(name):
-    """The intelligence tools read this tenant's own stored intelligence. threat_intel:write (adding or deleting indicators, actors, feeds, publishing STIX) must never be needed, or granted to CORE's key."""
+def test_a_threat_intelligence_tool_needs_exactly_intel_read(name):
+    """The intelligence tools read this tenant's own stored intelligence through the NARROW intel:read, split out of threat_intel:read (which also guards the feed list and enrichment). The key holds neither threat_intel:read nor threat_intel:write."""
     _tool, method, path, *_ = _case(name)
-    assert method == "GET" and set(required_permissions(_route(method, path))) == {"threat_intel:read"}, f"{name}: {method} {path}"
-    assert "threat_intel:read" in CORE_KEY_SCOPES and "threat_intel:write" not in CORE_KEY_SCOPES
+    assert method == "GET" and set(required_permissions(_route(method, path))) == {"intel:read"}, f"{name}: {method} {path}"
+    assert "intel:read" in CORE_KEY_SCOPES and "threat_intel:read" not in CORE_KEY_SCOPES and "threat_intel:write" not in CORE_KEY_SCOPES
 
 
-def test_the_routes_that_send_indicators_to_outside_services_are_not_reachable_by_any_tool():
-    """GET /enrichment/lookup and POST /enrichment/bulk need only threat_intel:read (the same scope CORE's key now holds) but send the indicator to third parties. They are not tools, and the key's scope is the only other guard: this test is where that is written down."""
+@pytest.mark.parametrize("method,path", [("GET", "/enrichment/lookup"), ("POST", "/enrichment/bulk"), ("GET", "/threat-intel/feeds")])
+def test_the_routes_that_send_indicators_outside_or_show_feed_credentials_are_out_of_the_keys_reach(method, path):
+    """CLOSED (it was a known width for one commit): GET /enrichment/lookup and POST /enrichment/bulk send an indicator to outside providers, and GET /threat-intel/feeds shows each feed's free-form `config`, which can hold credentials. They still need threat_intel:read, and CORE's key no longer holds it: asserted with the same function every check uses, so an implication added later cannot quietly reopen it."""
+    from app.core.security import permission_in
+
+    assert set(required_permissions(_route(method, path))) == {"threat_intel:read"}
+    assert not permission_in(CORE_KEY_SCOPES, "threat_intel:read"), "CORE's key would reach feeds and enrichment"
+    assert all(not permission_in(CORE_KEY_SCOPES, p) for p in required_permissions(_route(method, path)))
+
+
+def test_no_tool_reaches_the_enrichment_or_feed_routes_either():
     reachable = {(m, p) for _n, m, p, *_ in CIPHER_CALLS}
     assert ("GET", "/enrichment/lookup") not in reachable and ("POST", "/enrichment/bulk") not in reachable
-    for route in (("GET", "/enrichment/lookup"), ("POST", "/enrichment/bulk")):
-        assert set(required_permissions(_route(*route))) == {"threat_intel:read"}, "if these ever get their own permission, grant the key what it needs and update this test and the changelog"
-
-
-def test_a_feed_which_can_hold_credentials_in_its_config_is_not_reachable_by_any_tool():
-    """KNOWN WIDTH, confirmed live: CORE's key (threat_intel:read) CAN read GET /threat-intel/feeds, `config` included, though no tool does. This test is where that is written down: if feeds ever get their own permission, the key stops reaching them and this should say so."""
-    assert set(required_permissions(_route("GET", "/threat-intel/feeds"))) == {"threat_intel:read"}
     assert all("/feeds" not in p for _n, _m, p, *_ in CIPHER_CALLS)
-    assert "config" in SPEC["components"]["schemas"]["FeedOut"]["properties"], "FeedOut no longer has a free-form `config`: the reason for excluding feeds should be re-read"
-
+    assert "config" in SPEC["components"]["schemas"]["FeedOut"]["properties"], "FeedOut no longer has a free-form `config`: re-read why feeds are out of reach"

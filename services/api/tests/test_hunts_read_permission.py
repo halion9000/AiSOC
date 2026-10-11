@@ -90,8 +90,9 @@ class TestTheImplication:
         assert permission_in(["lake:query"], "lake:query") and not permission_in(["lake:query"], "lake:read_schema")
         assert not permission_in(["hunts:read"], "lake:query")
 
-    def test_the_rule_is_exactly_this_one_pair(self):
-        assert IMPLIED_BY == {"hunts:read": ("lake:query",)}
+    def test_the_rule_is_exactly_these_pairs(self):
+        """Adding an implication must be a conscious act: this lists every one. The second pair, intel:read implied by threat_intel:read, is tested in test_intel_read_permission.py."""
+        assert IMPLIED_BY == {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",)}
 
     def test_no_implied_permission_is_a_platform_permission_and_nothing_implies_a_platform_permission(self):
         for weaker, stronger in IMPLIED_BY.items():
@@ -213,4 +214,4 @@ class TestTheMigration:
 
     def test_it_follows_the_last_migration(self):
         numbers = sorted(int(p.name[:3]) for p in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"))
-        assert numbers[-1] == 75 and numbers.count(75) == 1
+        assert numbers.count(75) == 1 and 74 in numbers, "075 follows 074 (later migrations may follow it)"

@@ -191,7 +191,7 @@ async def _store(db: AsyncSession, user: CurrentUser, kind: str, stix_id: str, d
     await db.commit()
 
 
-@router.get("/indicators", response_model=IndicatorListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
+@router.get("/indicators", response_model=IndicatorListResponse, dependencies=[Depends(require_permission("intel:read"))])
 async def list_indicators(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=200),
@@ -316,7 +316,7 @@ async def create_indicator(
     return STIXIndicatorWithPush(**indicator.model_dump(), misp=push_result)
 
 
-@router.get("/bundles", response_model=BundleListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
+@router.get("/bundles", response_model=BundleListResponse, dependencies=[Depends(require_permission("intel:read"))])
 async def list_bundles(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

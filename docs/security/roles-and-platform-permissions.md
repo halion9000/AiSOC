@@ -20,6 +20,22 @@ AiSOC separates what a person may do **inside their own tenant** from what acts 
 * **What a hunt found stays behind `lake:query`.** `GET /hunts/{id}/runs` returns `result_sample`, event rows sampled from the data lake, so it is telemetry and not a definition.
 * A key can be issued with the scope `hunts:read` (`POST /api-keys`); a custom role can be given the permission (migration `075` adds it to the catalog; it backfills nothing).
 
+
+## Reading threat intelligence without the feeds or enrichment: `intel:read`
+
+`threat_intel:read` guards more than reading the stored intelligence: the feed list (`GET /threat-intel/feeds`, whose free-form `config` can hold credentials) and the enrichment routes (`GET /enrichment/lookup`, `POST /enrichment/bulk`, which send an indicator to outside providers), plus the TAXII collection list and MISP health. So nothing that should only *read* intelligence (an AI agent's API key, an integration) could be given it without those. `intel:read` is the read half:
+
+| Route | Needs |
+| --- | --- |
+| `GET /threat-intel/iocs`, `GET /threat-intel/iocs/{id}`, `GET /threat-intel/actors` | `intel:read` |
+| `GET /threatintel/stix/indicators`, `GET /threatintel/stix/bundles` | `intel:read` |
+| the feed list, `GET /enrichment/lookup`, `POST /enrichment/bulk`, the TAXII collections, MISP health | `threat_intel:read` |
+| everything that adds, changes, deletes or publishes | `threat_intel:write` |
+
+* **Nobody loses anything.** `threat_intel:read` implies `intel:read` (in `permission_in`, which every check goes through: role maps, database roles and API-key scopes, including a `threat_intel:*` wildcard); the implication runs one way only. All eight standard roles hold `threat_intel:read`, so all of them hold `intel:read` and still reach every route above.
+* **It grants nothing else.** A principal holding only `intel:read` can use the five routes in the first two rows and no others anywhere in the API (a test checks this over every route).
+* A key can be issued with the scope `intel:read` (`POST /api-keys`); a custom role can be given the permission (migration `076` adds it to the catalog; it backfills nothing). CORE's integration key holds `intel:read` and not `threat_intel:read`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`.
+
 ## Platform permissions
 
 These act on every tenant, so neither the `*` wildcard nor a resource wildcard such as `plugins:*` grants them. A principal holds one only if it is **named exactly**: in a role (only `platform_admin` lists them), in an API key's scopes, or in a database role.

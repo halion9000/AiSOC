@@ -9,7 +9,8 @@ across the whole tenant by injecting false IOCs or deleting feeds.
 All endpoints below are gated on RBAC permissions resolved by
 ``app.api.v1.deps.require_permission``:
 
-* ``threat_intel:read``  – list / get
+* ``intel:read``  – list / get indicators and actors (``threat_intel:read`` implies it)
+* ``threat_intel:read``  – the feed list (its ``config`` can hold credentials), enrichment
 * ``threat_intel:write`` – create / delete
 
 The ``viewer`` role gets read access; analyst-tier roles
@@ -126,7 +127,7 @@ class FeedOut(FeedCreate):
 
 @router.get("/iocs", response_model=list[IOCOut])
 async def list_iocs(
-    current_user: Annotated[AuthUser, Depends(require_permission("threat_intel:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("intel:read"))],
     ioc_type: str | None = Query(None),
     severity: str | None = Query(None),
     is_active: bool | None = Query(None),
@@ -162,7 +163,7 @@ async def create_ioc(
 @router.get("/iocs/{ioc_id}", response_model=IOCOut)
 async def get_ioc(
     ioc_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("threat_intel:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("intel:read"))],
     db: AsyncSession = Depends(get_db),
 ) -> ThreatIntelIOC:
     ioc = await db.get(ThreatIntelIOC, ioc_id)
@@ -191,7 +192,7 @@ async def delete_ioc(
 
 @router.get("/actors", response_model=list[ThreatActorOut])
 async def list_actors(
-    current_user: Annotated[AuthUser, Depends(require_permission("threat_intel:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("intel:read"))],
     is_active: bool | None = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),

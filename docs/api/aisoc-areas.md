@@ -78,7 +78,7 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **shifts**: 3 reads, 2 changes; protection: `alerts:read`, `shifts:read`, `shifts:write`; e.g. List shifts; Create shift
 - **sla**: 3 reads, 3 changes; protection: `sla:read`, `sla:write`; e.g. Get sla config; Update sla config
 - **tenants**: 7 reads, 5 changes; protection: `alerts:read`, `settings:read`, `settings:write`, `users:read`, `users:write`; 1 signed-in with no permission declared; e.g. List manageable tenants; Get my tenant
-- **threat-intel**: 4 reads, 5 changes; protection: `threat_intel:read`, `threat_intel:write`; e.g. List actors; Create actor
-- **threatintel**: 4 reads, 3 changes; protection: `threat_intel:read`, `threat_intel:write`; e.g. List bundles; Create bundle
+- **threat-intel**: 4 reads, 5 changes; protection: `intel:read`, `threat_intel:read`, `threat_intel:write`; e.g. List actors; Create actor
+- **threatintel**: 4 reads, 3 changes; protection: `intel:read`, `threat_intel:read`, `threat_intel:write`; e.g. List bundles; Create bundle
 - **translation**: 1 reads, 1 changes; protection: `rules:read`; e.g. List supported detection rule formats; Translate a detection rule across formats
 - **waitlist**: 1 reads, 2 changes; protection: `mssp:onboard`; 1 with no sign-in required; e.g. List waitlist entries (admin only).; Update a waitlist entry's status (admin only).
