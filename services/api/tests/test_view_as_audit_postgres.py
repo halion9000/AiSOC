@@ -11,7 +11,8 @@ Opt in as for test_mssp_resolver_cross_tenant_postgres.py: AISOC_TEST_PG_URL (ow
 fully migrated API database.
 UNLIKE that test, this one CANNOT CLEAN UP: audit_log is immutable (a trigger blocks DELETE and UPDATE, which also blocks the cascade from
 deleting a tenant), so each run leaves its own uniquely named tenants, user and audit rows
-behind. That is why the database must be disposable. Without the variables it is skipped; CI does not set them yet.
+behind. That is why the database must be disposable. Without the variables it is skipped;
+CI sets them (.github/workflows/postgres-tests.yml, which fails if any is skipped).
 """
 
 import os

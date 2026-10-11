@@ -12,7 +12,8 @@ tag at every transaction), and runs the routes in both session states: no tenant
 hook).
 Opt in as for test_view_as_audit_postgres.py: AISOC_TEST_PG_URL (owner) and AISOC_TEST_PG_APP_URL (aisoc_app), a DISPOSABLE, fully
 migrated API database. It CANNOT CLEAN UP (audit_log is immutable, which also blocks the cascade from deleting a tenant), so each run
-leaves uniquely named tenants, users and audit rows behind. Skipped without the variables; CI does not set them yet.
+leaves uniquely named tenants, users and audit rows behind. Skipped without the variables;
+CI sets them (.github/workflows/postgres-tests.yml, which fails if any is skipped).
 """
 
 import os

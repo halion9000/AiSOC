@@ -1,0 +1,173 @@
+name: Postgres-backed tests
+
+# Four test files need a REAL Postgres and skip silently everywhere else, because they opt in through two environment variables that no workflow
+# ever set. So none of them has ever run in CI, including the project's own service-migration test:
+#
+#   test_mssp_resolver_cross_tenant_postgres.py   the MSSP rule resolver as the restricted role, in every session state the RLS plan will use
+#   test_view_as_audit_postgres.py                the view-as audit chain (hash chain, immutable audit_log) as the restricted role
+#   test_tenant_access_postgres.py                tenant access management with the session-tagging hook emulated
+#   test_service_migrations_postgres.py           ueba, honeytokens and purple-team migrated in sequence into one database
+#
+# The first three exist precisely because mocks cannot see what row-level security does: they must run as `aisoc_app` (NOT a superuser, no
+# BYPASSRLS) against a fully migrated database, which is what this job builds: Postgres 16, the API's SQL migrations, then
+# scripts/provision_app_role.sql (which replaces the migrations' published default password with a generated one and pins the role's attributes).
+#
+# THE JOB FAILS IF ANY OF THESE TESTS IS SKIPPED. A skipped test here means its variables were not set or its database was not reachable, which
+# is the failure that kept them dark; a green run with silent skips would look like coverage and be none.
+#
+# No literal credential appears in this file: the service password is derived from the run id and the application role's password is generated
+# and masked at run time. The database is disposable (a service container that is gone when the job ends), which the tests require: two of them
+# cannot clean up after themselves because audit_log is append-only by design.
+
+on:
+  pull_request:
+    paths:
+      - 'services/api/**'
+      - 'services/ueba/**'
+      - 'services/honeytokens/**'
+      - 'services/purple-team/**'
+      - 'scripts/provision_app_role.sql'
+      - '.github/workflows/postgres-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/api/**'
+      - 'services/ueba/**'
+      - 'services/honeytokens/**'
+      - 'services/purple-team/**'
+      - 'scripts/provision_app_role.sql'
+      - '.github/workflows/postgres-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: postgres-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-tests:
+    name: pytest (tests that need a real Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aisoc
+          POSTGRES_PASSWORD: pg-${{ github.run_id }}-${{ github.run_attempt }}
+          POSTGRES_DB: aisoc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aisoc -d aisoc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # libpq reads these for the psql step; the owner is the database's bootstrap role, as in docker-compose.yml.
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: aisoc
+      PGPASSWORD: pg-${{ github.run_id }}-${{ github.run_attempt }}
+      PGDATABASE: aisoc
+      # The same dependency set as `python-test` in ci.yml, plus alembic for the service-migration test.
+      API_DEPS: >-
+        fastapi "pydantic[email]" pydantic-settings "sqlalchemy[asyncio]" asyncpg
+        structlog "python-jose[cryptography]" "passlib[bcrypt]" tenacity pyyaml
+        prometheus-client "opentelemetry-sdk" "opentelemetry-api"
+        "opentelemetry-exporter-otlp-proto-grpc"
+        "opentelemetry-instrumentation-fastapi"
+        "strawberry-graphql[fastapi]"
+        neo4j redis celery httpx aiofiles email-validator PyJWT
+        "sqlglot>=23,<27" aiosqlite
+        "croniter>=2.0,<7.0"
+        alembic
+        pytest pytest-asyncio
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install API dependencies
+        run: pip install --quiet ${{ env.API_DEPS }}
+
+      - name: Check the database is reachable and psql can use \getenv (psql 15 or newer)
+        run: |
+          psql --version
+          # \getenv is a feature of the psql CLIENT (15+), which can differ from the server's version.
+          client_major="$(psql --version | sed -E 's/[^0-9]*([0-9]+).*/\1/')"
+          test "${client_major}" -ge 15
+          psql -v ON_ERROR_STOP=1 -Atc "select version()"
+          psql -Atc "select current_setting('server_version_num')::int >= 160000" | grep -qx t
+
+      # Applies services/api/migrations/*.sql as the owner. AISOC_MIGRATIONS_REQUIRED=1 makes an unreachable database a failure here instead of
+      # the runner's soft-fail-and-exit-0 (which exists for demo deploys).
+      - name: Migrate the API database
+        working-directory: services/api
+        env:
+          ENVIRONMENT: development
+          SECRET_KEY: ci-dummy-secret-key-at-least-32bytes!
+          AISOC_MIGRATIONS_REQUIRED: '1'
+        run: |
+          export DATABASE_URL="postgresql+asyncpg://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+          python -m app.scripts.run_migrations
+
+      # Gives the role the migrations created a generated password and pins its attributes (NOSUPERUSER NOBYPASSRLS, least privilege), then
+      # exports the two URLs the tests read. The password is masked before it is written anywhere.
+      - name: Provision the restricted application role and export the test URLs
+        run: |
+          app_password="$(openssl rand -hex 24)"
+          echo "::add-mask::${app_password}"
+          AISOC_APP_DB_PASSWORD="${app_password}" psql -v ON_ERROR_STOP=1 -f scripts/provision_app_role.sql
+          {
+            echo "AISOC_TEST_PG_URL=postgresql+asyncpg://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+            echo "AISOC_TEST_PG_APP_URL=postgresql+asyncpg://aisoc_app:${app_password}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Run the Postgres-backed tests
+        working-directory: services/api
+        env:
+          ENVIRONMENT: development
+          SECRET_KEY: ci-dummy-secret-key-at-least-32bytes!
+        run: |
+          python -m pytest \
+            tests/test_mssp_resolver_cross_tenant_postgres.py \
+            tests/test_view_as_audit_postgres.py \
+            tests/test_tenant_access_postgres.py \
+            tests/test_service_migrations_postgres.py \
+            -v --tb=short -rs --junitxml=postgres-tests.junit.xml
+
+      # The point of this job: a skipped test here means the opt-in variables or the database were not what the tests need.
+      - name: Fail if any of these tests was skipped (or none ran)
+        working-directory: services/api
+        run: |
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("postgres-tests.junit.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else list(root)
+          tests = sum(int(s.get("tests", 0)) for s in suites)
+          skipped = sum(int(s.get("skipped", 0)) for s in suites)
+          failed = sum(int(s.get("failures", 0)) + int(s.get("errors", 0)) for s in suites)
+          print(f"tests={tests} skipped={skipped} failed={failed}")
+          if tests < 20 or skipped or failed:
+              sys.exit("the Postgres-backed tests must all RUN and pass: a skip means their variables or database were not as required")
+          PY
+
+      - name: Upload junit report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: postgres-tests-junit-${{ github.run_id }}
+          path: services/api/postgres-tests.junit.xml
+          retention-days: 30
+          if-no-files-found: ignore

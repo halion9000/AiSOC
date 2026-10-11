@@ -8,7 +8,7 @@ fail-closed policies) would do. `cross_tenant_reads` is what fixes that, and the
 Opt in with TWO environment variables, because the point is the restricted role: AISOC_TEST_PG_URL (the database owner or a superuser) and
 AISOC_TEST_PG_APP_URL (the role `aisoc_app`: not a superuser, no BYPASSRLS), both postgresql+asyncpg:// URLs for a DISPOSABLE, fully
 migrated API database. The test creates its own tenants, rule and pack with unique names and removes them afterwards. Without them it is
-skipped, as test_service_migrations_postgres.py is; CI does not set them yet.
+skipped, as test_service_migrations_postgres.py is; CI sets them (.github/workflows/postgres-tests.yml, which fails if any is skipped).
 """
 
 import datetime as dt
