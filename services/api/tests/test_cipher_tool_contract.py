@@ -1,4 +1,4 @@
-"""Cipher (CORE's agent) operates AiSOC through 39 tools: 17 written out by hand and 22 read-only tools (12 detection engineering, 5 hunting, 5 threat intelligence) declared as a table in CORE (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
+"""Cipher (CORE's agent) operates AiSOC through 49 tools: 17 written out by hand and 32 read-only tools (12 detection engineering, 5 hunting, 5 threat intelligence, 10 estate: assets, vulnerabilities, cloud posture, identity graph) declared as a table in CORE (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
 
 CORE builds the requests in hud/src/aisoc-requests.ts and pins them in hud/src/aisoc-requests.test.ts. Comparing every call with this API's own
 OpenAPI schema on 2026-10-08 found six tools sending requests AiSOC did not understand, which no test on either side had noticed because nothing
@@ -77,6 +77,17 @@ CIPHER_CALLS = [
     ("aisoc_list_threat_actors", "GET", "/threat-intel/actors", ["is_active", "limit", "offset"], None, False),
     ("aisoc_list_stix_indicators", "GET", "/threatintel/stix/indicators", ["label"], None, False),
     ("aisoc_list_stix_bundles", "GET", "/threatintel/stix/bundles", [], None, False),
+    # The estate (permission alerts:read, which CORE's key already holds: no new scope). NOT here on purpose: /insider-threat (per-employee risk scores, indicators and watchlists: HR-sensitive), /compliance (needs reports:read, and GET /compliance/report writes a record) and the effective-permissions resolver.
+    ("aisoc_list_assets", "GET", "/assets", ["asset_type", "criticality", "limit", "offset"], None, False),
+    ("aisoc_get_asset", "GET", "/assets/{asset_id}", [], None, False),
+    ("aisoc_list_vulnerabilities", "GET", "/assets/vulnerabilities", ["severity", "is_exploited", "limit", "offset"], None, False),
+    ("aisoc_get_asset_vulnerabilities", "GET", "/assets/{asset_id}/vulnerabilities", [], None, False),
+    ("aisoc_posture_summary", "GET", "/posture/summary", ["cloud_provider"], None, False),
+    ("aisoc_list_posture_findings", "GET", "/posture/findings", ["cloud_provider", "severity", "status", "rule_id", "limit", "offset"], None, False),
+    ("aisoc_get_posture_finding", "GET", "/posture/findings/{finding_id}", [], None, False),
+    ("aisoc_list_posture_scans", "GET", "/posture/scans", ["limit", "offset"], None, False),
+    ("aisoc_list_identity_nodes", "GET", "/identity-graph/nodes", ["node_type", "source_system", "limit", "offset"], None, False),
+    ("aisoc_get_identity_node", "GET", "/identity-graph/nodes/{node_id}", [], None, False),
 ]
 CALL_IDS = [c[0] for c in CIPHER_CALLS]
 MAX_PAGE_SIZE_CORE_SENDS = 200  # hud/src/aisoc-requests.ts: MAX_PAGE_SIZE
@@ -191,9 +202,9 @@ def test_the_page_size_cap_is_at_least_what_core_sends(path):
     assert page_size["schema"].get("maximum", 10**9) >= MAX_PAGE_SIZE_CORE_SENDS
 
 
-def test_the_table_covers_all_thirty_nine_tools():
+def test_the_table_covers_all_forty_nine_tools():
     tools = {re.sub(r" \(.*\)$", "", name) for name in CALL_IDS}
-    assert len(tools) == 39, sorted(tools)
+    assert len(tools) == 49, sorted(tools)
 
 
 READ_ONLY_TOOLS = [c for c in CIPHER_CALLS if c[1] == "GET"]
@@ -248,7 +259,7 @@ def test_every_tool_in_the_contract_is_a_get():
 
 def test_the_contract_has_no_tool_listed_twice():
     names = [r["tool"] for r in CONTRACT]
-    assert len(names) == len(set(names)) == 22
+    assert len(names) == len(set(names)) == 32
 
 
 def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_to_this_repo():
@@ -309,7 +320,7 @@ def test_a_hunting_tool_needs_exactly_hunts_read_and_nothing_that_queries_teleme
 def test_no_tool_in_the_table_can_reach_a_run_a_result_or_a_query():
     """Run results are event rows from the lake; running is a write. No Cipher tool, hand-written or declared, may name such a route."""
     for name, method, path, *_ in CIPHER_CALLS:
-        for forbidden in ("/runs", "/run", "/execute", "/nl-query", "/lake", "/translate", "/backtest", "/enrichment", "/feeds", "/misp", "/taxii"):
+        for forbidden in ("/runs", "/run", "/execute", "/nl-query", "/lake", "/translate", "/backtest", "/enrichment", "/feeds", "/misp", "/taxii", "/insider-threat", "/compliance", "/effective-permissions"):
             assert forbidden not in path, f"{name} ({method} {path}) reaches a route containing {forbidden}"
 
 
@@ -345,3 +356,37 @@ def test_no_tool_reaches_the_enrichment_or_feed_routes_either():
     assert ("GET", "/enrichment/lookup") not in reachable and ("POST", "/enrichment/bulk") not in reachable
     assert all("/feeds" not in p for _n, _m, p, *_ in CIPHER_CALLS)
     assert "config" in SPEC["components"]["schemas"]["FeedOut"]["properties"], "FeedOut no longer has a free-form `config`: re-read why feeds are out of reach"
+
+
+ESTATE_TOOLS = [
+    "aisoc_list_assets", "aisoc_get_asset", "aisoc_list_vulnerabilities", "aisoc_get_asset_vulnerabilities", "aisoc_posture_summary",
+    "aisoc_list_posture_findings", "aisoc_get_posture_finding", "aisoc_list_posture_scans", "aisoc_list_identity_nodes", "aisoc_get_identity_node",
+]
+
+
+@pytest.mark.parametrize("name", ESTATE_TOOLS)
+def test_an_estate_tool_is_a_get_that_needs_exactly_alerts_read_which_the_key_already_holds(name):
+    """Assets, vulnerabilities, cloud posture and the identity graph are all alerts:read, so these ten tools add NO scope and NO width to CORE's key."""
+    _tool, method, path, *_ = _case(name)
+    assert method == "GET" and set(required_permissions(_route(method, path))) == {"alerts:read"}, f"{name}: {method} {path}"
+    assert "alerts:read" in CORE_KEY_SCOPES
+
+
+def test_the_estate_routes_are_gets_with_no_side_effects_in_their_handlers():
+    """A scan of each handler's source for a commit, an add, an outbound call or a trigger. Not a proof (a helper could hide one), but it is what was checked when these were chosen, and it fails if a handler grows one."""
+    import inspect
+
+    marker = re.compile(r"commit\(|\.add\(|httpx|requests\.|aiohttp|\.delete\(|flush\(|urlopen|socket|_run_scan|trigger|enqueue|send_|notify|\.post\(", re.I)
+    for name in ESTATE_TOOLS:
+        _tool, method, path, *_ = _case(name)
+        source = inspect.getsource(_route(method, path).endpoint)
+        assert not marker.search(source), f"{name}: the handler for {method} {path} now looks like it does something besides read: {marker.search(source).group(0)}"
+
+
+def test_the_sensitive_areas_have_no_tool_and_say_why_in_the_table():
+    """Insider threat (per-employee risk scores, indicators, watchlists) and compliance (needs reports:read; GET /compliance/report writes a record) are deliberately out of reach."""
+    for _n, _m, path, *_ in CIPHER_CALLS:
+        assert not path.startswith(("/insider-threat", "/compliance", "/identity/")), path
+    source = Path(__file__).read_text(encoding="utf-8")
+    assert "HR-sensitive" in source and "writes a record" in source
+

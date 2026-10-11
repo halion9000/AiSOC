@@ -259,5 +259,157 @@
     "query": [],
     "enums": {},
     "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_assets",
+    "method": "GET",
+    "path": "/assets",
+    "query": [
+      "asset_type",
+      "criticality",
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_get_asset",
+    "method": "GET",
+    "path": "/assets/{asset_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_vulnerabilities",
+    "method": "GET",
+    "path": "/assets/vulnerabilities",
+    "query": [
+      "severity",
+      "is_exploited",
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_get_asset_vulnerabilities",
+    "method": "GET",
+    "path": "/assets/{asset_id}/vulnerabilities",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_posture_summary",
+    "method": "GET",
+    "path": "/posture/summary",
+    "query": [
+      "cloud_provider"
+    ],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_posture_findings",
+    "method": "GET",
+    "path": "/posture/findings",
+    "query": [
+      "cloud_provider",
+      "severity",
+      "status",
+      "rule_id",
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_get_posture_finding",
+    "method": "GET",
+    "path": "/posture/findings/{finding_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_list_posture_scans",
+    "method": "GET",
+    "path": "/posture/scans",
+    "query": [
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 100
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_list_identity_nodes",
+    "method": "GET",
+    "path": "/identity-graph/nodes",
+    "query": [
+      "node_type",
+      "source_system",
+      "limit",
+      "offset"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      },
+      "offset": {
+        "min": 0,
+        "max": 100000
+      }
+    }
+  },
+  {
+    "tool": "aisoc_get_identity_node",
+    "method": "GET",
+    "path": "/identity-graph/nodes/{node_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
   }
 ]
