@@ -51,6 +51,23 @@ def _is_graph_unavailable(exc: BaseException) -> bool:
     return any(marker in msg for marker in _GRAPH_OFFLINE_MARKERS)
 
 
+async def _or_503(call: Any) -> Any:
+    """Await a graph WRITE, turning "the graph database cannot be reached" into HTTP 503 instead of an unhandled error (a raw 500).
+
+    The query routes above already answer 503 when Neo4j is down; the four upsert routes did not, so fuzzing the API with Neo4j down produced a 500 on each of them. A connectivity failure gets a
+    generic message (the driver's own text names the internal host and port, which the caller has no need of); any OTHER exception still propagates, so a real bug stays a visible 500.
+    """
+    try:
+        return await call
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_graph_unavailable(exc):
+            logger.warning("graph write failed: the graph database is unavailable (%s)", type(exc).__name__)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The graph service is unavailable") from exc
+        raise
+
+
 # ─── Request / Response Schemas ───────────────────────────────────────────────
 
 
@@ -496,14 +513,14 @@ async def upsert_host(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str]:
     """Create or update a Host node in the knowledge graph."""
-    await graph_service.upsert_host(
+    await _or_503(graph_service.upsert_host(
         host_id=payload.host_id,
         hostname=payload.hostname,
         tenant_id=str(current_user.tenant_id),
         ip_address=payload.ip_address,
         os=payload.os,
         criticality=payload.criticality,
-    )
+    ))
     return {"status": "ok", "host_id": payload.host_id}
 
 
@@ -518,14 +535,14 @@ async def upsert_user(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str]:
     """Create or update a User node in the knowledge graph."""
-    await graph_service.upsert_user(
+    await _or_503(graph_service.upsert_user(
         user_id=payload.user_id,
         username=payload.username,
         tenant_id=str(current_user.tenant_id),
         email=payload.email,
         department=payload.department,
         risk_score=payload.risk_score,
-    )
+    ))
     return {"status": "ok", "user_id": payload.user_id}
 
 
@@ -543,7 +560,7 @@ async def upsert_alert_graph(
     Create or update an Alert node and link it to Host, User, IOC, and Technique nodes.
     Called automatically after alert creation to keep the graph in sync.
     """
-    await graph_service.upsert_alert_node(
+    await _or_503(graph_service.upsert_alert_node(
         alert_id=payload.alert_id,
         tenant_id=str(current_user.tenant_id),
         title=payload.title,
@@ -552,7 +569,7 @@ async def upsert_alert_graph(
         host_id=payload.host_id,
         user_id=payload.user_id,
         ioc_values=payload.ioc_values,
-    )
+    ))
     return {"status": "ok", "alert_id": payload.alert_id}
 
 
@@ -567,11 +584,11 @@ async def upsert_case_graph(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str]:
     """Create or update a Case node and link it to Alert nodes."""
-    await graph_service.upsert_case_node(
+    await _or_503(graph_service.upsert_case_node(
         case_id=payload.case_id,
         tenant_id=str(current_user.tenant_id),
         title=payload.title,
         severity=payload.severity,
         alert_ids=payload.alert_ids,
-    )
+    ))
     return {"status": "ok", "case_id": payload.case_id}
