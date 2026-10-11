@@ -4,6 +4,7 @@ AiSOC — open-source AI Security Operations Center
 MIT License
 """
 
+import hashlib
 import logging
 import os
 import warnings
@@ -753,6 +754,26 @@ def realtime_ticket_secret(s: Settings | None = None) -> str | None:
     return None
 
 
+# SHA-256 digests of Fernet vault keys that were COMMITTED to this repository and are therefore public (the digests, not the keys, so
+# this file does not publish them again):
+#   * the value `.env.example` carried in commits d8397a0b and 2c92cc91 (2026-05-13/14), replaced by a placeholder in 14b10e15;
+#   * the value two unit tests carried until 77517e91.
+# An operator who copied `.env.example` to `.env` in that window is running with a key anyone can read in the git history, and the vault
+# accepts it because it is valid. To rotate: generate a new key, set it as the primary, and move the published one to the ROTATION_FROM
+# setting so existing credentials can still be read and are re-encrypted.
+PUBLISHED_FERNET_DIGESTS: frozenset[str] = frozenset(
+    {
+        "45a31e835c0b70918a97a6646902e6e9c001c0557ce3ef562cdaca2e6a2e510f",
+        "7169fb040ce231455289d03ae9d7b4f9ec361a436d80252951a38b32865646f1",
+    }
+)
+
+
+def _is_published_fernet_key(key: str) -> bool:
+    """True if `key` is one of the vault keys that were committed to this repository (see PUBLISHED_FERNET_DIGESTS)."""
+    return bool(key) and hashlib.sha256(key.strip().encode("utf-8")).hexdigest() in PUBLISHED_FERNET_DIGESTS
+
+
 def warn_if_insecure_defaults(s: Settings | None = None) -> list[str]:
     """Emit a structured warning for each insecure default still in place.
 
@@ -785,6 +806,17 @@ def warn_if_insecure_defaults(s: Settings | None = None) -> list[str]:
     # round-trip in plaintext.
     if not is_dev_env(s.ENVIRONMENT) and not s.AISOC_CREDENTIAL_KEY:
         msgs.append("AISOC_CREDENTIAL_KEY is empty in a non-development environment — connector credentials cannot be encrypted at rest.")
+    # ... and refuse a key that is valid but PUBLIC: it was committed to this repository (see PUBLISHED_FERNET_DIGESTS). Only the
+    # primary key is checked: moving a published key to AISOC_CREDENTIAL_KEY_ROTATION_FROM is exactly what rotating away from it looks
+    # like.
+    if not is_dev_env(s.ENVIRONMENT) and _is_published_fernet_key(s.AISOC_CREDENTIAL_KEY):
+        msgs.append(
+            "AISOC_CREDENTIAL_KEY is a key that was published in this repository's git history, so anyone can read it "
+            "- connector credentials encrypted with it are not protected. Generate a new one "
+            '(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"), '
+            "set it as AISOC_CREDENTIAL_KEY and move the old one to AISOC_CREDENTIAL_KEY_ROTATION_FROM "
+            "so existing credentials stay readable and are re-encrypted."
+        )
 
     # JWT signing secret used by the SAML/OIDC session-issuance paths in
     # ``app/auth/saml.py`` and ``app/auth/oidc.py``. Those modules now refuse

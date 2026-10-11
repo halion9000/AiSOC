@@ -38,7 +38,7 @@ def _make_settings(**overrides) -> Settings:
         "SECRET_KEY": "a" * 64,
         "METRICS_TOKEN": "long-random-token",
         "PLUGIN_TRUST_MODE": "strict",
-        # Pre-generated Fernet key. Real deployments mount this via Fly secret.
+        # A throwaway key generated per run (see TEST_CREDENTIAL_KEY above); real deployments mount theirs as a secret.
         "AISOC_CREDENTIAL_KEY": TEST_CREDENTIAL_KEY,
         # SAML/OIDC session signing secret. Empty/placeholder values now warn
         # in prod (issue #130, finding #10), so the "clean prod" baseline
