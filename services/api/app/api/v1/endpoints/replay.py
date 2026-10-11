@@ -34,7 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 
-from app.api.v1.deps import AuthUser, DBSession, require_permission
+from app.api.v1.deps import AuthUser, DBSession, require_permission, require_signed_in_session
 from app.db.rls import TenantDBSession
 from app.models.investigation import InvestigationEvent, InvestigationRun
 from app.models.published_replay import PublishedReplay
@@ -175,7 +175,10 @@ async def _unique_slug(db: DBSession) -> str:
     raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not allocate a unique slug; retry.")
 
 
-@router.post("/{run_id}/publish", response_model=PublishResult, status_code=status.HTTP_201_CREATED)
+# PUBLISHING makes the investigation readable by ANYONE with the link (GET /r/{slug} needs no sign-in). The review step (the preview with its alias map) exists so a person looks at what will be hidden,
+# so publishing needs cases:write AND a signed-in session: an API key, whatever its scopes, is refused. It used to need cases:write alone, so CORE's own key could publish to the open internet unreviewed.
+# (Unpublishing stays as it was: it only reduces exposure.)
+@router.post("/{run_id}/publish", response_model=PublishResult, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_signed_in_session)])
 async def publish_replay(
     run_id: uuid.UUID,
     body: PublishRequest,

@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select
 
-from app.api.v1.deps import AuthUser, require_permission
+from app.api.v1.deps import AuthUser, require_permission, require_signed_in_session
 from app.core.config import settings
 from app.db.rls import TenantDBSession
 from app.models.responder import AgentApproval
@@ -197,7 +197,10 @@ async def create_approval(
     return ApprovalResponse.model_validate(row)
 
 
-@router.post("/{approval_id}/decide", response_model=ApprovalResponse)
+# DECIDING an approval is a person's act: it is the human sign-off for a destructive agent action (isolate a host, disable a user, a destructive playbook step). It needs cases:write AND a signed-in
+# session: an API key, whatever its scopes, is refused. It used to need cases:write alone, so CORE's own key (which holds cases:write) could create an approval and approve it itself; and this handler checks
+# nothing else (not that the decider differs from `requested_by`, not `required_user_id`, not `required_topic`, and it even decides an `expired` request): those are NOT enforced here, only recorded.
+@router.post("/{approval_id}/decide", response_model=ApprovalResponse, dependencies=[Depends(require_signed_in_session)])
 async def decide_approval(
     approval_id: uuid.UUID,
     body: ApprovalDecisionRequest,
