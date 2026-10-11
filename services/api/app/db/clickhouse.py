@@ -51,6 +51,20 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+# Class NAMES of ClickHouse driver exceptions that mean the CONNECTION failed, as opposed to the server rejecting the query (the driver is
+# a soft dependency, so it is not imported here; see the note in execute_lake_query). Their text names the backend's host and port, so it
+# is logged and not shown to the caller.
+_CONNECTION_FAILURE_NAMES = frozenset(
+    {"NetworkError", "SocketTimeoutError", "UnexpectedPacketFromServerError", "UnknownPacketFromServerError"}
+)
+
+
+def _is_connection_failure(exc: BaseException) -> bool:
+    """True for a driver or socket failure of the connection itself; False for an error the SERVER reported (ServerException)."""
+    return type(exc).__name__ in _CONNECTION_FAILURE_NAMES or isinstance(exc, OSError)
+
+
+
 # ---------------------------------------------------------------------- public
 
 
@@ -321,6 +335,9 @@ async def execute_lake_query(
         message = str(exc)
         if "TIMEOUT_EXCEEDED" in message or "exceeded the timeout" in message.lower():
             raise LakeQueryTimeoutError(message) from exc
+        if _is_connection_failure(exc):
+            logger.warning("lake.query.connection_failed: %s", message)
+            raise LakeQueryError("clickhouse query failed: the lake backend could not be reached") from exc
         # Surface a sanitised error — we deliberately don't include
         # the SQL in the message because it's the caller's input and
         # may be very large. The full SQL is logged separately by
@@ -412,7 +429,10 @@ async def fetch_lake_schema(
     except TimeoutError as exc:
         raise LakeQueryTimeoutError("lake schema lookup timed out") from exc
     except Exception as exc:
-        raise LakeQueryError(f"clickhouse schema lookup failed: {exc}") from exc
+        # No analyst input reaches this query, so whatever failed is infrastructure: the detail goes to the log,
+        # the caller gets a generic message.
+        logger.warning("lake.schema.lookup_failed: %s", exc)
+        raise LakeQueryError("clickhouse schema lookup failed") from exc
 
     by_table: dict[str, list[dict[str, Any]]] = {f"{db}.{tbl}": [] for db, tbl in pairs}
     for db, tbl, name, ctype, comment in rows:

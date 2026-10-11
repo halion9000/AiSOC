@@ -130,10 +130,19 @@ STILL_INTERPOLATING = {
     ),
     "api/v1/endpoints/lake.py": (
         2,
-        "lake backend error: can be the analyst's own query error, but a CONNECTION failure also names the backend address: NOT yet narrowed",  # noqa: E501
+        "lake backend error: generic for a CONNECTION failure (clickhouse.py classifies it and logs the detail); "
+        "otherwise the server's own message about the analyst's query, which is useful to them (reviewed, left on purpose)",
     ),
-    "api/v1/endpoints/detection_proposals.py": (1, "lake query failed: the same as the lake: NOT yet narrowed"),
-    "api/v1/endpoints/detection_rules.py": (1, "lake query failed: the same as the lake: NOT yet narrowed"),
+    "api/v1/endpoints/detection_proposals.py": (
+        1,
+        "lake query failed: inherits clickhouse.py's generic connection-failure message; "
+        "a server-reported query error is the analyst's own (reviewed)",
+    ),
+    "api/v1/endpoints/detection_rules.py": (
+        1,
+        "lake query failed: inherits clickhouse.py's generic connection-failure message; "
+        "a server-reported query error is the analyst's own (reviewed)",
+    ),
     "api/v1/endpoints/marketplace.py": (
         1,
         "a JSON parse error of a local index file: names a line and column, no path: low risk, NOT reviewed further",
