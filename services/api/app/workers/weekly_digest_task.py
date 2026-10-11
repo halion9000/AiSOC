@@ -169,7 +169,9 @@ async def _generate_for_tenant(
             file_size_bytes=len(raw_bytes),
             data_snapshot=digest.model_dump(mode="json"),
             generated_by="weekly_digest_worker",
-            status="ready",
+            # report_artefacts.status is CHECK-constrained to pending | generating | completed | failed (migration 019). This used to write "ready", which the database
+            # refused, so NO weekly digest could ever be saved, for any tenant, under any database role; the unit tests did not see it because they mock all I/O.
+            status="completed",
         )
         db.add(artefact)
         await db.commit()
