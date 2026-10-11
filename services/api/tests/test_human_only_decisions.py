@@ -1,24 +1,32 @@
 """Deciding an approval, and publishing an investigation to a public link, are a person's acts.
 
-FOUND by auditing every non-read route CORE's API key can reach (27; Cipher's tools call 7). POST /approvals/{id}/decide needed only cases:write, which the key holds, and checks nothing else: so the key could create an approval (the human sign-off for isolating a host, disabling a user, a destructive playbook step) and approve it itself.
-POST /ledger/{run_id}/publish needed only cases:write too, so the key could publish an investigation to GET /r/{slug}, which needs no sign-in, skipping the review step. Both now also need a signed-in session (an API key, whatever its scopes, is refused). Nothing else changed: creating an approval, unpublishing, previewing and every other route behave as before.
+FOUND by auditing every non-read route CORE's API key can reach (27; Cipher's tools call 7). POST /approvals/{id}/decide needed only
+cases:write, which the key holds, and checks nothing else: so the key could create an approval (the human sign-off for isolating a host,
+disabling a user, a destructive playbook step) and approve it itself.
+POST /ledger/{run_id}/publish needed only cases:write too, so the key could publish an investigation to GET /r/{slug}, which needs no
+sign-in, skipping the review step. Both now also need a signed-in session (an API key, whatever its scopes, is refused). Nothing else
+changed: creating an approval, unpublishing, previewing and every other route behave as before.
 """
+
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
-from route_introspect import required_permissions as _required_permissions
-from route_introspect import walk_routes
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser, require_signed_in_session
 from app.db.rls import get_tenant_db
 from app.main import app
+from fastapi.testclient import TestClient
+from route_introspect import required_permissions as _required_permissions
+from route_introspect import walk_routes
 
 TENANT = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 APPROVAL = "00000000-0000-0000-0000-0000000000aa"
-# publish also has its own confirm step (without confirm=true the handler answers 400 "Review the /publish/preview diff first"), so the body carries it to get past that.
-HUMAN_ONLY = [("POST", f"/api/v1/approvals/{APPROVAL}/decide", {"decision": "approve"}), ("POST", f"/api/v1/ledger/{APPROVAL}/publish", {"confirm": True})]
+# publish also has its own confirm step (without confirm=true the handler answers 400 "Review the /publish/preview diff first"), so the body
+# carries it to get past that.
+HUMAN_ONLY = [
+    ("POST", f"/api/v1/approvals/{APPROVAL}/decide", {"decision": "approve"}),
+    ("POST", f"/api/v1/ledger/{APPROVAL}/publish", {"confirm": True}),
+]
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +36,8 @@ def _clean():
 
 
 class _NoRows:
-    """A database that finds nothing: a request that gets past authorization then answers 404 (no such approval or run), which is how these tests tell 'refused' from 'reached the handler'."""
+    """A database that finds nothing: a request that gets past authorization then answers 404 (no such approval or run), which is how these
+    tests tell 'refused' from 'reached the handler'."""
 
     async def execute(self, *_a, **_k):
         class R:
@@ -73,7 +82,9 @@ def _route(method, path_template):
 
 
 class TestWhatTheRoutesDeclare:
-    @pytest.mark.parametrize("method,template", [("POST", "/api/v1/approvals/{approval_id}/decide"), ("POST", "/api/v1/ledger/{run_id}/publish")])
+    @pytest.mark.parametrize(
+        "method,template", [("POST", "/api/v1/approvals/{approval_id}/decide"), ("POST", "/api/v1/ledger/{run_id}/publish")]
+    )
     def test_each_still_needs_cases_write_and_now_also_a_signed_in_session(self, method, template):
         route = _route(method, template)
         assert set(_required_permissions(route)) == {"cases:write"}
@@ -89,7 +100,18 @@ class TestAnApiKeyIsRefused:
         assert response.status_code == 403 and "only available to a signed-in user, not an API key" in response.text
 
     def test_the_exact_scenario_a_key_creates_an_approval_and_cannot_approve_it(self):
-        key = _user(scopes=["alerts:read", "alerts:triage", "cases:read", "cases:write", "connectors:read", "rules:read", "hunts:read", "intel:read"])
+        key = _user(
+            scopes=[
+                "alerts:read",
+                "alerts:triage",
+                "cases:read",
+                "cases:write",
+                "connectors:read",
+                "rules:read",
+                "hunts:read",
+                "intel:read",
+            ]
+        )
         assert _call(key, "POST", f"/api/v1/approvals/{APPROVAL}/decide", {"decision": "approve"}).status_code == 403
         assert _call(key, "POST", f"/api/v1/approvals/{APPROVAL}/decide", {"decision": "deny"}).status_code == 403
 
@@ -125,20 +147,32 @@ class TestNothingElseChanged:
     def test_creating_an_approval_is_still_open_to_a_key_with_cases_write(self):
         route = _route("POST", "/api/v1/approvals")
         assert set(_required_permissions(route)) == {"cases:write"}
-        assert require_signed_in_session not in [d.call for d in route.dependant.dependencies], "integrations may raise an approval: creating one was not changed"
+        assert require_signed_in_session not in [
+            d.call for d in route.dependant.dependencies
+        ], "integrations may raise an approval: creating one was not changed"
 
     def test_unpublishing_and_previewing_are_still_open_to_a_key(self):
-        for method, template, perm in (("DELETE", "/api/v1/ledger/publish/{slug}", "cases:write"), ("POST", "/api/v1/ledger/{run_id}/publish/preview", "cases:read")):
+        for method, template, perm in (
+            ("DELETE", "/api/v1/ledger/publish/{slug}", "cases:write"),
+            ("POST", "/api/v1/ledger/{run_id}/publish/preview", "cases:read"),
+        ):
             route = _route(method, template)
             assert set(_required_permissions(route)) == {perm}
             assert require_signed_in_session not in [d.call for d in route.dependant.dependencies], f"{method} {template}"
 
     def test_exactly_two_routes_got_the_session_requirement_among_the_case_and_approval_routes(self):
-        found = sorted((m, p) for p, r in walk_routes(app.routes) for m in r.methods if "cases:write" in _required_permissions(r) and require_signed_in_session in [d.call for d in r.dependant.dependencies])
+        found = sorted(
+            (m, p)
+            for p, r in walk_routes(app.routes)
+            for m in r.methods
+            if "cases:write" in _required_permissions(r) and require_signed_in_session in [d.call for d in r.dependant.dependencies]
+        )
         assert found == [("POST", "/api/v1/approvals/{approval_id}/decide"), ("POST", "/api/v1/ledger/{run_id}/publish")]
 
     def test_the_two_things_the_decide_handler_still_does_not_enforce_are_written_down_here(self):
-        """Not fixed, deliberately, because each is a product decision: that the decider differs from `requested_by`, that `required_user_id` / `required_topic` are honoured, and that an `expired` approval cannot be approved. If any is ever enforced, update this and the changelog."""
+        """Not fixed, deliberately, because each is a product decision: that the decider differs from `requested_by`, that
+        `required_user_id` / `required_topic` are honoured, and that an `expired` approval cannot be approved. If any is ever enforced,
+        update this and the changelog."""
         import inspect
 
         from app.api.v1.endpoints import approvals

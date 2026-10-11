@@ -1,35 +1,56 @@
 """rules:view: read the detection rules, split out of rules:read.
 
-rules:read guards 18 routes: 13 plain reads and 5 that compute. One of the five, POST /rules/{id}/backtest, runs a rule over up to 365 days of the tenant's REAL events in the ClickHouse data lake and returns `sample_matches`, the matching event rows: telemetry, which is what lake:query exists to gate and what CORE's key was deliberately not given. So a key that only needed to READ rules could read lake telemetry.
-(/rules/hunt, /rules/{id}/execute and /detection/test only evaluate events the CALLER sends; /translation/translate translates a rule.) Each claim is tested over the whole application rather than assumed:
-  1. NOBODY LOSES ACCESS: whatever held rules:read (a role, a custom database role, a `rules:*` wildcard, a key) still reads rules AND still reaches all five computing routes.
+rules:read guards 18 routes: 13 plain reads and 5 that compute. One of the five, POST /rules/{id}/backtest, runs a rule over up to 365 days
+of the tenant's REAL events in the ClickHouse data lake and returns `sample_matches`, the matching event rows: telemetry, which is what
+lake:query exists to gate and what CORE's key was deliberately not given. So a key that only needed to READ rules could read lake telemetry.
+(/rules/hunt, /rules/{id}/execute and /detection/test only evaluate events the CALLER sends; /translation/translate translates a rule.) Each
+claim is tested over the whole application rather than assumed:
+  1. NOBODY LOSES ACCESS: whatever held rules:read (a role, a custom database role, a `rules:*` wildcard, a key) still reads rules AND still
+  reaches all five computing routes.
   2. rules:view ALONE GRANTS NOTHING ELSE: a key holding only it satisfies exactly the 13 reads among every route in the application.
   3. CORE's real key scopes reach none of the five computing routes, and still reach every rules route its detection tools call.
-NOT VERIFIED LIVE: the lake is not configured in the test environment, so a real backtest returning real rows was not demonstrated; what was shown is that authorization let the key in (and that it no longer does).
+NOT VERIFIED LIVE: the lake is not configured in the test environment, so a real backtest returning real rows was not demonstrated; what was
+shown is that authorization let the key in (and that it no longer does).
 """
+
 import asyncio
 import re
 import uuid
 from pathlib import Path
 
 import pytest
-from route_introspect import required_permissions as _required_permissions
-from route_introspect import walk_routes
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import api_keys
 from app.api.v1.endpoints.detection_rules import BacktestResponse
 from app.core.security import IMPLIED_BY, PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, known_permissions, permission_in
 from app.main import app
 from app.scripts import bootstrap_production as bp
+from route_introspect import required_permissions as _required_permissions
+from route_introspect import walk_routes
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 VIEW_ROUTES = {
-    ("GET", "/rules"), ("GET", "/rules/{rule_id}"), ("GET", "/detection/rules"), ("GET", "/detection/rules/{rule_id}"),
-    ("GET", "/detection/coverage"), ("GET", "/detection/drift"), ("GET", "/detection/confidence"), ("GET", "/detection/tuning"), ("GET", "/detection/tuning/summary"),
-    ("GET", "/detection-proposals"), ("GET", "/detection-proposals/baselines"), ("GET", "/detection-proposals/{proposal_id}"), ("GET", "/translation/formats"),
+    ("GET", "/rules"),
+    ("GET", "/rules/{rule_id}"),
+    ("GET", "/detection/rules"),
+    ("GET", "/detection/rules/{rule_id}"),
+    ("GET", "/detection/coverage"),
+    ("GET", "/detection/drift"),
+    ("GET", "/detection/confidence"),
+    ("GET", "/detection/tuning"),
+    ("GET", "/detection/tuning/summary"),
+    ("GET", "/detection-proposals"),
+    ("GET", "/detection-proposals/baselines"),
+    ("GET", "/detection-proposals/{proposal_id}"),
+    ("GET", "/translation/formats"),
 }
-COMPUTE_ROUTES = {("POST", "/rules/hunt"), ("POST", "/rules/{rule_id}/execute"), ("POST", "/detection/test"), ("POST", "/translation/translate"), ("POST", "/rules/{rule_id}/backtest")}
+COMPUTE_ROUTES = {
+    ("POST", "/rules/hunt"),
+    ("POST", "/rules/{rule_id}/execute"),
+    ("POST", "/detection/test"),
+    ("POST", "/translation/translate"),
+    ("POST", "/rules/{rule_id}/backtest"),
+}
 
 
 def required_permissions(route) -> set[str]:
@@ -49,7 +70,19 @@ def _satisfied_by(scopes) -> set[tuple[str, str]]:
 
 
 class TestTheImplication:
-    @pytest.mark.parametrize("granted,expected", [(["rules:view"], True), (["rules:read"], True), (["rules:*"], True), (["*"], True), (["rules:write"], False), (["hunts:read"], False), (["alerts:read"], False), ([], False)])
+    @pytest.mark.parametrize(
+        "granted,expected",
+        [
+            (["rules:view"], True),
+            (["rules:read"], True),
+            (["rules:*"], True),
+            (["*"], True),
+            (["rules:write"], False),
+            (["hunts:read"], False),
+            (["alerts:read"], False),
+            ([], False),
+        ],
+    )
     def test_who_holds_rules_view(self, granted, expected):
         assert permission_in(granted, "rules:view") is expected
 
@@ -76,19 +109,28 @@ class TestRolesAreUnchanged:
 
     def test_the_comparison_is_not_vacuous_some_roles_hold_it_and_some_do_not(self):
         outcomes = {role: has_permission(role, "rules:view") for role in ROLE_PERMISSIONS}
-        assert outcomes["admin"] is True and outcomes["threat_hunter"] is True and outcomes["viewer"] is False and outcomes["soc_analyst"] is False, outcomes
+        assert (
+            outcomes["admin"] is True
+            and outcomes["threat_hunter"] is True
+            and outcomes["viewer"] is False
+            and outcomes["soc_analyst"] is False
+        ), outcomes
 
 
 class TestTheRoutes:
     def test_exactly_these_thirteen_routes_need_rules_view_and_each_is_a_get(self):
-        found = {(m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"rules:view"} for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"rules:view"} for m in r.methods if m not in {"HEAD", "OPTIONS"}
+        }
         assert found == VIEW_ROUTES and len(found) == 13 and all(m == "GET" for m, _ in found)
 
     def test_a_key_holding_only_rules_view_can_use_exactly_those_thirteen_routes_in_the_whole_application(self):
         assert _satisfied_by(["rules:view"]) == VIEW_ROUTES
 
     def test_exactly_these_five_routes_still_need_rules_read_and_rules_view_does_not_reach_them(self):
-        found = {(m, p) for p, r in ALL_ROUTES if "rules:read" in required_permissions(r) for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p) for p, r in ALL_ROUTES if "rules:read" in required_permissions(r) for m in r.methods if m not in {"HEAD", "OPTIONS"}
+        }
         assert found == COMPUTE_ROUTES
         assert not (_satisfied_by(["rules:view"]) & COMPUTE_ROUTES)
 
@@ -96,7 +138,8 @@ class TestTheRoutes:
         assert _satisfied_by(["rules:read"]) == VIEW_ROUTES | COMPUTE_ROUTES
 
     def test_the_backtest_route_returns_matching_event_rows_which_is_why_it_stays_behind_rules_read(self):
-        """The reason for the split, pinned: if sample_matches ever stops carrying event rows, re-read whether the backtest still needs to be kept away from a read-only key."""
+        """The reason for the split, pinned: if sample_matches ever stops carrying event rows, re-read whether the backtest still needs to
+        be kept away from a read-only key."""
         assert "sample_matches" in BacktestResponse.model_fields
 
     def test_nothing_that_writes_rules_was_touched(self):
@@ -122,7 +165,11 @@ class TestCoresKeyNoLongerReachesTheBacktest:
         spec.loader.exec_module(module)
         norm = lambda p: re.sub(r"\{[^}]*\}", "{}", p)  # noqa: E731
         reached = {(m, norm(p)) for m, p in _satisfied_by(bp.CORE_KEY_SCOPES)}
-        wanted = [(name, method, path) for name, method, path, *_ in module.CIPHER_CALLS if method == "GET" and path.split("/")[1] in {"rules", "detection", "detection-proposals", "detection-loop"}]
+        wanted = [
+            (name, method, path)
+            for name, method, path, *_ in module.CIPHER_CALLS
+            if method == "GET" and path.split("/")[1] in {"rules", "detection", "detection-proposals", "detection-loop"}
+        ]
         assert len(wanted) >= 12, wanted
         for name, method, path in wanted:
             assert (method, norm(path)) in reached, f"{name}: CORE's key no longer reaches {method} {path}"
@@ -178,7 +225,12 @@ class TestTheMigration:
         assert not re.search(r"\b(DELETE|DROP|UPDATE|ALTER)\b", self.code, re.I)
 
     def test_it_says_what_is_not_included_and_why(self):
-        assert "POST /rules/{id}/backtest" in self.sql and "sample_matches" in self.sql and "telemetry" in self.sql and "lake:query" in self.sql
+        assert (
+            "POST /rules/{id}/backtest" in self.sql
+            and "sample_matches" in self.sql
+            and "telemetry" in self.sql
+            and "lake:query" in self.sql
+        )
 
     def test_it_follows_migration_077(self):
         numbers = sorted(int(p.name[:3]) for p in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"))

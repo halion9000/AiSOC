@@ -1,24 +1,28 @@
 """hunts:read: read the DEFINITIONS of hunts, split out of lake:query.
 
-lake:query is one permission for creating, running and deleting hunts AND for running arbitrary queries against telemetry, so nothing could be allowed to read which hunts exist without also being allowed to run queries. hunts:read is the read half, for exactly five routes. Three properties matter,
+lake:query is one permission for creating, running and deleting hunts AND for running arbitrary queries against telemetry, so nothing could
+be allowed to read which hunts exist without also being allowed to run queries. hunts:read is the read half, for exactly five routes. Three
+properties matter,
 and each is tested over the whole application rather than assumed:
   1. NOBODY LOSES ACCESS: whatever held lake:query (a role, a custom database role, a wildcard) still reads hunts.
   2. hunts:read ALONE GRANTS NOTHING ELSE: a key holding only it satisfies exactly those five routes among every route in the application.
-  3. WHAT A HUNT FOUND STAYS BEHIND lake:query: GET /hunts/{id}/runs returns result_sample, event rows sampled from the lake, so it is telemetry, not a definition.
+  3. WHAT A HUNT FOUND STAYS BEHIND lake:query: GET /hunts/{id}/runs returns result_sample, event rows sampled from the lake, so it is
+  telemetry, not a definition.
 """
+
 import asyncio
 import re
 import uuid
 from pathlib import Path
 
 import pytest
-from fastapi.routing import APIRoute
-from route_introspect import required_permissions as _required_permissions
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import api_keys
 from app.core.security import IMPLIED_BY, PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, known_permissions, permission_in
 from app.main import app
+from fastapi.routing import APIRoute
+from route_introspect import required_permissions as _required_permissions
+
 
 def required_permissions(route) -> set[str]:
     """The introspection helper returns a list; every comparison here is about sets."""
@@ -50,7 +54,8 @@ ALL_ROUTES = [(re.sub(r"^/api/v1", "", p), r) for p, r in _walk(app.routes)]
 
 
 def _satisfied_by(scopes) -> set[tuple[str, str]]:
-    """Every (method, path) in the application whose required permissions are ALL covered by `scopes` (a route with no required permission is not counted)."""
+    """Every (method, path) in the application whose required permissions are ALL covered by `scopes` (a route with no required permission
+    is not counted)."""
     out = set()
     for path, route in ALL_ROUTES:
         needed = required_permissions(route)
@@ -91,8 +96,17 @@ class TestTheImplication:
         assert not permission_in(["hunts:read"], "lake:query")
 
     def test_the_rule_is_exactly_these_pairs(self):
-        """Adding an implication must be a conscious act: this lists every one. The second pair, intel:read implied by threat_intel:read, is tested in test_intel_read_permission.py, and the third, alerts:triage implied by alerts:write, in test_alerts_triage_permission.py."""
-        assert IMPLIED_BY == {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",), "connectors:view": ("connectors:read",), "cases:work": ("cases:write",)}
+        """Adding an implication must be a conscious act: this lists every one. The second pair, intel:read implied by threat_intel:read, is
+        tested in test_intel_read_permission.py, and the third, alerts:triage implied by alerts:write, in
+        test_alerts_triage_permission.py."""
+        assert IMPLIED_BY == {
+            "hunts:read": ("lake:query",),
+            "intel:read": ("threat_intel:read",),
+            "alerts:triage": ("alerts:write",),
+            "rules:view": ("rules:read",),
+            "connectors:view": ("connectors:read",),
+            "cases:work": ("cases:write",),
+        }
 
     def test_no_implied_permission_is_a_platform_permission_and_nothing_implies_a_platform_permission(self):
         for weaker, stronger in IMPLIED_BY.items():
@@ -121,12 +135,16 @@ class TestRolesAreUnchanged:
             assert not has_permission(role, "hunts:read"), role
 
     def test_there_is_a_role_that_holds_it_and_a_role_that_does_not(self):
-        assert any(has_permission(r, "hunts:read") for r in ROLE_PERMISSIONS) and not all(has_permission(r, "hunts:read") for r in ROLE_PERMISSIONS)
+        assert any(has_permission(r, "hunts:read") for r in ROLE_PERMISSIONS) and not all(
+            has_permission(r, "hunts:read") for r in ROLE_PERMISSIONS
+        )
 
 
 class TestTheRoutes:
     def test_exactly_these_five_routes_need_hunts_read_and_each_is_a_get(self):
-        needing = {(m, p) for p, r in ALL_ROUTES if "hunts:read" in required_permissions(r) for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        needing = {
+            (m, p) for p, r in ALL_ROUTES if "hunts:read" in required_permissions(r) for m in r.methods if m not in {"HEAD", "OPTIONS"}
+        }
         assert needing == HUNTS_READ_ROUTES
 
     def test_a_key_holding_only_hunts_read_can_use_exactly_those_five_routes_in_the_whole_application(self):
@@ -135,7 +153,20 @@ class TestTheRoutes:
     def test_lake_query_still_reaches_those_five_and_the_runs_and_every_write(self):
         reachable = _satisfied_by(["lake:query"])
         assert HUNTS_READ_ROUTES <= reachable
-        for must in [("GET", "/hunts/{hunt_id}/runs"), ("POST", "/hunts"), ("POST", "/hunts/{hunt_id}/run"), ("PATCH", "/hunts/{hunt_id}"), ("POST", "/hunts/{hunt_id}/findings"), ("POST", "/saved-hunts"), ("DELETE", "/saved-hunts/{hunt_id}"), ("POST", "/saved-hunts/{hunt_id}/run"), ("POST", "/hunt/saved"), ("DELETE", "/hunt/saved/{search_id}"), ("POST", "/nl-query/execute"), ("POST", "/nl-query/translate")]:
+        for must in [
+            ("GET", "/hunts/{hunt_id}/runs"),
+            ("POST", "/hunts"),
+            ("POST", "/hunts/{hunt_id}/run"),
+            ("PATCH", "/hunts/{hunt_id}"),
+            ("POST", "/hunts/{hunt_id}/findings"),
+            ("POST", "/saved-hunts"),
+            ("DELETE", "/saved-hunts/{hunt_id}"),
+            ("POST", "/saved-hunts/{hunt_id}/run"),
+            ("POST", "/hunt/saved"),
+            ("DELETE", "/hunt/saved/{search_id}"),
+            ("POST", "/nl-query/execute"),
+            ("POST", "/nl-query/translate"),
+        ]:
             assert must in reachable, must
 
     def test_what_a_hunt_found_stays_behind_lake_query(self):
@@ -145,7 +176,9 @@ class TestTheRoutes:
 
     def test_everything_that_writes_or_queries_in_hunting_still_needs_lake_query(self):
         for path, route in ALL_ROUTES:
-            if path.startswith(("/hunts", "/saved-hunts", "/hunt/saved", "/nl-query")) and (route.methods & {"POST", "PUT", "PATCH", "DELETE"}):
+            if path.startswith(("/hunts", "/saved-hunts", "/hunt/saved", "/nl-query")) and (
+                route.methods & {"POST", "PUT", "PATCH", "DELETE"}
+            ):
                 assert required_permissions(route) == {"lake:query"}, f"{sorted(route.methods)} {path}"
 
     def test_a_hunts_read_key_cannot_use_a_route_that_needs_a_different_permission(self):
@@ -197,7 +230,9 @@ class TestACurrentUserOnTheRealPaths:
 
     def test_a_user_with_no_database_roles_falls_back_to_the_static_map(self):
         for role in ROLE_PERMISSIONS:
-            assert asyncio.run(self.user(role=role).has_permission_db("hunts:read", self.db_with([]))) is has_permission(role, "hunts:read"), role
+            assert asyncio.run(self.user(role=role).has_permission_db("hunts:read", self.db_with([]))) is has_permission(
+                role, "hunts:read"
+            ), role
 
 
 class TestTheMigration:
@@ -206,7 +241,9 @@ class TestTheMigration:
     def test_it_adds_only_the_name_to_the_catalog_and_is_idempotent(self):
         assert re.search(r"INSERT INTO permissions \(name, description, category\) VALUES\s*\('hunts:read'", self.sql)
         assert "ON CONFLICT (name) DO NOTHING" in self.sql
-        assert not re.search(r"role_permissions", re.sub(r"--[^\n]*", "", self.sql)), "nothing is backfilled onto roles: lake:query implies hunts:read in code"
+        assert not re.search(
+            r"role_permissions", re.sub(r"--[^\n]*", "", self.sql)
+        ), "nothing is backfilled onto roles: lake:query implies hunts:read in code"
         assert not re.search(r"\b(DELETE|DROP|UPDATE|ALTER)\b", re.sub(r"--[^\n]*", "", self.sql), re.I)
 
     def test_it_says_why_runs_are_not_included(self):

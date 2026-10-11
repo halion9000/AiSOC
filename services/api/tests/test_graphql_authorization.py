@@ -1,18 +1,21 @@
 """GraphQL must enforce the same permissions as REST, and must never ask another service for a different tenant's data.
 
 HISTORY. Both were missing:
- * No resolver checked any permission, so any signed-in user, and any API key however narrow its scopes, could read alerts, cases, detection rules, connectors and playbooks through /graphql that REST refuses them. Demonstrated on real Postgres: a key whose ONLY scope was hunts:read read all 8 detection rules through GraphQL while REST
+ * No resolver checked any permission, so any signed-in user, and any API key however narrow its scopes, could read alerts, cases, detection
+ rules, connectors and playbooks through /graphql that REST refuses them. Demonstrated on real Postgres: a key whose ONLY scope was
+ hunts:read read all 8 detection rules through GraphQL while REST
    returned 403 for the same key on /rules, /connectors, /cases, /alerts and /playbooks.
- * `playbooks` and `playbookRuns` asked the agents service with the API's internal token and NO tenant. For that caller the agents service honours a tenant_id parameter and otherwise returns the unscoped result: every tenant's playbook runs, each with its trigger event (alert data). So any signed-in user of any tenant could
+ * `playbooks` and `playbookRuns` asked the agents service with the API's internal token and NO tenant. For that caller the agents service
+ honours a tenant_id parameter and otherwise returns the unscoped result: every tenant's playbook runs, each with its trigger event (alert
+ data). So any signed-in user of any tenant could
    read every tenant's recent runs. (The REST proxy has always sent the tenant.)
 Found by auditing the operations the capability reference lists as "signed in, no permission declared".
 """
+
 import re
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.core.route_introspect import required_permissions, walk_routes
@@ -21,6 +24,7 @@ from app.db.rls import get_tenant_db
 from app.graphql import query as gq
 from app.graphql.schema import schema
 from app.main import app
+from fastapi.testclient import TestClient
 
 TENANT_A = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 TENANT_B = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
@@ -74,7 +78,9 @@ def _allowed_fields(user) -> set[str]:
 class TestTheTableIsComplete:
     def test_every_query_field_is_covered_here_so_a_new_resolver_cannot_ship_unchecked(self):
         fields = set(schema._schema.query_type.fields.keys())
-        assert fields == set(FIELDS), f"GraphQL fields not covered by this file: {sorted(fields ^ set(FIELDS))}: add them to FIELDS (with the permission they must need)"
+        assert (
+            fields == set(FIELDS)
+        ), f"GraphQL fields not covered by this file: {sorted(fields ^ set(FIELDS))}: add them to FIELDS (with the permission they must need)"  # noqa: E501
 
     @pytest.mark.parametrize("name", [n for n, f in FIELDS.items() if f[2]])
     def test_each_field_needs_the_same_permission_as_the_rest_route_for_the_same_data(self, name):
@@ -118,7 +124,9 @@ class TestWhoMayReadWhat:
 
     def test_the_refusal_names_what_was_missing(self):
         assert _messages(_run(_user(scopes=["alerts:read"]), "{ connectors { total } }")) == ["API key missing scope: connectors:view"]
-        assert any(m.startswith("Permission denied: ") for m in _messages(_run(_user(role="viewer", scopes=None), "{ detectionRules { total } }"))) or has_permission("viewer", "rules:read")
+        assert any(
+            m.startswith("Permission denied: ") for m in _messages(_run(_user(role="viewer", scopes=None), "{ detectionRules { total } }"))
+        ) or has_permission("viewer", "rules:read")
 
     def test_someone_who_is_not_signed_in_gets_nothing(self):
         app.dependency_overrides.clear()
@@ -126,7 +134,8 @@ class TestWhoMayReadWhat:
         assert response.status_code in (401, 403) and "data" not in response.json()
 
     def test_a_refused_field_leaks_nothing_and_an_allowed_field_asked_for_alone_still_works(self):
-        """(In GraphQL an error in a NON-NULL field nulls the whole `data`, so the two are not returned together: that is the protocol, not a gap.)"""
+        """(In GraphQL an error in a NON-NULL field nulls the whole `data`, so the two are not returned together: that is the protocol, not
+        a gap.)"""
         user = _user(scopes=["playbooks:read"])
         refused = _run(user, "{ connectors { total } playbooks { id } }")
         assert "API key missing scope: connectors:view" in _messages(refused)
@@ -147,7 +156,8 @@ class _Response:
 
 
 class _Agents:
-    """A stand-in for the agents service: it holds EVERY tenant's runs and playbooks and, like the real one for the API's internal caller, returns all of them unless told which tenant (tenant_id)."""
+    """A stand-in for the agents service: it holds EVERY tenant's runs and playbooks and, like the real one for the API's internal caller,
+    returns all of them unless told which tenant (tenant_id)."""
 
     RUNS = [
         {"id": "run-a1", "playbook_id": "p", "status": "done", "tenant": str(TENANT_A), "trigger_event": {"title": "A's alert"}},
@@ -198,11 +208,13 @@ class TestOtherTenantsDataStaysOut:
         for call in agents.calls:
             assert call["params"]["tenant_id"] == str(TENANT_A)
             assert call["headers"] == {"x-internal-token": "service-token"}
-        assert {c["params"].get("limit") for c in agents.calls} == {7, None} and any(c["params"].get("enabled_only") is True for c in agents.calls)
+        assert {c["params"].get("limit") for c in agents.calls} == {7, None} and any(
+            c["params"].get("enabled_only") is True for c in agents.calls
+        )
 
     def test_the_tenant_cannot_be_chosen_by_the_caller(self):
         for name in ("playbooks", "playbookRuns"):
-            args = {a for a in schema._schema.query_type.fields[name].args}
+            args = set(schema._schema.query_type.fields[name].args)
             assert not ({"tenantId", "tenant_id", "tenant"} & args), name
 
     def test_with_no_tenant_nothing_is_sent_to_the_agents_service(self, agents):
@@ -215,7 +227,8 @@ class TestOtherTenantsDataStaysOut:
 
 
 class TestTheCheckItself:
-    """Over HTTP the framework rejects an unauthenticated request before any resolver runs, so the check's own refusal of a missing user can only be exercised directly."""
+    """Over HTTP the framework rejects an unauthenticated request before any resolver runs, so the check's own refusal of a missing user can
+    only be exercised directly."""
 
     def test_a_context_with_no_user_is_refused(self):
         from types import SimpleNamespace

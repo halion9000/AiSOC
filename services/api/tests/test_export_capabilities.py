@@ -1,18 +1,19 @@
 """The capability reference: generated from the live routes, never edited by hand, and honest about what it knows.
 
-It exists so an agent (Cipher) can say what AiSOC can do even where it has no tool, instead of guessing. What it must never do is overstate protection: writing 'login only' for a route that is public, or checked inside its handler, is worse than saying nothing (it did exactly that on its
+It exists so an agent (Cipher) can say what AiSOC can do even where it has no tool, instead of guessing. What it must never do is overstate
+protection: writing 'login only' for a route that is public, or checked inside its handler, is worse than saying nothing (it did exactly
+that on its
 first run, which is how a tenant admin being able to list every tenant came to light).
 """
-import uuid
+
 from pathlib import Path
 
 import pytest
-from fastapi import Depends, FastAPI
-
 from app.api.v1.deps import AuthUser, require_permission
 from app.core.route_introspect import access_kind
 from app.main import app as real_app
 from app.scripts import export_capabilities as ec
+from fastapi import Depends, FastAPI
 
 ROOT = Path(__file__).resolve().parents[3]
 FULL_FILE = ROOT / "docs" / "api" / "AISOC_CAPABILITIES.md"
@@ -31,7 +32,9 @@ def tiny_app() -> FastAPI:
     def make_thing():
         return {}
 
-    @app.delete("/api/v1/things/{thing_id}", summary="remove | a thing\nwith a newline", dependencies=[Depends(require_permission("things:delete"))])
+    @app.delete(
+        "/api/v1/things/{thing_id}", summary="remove | a thing\nwith a newline", dependencies=[Depends(require_permission("things:delete"))]
+    )
     def delete_thing(thing_id: str):
         return {}
 
@@ -68,7 +71,11 @@ class TestOperations:
     def test_each_method_of_each_route_is_one_operation_in_a_stable_order(self, tiny_ops):
         got = [(o.area, o.method, o.path) for o in tiny_ops]
         assert got == sorted(got, key=lambda t: (t[0], t[2], t[1]))
-        assert ("things", "GET", "/things") in got and ("things", "POST", "/things") in got and ("things", "DELETE", "/things/{thing_id}") in got
+        assert (
+            ("things", "GET", "/things") in got
+            and ("things", "POST", "/things") in got
+            and ("things", "DELETE", "/things/{thing_id}") in got
+        )
         assert len(got) == len(set(got)) == 7
 
     def test_head_and_options_declared_on_a_route_are_skipped(self):
@@ -116,7 +123,7 @@ class TestOperations:
 class TestRendering:
     def test_the_full_reference_lists_every_operation_exactly_once(self, tiny_ops):
         text = ec.render_full(tiny_ops)
-        rows = [l for l in text.splitlines() if l.startswith(("| GET ", "| POST ", "| DELETE "))]
+        rows = [ln for ln in text.splitlines() if ln.startswith(("| GET ", "| POST ", "| DELETE "))]
         assert len(rows) == len(tiny_ops)
 
     def test_the_area_table_counts_add_up(self, tiny_ops):
@@ -125,11 +132,13 @@ class TestRendering:
         assert f"**{len(tiny_ops)}** operations in **4** areas" in text
 
     def test_a_pipe_or_a_newline_in_a_summary_cannot_break_the_table(self, tiny_ops):
-        row = next(l for l in ec.render_full(tiny_ops).splitlines() if "/things/{thing_id}" in l and l.startswith("| DELETE"))
+        row = next(ln for ln in ec.render_full(tiny_ops).splitlines() if "/things/{thing_id}" in ln and ln.startswith("| DELETE"))
         assert "Remove \\| a thing with a newline" in row and row.count("|") - row.count("\\|") == 5
 
     def test_a_route_outside_the_api_prefix_says_so(self, tiny_ops):
-        assert "`/auth/sso/login (outside `/api/v1`)`" in ec.render_full(tiny_ops).replace("\\`", "`") or "(outside `/api/v1`)" in ec.render_full(tiny_ops)
+        assert "`/auth/sso/login (outside `/api/v1`)`" in ec.render_full(tiny_ops).replace(
+            "\\`", "`"
+        ) or "(outside `/api/v1`)" in ec.render_full(tiny_ops)
 
     def test_protection_is_stated_exactly_as_far_as_it_is_known_and_never_as_login_only(self, tiny_ops):
         for text in (ec.render_full(tiny_ops), ec.render_index(tiny_ops)):
@@ -144,16 +153,23 @@ class TestRendering:
 
     def test_the_index_has_exactly_one_line_per_area_and_says_it_is_a_map_not_a_tool_list(self, tiny_ops):
         text = ec.render_index(tiny_ops)
-        bullets = [l for l in text.splitlines() if l.startswith("- **")]
+        bullets = [ln for ln in text.splitlines() if ln.startswith("- **")]
         assert [b.split("**")[1] for b in bullets] == ["(root)", "auth", "me", "things"]
-        assert "MAP, not a list of tools" in text and "never guess its contents, never invent a tool, and never try to call an endpoint directly" in text
+        assert (
+            "MAP, not a list of tools" in text
+            and "never guess its contents, never invent a tool, and never try to call an endpoint directly" in text
+        )
 
     def test_the_index_line_counts_reads_and_changes_and_names_the_protection(self, tiny_ops):
-        line = next(l for l in ec.render_index(tiny_ops).splitlines() if l.startswith("- **things**"))
-        assert "1 reads, 2 changes" in line and "protection: `things:delete`, `things:read`, `things:write`" in line and "e.g. List the things" in line
-        me = next(l for l in ec.render_index(tiny_ops).splitlines() if l.startswith("- **me**"))
+        line = next(ln for ln in ec.render_index(tiny_ops).splitlines() if ln.startswith("- **things**"))
+        assert (
+            "1 reads, 2 changes" in line
+            and "protection: `things:delete`, `things:read`, `things:write`" in line
+            and "e.g. List the things" in line
+        )
+        me = next(ln for ln in ec.render_index(tiny_ops).splitlines() if ln.startswith("- **me**"))
         assert "1 signed-in with no permission declared" in me
-        auth = next(l for l in ec.render_index(tiny_ops).splitlines() if l.startswith("- **auth**"))
+        auth = next(ln for ln in ec.render_index(tiny_ops).splitlines() if ln.startswith("- **auth**"))
         assert "2 with no sign-in required" in auth
 
     def test_rendering_twice_gives_the_same_text(self, tiny_ops):
@@ -187,7 +203,8 @@ class TestTheCommand:
 class TestTheRealApplication:
     def test_there_are_hundreds_of_operations_and_the_counts_add_up(self, real_ops):
         assert len(real_ops) > 400
-        # The same path can exist under /api/v1 AND at the root (single sign-on aliases): those are different routes, which is why the reference marks the root ones.
+        # The same path can exist under /api/v1 AND at the root (single sign-on aliases): those are different routes, which is why the
+        # reference marks the root ones.
         assert len({(o.method, o.path, o.outside_api) for o in real_ops}) == len(real_ops)
         areas = ec._by_area(real_ops)
         assert sum(len(v) for v in areas.values()) == len(real_ops)
@@ -198,7 +215,11 @@ class TestTheRealApplication:
         assert both, "single sign-on routes exist in both places"
         text = ec.render_full(real_ops)
         for method, path in both:
-            assert f"| {method} | `{path}` |" in text and f"| {method} | `{path} (outside `/api/v1`)`" in text.replace("\\`", "`") or f"{path} (outside" in text
+            assert (
+                f"| {method} | `{path}` |" in text
+                and f"| {method} | `{path} (outside `/api/v1`)`" in text.replace("\\`", "`")
+                or f"{path} (outside" in text
+            )
 
     def test_known_operations_say_the_right_thing(self, real_ops):
         by = {(o.method, o.path): o for o in real_ops}
@@ -217,10 +238,14 @@ class TestTheRealApplication:
         assert not [o for o in real_ops if o.access != "permission" and o.permissions]
 
     def test_the_committed_full_reference_is_what_the_routes_produce_today(self, real_ops):
-        assert FULL_FILE.read_text(encoding="utf-8") == ec.render_full(real_ops), "docs/api/AISOC_CAPABILITIES.md is out of date: python -m app.scripts.export_capabilities --full ../../docs/api/AISOC_CAPABILITIES.md --index ../../docs/api/aisoc-areas.md"
+        assert (
+            FULL_FILE.read_text(encoding="utf-8") == ec.render_full(real_ops)
+        ), "docs/api/AISOC_CAPABILITIES.md is out of date: python -m app.scripts.export_capabilities --full ../../docs/api/AISOC_CAPABILITIES.md --index ../../docs/api/aisoc-areas.md"  # noqa: E501
 
     def test_the_committed_index_is_what_the_routes_produce_today(self, real_ops):
-        assert INDEX_FILE.read_text(encoding="utf-8") == ec.render_index(real_ops), "docs/api/aisoc-areas.md is out of date: regenerate it (see the test above)"
+        assert INDEX_FILE.read_text(encoding="utf-8") == ec.render_index(
+            real_ops
+        ), "docs/api/aisoc-areas.md is out of date: regenerate it (see the test above)"
 
     def test_the_index_is_small_enough_to_hand_to_an_agent(self, real_ops):
         assert len(ec.render_index(real_ops)) < 25_000
@@ -228,4 +253,6 @@ class TestTheRealApplication:
     def test_the_copy_in_the_core_checkout_is_the_same_when_one_is_next_to_this_repo(self, real_ops):
         if not CORE_COPY.exists():
             pytest.skip("no copy in a CORE checkout next to this repository")
-        assert CORE_COPY.read_text(encoding="utf-8") == ec.render_index(real_ops), "Cipher's knowledge file is out of date: copy docs/api/aisoc-areas.md to the CORE repo's agents/cipher/knowledge/aisoc-areas.md"
+        assert CORE_COPY.read_text(encoding="utf-8") == ec.render_index(
+            real_ops
+        ), "Cipher's knowledge file is out of date: copy docs/api/aisoc-areas.md to the CORE repo's agents/cipher/knowledge/aisoc-areas.md"

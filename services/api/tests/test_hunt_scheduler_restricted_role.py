@@ -1,10 +1,16 @@
 """The hunt scheduler must not depend on bypassing row-level security.
 
-`run_once` used to begin with `SET LOCAL row_security = off`. That only bypasses RLS for a superuser, the table owner or a BYPASSRLS role. For the ordinary restricted role (`aisoc_app`: not a superuser, no BYPASSRLS; docker-compose.rls.yml runs `actions` and `agents` as it, and the API can be pointed at it by hand) the very next SELECT FAILED with
-"query would be affected by row-level security policy", so scheduled hunts silently never ran whenever the API connected that way (latent in the shipped config: the overlay does not switch the API yet). Verified on a real Postgres (Docker is not available where the suite runs, so the behaviour is pinned here through what the sweep ASKS the database to do):
-  as aisoc_app    the real run_once() raised ProgrammingError: query would be affected by row-level security policy for table "aisoc_saved_hunts"
+`run_once` used to begin with `SET LOCAL row_security = off`. That only bypasses RLS for a superuser, the table owner or a BYPASSRLS role.
+For the ordinary restricted role (`aisoc_app`: not a superuser, no BYPASSRLS; docker-compose.rls.yml runs `actions` and `agents` as it, and
+the API can be pointed at it by hand) the very next SELECT FAILED with
+"query would be affected by row-level security policy", so scheduled hunts silently never ran whenever the API connected that way (latent in
+the shipped config: the overlay does not switch the API yet). Verified on a real Postgres (Docker is not available where the suite runs, so
+the behaviour is pinned here through what the sweep ASKS the database to do):
+  as aisoc_app    the real run_once() raised ProgrammingError: query would be affected by row-level security policy for table
+  "aisoc_saved_hunts"
   as the superuser the same call returned 0.
 """
+
 import inspect
 import re
 import uuid
@@ -13,7 +19,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from app.workers import hunt_scheduler
 
 APP = Path(hunt_scheduler.__file__).resolve().parents[1]
@@ -78,7 +83,10 @@ async def test_each_hunt_is_run_under_its_own_tenant_not_the_previous_ones(monke
     fired, db, calls = await _sweep([_hunt(a), _hunt(b)], monkeypatch)
     assert [c[1] for c in calls] == [a, b]
     assert [c[2] for c in calls] == [[str(a)], [str(b)]], "the tenant must be bound to the hunt being run, before it runs"
-    kinds = ["select" if s.lstrip().upper().startswith("SELECT") and "set_config" not in s else "set_config" if "set_config" in s else "update" for s, _ in db.statements]
+    kinds = [
+        "select" if s.lstrip().upper().startswith("SELECT") and "set_config" not in s else "set_config" if "set_config" in s else "update"
+        for s, _ in db.statements
+    ]
     assert kinds[0] == "select" and kinds.count("set_config") == 2 and kinds.count("update") == 2
 
 
@@ -87,7 +95,9 @@ async def test_the_sweep_still_reads_every_tenants_hunts_in_one_query_and_commit
     fired, db, _ = await _sweep([_hunt(uuid.uuid4()), _hunt(uuid.uuid4()), _hunt(uuid.uuid4())], monkeypatch)
     selects = [s for s, _ in db.statements if s.lstrip().upper().startswith("SELECT") and "set_config" not in s]
     assert len(selects) == 1 and fired == 3 and db.committed == 1
-    assert "tenant_id" not in selects[0].lower().split("where", 1)[1], "the sweep must not filter by one tenant: it is cross-tenant by design"
+    assert (
+        "tenant_id" not in selects[0].lower().split("where", 1)[1]
+    ), "the sweep must not filter by one tenant: it is cross-tenant by design"
 
 
 @pytest.mark.asyncio
@@ -97,7 +107,8 @@ async def test_with_no_hunts_nothing_is_written_and_nothing_is_committed(monkeyp
 
 
 def test_no_module_in_the_api_switches_row_security_off():
-    """A guard across the whole API package: `row_security = off` works for a superuser and breaks the restricted role the hardened deployment uses. (Comments that explain why are allowed; statements are not.)"""
+    """A guard across the whole API package: `row_security = off` works for a superuser and breaks the restricted role the hardened
+    deployment uses. (Comments that explain why are allowed; statements are not.)"""
     offenders = []
     for path in APP.rglob("*.py"):
         for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):

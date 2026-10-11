@@ -1,16 +1,19 @@
 """The graph upsert routes answer 503 when the graph database cannot be reached, not an unhandled 500.
 
-FOUND by fuzzing the OpenAPI spec against a real server with Neo4j not running: POST /graph/entities/{alert,case,host,user} each returned a raw HTTP 500 (neo4j ServiceUnavailable escaped the handler), while the graph QUERY routes already answered 503. A connectivity failure is now a 503 with a generic message (the driver's own text names the internal host and port); any OTHER exception still propagates, so a real bug stays a visible 500.
+FOUND by fuzzing the OpenAPI spec against a real server with Neo4j not running: POST /graph/entities/{alert,case,host,user} each returned a
+raw HTTP 500 (neo4j ServiceUnavailable escaped the handler), while the graph QUERY routes already answered 503. A connectivity failure is
+now a 503 with a generic message (the driver's own text names the internal host and port); any OTHER exception still propagates, so a real
+bug stays a visible 500.
 """
+
 import inspect
 import re
 import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.endpoints import graph
+from fastapi import HTTPException
 
 TENANT = uuid.uuid4()
 USER = SimpleNamespace(tenant_id=TENANT)
@@ -57,7 +60,16 @@ async def test_the_503_does_not_reveal_the_internal_host_or_port(monkeypatch, ki
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("message", ["Connect call failed ('127.0.0.1', 7687)", "Connection refused", "Name or service not known", "getaddrinfo failed", "Cannot resolve address foo:7687"])
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Connect call failed ('127.0.0.1', 7687)",
+        "Connection refused",
+        "Name or service not known",
+        "getaddrinfo failed",
+        "Cannot resolve address foo:7687",
+    ],
+)
 async def test_every_connectivity_marker_the_query_routes_recognise_is_recognised_here_too(monkeypatch, message):
     handler, payload, service_fn = HANDLERS["alert"]
     _patch(monkeypatch, service_fn, OSError(message))
@@ -86,7 +98,9 @@ async def test_when_the_graph_is_up_the_handler_answers_exactly_as_before(monkey
 
     monkeypatch.setattr(graph.graph_service, service_fn, fake)
     result = await handler(payload, USER)
-    assert result["status"] == "ok" and called["tenant_id"] == str(TENANT), "the caller's tenant, never one from the payload, is what the graph write is scoped to"
+    assert result["status"] == "ok" and called["tenant_id"] == str(
+        TENANT
+    ), "the caller's tenant, never one from the payload, is what the graph write is scoped to"
 
 
 @pytest.mark.asyncio
@@ -101,7 +115,9 @@ async def test_an_http_exception_raised_inside_the_write_is_not_swallowed_or_rew
 
 @pytest.mark.asyncio
 async def test_an_http_exception_whose_text_merely_mentions_a_connection_marker_is_not_turned_into_a_503():
-    """The passthrough clause only matters for this input: without it the marker in the message would reclassify a deliberate 409 as 'graph unavailable'."""
+    """The passthrough clause only matters for this input: without it the marker in the message would reclassify a deliberate 409 as 'graph
+    unavailable'."""
+
     async def refused():
         raise HTTPException(status_code=409, detail="Connection refused by the duplicate-entity policy")
 

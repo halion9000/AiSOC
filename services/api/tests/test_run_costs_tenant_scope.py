@@ -1,18 +1,20 @@
 """Per-run model costs are read for the caller's tenant ONLY, by the query itself.
 
-aisoc_run_costs has no row-level security, and its key is (run_id, tenant_id, model): the same run_id may exist under more than one tenant. The read used to be `WHERE run_id = :run_id` and relied on the caller having checked the run's tenant first (get_run still does). Nothing leaked, but the safety was a call order and a docstring.
+aisoc_run_costs has no row-level security, and its key is (run_id, tenant_id, model): the same run_id may exist under more than one tenant.
+The read used to be `WHERE run_id = :run_id` and relied on the caller having checked the run's tenant first (get_run still does). Nothing
+leaked, but the safety was a call order and a docstring.
 Found by sweeping every statement that touches a table without row-level security for one with no tenant predicate (1 of 21).
 """
+
 import asyncio
 import inspect
 import uuid
 
 import pytest
+from app.api.v1.endpoints import investigations as inv
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
-
-from app.api.v1.endpoints import investigations as inv
 
 A, B = uuid.uuid4(), uuid.uuid4()
 RUN = uuid.uuid4()
@@ -23,7 +25,11 @@ def _run(db_path, fn):
         engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", poolclass=NullPool)
         try:
             async with engine.begin() as conn:
-                await conn.execute(text("CREATE TABLE IF NOT EXISTS aisoc_run_costs (run_id TEXT, tenant_id TEXT, model TEXT, total_prompt_tokens INT, total_completion_tokens INT, total_cost_usd REAL, total_latency_ms REAL, call_count INT)"))
+                await conn.execute(
+                    text(
+                        "CREATE TABLE IF NOT EXISTS aisoc_run_costs (run_id TEXT, tenant_id TEXT, model TEXT, total_prompt_tokens INT, total_completion_tokens INT, total_cost_usd REAL, total_latency_ms REAL, call_count INT)"  # noqa: E501
+                    )
+                )
             async with async_sessionmaker(engine, expire_on_commit=False)() as session:
                 return await fn(session)
         finally:
@@ -34,7 +40,10 @@ def _run(db_path, fn):
 
 async def _seed(session, rows):
     for run_id, tenant, model, cost in rows:
-        await session.execute(text("INSERT INTO aisoc_run_costs VALUES (:r, :t, :m, 10, 5, :c, 100.0, 1)"), {"r": str(run_id), "t": str(tenant), "m": model, "c": cost})
+        await session.execute(
+            text("INSERT INTO aisoc_run_costs VALUES (:r, :t, :m, 10, 5, :c, 100.0, 1)"),
+            {"r": str(run_id), "t": str(tenant), "m": model, "c": cost},
+        )
     await session.commit()
 
 
@@ -72,7 +81,12 @@ class TestTheQueryScopesItselfToTheTenant:
             return await inv._fetch_model_costs(s, RUN, A)
 
         rows = _run(db, go)
-        assert [r.model for r in rows] == ["dear", "cheap"] and rows[0].total_cost_usd == 5.0 and rows[0].total_prompt_tokens == 10 and rows[0].call_count == 1
+        assert (
+            [r.model for r in rows] == ["dear", "cheap"]
+            and rows[0].total_cost_usd == 5.0
+            and rows[0].total_prompt_tokens == 10
+            and rows[0].call_count == 1
+        )
 
 
 class TestTheCallerPassesTheAuthenticatedTenant:

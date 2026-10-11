@@ -1,5 +1,7 @@
-"""Which permissions does a route require, and which routes does the application have? Shared by the permission tests and by the capability reference generator
+"""Which permissions does a route require, and which routes does the application have? Shared by the permission tests and by the capability
+reference generator
 (app/scripts/export_capabilities.py), so there is one definition of both."""
+
 from collections.abc import Iterator
 
 from fastapi.routing import APIRoute
@@ -25,8 +27,10 @@ SIGNED_IN_DEPENDENCIES = ("get_current_user", "require_signed_in_session")
 
 
 def access_kind(route: APIRoute) -> str:
-    """How a route is protected, as far as its DEPENDENCIES show: `permission` (it asks for a named permission), `signed-in` (it needs a signed-in caller but declares no permission) or `open`
-    (no sign-in dependency at all: login itself, health checks, public listings, webhooks that check their own secret). A check made INSIDE the handler is not visible here."""
+    """How a route is protected, as far as its DEPENDENCIES show: `permission` (it asks for a named permission), `signed-in` (it needs a
+    signed-in caller but declares no permission) or `open`
+    (no sign-in dependency at all: login itself, health checks, public listings, webhooks that check their own secret). A check made INSIDE
+    the handler is not visible here."""
     if required_permissions(route):
         return "permission"
     names: list[str] = []
@@ -41,7 +45,8 @@ def access_kind(route: APIRoute) -> str:
 
 
 def walk_routes(routes, prefix: str = "") -> Iterator[tuple[str, APIRoute]]:
-    """Every APIRoute of the application with its full path, descending into included routers (their prefix is carried in `include_context`)."""
+    """Every APIRoute of the application with its full path, descending into included routers (their prefix is carried in
+    `include_context`)."""
     for route in routes:
         if isinstance(route, APIRoute):
             yield prefix + route.path, route

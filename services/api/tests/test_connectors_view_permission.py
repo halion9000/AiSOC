@@ -1,33 +1,50 @@
 """connectors:view: see which connectors exist and whether they are healthy, split out of connectors:read.
 
-connectors:read guards 11 routes. Besides the five that list connectors it guards POST /federated/search, which runs a free-text or indicator query across the tenant's connected SIEMs (Splunk, Elastic...) with their stored credentials and returns the merged rows: telemetry from the customer's own systems. It also guards the federated backend list, the agent tool list, the inbox template and token lists and the OAuth app view.
-CORE's key held connectors:read so Cipher could list connectors and read their health, so it could also search the customer's SIEM. (`GET /connectors/{id}` omits auth_config, so credentials do not come back on a read; `connector_config` is free-form and documented as non-secret, but nothing enforces that.)
+connectors:read guards 11 routes. Besides the five that list connectors it guards POST /federated/search, which runs a free-text or
+indicator query across the tenant's connected SIEMs (Splunk, Elastic...) with their stored credentials and returns the merged rows:
+telemetry from the customer's own systems. It also guards the federated backend list, the agent tool list, the inbox template and token
+lists and the OAuth app view.
+CORE's key held connectors:read so Cipher could list connectors and read their health, so it could also search the customer's SIEM. (`GET
+/connectors/{id}` omits auth_config, so credentials do not come back on a read; `connector_config` is free-form and documented as
+non-secret, but nothing enforces that.)
 Each claim is tested over the whole application rather than assumed:
-  1. NOBODY LOSES ACCESS: whatever held connectors:read (a role, a custom database role, a `connectors:*` wildcard, a key) still reads connectors AND still reaches the six routes that stay.
+  1. NOBODY LOSES ACCESS: whatever held connectors:read (a role, a custom database role, a `connectors:*` wildcard, a key) still reads
+  connectors AND still reaches the six routes that stay.
   2. connectors:view ALONE GRANTS NOTHING ELSE: a key holding only it satisfies exactly the five reads among every route in the application.
   3. CORE's real key scopes reach none of the six routes that stay, and still reach the three connector routes its tools call.
-NOT VERIFIED LIVE: a real federated search returning real rows needs a connected SIEM; what was shown is that authorization let the key in (and that it no longer does).
+NOT VERIFIED LIVE: a real federated search returning real rows needs a connected SIEM; what was shown is that authorization let the key in
+(and that it no longer does).
 """
+
 import asyncio
 import re
 import uuid
 from pathlib import Path
 
 import pytest
-from route_introspect import required_permissions as _required_permissions
-from route_introspect import walk_routes
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import api_keys
 from app.core.security import IMPLIED_BY, PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, known_permissions, permission_in
 from app.main import app
 from app.scripts import bootstrap_production as bp
+from route_introspect import required_permissions as _required_permissions
+from route_introspect import walk_routes
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
-VIEW_ROUTES = {("GET", "/connectors"), ("GET", "/connectors/catalog"), ("GET", "/connectors/health"), ("GET", "/connectors/{connector_id}"), ("GET", "/connectors/{connector_id}/last_event_at")}
+VIEW_ROUTES = {
+    ("GET", "/connectors"),
+    ("GET", "/connectors/catalog"),
+    ("GET", "/connectors/health"),
+    ("GET", "/connectors/{connector_id}"),
+    ("GET", "/connectors/{connector_id}/last_event_at"),
+}
 STAY_ROUTES = {
-    ("POST", "/federated/search"), ("GET", "/federated/backends"), ("GET", "/agents/tools"),
-    ("GET", "/inbox/templates"), ("GET", "/inbox/tokens"), ("GET", "/oauth/app/{connector_type}"),
+    ("POST", "/federated/search"),
+    ("GET", "/federated/backends"),
+    ("GET", "/agents/tools"),
+    ("GET", "/inbox/templates"),
+    ("GET", "/inbox/tokens"),
+    ("GET", "/oauth/app/{connector_type}"),
 }
 
 
@@ -48,7 +65,19 @@ def _satisfied_by(scopes) -> set[tuple[str, str]]:
 
 
 class TestTheImplication:
-    @pytest.mark.parametrize("granted,expected", [(["connectors:view"], True), (["connectors:read"], True), (["connectors:*"], True), (["*"], True), (["connectors:write"], False), (["connectors:delete"], False), (["alerts:read"], False), ([], False)])
+    @pytest.mark.parametrize(
+        "granted,expected",
+        [
+            (["connectors:view"], True),
+            (["connectors:read"], True),
+            (["connectors:*"], True),
+            (["*"], True),
+            (["connectors:write"], False),
+            (["connectors:delete"], False),
+            (["alerts:read"], False),
+            ([], False),
+        ],
+    )
     def test_who_holds_connectors_view(self, granted, expected):
         assert permission_in(granted, "connectors:view") is expected
 
@@ -75,19 +104,36 @@ class TestRolesAreUnchanged:
 
     def test_the_comparison_is_not_vacuous_some_roles_hold_it_and_some_do_not(self):
         outcomes = {role: has_permission(role, "connectors:view") for role in ROLE_PERMISSIONS}
-        assert outcomes["admin"] is True and outcomes["soc_analyst"] is True and outcomes["viewer"] is False and outcomes["threat_hunter"] is False, outcomes
+        assert (
+            outcomes["admin"] is True
+            and outcomes["soc_analyst"] is True
+            and outcomes["viewer"] is False
+            and outcomes["threat_hunter"] is False
+        ), outcomes
 
 
 class TestTheRoutes:
     def test_exactly_these_five_routes_need_connectors_view_and_each_is_a_get(self):
-        found = {(m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"connectors:view"} for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p)
+            for p, r in ALL_ROUTES
+            if required_permissions(r) == {"connectors:view"}
+            for m in r.methods
+            if m not in {"HEAD", "OPTIONS"}
+        }
         assert found == VIEW_ROUTES and all(m == "GET" for m, _ in found)
 
     def test_a_key_holding_only_connectors_view_can_use_exactly_those_five_routes_in_the_whole_application(self):
         assert _satisfied_by(["connectors:view"]) == VIEW_ROUTES
 
     def test_exactly_these_six_routes_still_need_connectors_read_and_connectors_view_does_not_reach_them(self):
-        found = {(m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"connectors:read"} for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p)
+            for p, r in ALL_ROUTES
+            if required_permissions(r) == {"connectors:read"}
+            for m in r.methods
+            if m not in {"HEAD", "OPTIONS"}
+        }
         assert found == STAY_ROUTES
         assert not (_satisfied_by(["connectors:view"]) & STAY_ROUTES)
 
@@ -95,7 +141,8 @@ class TestTheRoutes:
         assert _satisfied_by(["connectors:read"]) == VIEW_ROUTES | STAY_ROUTES
 
     def test_the_federated_search_is_the_one_that_queries_connected_systems_and_stays_behind_connectors_read(self):
-        """The reason for the split, pinned: if this route ever needs a different permission, or stops querying connected systems, re-read the split."""
+        """The reason for the split, pinned: if this route ever needs a different permission, or stops querying connected systems, re-read
+        the split."""
         route = next(r for p, r in ALL_ROUTES if p == "/federated/search" and "POST" in r.methods)
         assert required_permissions(route) == {"connectors:read"}
         assert "_fetch_target_connectors" in __import__("inspect").getsource(route.endpoint)
@@ -123,7 +170,9 @@ class TestCoresKeyNoLongerReachesTheFederatedSearch:
         spec.loader.exec_module(module)
         norm = lambda p: re.sub(r"\{[^}]*\}", "{}", p)  # noqa: E731
         reached = {(m, norm(p)) for m, p in _satisfied_by(bp.CORE_KEY_SCOPES)}
-        wanted = [(name, method, path) for name, method, path, *_ in module.CIPHER_CALLS if method == "GET" and path.startswith("/connectors")]
+        wanted = [
+            (name, method, path) for name, method, path, *_ in module.CIPHER_CALLS if method == "GET" and path.startswith("/connectors")
+        ]
         assert {n for n, _, _ in wanted} == {"aisoc_list_connectors", "aisoc_connector_catalog", "aisoc_connector_health"}, wanted
         for name, method, path in wanted:
             assert (method, norm(path)) in reached, f"{name}: CORE's key no longer reaches {method} {path}"

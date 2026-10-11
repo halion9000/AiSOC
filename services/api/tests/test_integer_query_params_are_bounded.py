@@ -1,17 +1,22 @@
 """Every integer query parameter has an upper bound, so an absurd value is a 422, not an error from the database.
 
-FOUND by fuzzing the OpenAPI spec against a real server: GET /cases?offset=190547863906668642304 reached Postgres, overflowed a 64-bit integer, and came back as "503 Database error" (and the cases handler logged an unhandled DBAPIError). The audit behind it found that 31 of the API's 77 integer query parameters had NO upper bound: 16 `offset`, 9 `page`, 4 `limit` (declared as a plain `limit: int = 100`, so not validated at all: `limit=1000000000` was accepted) and the investigation event cursors `since` and `step`.
-They are now bounded (offset 1,000,000; page 100,000; limit 500 or 1000; event seq 1,000,000,000), and this test is derived from the live OpenAPI schema, so a NEW unbounded integer query parameter fails the build. Unbounded `limit` also lets a caller ask for an arbitrarily large result set.
+FOUND by fuzzing the OpenAPI spec against a real server: GET /cases?offset=190547863906668642304 reached Postgres, overflowed a 64-bit
+integer, and came back as "503 Database error" (and the cases handler logged an unhandled DBAPIError). The audit behind it found that 31 of
+the API's 77 integer query parameters had NO upper bound: 16 `offset`, 9 `page`, 4 `limit` (declared as a plain `limit: int = 100`, so not
+validated at all: `limit=1000000000` was accepted) and the investigation event cursors `since` and `step`.
+They are now bounded (offset 1,000,000; page 100,000; limit 500 or 1000; event seq 1,000,000,000), and this test is derived from the live
+OpenAPI schema, so a NEW unbounded integer query parameter fails the build. Unbounded `limit` also lets a caller ask for an arbitrarily
+large result set.
 """
+
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.db.rls import get_tenant_db
 from app.main import app
+from fastapi.testclient import TestClient
 
 SPEC = app.openapi()
 COMPONENTS = SPEC["components"]["schemas"]
@@ -54,17 +59,27 @@ def test_the_scan_sees_the_parameters_it_claims_to():
 
 
 def test_every_integer_query_parameter_has_an_upper_bound():
-    unbounded = [(name, f"{method} {path}") for name, method, path, schema in PARAMS if "maximum" not in schema and "exclusiveMaximum" not in schema and (name, path) not in UNBOUNDED_ALLOWED]
+    unbounded = [
+        (name, f"{method} {path}")
+        for name, method, path, schema in PARAMS
+        if "maximum" not in schema and "exclusiveMaximum" not in schema and (name, path) not in UNBOUNDED_ALLOWED
+    ]
     assert not unbounded, f"integer query parameters with no maximum (an absurd value reaches the database): {unbounded}"
 
 
 def test_every_integer_query_parameter_has_a_lower_bound_too_except_where_negative_is_meaningful():
-    missing = [(name, f"{method} {path}") for name, method, path, schema in PARAMS if name in {"offset", "page", "limit"} and "minimum" not in schema and "exclusiveMinimum" not in schema]
+    missing = [
+        (name, f"{method} {path}")
+        for name, method, path, schema in PARAMS
+        if name in {"offset", "page", "limit"} and "minimum" not in schema and "exclusiveMinimum" not in schema
+    ]
     assert not missing, missing
 
 
 def test_no_bound_is_so_large_that_the_value_can_still_overflow_a_64_bit_integer():
-    too_big = [(name, f"{method} {path}", schema.get("maximum")) for name, method, path, schema in PARAMS if (schema.get("maximum") or 0) >= 2**62]
+    too_big = [
+        (name, f"{method} {path}", schema.get("maximum")) for name, method, path, schema in PARAMS if (schema.get("maximum") or 0) >= 2**62
+    ]
     assert not too_big, too_big
 
 
@@ -120,7 +135,9 @@ def test_an_absurd_value_is_a_422_that_names_the_bound_not_a_database_error(url,
     assert "less than or equal to" in response.text, why
 
 
-@pytest.mark.parametrize("url", ["/api/v1/cases?offset=0&limit=50", "/api/v1/alerts?page=1", "/api/v1/threat-intel/iocs?offset=100000&limit=200"])
+@pytest.mark.parametrize(
+    "url", ["/api/v1/cases?offset=0&limit=50", "/api/v1/alerts?page=1", "/api/v1/threat-intel/iocs?offset=100000&limit=200"]
+)
 def test_the_values_clients_really_use_still_pass_validation(url):
     """Validation passes (the request then reaches the handler, which has no database here and answers 500/503, never 422)."""
     assert _client().get(url).status_code != 422

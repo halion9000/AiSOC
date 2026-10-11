@@ -1,31 +1,49 @@
 """cases:work: work on an existing case, split out of cases:write.
 
-cases:write guards 14 routes. Besides updating a case, commenting on it, launching an investigation from it and closing one, it covers creating cases, attaching alerts, notes, observables and tasks, updating a task, RAISING and DECIDING agent approvals (the human sign-off for destructive actions) and publishing or unpublishing investigation replays.
-CORE's agent only does the first four, so its key held all of it: it could create cases and tasks, put approval requests in front of the on-call analyst (and, until a signed-in session was required, decide them), and publish replays. Each claim is tested over the whole application rather than assumed:
-  1. NOBODY LOSES ACCESS: whatever held cases:write (a role, a custom database role, a `cases:*` wildcard, a key) still works on cases AND still reaches the ten other routes.
+cases:write guards 14 routes. Besides updating a case, commenting on it, launching an investigation from it and closing one, it covers
+creating cases, attaching alerts, notes, observables and tasks, updating a task, RAISING and DECIDING agent approvals (the human sign-off
+for destructive actions) and publishing or unpublishing investigation replays.
+CORE's agent only does the first four, so its key held all of it: it could create cases and tasks, put approval requests in front of the
+on-call analyst (and, until a signed-in session was required, decide them), and publish replays. Each claim is tested over the whole
+application rather than assumed:
+  1. NOBODY LOSES ACCESS: whatever held cases:write (a role, a custom database role, a `cases:*` wildcard, a key) still works on cases AND
+  still reaches the ten other routes.
   2. cases:work ALONE GRANTS NOTHING ELSE: a key holding only it satisfies exactly four routes among every route in the application.
   3. CORE's real key scopes reach none of the ten, and still reach the four its case tools call.
 """
+
 import asyncio
 import re
 import uuid
 from pathlib import Path
 
 import pytest
-from route_introspect import required_permissions as _required_permissions
-from route_introspect import walk_routes
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import api_keys
 from app.core.security import IMPLIED_BY, PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, known_permissions, permission_in
 from app.main import app
 from app.scripts import bootstrap_production as bp
+from route_introspect import required_permissions as _required_permissions
+from route_introspect import walk_routes
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
-WORK_ROUTES = {("PATCH", "/cases/{case_id}"), ("POST", "/cases/{case_id}/comments"), ("POST", "/cases/{case_id}/investigate"), ("POST", "/investigations/{run_id}/close")}
+WORK_ROUTES = {
+    ("PATCH", "/cases/{case_id}"),
+    ("POST", "/cases/{case_id}/comments"),
+    ("POST", "/cases/{case_id}/investigate"),
+    ("POST", "/investigations/{run_id}/close"),
+}
 STAY_ROUTES = {
-    ("POST", "/cases"), ("POST", "/cases/{case_id}/alerts"), ("POST", "/cases/{case_id}/notes"), ("POST", "/cases/{case_id}/observables"), ("POST", "/cases/{case_id}/tasks"), ("PATCH", "/cases/{case_id}/tasks/{task_id}"),
-    ("POST", "/approvals"), ("POST", "/approvals/{approval_id}/decide"), ("POST", "/ledger/{run_id}/publish"), ("DELETE", "/ledger/publish/{slug}"),
+    ("POST", "/cases"),
+    ("POST", "/cases/{case_id}/alerts"),
+    ("POST", "/cases/{case_id}/notes"),
+    ("POST", "/cases/{case_id}/observables"),
+    ("POST", "/cases/{case_id}/tasks"),
+    ("PATCH", "/cases/{case_id}/tasks/{task_id}"),
+    ("POST", "/approvals"),
+    ("POST", "/approvals/{approval_id}/decide"),
+    ("POST", "/ledger/{run_id}/publish"),
+    ("DELETE", "/ledger/publish/{slug}"),
 }
 
 
@@ -46,7 +64,19 @@ def _satisfied_by(scopes) -> set[tuple[str, str]]:
 
 
 class TestTheImplication:
-    @pytest.mark.parametrize("granted,expected", [(["cases:work"], True), (["cases:write"], True), (["cases:*"], True), (["*"], True), (["cases:read"], False), (["cases:delete"], False), (["alerts:write"], False), ([], False)])
+    @pytest.mark.parametrize(
+        "granted,expected",
+        [
+            (["cases:work"], True),
+            (["cases:write"], True),
+            (["cases:*"], True),
+            (["*"], True),
+            (["cases:read"], False),
+            (["cases:delete"], False),
+            (["alerts:write"], False),
+            ([], False),
+        ],
+    )
     def test_who_holds_cases_work(self, granted, expected):
         assert permission_in(granted, "cases:work") is expected
 
@@ -73,19 +103,25 @@ class TestRolesAreUnchanged:
 
     def test_the_comparison_is_not_vacuous_the_viewer_holds_neither_and_the_working_roles_hold_both(self):
         outcomes = {role: has_permission(role, "cases:work") for role in ROLE_PERMISSIONS}
-        assert outcomes["viewer"] is False and all(outcomes[r] for r in ("admin", "soc_analyst", "soc_lead", "threat_hunter", "api_service")), outcomes
+        assert outcomes["viewer"] is False and all(
+            outcomes[r] for r in ("admin", "soc_analyst", "soc_lead", "threat_hunter", "api_service")
+        ), outcomes
 
 
 class TestTheRoutes:
     def test_exactly_these_four_routes_need_cases_work(self):
-        found = {(m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"cases:work"} for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"cases:work"} for m in r.methods if m not in {"HEAD", "OPTIONS"}
+        }
         assert found == WORK_ROUTES
 
     def test_a_key_holding_only_cases_work_can_use_exactly_those_four_routes_in_the_whole_application(self):
         assert _satisfied_by(["cases:work"]) == WORK_ROUTES
 
     def test_exactly_these_ten_routes_still_need_cases_write_and_cases_work_does_not_reach_them(self):
-        found = {(m, p) for p, r in ALL_ROUTES if "cases:write" in required_permissions(r) for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p) for p, r in ALL_ROUTES if "cases:write" in required_permissions(r) for m in r.methods if m not in {"HEAD", "OPTIONS"}
+        }
         assert found == STAY_ROUTES and len(found) == 10
         assert not (_satisfied_by(["cases:work"]) & STAY_ROUTES)
 
@@ -93,7 +129,8 @@ class TestTheRoutes:
         assert _satisfied_by(["cases:write"]) >= WORK_ROUTES | STAY_ROUTES
 
     def test_neither_cases_work_nor_cases_write_grants_cases_delete(self):
-        """No route needs cases:delete today (checked, not assumed: the set below is empty), so the guarantee is the permission relation itself, which would also cover one added later."""
+        """No route needs cases:delete today (checked, not assumed: the set below is empty), so the guarantee is the permission relation
+        itself, which would also cover one added later."""
         deleters = {(m, p) for p, r in ALL_ROUTES if "cases:delete" in required_permissions(r) for m in r.methods}
         assert not (_satisfied_by(["cases:work"]) & deleters) and not (_satisfied_by(["cases:write"]) & deleters)
         assert not permission_in(["cases:work"], "cases:delete") and not permission_in(["cases:write"], "cases:delete")
@@ -153,7 +190,9 @@ class TestACurrentUserOnTheRealPaths:
 class TestTheMigration:
     sql = (MIGRATIONS / "080_cases_work_permission.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", sql)
-    statements = re.sub(r"'[^']*'", "''", code)  # string literals removed: the permission's DESCRIPTION says "Update a case", which is not an UPDATE statement
+    statements = re.sub(
+        r"'[^']*'", "''", code
+    )  # string literals removed: the permission's DESCRIPTION says "Update a case", which is not an UPDATE statement
 
     def test_it_adds_only_the_name_to_the_catalog_and_is_idempotent(self):
         assert re.search(r"INSERT INTO permissions \(name, description, category\) VALUES\s*\('cases:work'", self.sql)

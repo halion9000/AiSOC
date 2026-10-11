@@ -1,8 +1,13 @@
 """The weekly digest must write a status the database accepts.
 
-report_artefacts.status is CHECK-constrained (migration 019) to pending | generating | completed | failed. The digest worker wrote status="ready", which the database refused with a CheckViolationError, so EVERY tenant's digest failed ({'tenants': 3, 'generated': 0, 'failed': 3}), under the superuser exactly as under the restricted role: no weekly digest could ever be saved.
-Nothing caught it: the existing worker tests mock every database call, and the html-fallback test PATCHES `_generate_for_tenant` WITH ITS OWN RE-IMPLEMENTATION and asserts on the copy's output, so it can never see what the real function writes. These tests run the real function (mocking only its collaborators) and read the allowed values from the migration, not from a copy in the test.
+report_artefacts.status is CHECK-constrained (migration 019) to pending | generating | completed | failed. The digest worker wrote
+status="ready", which the database refused with a CheckViolationError, so EVERY tenant's digest failed ({'tenants': 3, 'generated': 0,
+'failed': 3}), under the superuser exactly as under the restricted role: no weekly digest could ever be saved.
+Nothing caught it: the existing worker tests mock every database call, and the html-fallback test PATCHES `_generate_for_tenant` WITH ITS
+OWN RE-IMPLEMENTATION and asserts on the copy's output, so it can never see what the real function writes. These tests run the real function
+(mocking only its collaborators) and read the allowed values from the migration, not from a copy in the test.
 """
+
 import ast
 import re
 import uuid
@@ -12,13 +17,18 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
 from app.models.report import ReportArtefact
 from app.workers import weekly_digest_task as wdt
 
 SERVICE = Path(wdt.__file__).resolve().parents[2]
 MIGRATION = (SERVICE / "migrations" / "019_board_reports.sql").read_text(encoding="utf-8")
-ALLOWED = set(re.search(r"status\s+TEXT NOT NULL DEFAULT 'pending'\s*CHECK \(status IN \(([^)]*)\)\)", MIGRATION).group(1).replace("'", "").replace(" ", "").split(","))
+ALLOWED = set(
+    re.search(r"status\s+TEXT NOT NULL DEFAULT 'pending'\s*CHECK \(status IN \(([^)]*)\)\)", MIGRATION)
+    .group(1)
+    .replace("'", "")
+    .replace(" ", "")
+    .split(",")
+)
 
 
 class _Session:
@@ -80,7 +90,8 @@ def test_the_model_default_is_an_allowed_status():
 
 
 def _status_literals():
-    """Every string constant the application assigns as a ReportArtefact status: `ReportArtefact(status="x")` and `<something>.status = "x"` in a module that uses ReportArtefact."""
+    """Every string constant the application assigns as a ReportArtefact status: `ReportArtefact(status="x")` and `<something>.status = "x"`
+    in a module that uses ReportArtefact."""
     found = []
     for path in (SERVICE / "app").rglob("*.py"):
         source = path.read_text(encoding="utf-8", errors="replace")
@@ -91,7 +102,12 @@ def _status_literals():
                 for kw in node.keywords:
                     if kw.arg == "status" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
                         found.append((str(path.relative_to(SERVICE)), kw.value.lineno, kw.value.value))
-            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Attribute) and t.attr == "status" for t in node.targets) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            if (
+                isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Attribute) and t.attr == "status" for t in node.targets)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
                 found.append((str(path.relative_to(SERVICE)), node.lineno, node.value.value))
     return found
 

@@ -1,25 +1,30 @@
 """alerts:triage: claim, escalate and snooze an alert, split out of alerts:write.
 
-alerts:write guards 29 routes. Besides triaging an alert it covers submitting and patching alerts and creating assets, adding cloud posture findings, creating identity graph nodes, adding insider-threat indicators and changing an employee profile's watchlist, graph entities, honeytokens, feedback and phishing re-triage.
-CORE's agent only claims, escalates and snoozes alerts, so it was given all of that. Confirmed on a real deployment: with CORE's scopes the five writes above passed authorization (201 for an identity node; 422 only because the body was empty), and a read-only key got 403 on every one. Each claim is tested over the whole application rather than assumed:
-  1. NOBODY LOSES ACCESS: whatever held alerts:write (a role, a custom database role, an `alerts:*` wildcard, a key) still triages, and still reaches every other alerts:write route.
+alerts:write guards 29 routes. Besides triaging an alert it covers submitting and patching alerts and creating assets, adding cloud posture
+findings, creating identity graph nodes, adding insider-threat indicators and changing an employee profile's watchlist, graph entities,
+honeytokens, feedback and phishing re-triage.
+CORE's agent only claims, escalates and snoozes alerts, so it was given all of that. Confirmed on a real deployment: with CORE's scopes the
+five writes above passed authorization (201 for an identity node; 422 only because the body was empty), and a read-only key got 403 on every
+one. Each claim is tested over the whole application rather than assumed:
+  1. NOBODY LOSES ACCESS: whatever held alerts:write (a role, a custom database role, an `alerts:*` wildcard, a key) still triages, and
+  still reaches every other alerts:write route.
   2. alerts:triage ALONE GRANTS NOTHING ELSE: a key holding only it satisfies exactly three routes among every route in the application.
   3. CORE's real key scopes reach none of the 26 other alerts:write routes.
 """
+
 import asyncio
 import re
 import uuid
 from pathlib import Path
 
 import pytest
-from route_introspect import required_permissions as _required_permissions
-from route_introspect import walk_routes
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import api_keys
 from app.core.security import IMPLIED_BY, PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, known_permissions, permission_in
 from app.main import app
 from app.scripts import bootstrap_production as bp
+from route_introspect import required_permissions as _required_permissions
+from route_introspect import walk_routes
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 TRIAGE_ROUTES = {("POST", "/alerts/{alert_id}/claim"), ("POST", "/alerts/{alert_id}/escalate"), ("POST", "/alerts/{alert_id}/snooze")}
@@ -40,7 +45,9 @@ def required_permissions(route) -> set[str]:
 
 
 ALL_ROUTES = [(path.replace("/api/v1", "", 1), route) for path, route in walk_routes(app.routes)]
-WRITE_ONLY = {(m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"alerts:write"} for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+WRITE_ONLY = {
+    (m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"alerts:write"} for m in r.methods if m not in {"HEAD", "OPTIONS"}
+}
 
 
 def _satisfied_by(scopes) -> set[tuple[str, str]]:
@@ -97,7 +104,9 @@ class TestRolesAreUnchanged:
 
 class TestTheRoutes:
     def test_exactly_these_three_routes_need_alerts_triage_and_each_is_a_post(self):
-        found = {(m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"alerts:triage"} for m in r.methods if m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p) for p, r in ALL_ROUTES if required_permissions(r) == {"alerts:triage"} for m in r.methods if m not in {"HEAD", "OPTIONS"}
+        }
         assert found == TRIAGE_ROUTES and all(m == "POST" for m, _ in found)
 
     def test_a_key_holding_only_alerts_triage_can_use_exactly_those_three_routes_in_the_whole_application(self):
@@ -122,7 +131,12 @@ class TestCoresKeyNoLongerReachesTheOtherWrites:
     def test_cores_key_still_triages_and_still_reaches_what_its_other_tools_call(self):
         reached = _satisfied_by(bp.CORE_KEY_SCOPES)
         assert TRIAGE_ROUTES <= reached
-        for call in (("POST", "/cases/{case_id}/comments"), ("PATCH", "/cases/{case_id}"), ("POST", "/cases/{case_id}/investigate"), ("POST", "/investigations/{run_id}/close")):
+        for call in (
+            ("POST", "/cases/{case_id}/comments"),
+            ("PATCH", "/cases/{case_id}"),
+            ("POST", "/cases/{case_id}/investigate"),
+            ("POST", "/investigations/{run_id}/close"),
+        ):
             assert any(m == call[0] and re.sub(r"\{[^}]*\}", "{}", p) == re.sub(r"\{[^}]*\}", "{}", call[1]) for m, p in reached), call
 
     def test_the_key_holds_alerts_triage_and_not_alerts_write(self):
@@ -179,7 +193,13 @@ class TestTheMigration:
         assert not re.search(r"\b(DELETE|DROP|UPDATE|ALTER)\b", self.code, re.I)
 
     def test_it_names_the_three_routes_and_what_is_not_included(self):
-        for route in ("POST /alerts/{id}/claim", "POST /alerts/{id}/escalate", "POST /alerts/{id}/snooze", "POST /alerts/submit", "PATCH /alerts/{id}"):
+        for route in (
+            "POST /alerts/{id}/claim",
+            "POST /alerts/{id}/escalate",
+            "POST /alerts/{id}/snooze",
+            "POST /alerts/submit",
+            "PATCH /alerts/{id}",
+        ):
             assert route in self.sql, route
         assert "29 routes" in self.sql
 

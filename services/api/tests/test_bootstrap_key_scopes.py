@@ -1,23 +1,26 @@
 """Bootstrap keeps an existing key's SECRET but brings its scopes to exactly what is wanted now.
 
-Before this, `_ensure_key` returned "kept-existing" and never touched an existing key's scopes. So a scope added to CORE_KEY_SCOPES (rules:read, for Cipher's detection-engineering tools) reached only fresh installs, and every deployment already running would have got 403s from the new tools until someone
+Before this, `_ensure_key` returned "kept-existing" and never touched an existing key's scopes. So a scope added to CORE_KEY_SCOPES
+(rules:read, for Cipher's detection-engineering tools) reached only fresh installs, and every deployment already running would have got 403s
+from the new tools until someone
 rotated the key and handed the new secret to CORE. A real database (SQLite) is used so the filters by name and tenant are really exercised.
 """
+
 import asyncio
 import logging
 import uuid
 
 import pytest
+from app.db.database import Base
+from app.models.tenant import ApiKey, Tenant, User
+from app.scripts import bootstrap_production as bp
 from sqlalchemy import create_engine, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from app.db.database import Base
-from app.models.tenant import ApiKey, Tenant, User
-from app.scripts import bootstrap_production as bp
-
-# OLD: the key an early version issued (it held alerts:write). NEW: what CORE's key holds now: the narrow alerts:triage instead of alerts:write, plus the read scopes added since.
+# OLD: the key an early version issued (it held alerts:write). NEW: what CORE's key holds now: the narrow alerts:triage instead of
+# alerts:write, plus the read scopes added since.
 OLD = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read"]
 NEW = ["alerts:read", "alerts:triage", "cases:read", "cases:work", "connectors:view", "rules:view", "hunts:read", "intel:read"]
 OWNER = uuid.uuid4()
@@ -26,8 +29,10 @@ OTHER_TENANT = uuid.uuid4()
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
-    # The real default tenant id (0000...0001) is a hex string made only of DIGITS; SQLite gives a column declared UUID numeric affinity and would store it as the integer 1
-    # (Postgres stores a real UUID). So these tests use a default tenant id that contains hex letters. What is under test is how keys are chosen and changed, not the id.
+    # The real default tenant id (0000...0001) is a hex string made only of DIGITS; SQLite gives a column declared UUID numeric affinity and
+    # would store it as the integer 1
+    # (Postgres stores a real UUID). So these tests use a default tenant id that contains hex letters. What is under test is how keys are
+    # chosen and changed, not the id.
     monkeypatch.setattr(bp, "DEFAULT_TENANT_ID", uuid.UUID("abcdef00-0000-0000-0000-000000000001"))
     path = tmp_path / "keys.db"
     sync = create_engine(f"sqlite:///{path}")
@@ -36,7 +41,15 @@ def world(tmp_path, monkeypatch):
 
     def add(name="core-hud", scopes=None, active=True, tenant=None, secret="hash-1", prefix="ak_1"):
         with Session(sync, expire_on_commit=False) as s:
-            key = ApiKey(tenant_id=tenant or bp.DEFAULT_TENANT_ID, user_id=OWNER, name=name, key_prefix=prefix, hashed_key=secret, scopes=list(scopes if scopes is not None else OLD), is_active=active)
+            key = ApiKey(
+                tenant_id=tenant or bp.DEFAULT_TENANT_ID,
+                user_id=OWNER,
+                name=name,
+                key_prefix=prefix,
+                hashed_key=secret,
+                scopes=list(scopes if scopes is not None else OLD),
+                is_active=active,
+            )
             s.add(key)
             s.commit()
             return key.id
@@ -68,11 +81,23 @@ class TestTheScopes:
         for scope in bp.CORE_KEY_SCOPES:
             assert scope not in {"*", "rules:write", "lake:query", "playbooks:execute"} and not scope.endswith(":delete"), scope
         assert "rules:write" not in bp.CORE_KEY_SCOPES and "lake:query" not in bp.CORE_KEY_SCOPES
-        assert "alerts:triage" in bp.CORE_KEY_SCOPES and "alerts:write" not in bp.CORE_KEY_SCOPES, "CORE claims, escalates and snoozes alerts through the narrow alerts:triage; alerts:write also guards 26 other routes (assets, posture findings, identity nodes, insider-threat indicators and watchlists, honeytokens...)"
-        assert "cases:work" in bp.CORE_KEY_SCOPES and "cases:write" not in bp.CORE_KEY_SCOPES, "CORE works on cases through the narrow cases:work; cases:write also guards creating cases, notes, tasks, approvals (deciding one too) and publishing replays"
-        assert "connectors:view" in bp.CORE_KEY_SCOPES and "connectors:read" not in bp.CORE_KEY_SCOPES, "CORE lists connectors through the narrow connectors:view; connectors:read also guards POST /federated/search, which queries the tenant's connected SIEMs with their stored credentials"
-        assert "rules:view" in bp.CORE_KEY_SCOPES and "rules:read" not in bp.CORE_KEY_SCOPES, "CORE reads rules through the narrow rules:view; rules:read also guards POST /rules/{id}/backtest, which returns matching event rows from the data lake"
-        assert "intel:read" in bp.CORE_KEY_SCOPES and "threat_intel:read" not in bp.CORE_KEY_SCOPES and "threat_intel:write" not in bp.CORE_KEY_SCOPES, "intelligence is read through the narrow intel:read; threat_intel:read also guards the feed list (config can hold credentials) and enrichment (sends indicators to outside providers), and threat_intel:write changes things: the key holds neither"
+        assert (
+            "alerts:triage" in bp.CORE_KEY_SCOPES and "alerts:write" not in bp.CORE_KEY_SCOPES
+        ), "CORE claims, escalates and snoozes alerts through the narrow alerts:triage; alerts:write also guards 26 other routes (assets, posture findings, identity nodes, insider-threat indicators and watchlists, honeytokens...)"  # noqa: E501
+        assert (
+            "cases:work" in bp.CORE_KEY_SCOPES and "cases:write" not in bp.CORE_KEY_SCOPES
+        ), "CORE works on cases through the narrow cases:work; cases:write also guards creating cases, notes, tasks, approvals (deciding one too) and publishing replays"  # noqa: E501
+        assert (
+            "connectors:view" in bp.CORE_KEY_SCOPES and "connectors:read" not in bp.CORE_KEY_SCOPES
+        ), "CORE lists connectors through the narrow connectors:view; connectors:read also guards POST /federated/search, which queries the tenant's connected SIEMs with their stored credentials"  # noqa: E501
+        assert (
+            "rules:view" in bp.CORE_KEY_SCOPES and "rules:read" not in bp.CORE_KEY_SCOPES
+        ), "CORE reads rules through the narrow rules:view; rules:read also guards POST /rules/{id}/backtest, which returns matching event rows from the data lake"  # noqa: E501
+        assert (
+            "intel:read" in bp.CORE_KEY_SCOPES
+            and "threat_intel:read" not in bp.CORE_KEY_SCOPES
+            and "threat_intel:write" not in bp.CORE_KEY_SCOPES
+        ), "intelligence is read through the narrow intel:read; threat_intel:read also guards the feed list (config can hold credentials) and enrichment (sends indicators to outside providers), and threat_intel:write changes things: the key holds neither"  # noqa: E501
         assert "hunts:read" in bp.CORE_KEY_SCOPES, "hunt definitions are read through hunts:read, never through lake:query"
 
     def test_the_agents_service_key_did_not_change(self):
@@ -84,7 +109,13 @@ class TestAFreshInstall:
         raw, status = world.ensure()
         assert status == "created" and raw
         (key,) = world.rows().values()
-        assert key.name == "core-hud" and key.is_active and sorted(key.scopes) == sorted(NEW) and key.tenant_id == bp.DEFAULT_TENANT_ID and key.hashed_key != raw
+        assert (
+            key.name == "core-hud"
+            and key.is_active
+            and sorted(key.scopes) == sorted(NEW)
+            and key.tenant_id == bp.DEFAULT_TENANT_ID
+            and key.hashed_key != raw
+        )
 
 
 class TestAnExistingKey:
@@ -103,7 +134,12 @@ class TestAnExistingKey:
         assert sorted(key.scopes) == sorted(NEW) and key.hashed_key == "hash-original" and key.key_prefix == "ak_orig" and key.is_active
         assert len(world.rows()) == 1, "no second key"
         message = next(r.getMessage() for r in caplog.records if "scopes updated" in r.getMessage())
-        assert "'core-hud'" in message and "same secret" in message and "['alerts:triage', 'cases:work', 'connectors:view', 'hunts:read', 'intel:read', 'rules:view']" in message and "removed ['alerts:write', 'cases:write', 'connectors:read']" in message
+        assert (
+            "'core-hud'" in message
+            and "same secret" in message
+            and "['alerts:triage', 'cases:work', 'connectors:view', 'hunts:read', 'intel:read', 'rules:view']" in message
+            and "removed ['alerts:write', 'cases:write', 'connectors:read']" in message
+        )
 
     def test_an_extra_scope_is_taken_away_least_privilege_is_restored(self, world, caplog):
         kid = world.add(scopes=[*NEW, "alerts:delete", "lake:query"])
@@ -160,14 +196,15 @@ class TestRotation:
         assert status == "rotated" and raw
         rows = world.rows()
         assert rows[old].is_active is False and rows[old].scopes == OLD
-        (new,) = [k for k in rows.values() if k.id != old]
+        (new,) = (k for k in rows.values() if k.id != old)
         assert new.is_active and sorted(new.scopes) == sorted(NEW)
 
 
 class TestTheContractWithCore:
     def test_the_status_for_core_is_one_core_does_not_branch_on(self):
-        """CORE's setup (hud/src/aisoc-production.ts) branches on `core_api_key` (a newly issued secret) and on the AGENTS key's status 'kept-existing'; it ignores the core key's status string, so 'scopes-updated' is harmless there."""
+        """CORE's setup (hud/src/aisoc-production.ts) branches on `core_api_key` (a newly issued secret) and on the AGENTS key's status
+        'kept-existing'; it ignores the core key's status string, so 'scopes-updated' is harmless there."""
         import inspect
 
         src = inspect.getsource(bp.run)
-        assert "result[\"core_api_key\"], result[\"core_key_status\"] = key, status" in src
+        assert 'result["core_api_key"], result["core_key_status"] = key, status' in src

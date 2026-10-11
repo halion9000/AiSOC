@@ -1,19 +1,23 @@
 """Reading the waitlist and changing an entry are PLATFORM operations: only a platform administrator may do either.
 
-HISTORY. These routes checked `admin:waitlist` OR `settings:write` inside the handler. `admin:waitlist` was never created or granted to anyone, and every tenant's administrator holds `settings:write`, so any tenant admin could read every prospect's name, email, company and role (the waitlist is the platform's sales funnel,
-not tenant data) and change their status. Confirmed on real Postgres: after a prospect signed up through the public form, two ordinary tenant admins both read it, and one changed its status to "contacted" which the other then saw. Found while auditing the operations the capability reference lists as "signed in, no permission declared";
+HISTORY. These routes checked `admin:waitlist` OR `settings:write` inside the handler. `admin:waitlist` was never created or granted to
+anyone, and every tenant's administrator holds `settings:write`, so any tenant admin could read every prospect's name, email, company and
+role (the waitlist is the platform's sales funnel,
+not tenant data) and change their status. Confirmed on real Postgres: after a prospect signed up through the public form, two ordinary
+tenant admins both read it, and one changed its status to "contacted" which the other then saw. Found while auditing the operations the
+capability reference lists as "signed in, no permission declared";
 it is the same bug as the tenant list and provisioning routes (see test_tenant_provision_authorization.py), in the next module along.
 """
+
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.core.route_introspect import access_kind, required_permissions, walk_routes
 from app.core.security import PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, permission_in
 from app.main import app
+from fastapi.testclient import TestClient
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
 ENTRY = "00000000-0000-0000-0000-0000000000aa"
@@ -47,7 +51,12 @@ def _status(user: CurrentUser, route) -> int:
 
 class TestWhatTheRoutesDeclare:
     def test_the_two_admin_routes_need_mssp_onboard_and_the_signup_form_stays_public(self):
-        found = {(m, p): (required_permissions(r), access_kind(r)) for p, r in walk_routes(app.routes) for m in r.methods if "/waitlist" in p and m not in {"HEAD", "OPTIONS"}}
+        found = {
+            (m, p): (required_permissions(r), access_kind(r))
+            for p, r in walk_routes(app.routes)
+            for m in r.methods
+            if "/waitlist" in p and m not in {"HEAD", "OPTIONS"}
+        }
         assert found == {
             ("GET", "/api/v1/waitlist/entries"): (["mssp:onboard"], "permission"),
             ("PATCH", "/api/v1/waitlist/entries/{entry_id}"): (["mssp:onboard"], "permission"),
@@ -56,7 +65,11 @@ class TestWhatTheRoutesDeclare:
 
     def test_the_permission_is_a_platform_permission_no_wildcard_grants(self):
         assert "mssp:onboard" in PLATFORM_PERMISSIONS
-        assert not permission_in(["*"], "mssp:onboard") and not permission_in(["mssp:*"], "mssp:onboard") and not permission_in(["settings:write", "settings:*"], "mssp:onboard")
+        assert (
+            not permission_in(["*"], "mssp:onboard")
+            and not permission_in(["mssp:*"], "mssp:onboard")
+            and not permission_in(["settings:write", "settings:*"], "mssp:onboard")
+        )
 
 
 class TestOverHttp:
@@ -90,6 +103,6 @@ class TestOverHttp:
         _user("platform_admin").require_permission("mssp:onboard")
 
     def test_the_public_signup_form_still_needs_no_sign_in(self):
-        """An empty body is a 422 from validation (before any database use): not a 401 or 403, which is what signing in would have caused."""
+        """An empty body is a 422 from validation (before any database use): not a 401 or 403, which is what signing in would have caused."""  # noqa: E501
         app.dependency_overrides.clear()
         assert TestClient(app, raise_server_exceptions=False).post("/api/v1/waitlist/signup", json={}).status_code == 422
