@@ -26,9 +26,10 @@ This is the only public-facing mutating endpoint in the API. We use a
 **per-IP** token bucket (``app.services.waitlist.rate_limit``) rather
 than the per-tenant limiter used by ``/lake`` and ``/explain`` — there
 is no tenant context to limit against on a public signup. Source IP
-resolves from ``X-Forwarded-For`` (trusting the proxy chain in front of
-the API: Cloudflare → Fly.io edge → API), falling back to the raw
-socket address.
+resolves through ``app.core.trusted_proxy.resolve_client_ip`` (the same as the
+audit log and the login throttle): ``X-Forwarded-For`` is honoured only when the
+direct peer is in ``AISOC_TRUSTED_PROXIES``, otherwise the raw socket address
+is the bucket key.
 
 Auth
 ----
@@ -63,6 +64,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import AuthUser, DBSession, get_current_user, require_permission
+from app.core.trusted_proxy import resolve_client_ip
 from app.db.database import get_db
 from app.models.waitlist import (
     ALLOWED_WAITLIST_STATUSES,
@@ -245,23 +247,17 @@ class WaitlistPatchRequest(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    """Resolve the source IP, trusting the proxy chain in front of us.
+    """The rate-limit bucket key: the SAME resolution as the audit log and the login throttle (app.core.trusted_proxy).
 
-    The API runs behind Cloudflare → Fly.io edge so ``X-Forwarded-For``
-    is operator-controlled. We take the *first* address in the header
-    when present (the original client) and fall back to the raw socket
-    address otherwise. The limiter only uses this as a bucket key, so a
-    forged header still gets the attacker their own bucket — they can't
-    exhaust someone else's quota by spoofing.
+    This used to take the FIRST ``X-Forwarded-For`` entry. Behind a proxy that APPENDS to the header, the first entry is the part the
+    client controls, so
+    a caller who sent a different forged value on every request got a fresh bucket each time and the per-IP limit never triggered (and
+    every signup
+    posts to Slack). The shared resolver ignores the header unless the direct peer is a configured trusted proxy
+    (``AISOC_TRUSTED_PROXIES``) and then
+    walks it right to left to the first untrusted hop, so forged left-hand entries lose. Without that setting the bucket is the direct peer.
     """
-    xff = request.headers.get("x-forwarded-for", "").strip()
-    if xff:
-        first = xff.split(",", 1)[0].strip()
-        if first:
-            return first
-    if request.client is not None:
-        return request.client.host
-    return "unknown"
+    return resolve_client_ip(request) or "unknown"
 
 
 def _to_wire(row: WaitlistEntry) -> WaitlistEntryWire:

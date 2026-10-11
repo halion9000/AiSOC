@@ -386,6 +386,54 @@ class TestSignupEndpoint:
         assert exc_info.value.status_code == 429
         assert "Retry-After" in exc_info.value.headers
 
+    @staticmethod
+    def _signup(limiter, req, email, session, notifier):
+        return _run(
+            endpoint.signup(
+                endpoint.WaitlistSignupRequest(email=email, company="Acme", role="Analyst", soc_stack=[], motivation="m"),
+                req,  # type: ignore[arg-type]
+                Response(),
+                db=session,  # type: ignore[arg-type]
+                rate_limiter=limiter,
+                notifier=notifier,
+            )
+        )
+
+    def test_forging_a_different_x_forwarded_for_on_every_request_does_not_escape_the_limit(self, monkeypatch) -> None:
+        """The bypass: the limiter's bucket key was the FIRST X-Forwarded-For entry, which the caller controls, so each request with a new
+        forged value
+        got a fresh bucket and was never refused (and every signup posts to Slack). Same peer, a different forged header each time: must
+        be refused."""
+        monkeypatch.delenv("AISOC_TRUSTED_PROXIES", raising=False)
+        session, notifier = _MockSession(), _RecordingNotifier()
+        limiter = SignupRateLimiter(capacity=1, refill_per_hour=1)
+        self._signup(limiter, _mock_request(xff="198.51.100.1", client_host="192.0.2.77"), "a@acme.io", session, notifier)
+        with pytest.raises(HTTPException) as refused:
+            self._signup(limiter, _mock_request(xff="198.51.100.2", client_host="192.0.2.77"), "b@acme.io", session, notifier)
+        assert refused.value.status_code == 429
+        assert len(notifier.calls) == 1, "the refused request must not reach Slack"
+
+    def test_two_different_peers_do_not_share_a_bucket(self, monkeypatch) -> None:
+        """The control: closing the bypass must not make genuine users throttle each other."""
+        monkeypatch.delenv("AISOC_TRUSTED_PROXIES", raising=False)
+        session, notifier = _MockSession(), _RecordingNotifier()
+        limiter = SignupRateLimiter(capacity=1, refill_per_hour=1)
+        self._signup(limiter, _mock_request(client_host="192.0.2.10"), "a@acme.io", session, notifier)
+        self._signup(limiter, _mock_request(client_host="192.0.2.11"), "b@acme.io", session, notifier)
+        assert len(notifier.calls) == 2
+
+    def test_behind_a_trusted_proxy_users_are_separated_by_their_real_address_and_a_forged_header_does_not_help(self, monkeypatch) -> None:
+        monkeypatch.setenv("AISOC_TRUSTED_PROXIES", "10.0.0.0/8")
+        session, notifier = _MockSession(), _RecordingNotifier()
+        limiter = SignupRateLimiter(capacity=1, refill_per_hour=1)
+        self._signup(limiter, _mock_request(xff="1.1.1.1, 203.0.113.10", client_host="10.0.0.1"), "a@acme.io", session, notifier)
+        self._signup(
+            limiter, _mock_request(xff="1.1.1.1, 203.0.113.11", client_host="10.0.0.1"), "b@acme.io", session, notifier
+        )  # a different real user
+        with pytest.raises(HTTPException) as refused:  # the first user again, with a new forged left-hand entry
+            self._signup(limiter, _mock_request(xff="9.9.9.9, 203.0.113.10", client_host="10.0.0.1"), "c@acme.io", session, notifier)
+        assert refused.value.status_code == 429
+
     def test_slack_failure_does_not_break_signup(self) -> None:
         session = _MockSession()
         # Notifier that raises (despite the contract); the endpoint must
@@ -637,11 +685,39 @@ class TestSlackMessageShape:
 
 
 class TestClientIpResolution:
-    def test_x_forwarded_for_first_address_wins(self) -> None:
-        ip = endpoint._client_ip(
-            _mock_request(xff="203.0.113.10, 198.51.100.1, 192.0.2.5")  # type: ignore[arg-type]
-        )
+    """The rate-limit bucket key. It used to be the FIRST X-Forwarded-For entry, which the client controls, so a caller who forged a
+    different value on
+    every request got a fresh bucket each time and the per-IP limit never triggered. It now goes through the shared trusted-proxy
+    resolver."""
+
+    PROXIES = "10.0.0.0/8"
+
+    def test_x_forwarded_for_is_ignored_when_no_trusted_proxy_is_configured(self, monkeypatch) -> None:
+        monkeypatch.delenv("AISOC_TRUSTED_PROXIES", raising=False)
+        ip = endpoint._client_ip(_mock_request(xff="203.0.113.10, 198.51.100.1", client_host="192.0.2.77"))  # type: ignore[arg-type]
+        assert ip == "192.0.2.77", "a forged header must not choose the bucket"
+
+    def test_forged_headers_cannot_mint_new_buckets(self, monkeypatch) -> None:
+        """The property that matters: the same peer sending a different forged value on every request still lands in ONE bucket."""
+        monkeypatch.delenv("AISOC_TRUSTED_PROXIES", raising=False)
+        keys = {endpoint._client_ip(_mock_request(xff=f"198.51.100.{n}", client_host="192.0.2.77")) for n in range(50)}  # type: ignore[arg-type]
+        assert keys == {"192.0.2.77"}
+
+    def test_behind_a_trusted_proxy_the_rightmost_untrusted_hop_wins_so_a_forged_left_entry_loses(self, monkeypatch) -> None:
+        monkeypatch.setenv("AISOC_TRUSTED_PROXIES", self.PROXIES)
+        forged_then_real = "1.2.3.4, 203.0.113.10"  # the client sent "1.2.3.4"; the trusted proxy appended the real address
+        ip = endpoint._client_ip(_mock_request(xff=forged_then_real, client_host="10.0.0.1"))  # type: ignore[arg-type]
         assert ip == "203.0.113.10"
+
+    def test_behind_a_trusted_proxy_many_forged_values_still_resolve_to_the_one_real_client(self, monkeypatch) -> None:
+        monkeypatch.setenv("AISOC_TRUSTED_PROXIES", self.PROXIES)
+        keys = {endpoint._client_ip(_mock_request(xff=f"198.51.100.{n}, 203.0.113.10", client_host="10.0.0.1")) for n in range(50)}  # type: ignore[arg-type]
+        assert keys == {"203.0.113.10"}
+
+    def test_a_header_from_a_peer_that_is_not_a_trusted_proxy_is_ignored_even_when_proxies_are_configured(self, monkeypatch) -> None:
+        monkeypatch.setenv("AISOC_TRUSTED_PROXIES", self.PROXIES)
+        ip = endpoint._client_ip(_mock_request(xff="203.0.113.10", client_host="192.0.2.77"))  # type: ignore[arg-type]
+        assert ip == "192.0.2.77"
 
     def test_falls_back_to_socket(self) -> None:
         ip = endpoint._client_ip(_mock_request(client_host="10.0.0.1"))  # type: ignore[arg-type]
