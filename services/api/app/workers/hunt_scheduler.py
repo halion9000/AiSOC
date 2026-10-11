@@ -421,13 +421,13 @@ async def run_once(
     runner = executor or _execute_hunt
     fired = 0
     try:
-        # The DB session bound here doesn't carry an ``app.current_tenant_id``
-        # GUC, so RLS would block reads. Disable the row filter for the
-        # scheduler's sweep — we *want* cross-tenant visibility because the
-        # worker iterates every tenant's scheduled hunts. We re-bind the
-        # tenant before each per-hunt write to keep RLS enforcement intact
-        # for the case insert.
-        await db.execute(text("SET LOCAL row_security = off"))
+        # The DB session bound here carries no ``app.current_tenant_id`` GUC, and that is what we want: the worker iterates EVERY tenant's scheduled hunts, and the
+        # row-level-security policies let a session with no tenant set see every row. We re-bind the tenant before each per-hunt write (below) so the case insert
+        # is checked against that hunt's own tenant.
+        # This used to start with ``SET LOCAL row_security = off``. That only bypasses RLS for a superuser, the table owner or a BYPASSRLS role: for the ordinary
+        # restricted role the docker-compose.rls.yml overlay runs the services as (`aisoc_app`), the SELECT below then FAILED with "query would be affected by
+        # row-level security policy", so scheduled hunts silently never ran in exactly the hardened configuration RLS exists for. Confirmed on a real Postgres:
+        # run_once() raised as aisoc_app and returned 0 as the superuser. (If the policies are ever made fail-closed, this sweep needs an explicit mechanism.)
         rows = (await db.execute(select(SavedHunt).where(SavedHunt.schedule.is_not(None)))).scalars().all()
         for hunt in rows:
             if not _is_due(hunt, now):
