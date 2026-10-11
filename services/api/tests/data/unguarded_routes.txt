@@ -3,8 +3,8 @@
 # What remains after the guarding passes (all deliberate; see LEFT_LOGIN_ONLY in tests/test_remaining_routes_matrix.py):
 #   PUBLIC by design (also listed, with reasons, in test_anonymous_access_sweep.py): login/refresh, SSO, passkey sign-in,
 #     health, OAuth callback, VAPID public key, waitlist signup, public replay links, the community catalog.
-#   PERSONAL to the caller: passkeys, saved views, push subscriptions, on-call settings, /auth/me, own tenant identity,
-#     realtime ticket.
+#   PERSONAL to the caller: passkeys, saved views, push subscriptions, on-call settings, /auth/me, own tenant identity.
+#   (The realtime ticket was listed here. It is not personal: it opens the tenant's alert, case, agent and graph streams, so it now needs alerts:read and cases:read.)
 #   OPEN to any login on purpose: phishing submission (any user may report an email), marketplace browsing, community rating.
 DELETE /passkeys/credentials/{credential_id} [passkeys.py::revoke_credential]
 DELETE /saved-views/{view_id} [saved_views.py::delete_saved_view]
@@ -35,6 +35,5 @@ POST /phishing/submit [phishing.py::submit]
 POST /push/subscribe [push.py::subscribe]
 POST /push/test [push.py::test_notify]
 POST /push/unsubscribe [push.py::unsubscribe]
-POST /realtime/ticket [realtime.py::mint_realtime_ticket]
 POST /saved-views [saved_views.py::create_saved_view]
 PUT /oncall/me [oncall.py::update_my_oncall]

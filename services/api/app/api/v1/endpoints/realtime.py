@@ -27,7 +27,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser, get_current_user, require_permission
 from app.core.config import realtime_ticket_secret, settings
 from app.core.security import create_realtime_ticket
 
@@ -47,7 +47,14 @@ class RealtimeTicket(BaseModel):
     tenant_id: str = Field(..., description="Tenant the ticket is scoped to.")
 
 
-@router.post("/ticket", response_model=RealtimeTicket)
+# The ticket opens the tenant's live streams: alert.fused, case.updated, agent events, insights and graph.update (full entity and relationship data). It carries only the tenant, no
+# permission, so WHO MAY HAVE ONE is the whole check. It used to be any signed-in caller, including an API key whose only scope was hunts:read. REST needs alerts:read for the alert data and
+# cases:read for the case data; the ticket must too. (Every standard role holds both, so the console is unaffected; a key or custom role without them can no longer open the streams.)
+@router.post(
+    "/ticket",
+    response_model=RealtimeTicket,
+    dependencies=[Depends(require_permission("alerts:read")), Depends(require_permission("cases:read"))],
+)
 async def mint_realtime_ticket(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> RealtimeTicket:

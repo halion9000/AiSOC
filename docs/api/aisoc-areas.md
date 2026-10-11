@@ -68,7 +68,7 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **r**: 1 reads, 0 changes; protection: 1 with no sign-in required; e.g. Get public replay
 - **rbac**: 4 reads, 5 changes; protection: `roles:read`, `roles:write`, `users:read`, `users:write`; e.g. List permissions; List roles
 - **readyz**: 1 reads, 0 changes; protection: 1 with no sign-in required; e.g. Readyz
-- **realtime**: 0 reads, 1 changes; protection: 1 signed-in with no permission declared; e.g. Mint realtime ticket
+- **realtime**: 0 reads, 1 changes; protection: `alerts:read`, `cases:read`; e.g. Mint realtime ticket
 - **remediation**: 3 reads, 3 changes; protection: `remediation:read`, `remediation:write`; e.g. Get maturity config; Update maturity config
 - **report-builder**: 0 reads, 2 changes; protection: `settings:read`; e.g. Render; Validate report
 - **reports**: 5 reads, 3 changes; protection: `reports:read`, `reports:write`; e.g. List artefacts; Get artefact

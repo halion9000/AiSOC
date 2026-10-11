@@ -69,7 +69,6 @@ LEFT_LOGIN_ONLY = {
     "oncall (me)": "your own on-call settings",
     "auth (me)": "your own profile",
     "tenants (me)": "your own tenant's identity settings",
-    "realtime ticket": "a ticket for your own live connection",
     "phishing submit": "any user may report a suspicious email",
     "community GETs + rate": "public community catalog; rating is harmless",
     "marketplace GETs": "catalog browsing",

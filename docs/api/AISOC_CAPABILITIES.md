@@ -74,7 +74,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [r](#r) | 1 | 0 | 1 with no sign-in required |
 | [rbac](#rbac) | 4 | 5 | `roles:read`, `roles:write`, `users:read`, `users:write` |
 | [readyz](#readyz) | 1 | 0 | 1 with no sign-in required |
-| [realtime](#realtime) | 0 | 1 | 1 signed-in with no permission declared |
+| [realtime](#realtime) | 0 | 1 | `alerts:read`, `cases:read` |
 | [remediation](#remediation) | 3 | 3 | `remediation:read`, `remediation:write` |
 | [report-builder](#report-builder) | 0 | 2 | `settings:read` |
 | [reports](#reports) | 5 | 3 | `reports:read`, `reports:write` |
@@ -798,7 +798,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| POST | `/realtime/ticket` | Mint realtime ticket | signed in, no permission declared (a check may be inside the handler) |
+| POST | `/realtime/ticket` | Mint realtime ticket | `alerts:read`, `cases:read` |
 
 ## remediation
 
