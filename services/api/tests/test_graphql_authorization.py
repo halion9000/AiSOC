@@ -33,7 +33,7 @@ FIELDS = {
     "case": (f'{{ case(id: "{SOME_ID}") {{ id }} }}', ("cases:read",), ("GET", "/api/v1/cases/{case_id}")),
     "cases": ("{ cases { total } }", ("cases:read",), ("GET", "/api/v1/cases")),
     "detectionRules": ("{ detectionRules { total } }", ("rules:view",), ("GET", "/api/v1/rules")),
-    "connectors": ("{ connectors { total } }", ("connectors:read",), ("GET", "/api/v1/connectors")),
+    "connectors": ("{ connectors { total } }", ("connectors:view",), ("GET", "/api/v1/connectors")),
     "playbooks": ("{ playbooks { id } }", ("playbooks:read",), ("GET", "/api/v1/playbooks")),
     "playbookRuns": ("{ playbookRuns { id } }", ("playbooks:read",), ("GET", "/api/v1/playbooks/runs")),
     "socStats": ("{ socStats { totalAlerts } }", ("alerts:read", "cases:read"), None),
@@ -94,7 +94,7 @@ class TestWhoMayReadWhat:
         assert "API key missing scope: rules:view" in _messages(response)
 
     def test_a_key_with_one_scope_reaches_exactly_the_fields_that_scope_allows(self):
-        for scope in ("alerts:read", "cases:read", "rules:view", "connectors:read", "playbooks:read"):
+        for scope in ("alerts:read", "cases:read", "rules:view", "connectors:view", "playbooks:read"):
             expected = {name for name, (_q, perms, _r) in FIELDS.items() if all(p == scope for p in perms)}
             assert _allowed_fields(_user(role="admin", scopes=[scope])) == expected, scope
 
@@ -117,7 +117,7 @@ class TestWhoMayReadWhat:
         assert any(allowed == set(FIELDS) for allowed in outcomes.values())
 
     def test_the_refusal_names_what_was_missing(self):
-        assert _messages(_run(_user(scopes=["alerts:read"]), "{ connectors { total } }")) == ["API key missing scope: connectors:read"]
+        assert _messages(_run(_user(scopes=["alerts:read"]), "{ connectors { total } }")) == ["API key missing scope: connectors:view"]
         assert any(m.startswith("Permission denied: ") for m in _messages(_run(_user(role="viewer", scopes=None), "{ detectionRules { total } }"))) or has_permission("viewer", "rules:read")
 
     def test_someone_who_is_not_signed_in_gets_nothing(self):
@@ -129,7 +129,7 @@ class TestWhoMayReadWhat:
         """(In GraphQL an error in a NON-NULL field nulls the whole `data`, so the two are not returned together: that is the protocol, not a gap.)"""
         user = _user(scopes=["playbooks:read"])
         refused = _run(user, "{ connectors { total } playbooks { id } }")
-        assert "API key missing scope: connectors:read" in _messages(refused)
+        assert "API key missing scope: connectors:view" in _messages(refused)
         assert not (refused.json().get("data") or {}).get("connectors")
         ok = _run(user, "{ playbooks { id } }")
         assert ok.json()["data"]["playbooks"] == [] and not _messages(ok)

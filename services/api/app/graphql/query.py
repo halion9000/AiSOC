@@ -401,7 +401,7 @@ class Query:
         page_size: int = 25,
         enabled: bool | None = None,
     ) -> ConnectorPage:
-        _require(info, "connectors:read")
+        _require(info, "connectors:view")
         db = _db(info)
         q = _scope(select(Connector), info, Connector)
 

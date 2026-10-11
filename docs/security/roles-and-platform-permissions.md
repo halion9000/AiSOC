@@ -68,6 +68,22 @@ AiSOC separates what a person may do **inside their own tenant** from what acts 
 * The GraphQL `detectionRules` field mirrors `GET /rules`, so it needs `rules:view` too (a test pins that parity).
 * A key can be issued with the scope `rules:view` (`POST /api-keys`); a custom role can be given the permission (migration `078` adds it to the catalog; it backfills nothing). CORE's integration key holds `rules:view` and not `rules:read`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`.
 
+
+## Listing connectors without being able to search them: `connectors:view`
+
+`connectors:read` guards 11 routes. Five list connectors; the other six are `POST /federated/search`, which runs a free-text or indicator query across the tenant's connected SIEMs with their stored credentials and returns the merged rows (telemetry from the customer's own systems), `GET /federated/backends`, `GET /agents/tools`, the inbox template and token lists and the OAuth app view. So nothing that should only *see* which connectors exist and whether they are healthy (an AI agent's API key) could be given `connectors:read` without being able to search the customer's SIEM. `connectors:view` is the read half:
+
+| Route | Needs |
+| --- | --- |
+| `GET /connectors`, `GET /connectors/catalog`, `GET /connectors/health`, `GET /connectors/{id}`, `GET /connectors/{id}/last_event_at` | `connectors:view` |
+| `POST /federated/search`, `GET /federated/backends`, `GET /agents/tools`, `GET /inbox/templates`, `GET /inbox/tokens`, `GET /oauth/app/{connector_type}` | `connectors:read` |
+| everything that creates, changes or deletes a connector | `connectors:write` / `connectors:delete` |
+
+* **Nobody loses anything.** `connectors:read` implies `connectors:view` (in `permission_in`, which every check goes through: role maps, database roles and API-key scopes, including a `connectors:*` wildcard); the implication runs one way only. `platform_admin`, `admin`, `tenant_admin`, `soc_lead` and `soc_analyst` hold `connectors:read` and list connectors exactly as before; `threat_hunter`, `viewer` and `api_service` hold neither, as before.
+* **It grants nothing else.** A principal holding only `connectors:view` can use those five reads and no other route anywhere in the API (a test checks this over every route).
+* The GraphQL `connectors` field mirrors `GET /connectors`, so it needs `connectors:view` too (a test pins that parity).
+* A key can be issued with the scope `connectors:view` (`POST /api-keys`); a custom role can be given the permission (migration `079` adds it to the catalog; it backfills nothing). CORE's integration key holds `connectors:view` and not `connectors:read`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`.
+
 ## Platform permissions
 
 These act on every tenant, so neither the `*` wildcard nor a resource wildcard such as `plugins:*` grants them. A principal holds one only if it is **named exactly**: in a role (only `platform_admin` lists them), in an API key's scopes, or in a database role.

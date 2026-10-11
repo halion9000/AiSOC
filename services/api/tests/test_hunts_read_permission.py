@@ -92,7 +92,7 @@ class TestTheImplication:
 
     def test_the_rule_is_exactly_these_pairs(self):
         """Adding an implication must be a conscious act: this lists every one. The second pair, intel:read implied by threat_intel:read, is tested in test_intel_read_permission.py, and the third, alerts:triage implied by alerts:write, in test_alerts_triage_permission.py."""
-        assert IMPLIED_BY == {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",)}
+        assert IMPLIED_BY == {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",), "connectors:view": ("connectors:read",)}
 
     def test_no_implied_permission_is_a_platform_permission_and_nothing_implies_a_platform_permission(self):
         for weaker, stronger in IMPLIED_BY.items():

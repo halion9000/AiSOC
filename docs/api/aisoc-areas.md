@@ -18,7 +18,7 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **cases**: 14 reads, 9 changes; protection: `cases:read`, `cases:write`; e.g. List cases; Create case
 - **community**: 5 reads, 10 changes; protection: `playbooks:admin`, `playbooks:write`, `plugins:admin`, `rules:admin`, `rules:write`, `settings:write`; 2 signed-in with no permission declared; 5 with no sign-in required; e.g. List community detections; Publish detection
 - **compliance**: 5 reads, 3 changes; protection: `reports:read`, `reports:write`; e.g. List evidence items; Collect evidence item
-- **connectors**: 5 reads, 8 changes; protection: `connectors:delete`, `connectors:read`, `connectors:write`; e.g. List connectors; Create connector
+- **connectors**: 5 reads, 8 changes; protection: `connectors:delete`, `connectors:view`, `connectors:write`; e.g. List connectors; Create connector
 - **copilot**: 0 reads, 2 changes; protection: `copilot:use`; e.g. Confirm a destructive action the Copilot asked for; Send a message to the AI copilot and get a real LLM response.
 - **costs**: 1 reads, 0 changes; protection: `reports:read`; e.g. LLM spend, action counts, top-cost cases, and BYOK savings for the tenant
 - **data-lifecycle**: 2 reads, 4 changes; protection: `settings:read`, `settings:write`; e.g. List parsers; Create parser

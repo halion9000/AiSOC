@@ -24,7 +24,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [cases](#cases) | 14 | 9 | `cases:read`, `cases:write` |
 | [community](#community) | 5 | 10 | `playbooks:admin`, `playbooks:write`, `plugins:admin`, `rules:admin`, `rules:write`, `settings:write`; 2 signed-in with no permission declared; 5 with no sign-in required |
 | [compliance](#compliance) | 5 | 3 | `reports:read`, `reports:write` |
-| [connectors](#connectors) | 5 | 8 | `connectors:delete`, `connectors:read`, `connectors:write` |
+| [connectors](#connectors) | 5 | 8 | `connectors:delete`, `connectors:view`, `connectors:write` |
 | [copilot](#copilot) | 0 | 2 | `copilot:use` |
 | [costs](#costs) | 1 | 0 | `reports:read` |
 | [data-lifecycle](#data-lifecycle) | 2 | 4 | `settings:read`, `settings:write` |
@@ -264,17 +264,17 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/connectors` | List connectors | `connectors:read` |
+| GET | `/connectors` | List connectors | `connectors:view` |
 | POST | `/connectors` | Create connector | `connectors:write` |
-| GET | `/connectors/catalog` | List catalog | `connectors:read` |
-| GET | `/connectors/health` | Connector health summary | `connectors:read` |
+| GET | `/connectors/catalog` | List catalog | `connectors:view` |
+| GET | `/connectors/health` | Connector health summary | `connectors:view` |
 | POST | `/connectors/test` | Test connection | `connectors:write` |
 | POST | `/connectors/troubleshoot` | Troubleshoot connection | `connectors:write` |
 | DELETE | `/connectors/{connector_id}` | Delete connector | `connectors:delete` |
-| GET | `/connectors/{connector_id}` | Get connector | `connectors:read` |
+| GET | `/connectors/{connector_id}` | Get connector | `connectors:view` |
 | PATCH | `/connectors/{connector_id}` | Update connector | `connectors:write` |
 | PUT | `/connectors/{connector_id}/capabilities` | Update connector capabilities | `connectors:write` |
-| GET | `/connectors/{connector_id}/last_event_at` | Get last event at | `connectors:read` |
+| GET | `/connectors/{connector_id}/last_event_at` | Get last event at | `connectors:view` |
 | POST | `/connectors/{connector_id}/push/refresh` | Refresh ingest token | `connectors:write` |
 | POST | `/connectors/{connector_id}/test` | Test existing connector | `connectors:write` |
 

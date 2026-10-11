@@ -487,7 +487,7 @@ async def _proxy_test_connection(
 
 @router.get("/catalog")
 async def list_catalog(
-    current_user: Annotated[AuthUser, Depends(require_permission("connectors:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:view"))],
 ) -> dict[str, Any]:
     """Return the catalog of available connectors with their schemas.
 
@@ -505,7 +505,7 @@ async def list_catalog(
 
 @router.get("/health", response_model=ConnectorHealthSummary)
 async def connector_health_summary(
-    current_user: Annotated[AuthUser, Depends(require_permission("connectors:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:view"))],
     db: DBSession,
 ) -> ConnectorHealthSummary:
     """Aggregate per-tenant connector health for the dashboard tile.
@@ -593,7 +593,7 @@ async def test_connection(
 
 @router.get("", response_model=list[ConnectorResponse])
 async def list_connectors(
-    current_user: Annotated[AuthUser, Depends(require_permission("connectors:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:view"))],
     db: DBSession,
 ) -> list[ConnectorResponse]:
     """List all connector instances for the caller's tenant."""
@@ -645,7 +645,7 @@ async def create_connector(
 @router.get("/{connector_id}", response_model=ConnectorResponse)
 async def get_connector(
     connector_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("connectors:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:view"))],
     db: DBSession,
 ) -> ConnectorResponse:
     """Get a connector instance by ID, scoped to the caller's tenant."""
@@ -897,7 +897,7 @@ _DATA_FLOWING_WINDOW_SECONDS = 30 * 60
 @router.get("/{connector_id}/last_event_at", response_model=LastEventResponse)
 async def get_last_event_at(
     connector_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("connectors:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:view"))],
     db: DBSession,
 ) -> LastEventResponse:
     """Return event-arrival watermark for the onboarding verify screen.

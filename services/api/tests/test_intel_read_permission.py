@@ -82,7 +82,7 @@ class TestTheImplication:
         assert not permission_in(["intel:read"], "threat_intel:read")
 
     def test_the_rule_is_exactly_these_pairs(self):
-        assert IMPLIED_BY == {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",)}
+        assert IMPLIED_BY == {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",), "connectors:view": ("connectors:read",)}
 
     def test_no_implied_permission_is_a_platform_permission_and_nothing_implies_one(self):
         for narrow, broad in IMPLIED_BY.items():
