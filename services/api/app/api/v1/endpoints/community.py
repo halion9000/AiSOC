@@ -269,16 +269,33 @@ async def rate_community_plugin(
     current_user: AuthUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Rate a community plugin."""
+    """Rate a community plugin: one rating per person (rating again replaces your own), and only a plugin an administrator has approved.
+
+    The score is shown to EVERY tenant and orders the marketplace, so it must not be steerable. It used to be a running average that took every call as a new vote, so one signed-in user
+    could repeat the call to push a plugin's rating anywhere, and it accepted ratings for pending and rejected submissions (which are not listed, viewable or installable). A plugin that
+    is not approved is the same 404 as one that does not exist, and the submitter may not rate their own submission."""
     p = await PLUGINS.get(db, plugin_id, lock=True)  # read-modify-write: lock the row so two ratings cannot both read the same average
-    if not p:
+    if not p or p.get("status") != PublishStatus.APPROVED:
         raise HTTPException(status_code=404, detail="Plugin not found")
 
+    person = str(current_user.user_id)
+    if p.get("submitted_by") == person:
+        raise HTTPException(status_code=403, detail="You cannot rate a plugin you submitted")
+
+    # `ratings` maps each person to their one score. Ratings recorded before it existed live only in the aggregate (rating x rating_count); they stay counted.
+    ratings = dict(p.get("ratings") or {})
     count = p["rating_count"]
-    current_rating = p["rating"]
-    new_rating = (current_rating * count + rating.score) / (count + 1)
-    p["rating"] = round(new_rating, 2)
-    p["rating_count"] = count + 1
+    total = p["rating"] * count
+    previous = ratings.get(person)
+    if previous is None:
+        total += rating.score
+        count += 1
+    else:
+        total += rating.score - previous
+    ratings[person] = rating.score
+    p["ratings"] = ratings
+    p["rating"] = round(total / count, 2)
+    p["rating_count"] = count
     await PLUGINS.save(db, plugin_id, p)
 
     return {"rating": p["rating"], "rating_count": p["rating_count"]}

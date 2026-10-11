@@ -179,6 +179,7 @@ class TestEverythingSurvivesARestart:
 
     def test_the_running_average_is_right_across_separate_requests(self, db_path):
         publish_plugin(db_path, person())
+        run(db_path, approve("plugin", "plug-1"))  # only an approved plugin can be rated
         for score in (5, 4, 3):
             run(db_path, lambda s, score=score: community.rate_community_plugin("plug-1", community.RatingIn(score=score), current_user=person(), db=s))
         assert row(db_path, "plugin", "plug-1").data["rating"] == 4.0
@@ -366,6 +367,7 @@ class TestRowLocks:
 
     def test_rating_locks_the_row(self, db_path):
         publish_plugin(db_path, person())
+        run(db_path, approve("plugin", "plug-1"))
         events: list[str] = []
         spied(db_path, lambda s: community.rate_community_plugin("plug-1", community.RatingIn(score=5), current_user=person(), db=s), events)
         assert events[0] == "select FOR UPDATE"
@@ -414,3 +416,86 @@ class TestRowLocks:
         with pytest.raises(HTTPException):
             run(db_path, lambda s: community.install_community_playbook(pid, current_user=person(), db=s))
         assert row(db_path, "playbook", pid).data["install_count"] == 0
+
+
+def rate(db_path, who, score, plugin_id="plug-1"):
+    return run(db_path, lambda s: community.rate_community_plugin(plugin_id, community.RatingIn(score=score), current_user=who, db=s))
+
+
+class TestRatingsCannotBeSteered:
+    """The rating is shown to every tenant and orders the marketplace. It used to take every call as a new vote (one person could repeat the call to move it anywhere) and accepted ratings for pending and rejected plugins."""
+
+    @pytest.fixture
+    def approved(self, db_path):
+        submitter = person()
+        publish_plugin(db_path, submitter)
+        run(db_path, approve("plugin", "plug-1"))
+        return submitter
+
+    def test_rating_twice_replaces_your_own_rating_it_does_not_add_a_vote(self, db_path, approved):
+        me = person()
+        assert rate(db_path, me, 5) == {"rating": 5.0, "rating_count": 1}
+        assert rate(db_path, me, 1) == {"rating": 1.0, "rating_count": 1}
+        assert row(db_path, "plugin", "plug-1").data["ratings"] == {str(me.user_id): 1}
+
+    def test_one_person_repeating_the_call_cannot_drag_the_average(self, db_path, approved):
+        others = [person() for _ in range(3)]
+        for who in others:
+            rate(db_path, who, 1)
+        stuffer = person()
+        for _ in range(25):
+            result = rate(db_path, stuffer, 5)
+        assert result == {"rating": 2.0, "rating_count": 4}, "three ones and one five: (1+1+1+5)/4, however often the fifth person calls"
+
+    def test_different_people_still_average(self, db_path, approved):
+        for score in (5, 4, 3):
+            result = rate(db_path, person(), score)
+        assert result == {"rating": 4.0, "rating_count": 3}
+
+    def test_a_plugin_that_is_pending_cannot_be_rated_and_nothing_is_recorded(self, db_path):
+        publish_plugin(db_path, person(), plugin_id="pending-1")
+        with pytest.raises(HTTPException) as refused:
+            rate(db_path, person(), 5, plugin_id="pending-1")
+        assert refused.value.status_code == 404
+        data = row(db_path, "plugin", "pending-1").data
+        assert data["rating"] == 0.0 and data["rating_count"] == 0 and "ratings" not in data
+
+    def test_a_plugin_that_was_rejected_cannot_be_rated(self, db_path):
+        publish_plugin(db_path, person(), plugin_id="rejected-1")
+        run(db_path, lambda s: community.review_community_plugin("rejected-1", community.ReviewAction(action="reject", notes="no"), current_user=person(), db=s))
+        with pytest.raises(HTTPException) as refused:
+            rate(db_path, person(), 5, plugin_id="rejected-1")
+        assert refused.value.status_code == 404
+
+    def test_a_plugin_that_does_not_exist_is_the_same_404_as_one_that_is_not_approved(self, db_path):
+        publish_plugin(db_path, person(), plugin_id="pending-2")
+        statuses = []
+        for plugin_id in ("pending-2", "no-such-plugin"):
+            with pytest.raises(HTTPException) as refused:
+                rate(db_path, person(), 5, plugin_id=plugin_id)
+            statuses.append((refused.value.status_code, refused.value.detail))
+        assert statuses[0] == statuses[1] == (404, "Plugin not found")
+
+    def test_the_submitter_cannot_rate_their_own_plugin(self, db_path, approved):
+        with pytest.raises(HTTPException) as refused:
+            rate(db_path, approved, 5)
+        assert refused.value.status_code == 403
+        data = row(db_path, "plugin", "plug-1").data
+        assert data["rating_count"] == 0 and "ratings" not in data
+
+    def test_ratings_recorded_before_this_existed_stay_counted_and_a_re_rating_changes_only_the_persons_own(self, db_path, approved):
+        engine = create_engine(f"sqlite:///{db_path}")
+        with Session(engine) as s:
+            item = s.get(CommunityCatalogItem, ("plugin", "plug-1"))
+            item.data = {**item.data, "rating": 4.0, "rating_count": 2}  # two legacy votes (average 4.0), no `ratings` map
+            s.commit()
+        engine.dispose()
+        me = person()
+        assert rate(db_path, me, 5) == {"rating": 4.33, "rating_count": 3}
+        assert rate(db_path, me, 1) == {"rating": 3.0, "rating_count": 3}, "(8 + 1) / 3: only their own vote moved"
+
+    def test_the_per_person_map_is_not_shown_to_anyone(self, db_path, approved):
+        rate(db_path, person(), 4)
+        (plugin,) = list_plugins(db_path).items
+        assert "ratings" not in plugin.model_dump() and plugin.rating == 4.0 and plugin.rating_count == 1
+
