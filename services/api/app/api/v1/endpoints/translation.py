@@ -276,7 +276,7 @@ async def translate_rule(body: TranslateRequest) -> TranslateResponse:
     "/formats",
     response_model=FormatsResponse,
     summary="List supported detection rule formats",
-    dependencies=[Depends(require_permission("rules:read"))],
+    dependencies=[Depends(require_permission("rules:view"))],
 )
 async def list_formats() -> FormatsResponse:
     return FormatsResponse(formats=_FORMAT_LABELS)  # type: ignore[arg-type]

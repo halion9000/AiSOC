@@ -367,7 +367,7 @@ class Query:
         severity: str | None = None,
         status: str | None = None,
     ) -> DetectionRulePage:
-        _require(info, "rules:read")
+        _require(info, "rules:view")
         db = _db(info)
         q = _scope(select(DetectionRule), info, DetectionRule)
 

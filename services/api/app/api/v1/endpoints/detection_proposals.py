@@ -375,7 +375,7 @@ def _evaluate_eval_report(
 
 @router.get("", response_model=list[ProposalResponse])
 async def list_proposals(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
     proposal_status: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, ge=1, le=500),
@@ -428,7 +428,7 @@ async def create_proposal(
 
 @router.get("/baselines", response_model=list[BaselineResponse])
 async def list_baselines(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
     suite: str | None = Query(default=None),
 ) -> list[BaselineResponse]:
@@ -486,7 +486,7 @@ async def record_baseline(
 @router.get("/{proposal_id}", response_model=ProposalResponse)
 async def get_proposal(
     proposal_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
 ) -> ProposalResponse:
     """Get a proposal by id."""

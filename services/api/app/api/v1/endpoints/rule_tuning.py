@@ -154,7 +154,7 @@ async def auto_suggest_tuning(
 
 @router.get("", response_model=TuningResponse)
 async def get_tuning_workbench(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: TenantDBSession,
     severity: str | None = Query(default=None, description="Filter by rule severity (info/low/medium/high/critical)."),
     suggestion: Literal[
@@ -194,7 +194,7 @@ async def get_tuning_workbench(
 
 @router.get("/summary", response_model=TuningSummary)
 async def get_tuning_summary(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: TenantDBSession,
 ) -> TuningSummary:
     """Cheap summary-only endpoint for sidebar badges and the

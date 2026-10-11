@@ -182,7 +182,7 @@ def _parse_sample_events(sample: str | None) -> list[dict[str, Any]]:
 
 @router.get("/rules", response_model=ListResponse)
 async def list_rules_compat(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
 ) -> ListResponse:
     """List detection rules visible to the current tenant (built-ins + tenant-owned)."""
@@ -234,7 +234,7 @@ async def create_rule_compat(
 @router.get("/rules/{rule_id}", response_model=FrontendDetectionRule)
 async def get_rule_compat(
     rule_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
 ) -> FrontendDetectionRule:
     """Fetch a single rule by ID in the frontend shape."""
@@ -896,7 +896,7 @@ def _coerce_uuid(raw: str) -> uuid.UUID | None:
 
 @router.get("/coverage", response_model=CoverageResponse)
 async def get_detection_coverage(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
 ) -> CoverageResponse:
     """Rule-centric MITRE ATT&CK coverage for the current tenant.
@@ -972,7 +972,7 @@ async def bulk_toggle_rules(
 
 @router.get("/drift", response_model=DriftResponse)
 async def get_detection_drift(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
 ) -> DriftResponse:
     """Detection drift inbox — rules that need an analyst's attention.
@@ -995,7 +995,7 @@ async def get_detection_drift(
 
 @router.get("/confidence", response_model=ConfidenceResponse)
 async def get_detection_confidence(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
 ) -> ConfidenceResponse:
     """Rule-confidence trend panel for the WS-B3 Detections UI.

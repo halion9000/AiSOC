@@ -29,9 +29,9 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [costs](#costs) | 1 | 0 | `reports:read` |
 | [data-lifecycle](#data-lifecycle) | 2 | 4 | `settings:read`, `settings:write` |
 | [deployment](#deployment) | 2 | 2 | `settings:read`, `settings:write` |
-| [detection](#detection) | 7 | 9 | `rules:read`, `rules:write` |
+| [detection](#detection) | 7 | 9 | `rules:read`, `rules:view`, `rules:write` |
 | [detection-loop](#detection-loop) | 2 | 1 | `alerts:read`, `alerts:write` |
-| [detection-proposals](#detection-proposals) | 3 | 9 | `rules:read`, `rules:write` |
+| [detection-proposals](#detection-proposals) | 3 | 9 | `rules:view`, `rules:write` |
 | [easm](#easm) | 2 | 1 | `alerts:read`, `settings:write` |
 | [enrichment](#enrichment) | 1 | 1 | `threat_intel:read` |
 | [federated](#federated) | 1 | 1 | `connectors:read` |
@@ -78,7 +78,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [remediation](#remediation) | 3 | 3 | `remediation:read`, `remediation:write` |
 | [report-builder](#report-builder) | 0 | 2 | `settings:read` |
 | [reports](#reports) | 5 | 3 | `reports:read`, `reports:write` |
-| [rules](#rules) | 2 | 6 | `rules:read`, `rules:write` |
+| [rules](#rules) | 2 | 6 | `rules:read`, `rules:view`, `rules:write` |
 | [saved-hunts](#saved-hunts) | 2 | 3 | `hunts:read`, `lake:query` |
 | [saved-views](#saved-views) | 1 | 3 | 4 signed-in with no permission declared |
 | [shifts](#shifts) | 3 | 2 | `alerts:read`, `shifts:read`, `shifts:write` |
@@ -86,7 +86,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [tenants](#tenants) | 7 | 5 | `alerts:read`, `settings:read`, `settings:write`, `users:read`, `users:write`; 1 signed-in with no permission declared |
 | [threat-intel](#threat-intel) | 4 | 5 | `intel:read`, `threat_intel:read`, `threat_intel:write` |
 | [threatintel](#threatintel) | 4 | 3 | `intel:read`, `threat_intel:read`, `threat_intel:write` |
-| [translation](#translation) | 1 | 1 | `rules:read` |
+| [translation](#translation) | 1 | 1 | `rules:read`, `rules:view` |
 | [waitlist](#waitlist) | 1 | 2 | `mssp:onboard`; 1 with no sign-in required |
 
 ## admin
@@ -315,19 +315,19 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/detection/confidence` | Get detection confidence | `rules:read` |
-| GET | `/detection/coverage` | Get detection coverage | `rules:read` |
-| GET | `/detection/drift` | Get detection drift | `rules:read` |
-| GET | `/detection/rules` | List rules compat | `rules:read` |
+| GET | `/detection/confidence` | Get detection confidence | `rules:view` |
+| GET | `/detection/coverage` | Get detection coverage | `rules:view` |
+| GET | `/detection/drift` | Get detection drift | `rules:view` |
+| GET | `/detection/rules` | List rules compat | `rules:view` |
 | POST | `/detection/rules` | Create rule compat | `rules:write` |
 | POST | `/detection/rules/bulk-toggle` | Bulk toggle rules | `rules:write` |
 | DELETE | `/detection/rules/{rule_id}` | Delete rule compat | `rules:write` |
-| GET | `/detection/rules/{rule_id}` | Get rule compat | `rules:read` |
+| GET | `/detection/rules/{rule_id}` | Get rule compat | `rules:view` |
 | PATCH | `/detection/rules/{rule_id}` | Update rule compat | `rules:write` |
 | POST | `/detection/test` | Test rule compat | `rules:read` |
-| GET | `/detection/tuning` | Get tuning workbench | `rules:read` |
+| GET | `/detection/tuning` | Get tuning workbench | `rules:view` |
 | POST | `/detection/tuning/auto-suggest` | Auto suggest tuning | `rules:write` |
-| GET | `/detection/tuning/summary` | Get tuning summary | `rules:read` |
+| GET | `/detection/tuning/summary` | Get tuning summary | `rules:view` |
 | POST | `/detection/tuning/{rule_id}/apply` | Apply tuning endpoint | `rules:write` |
 | POST | `/detection/tuning/{rule_id}/auto_tune` | Set auto tune endpoint | `rules:write` |
 | POST | `/detection/tuning/{rule_id}/dismiss` | Dismiss tuning endpoint | `rules:write` |
@@ -344,12 +344,12 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/detection-proposals` | List proposals | `rules:read` |
+| GET | `/detection-proposals` | List proposals | `rules:view` |
 | POST | `/detection-proposals` | Create proposal | `rules:write` |
-| GET | `/detection-proposals/baselines` | List baselines | `rules:read` |
+| GET | `/detection-proposals/baselines` | List baselines | `rules:view` |
 | POST | `/detection-proposals/baselines` | Record baseline | `rules:write` |
 | POST | `/detection-proposals/run-eval` | Run the offline eval harness (`scripts/run_evals.py`) and return the JSON report | `rules:write` |
-| GET | `/detection-proposals/{proposal_id}` | Get proposal | `rules:read` |
+| GET | `/detection-proposals/{proposal_id}` | Get proposal | `rules:view` |
 | POST | `/detection-proposals/{proposal_id}/backtest` | Backtest proposal | `rules:write` |
 | POST | `/detection-proposals/{proposal_id}/comment` | Comment on proposal | `rules:write` |
 | POST | `/detection-proposals/{proposal_id}/decide` | Decide proposal | `rules:write` |
@@ -835,11 +835,11 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/rules` | List rules | `rules:read` |
+| GET | `/rules` | List rules | `rules:view` |
 | POST | `/rules` | Create rule | `rules:write` |
 | POST | `/rules/hunt` | Threat hunt: run detection rules against a set of events | `rules:read` |
 | DELETE | `/rules/{rule_id}` | Delete rule | `rules:write` |
-| GET | `/rules/{rule_id}` | Get rule | `rules:read` |
+| GET | `/rules/{rule_id}` | Get rule | `rules:view` |
 | PATCH | `/rules/{rule_id}` | Update rule | `rules:write` |
 | POST | `/rules/{rule_id}/backtest` | Backtest a detection rule against historical lake events | `rules:read` |
 | POST | `/rules/{rule_id}/execute` | Execute a detection rule against provided events | `rules:read` |
@@ -931,7 +931,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/translation/formats` | List supported detection rule formats | `rules:read` |
+| GET | `/translation/formats` | List supported detection rule formats | `rules:view` |
 | POST | `/translation/translate` | Translate a detection rule across formats | `rules:read` |
 
 ## waitlist

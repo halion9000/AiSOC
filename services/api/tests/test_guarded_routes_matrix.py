@@ -48,7 +48,7 @@ ROUTES = [  # (METHOD, concrete path, permission)
     ("POST", "/api/v1/threatintel/stix/bundles", "threat_intel:write"),
     ("POST", "/api/v1/threatintel/stix/indicators", "threat_intel:write"),
     ("POST", "/api/v1/threatintel/stix/misp/dry-run", "threat_intel:write"),
-    ("GET", "/api/v1/translation/formats", "rules:read"),
+    ("GET", "/api/v1/translation/formats", "rules:view"),
     ("POST", "/api/v1/translation/translate", "rules:read"),
     ("POST", "/api/v1/api-keys", "users:write"),
     ("PATCH", f"/api/v1/api-keys/{ID}", "users:write"),

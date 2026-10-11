@@ -45,6 +45,7 @@ VALID_SCOPES: frozenset[str] = frozenset(
         "alerts:read",
         "alerts:write",
         "alerts:triage",
+        "rules:view",
         "alerts:delete",
         "cases:read",
         "cases:write",

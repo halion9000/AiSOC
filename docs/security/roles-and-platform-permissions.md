@@ -50,6 +50,24 @@ AiSOC separates what a person may do **inside their own tenant** from what acts 
 * **It grants nothing else.** A principal holding only `alerts:triage` can use those three routes and no others anywhere in the API (a test checks this over every route).
 * A key can be issued with the scope `alerts:triage` (`POST /api-keys`); a custom role can be given the permission (migration `077` adds it to the catalog; it backfills nothing). CORE's integration key holds `alerts:triage` and not `alerts:write`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`, naming both the scope it adds and the one it removes.
 
+
+## Reading detection rules without being able to backtest: `rules:view`
+
+`rules:read` guards 18 routes: 13 plain reads and 5 that compute. Three of the five only evaluate events the *caller* sends (`POST /rules/hunt`, `POST /rules/{id}/execute`, `POST /detection/test`), one translates a rule (`POST /translation/translate`), and one, **`POST /rules/{id}/backtest`, runs a rule over up to 365 days of the tenant's real events in the data lake and returns `sample_matches`, the matching event rows**: that is reading telemetry, which `lake:query` gates. So nothing that should only *read* the rules (an AI agent's API key) could be given `rules:read` without being able to read lake telemetry. `rules:view` is the read half:
+
+| Route | Needs |
+| --- | --- |
+| `GET /rules`, `GET /rules/{id}`, `GET /detection/rules`, `GET /detection/rules/{id}` | `rules:view` |
+| `GET /detection/coverage`, `/detection/drift`, `/detection/confidence`, `/detection/tuning`, `/detection/tuning/summary` | `rules:view` |
+| `GET /detection-proposals`, `/detection-proposals/baselines`, `/detection-proposals/{id}`, `GET /translation/formats` | `rules:view` |
+| `POST /rules/hunt`, `/rules/{id}/execute`, `/rules/{id}/backtest`, `/detection/test`, `/translation/translate` | `rules:read` |
+| everything that creates, changes or deletes a rule | `rules:write` |
+
+* **Nobody loses anything.** `rules:read` implies `rules:view` (in `permission_in`, which every check goes through: role maps, database roles and API-key scopes, including a `rules:*` wildcard); the implication runs one way only. `admin`, `tenant_admin`, `platform_admin`, `soc_lead` and `threat_hunter` hold `rules:read` and so read rules exactly as before; `soc_analyst`, `viewer` and `api_service` hold neither, as before.
+* **It grants nothing else.** A principal holding only `rules:view` can use the 13 reads and no other route anywhere in the API (a test checks this over every route).
+* The GraphQL `detectionRules` field mirrors `GET /rules`, so it needs `rules:view` too (a test pins that parity).
+* A key can be issued with the scope `rules:view` (`POST /api-keys`); a custom role can be given the permission (migration `078` adds it to the catalog; it backfills nothing). CORE's integration key holds `rules:view` and not `rules:read`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`.
+
 ## Platform permissions
 
 These act on every tenant, so neither the `*` wildcard nor a resource wildcard such as `plugins:*` grants them. A principal holds one only if it is **named exactly**: in a role (only `platform_admin` lists them), in an API key's scopes, or in a database role.

@@ -52,6 +52,9 @@ CORE_KEY_NAME = "core-hud"
 # no connector changes, no rule WRITES, and nothing that runs queries against the
 # data lake: lake:query (create/run/delete hunts, arbitrary queries, and reading
 # what a hunt's runs found) is deliberately NOT granted.
+# NOR is rules:read: rules:view is its narrow read half (13 GET routes). rules:read ALSO guards
+# five routes that compute, one of which (POST /rules/{id}/backtest) runs a rule over up to
+# 365 days of the tenant's real events in the data lake and returns the matching event rows.
 # NOR is threat_intel:read or threat_intel:write. intel:read is the narrow read
 # half split out of threat_intel:read (which ALSO guards the feed list, whose
 # free-form `config` can hold credentials, and the enrichment routes, which send
@@ -60,7 +63,7 @@ CORE_KEY_NAME = "core-hud"
 # in-place sync below removes that from an existing key, same secret.)
 # Adding a scope here also widens the key on a deployment that already has it:
 # _ensure_key syncs an existing key's scopes in place (same secret).
-CORE_KEY_SCOPES = ["alerts:read", "alerts:triage", "cases:read", "cases:write", "connectors:read", "rules:read", "hunts:read", "intel:read"]
+CORE_KEY_SCOPES = ["alerts:read", "alerts:triage", "cases:read", "cases:write", "connectors:read", "rules:view", "hunts:read", "intel:read"]
 # The agents service's own key, for background calls it makes without a user
 # behind them (attack-path, blast-radius and neighbor graphs during an
 # investigation). Those endpoints need only an authenticated caller; read-only.

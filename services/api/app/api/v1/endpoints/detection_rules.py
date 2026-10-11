@@ -97,7 +97,7 @@ class UpdateRuleRequest(BaseModel):
 
 @router.get("", response_model=list[DetectionRuleResponse])
 async def list_rules(
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
     category: str | None = Query(default=None),
     rule_language: str | None = Query(default=None),
@@ -187,7 +187,7 @@ async def create_rule(
 @router.get("/{rule_id}", response_model=DetectionRuleResponse)
 async def get_rule(
     rule_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("rules:read"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:view"))],
     db: DBSession,
 ) -> DetectionRuleResponse:
     """Get a detection rule by ID."""

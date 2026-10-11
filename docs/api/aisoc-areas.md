@@ -23,9 +23,9 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **costs**: 1 reads, 0 changes; protection: `reports:read`; e.g. LLM spend, action counts, top-cost cases, and BYOK savings for the tenant
 - **data-lifecycle**: 2 reads, 4 changes; protection: `settings:read`, `settings:write`; e.g. List parsers; Create parser
 - **deployment**: 2 reads, 2 changes; protection: `settings:read`, `settings:write`; e.g. Create airgap bundle; Get airgap status
-- **detection**: 7 reads, 9 changes; protection: `rules:read`, `rules:write`; e.g. Get detection confidence; Get detection coverage
+- **detection**: 7 reads, 9 changes; protection: `rules:read`, `rules:view`, `rules:write`; e.g. Get detection confidence; Get detection coverage
 - **detection-loop**: 2 reads, 1 changes; protection: `alerts:read`, `alerts:write`; e.g. Draft Sigma improvement for a FP alert; List LLM-drafted Sigma suggestions
-- **detection-proposals**: 3 reads, 9 changes; protection: `rules:read`, `rules:write`; e.g. List proposals; Create proposal
+- **detection-proposals**: 3 reads, 9 changes; protection: `rules:view`, `rules:write`; e.g. List proposals; Create proposal
 - **easm**: 2 reads, 1 changes; protection: `alerts:read`, `settings:write`; e.g. List external assets; List external asset drift
 - **enrichment**: 1 reads, 1 changes; protection: `threat_intel:read`; e.g. Bulk; Lookup
 - **federated**: 1 reads, 1 changes; protection: `connectors:read`; e.g. List federated backends; Federated search
@@ -72,7 +72,7 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **remediation**: 3 reads, 3 changes; protection: `remediation:read`, `remediation:write`; e.g. Get maturity config; Update maturity config
 - **report-builder**: 0 reads, 2 changes; protection: `settings:read`; e.g. Render; Validate report
 - **reports**: 5 reads, 3 changes; protection: `reports:read`, `reports:write`; e.g. List artefacts; Get artefact
-- **rules**: 2 reads, 6 changes; protection: `rules:read`, `rules:write`; e.g. List rules; Create rule
+- **rules**: 2 reads, 6 changes; protection: `rules:read`, `rules:view`, `rules:write`; e.g. List rules; Create rule
 - **saved-hunts**: 2 reads, 3 changes; protection: `hunts:read`, `lake:query`; e.g. List saved hunts; Create saved hunt
 - **saved-views**: 1 reads, 3 changes; protection: 4 signed-in with no permission declared; e.g. List saved views; Create saved view
 - **shifts**: 3 reads, 2 changes; protection: `alerts:read`, `shifts:read`, `shifts:write`; e.g. List shifts; Create shift
@@ -80,5 +80,5 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **tenants**: 7 reads, 5 changes; protection: `alerts:read`, `settings:read`, `settings:write`, `users:read`, `users:write`; 1 signed-in with no permission declared; e.g. List manageable tenants; Get my tenant
 - **threat-intel**: 4 reads, 5 changes; protection: `intel:read`, `threat_intel:read`, `threat_intel:write`; e.g. List actors; Create actor
 - **threatintel**: 4 reads, 3 changes; protection: `intel:read`, `threat_intel:read`, `threat_intel:write`; e.g. List bundles; Create bundle
-- **translation**: 1 reads, 1 changes; protection: `rules:read`; e.g. List supported detection rule formats; Translate a detection rule across formats
+- **translation**: 1 reads, 1 changes; protection: `rules:read`, `rules:view`; e.g. List supported detection rule formats; Translate a detection rule across formats
 - **waitlist**: 1 reads, 2 changes; protection: `mssp:onboard`; 1 with no sign-in required; e.g. List waitlist entries (admin only).; Update a waitlist entry's status (admin only).

@@ -284,7 +284,7 @@ def verify_ed25519_signature(public_key_bytes: bytes, message: bytes, signature:
 
 # Names that are enforced somewhere in the code but are not (yet) granted to any role
 # beyond the "*" wildcard holders. They are valid permission names.
-_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read", "intel:read", "alerts:triage"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
+_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read", "intel:read", "alerts:triage", "rules:view"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
 
 
 def known_permissions() -> frozenset[str]:
@@ -303,7 +303,11 @@ def known_permissions() -> frozenset[str]:
 # `alerts:triage` (claim, escalate and snooze an alert) was split out of `alerts:write`, which ALSO guards submitting and patching alerts and 24 routes in other areas (creating assets, posture findings, identity
 # graph nodes, honeytokens, graph entities, insider-threat indicators and watchlists, feedback, phishing re-triage...). Everything that held `alerts:write` still triages exactly as before; a holder of `alerts:triage`
 # alone can do those three things and nothing else in the API: CORE's key holds only this one, because those three are the only alerts:write routes CORE calls.
-IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",)}
+# `rules:view` (read the detection rules and their coverage, drift, confidence, tuning and proposals: 13 GET routes) was split out of `rules:read`, which ALSO guards five routes that COMPUTE: run rules over events the
+# caller sends (/rules/hunt, /rules/{id}/execute, /detection/test), translate a rule (/translation/translate) and BACKTEST a rule, which runs it over up to 365 days of the tenant's real events in the data lake and returns
+# `sample_matches`, the matching event rows: telemetry, the very thing lake:query exists to gate. Everything that held `rules:read` still reads rules exactly as before; a holder of `rules:view` alone can use those 13 reads
+# and nothing else in the API: CORE's key holds only this one.
+IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",), "rules:view": ("rules:read",)}
 
 
 def permission_in(granted: Iterable[str], permission: str) -> bool:

@@ -208,7 +208,7 @@ class TestTheRealApplication:
         assert by[("POST", "/admin/tenants/provision")].permissions == ("mssp:onboard",)
         assert by[("GET", "/auth/me")].access == "signed-in"
         assert by[("POST", "/auth/login")].access == "open"
-        assert by[("GET", "/rules")].permissions == ("rules:read",)
+        assert by[("GET", "/rules")].permissions == ("rules:view",)
 
     def test_most_operations_declare_a_permission_and_the_rest_are_a_small_known_group(self, real_ops):
         permissioned = sum(o.access == "permission" for o in real_ops)

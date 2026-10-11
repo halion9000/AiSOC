@@ -32,7 +32,7 @@ FIELDS = {
     "alerts": ("{ alerts { total } }", ("alerts:read",), ("GET", "/api/v1/alerts")),
     "case": (f'{{ case(id: "{SOME_ID}") {{ id }} }}', ("cases:read",), ("GET", "/api/v1/cases/{case_id}")),
     "cases": ("{ cases { total } }", ("cases:read",), ("GET", "/api/v1/cases")),
-    "detectionRules": ("{ detectionRules { total } }", ("rules:read",), ("GET", "/api/v1/rules")),
+    "detectionRules": ("{ detectionRules { total } }", ("rules:view",), ("GET", "/api/v1/rules")),
     "connectors": ("{ connectors { total } }", ("connectors:read",), ("GET", "/api/v1/connectors")),
     "playbooks": ("{ playbooks { id } }", ("playbooks:read",), ("GET", "/api/v1/playbooks")),
     "playbookRuns": ("{ playbookRuns { id } }", ("playbooks:read",), ("GET", "/api/v1/playbooks/runs")),
@@ -91,10 +91,10 @@ class TestWhoMayReadWhat:
         user = _user(role="admin", scopes=["hunts:read"])
         assert _allowed_fields(user) == set()
         response = _run(user, FIELDS["detectionRules"][0])
-        assert "API key missing scope: rules:read" in _messages(response)
+        assert "API key missing scope: rules:view" in _messages(response)
 
     def test_a_key_with_one_scope_reaches_exactly_the_fields_that_scope_allows(self):
-        for scope in ("alerts:read", "cases:read", "rules:read", "connectors:read", "playbooks:read"):
+        for scope in ("alerts:read", "cases:read", "rules:view", "connectors:read", "playbooks:read"):
             expected = {name for name, (_q, perms, _r) in FIELDS.items() if all(p == scope for p in perms)}
             assert _allowed_fields(_user(role="admin", scopes=[scope])) == expected, scope
 
