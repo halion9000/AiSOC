@@ -250,15 +250,13 @@ def _aggregate_row(row: RowMapping) -> CostAggregateRow:
 async def _fetch_model_costs(
     db: TenantDBSession,
     run_id: uuid.UUID,
+    tenant_id: uuid.UUID,
 ) -> list[ModelCostBreakdown]:
-    """Fetch per-model cost rows from ``aisoc_run_costs`` for one run.
+    """Fetch per-model cost rows from ``aisoc_run_costs`` for one run OF THIS TENANT.
 
-    The agents service's ``CostTracker`` writes ``run_id`` as TEXT, so we
-    cast at the query boundary. Tenant scoping is already enforced by the
-    caller's prior ``_fetch_run`` check (``run_id`` is unique and tenant-
-    bound in ``investigation_runs``). Returns an empty list when no
-    telemetry rows exist — runs that predate the cost-tracker rollout
-    still load cleanly.
+    The agents service's ``CostTracker`` writes ``run_id`` and ``tenant_id`` as TEXT, so both are compared as text. The table has NO row-level security, and its own key is (run_id, tenant_id,
+    model), so the same run_id may exist under more than one tenant: the tenant is therefore part of THIS query, not something that relies on the caller having checked the run first (it used to:
+    ``WHERE run_id = :run_id``). Returns an empty list when no telemetry rows exist: runs that predate the cost-tracker rollout still load cleanly.
     """
     result = await db.execute(
         text(
@@ -270,11 +268,11 @@ async def _fetch_model_costs(
                    total_latency_ms,
                    call_count
             FROM aisoc_run_costs
-            WHERE run_id = :run_id
+            WHERE run_id = :run_id AND tenant_id = :tenant_id
             ORDER BY total_cost_usd DESC, model ASC
             """
         ),
-        {"run_id": str(run_id)},
+        {"run_id": str(run_id), "tenant_id": str(tenant_id)},
     )
     rows = result.mappings().all()
     return [
@@ -406,7 +404,7 @@ async def get_run(
     artifact_count = (
         await db.execute(select(func.count(InvestigationArtifact.id)).where(InvestigationArtifact.run_id == run_id))
     ).scalar_one()
-    model_costs = await _fetch_model_costs(db, run_id)
+    model_costs = await _fetch_model_costs(db, run_id, current_user.tenant_id)
 
     base = _run_to_summary(run)
     return RunDetail(

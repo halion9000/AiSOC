@@ -505,7 +505,8 @@ async def update_user(
 
     if updates:
         updates["updated_at"] = datetime.now(UTC)
-        await db.execute(update(User).where(User.id == user_id).values(**updates))
+        # The user was loaded above with this tenant's id, but the UPDATE carries it too: `users` has no row-level security, so the tenant must not depend on the order of the statements.
+        await db.execute(update(User).where(User.id == user_id, User.tenant_id == current_user.tenant_id).values(**updates))
         await db.commit()
         await db.refresh(user)
 
