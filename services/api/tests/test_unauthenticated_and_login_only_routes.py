@@ -11,8 +11,9 @@ check. (A login-only route whose handler checks a permission inside, like the au
 A new route in either set fails the build until it is added below WITH A REASON, and an entry whose route has been fixed or removed fails
 too, so the lists can only shrink on their own. Controls built from a synthetic app prove the classifier still tells the four kinds apart.
 Limits, stated: the in-handler search is a text search for a permission/role check, not proof the check is right; a route protected by a
-router-level dependency is classified by what the dependency tree shows; and the dynamic evidence behind the OPEN list was gathered on a
-scratch database.
+router-level dependency is classified by what the dependency tree shows; the dynamic evidence behind the OPEN list was gathered on a
+scratch database; and WebSocket routes are NOT covered here (they are not in OpenAPI and
+`walk_routes` yields HTTP routes only): see test_websocket_routes_refuse_anonymous.py.
 """
 
 import inspect
