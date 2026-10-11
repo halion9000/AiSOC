@@ -41,7 +41,10 @@ DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 SEEDED_ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 SEEDED_ADMIN_EMAIL = "admin@aisoc.local"
 CORE_KEY_NAME = "core-hud"
-# Exactly what CORE calls: alerts (read, claim/escalate/snooze), cases and
+# Exactly what CORE calls: alerts (read; claim, escalate and snooze through the narrow
+# alerts:triage, NOT alerts:write, which also guards submitting and patching alerts and
+# creating assets, posture findings, identity nodes, honeytokens, insider-threat indicators and
+# watchlists...: 29 routes), cases and
 # investigations (cases:*), connector listing/health, READ access to the
 # detection rules (rules:read), to hunt definitions (hunts:read) and to the
 # tenant's stored threat intelligence (intel:read): Cipher's detection-engineering,
@@ -57,7 +60,7 @@ CORE_KEY_NAME = "core-hud"
 # in-place sync below removes that from an existing key, same secret.)
 # Adding a scope here also widens the key on a deployment that already has it:
 # _ensure_key syncs an existing key's scopes in place (same secret).
-CORE_KEY_SCOPES = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read", "rules:read", "hunts:read", "intel:read"]
+CORE_KEY_SCOPES = ["alerts:read", "alerts:triage", "cases:read", "cases:write", "connectors:read", "rules:read", "hunts:read", "intel:read"]
 # The agents service's own key, for background calls it makes without a user
 # behind them (attack-path, blast-radius and neighbor graphs during an
 # investigation). Those endpoints need only an authenticated caller; read-only.

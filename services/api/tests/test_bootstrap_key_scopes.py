@@ -17,8 +17,9 @@ from app.db.database import Base
 from app.models.tenant import ApiKey, Tenant, User
 from app.scripts import bootstrap_production as bp
 
+# OLD: the key an early version issued (it held alerts:write). NEW: what CORE's key holds now: the narrow alerts:triage instead of alerts:write, plus the read scopes added since.
 OLD = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read"]
-NEW = [*OLD, "rules:read", "hunts:read", "intel:read"]
+NEW = ["alerts:read", "alerts:triage", "cases:read", "cases:write", "connectors:read", "rules:read", "hunts:read", "intel:read"]
 OWNER = uuid.uuid4()
 OTHER_TENANT = uuid.uuid4()
 
@@ -67,6 +68,7 @@ class TestTheScopes:
         for scope in bp.CORE_KEY_SCOPES:
             assert scope not in {"*", "rules:write", "lake:query", "playbooks:execute"} and not scope.endswith(":delete"), scope
         assert "rules:write" not in bp.CORE_KEY_SCOPES and "lake:query" not in bp.CORE_KEY_SCOPES
+        assert "alerts:triage" in bp.CORE_KEY_SCOPES and "alerts:write" not in bp.CORE_KEY_SCOPES, "CORE claims, escalates and snoozes alerts through the narrow alerts:triage; alerts:write also guards 26 other routes (assets, posture findings, identity nodes, insider-threat indicators and watchlists, honeytokens...)"
         assert "intel:read" in bp.CORE_KEY_SCOPES and "threat_intel:read" not in bp.CORE_KEY_SCOPES and "threat_intel:write" not in bp.CORE_KEY_SCOPES, "intelligence is read through the narrow intel:read; threat_intel:read also guards the feed list (config can hold credentials) and enrichment (sends indicators to outside providers), and threat_intel:write changes things: the key holds neither"
         assert "hunts:read" in bp.CORE_KEY_SCOPES, "hunt definitions are read through hunts:read, never through lake:query"
 
@@ -98,7 +100,7 @@ class TestAnExistingKey:
         assert sorted(key.scopes) == sorted(NEW) and key.hashed_key == "hash-original" and key.key_prefix == "ak_orig" and key.is_active
         assert len(world.rows()) == 1, "no second key"
         message = next(r.getMessage() for r in caplog.records if "scopes updated" in r.getMessage())
-        assert "'core-hud'" in message and "same secret" in message and "['hunts:read', 'intel:read', 'rules:read']" in message and "removed none" in message
+        assert "'core-hud'" in message and "same secret" in message and "['alerts:triage', 'hunts:read', 'intel:read', 'rules:read']" in message and "removed ['alerts:write']" in message
 
     def test_an_extra_scope_is_taken_away_least_privilege_is_restored(self, world, caplog):
         kid = world.add(scopes=[*NEW, "alerts:delete", "lake:query"])

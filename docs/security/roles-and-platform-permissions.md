@@ -36,6 +36,20 @@ AiSOC separates what a person may do **inside their own tenant** from what acts 
 * **It grants nothing else.** A principal holding only `intel:read` can use the five routes in the first two rows and no others anywhere in the API (a test checks this over every route).
 * A key can be issued with the scope `intel:read` (`POST /api-keys`); a custom role can be given the permission (migration `076` adds it to the catalog; it backfills nothing). CORE's integration key holds `intel:read` and not `threat_intel:read`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`.
 
+
+## Triaging alerts without the rest of `alerts:write`: `alerts:triage`
+
+`alerts:write` guards 29 routes: claiming, escalating and snoozing an alert, but also submitting and patching alerts, creating assets, adding cloud posture findings, creating identity graph nodes, adding insider-threat indicators and changing an employee profile's watchlist, graph entities, honeytokens, feedback and phishing re-triage. So an integration that only needs to triage (CORE's agent) could not be given it without all of that. `alerts:triage` is exactly three routes:
+
+| Route | Needs |
+| --- | --- |
+| `POST /alerts/{id}/claim`, `POST /alerts/{id}/escalate`, `POST /alerts/{id}/snooze` | `alerts:triage` |
+| `POST /alerts/submit`, `PATCH /alerts/{id}` and the 24 other routes listed above | `alerts:write` |
+
+* **Nobody loses anything.** `alerts:write` implies `alerts:triage` (in `permission_in`, which every check goes through: role maps, database roles and API-key scopes, including an `alerts:*` wildcard); the implication runs one way only. Six of the eight standard roles hold `alerts:write` and so triage exactly as before; `threat_hunter` and `viewer` hold neither, as before.
+* **It grants nothing else.** A principal holding only `alerts:triage` can use those three routes and no others anywhere in the API (a test checks this over every route).
+* A key can be issued with the scope `alerts:triage` (`POST /api-keys`); a custom role can be given the permission (migration `077` adds it to the catalog; it backfills nothing). CORE's integration key holds `alerts:triage` and not `alerts:write`; the bootstrap updates an existing key in place (same secret) and logs `scopes-updated`, naming both the scope it adds and the one it removes.
+
 ## Platform permissions
 
 These act on every tenant, so neither the `*` wildcard nor a resource wildcard such as `plugins:*` grants them. A principal holds one only if it is **named exactly**: in a role (only `platform_admin` lists them), in an API key's scopes, or in a database role.

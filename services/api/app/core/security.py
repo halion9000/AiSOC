@@ -284,7 +284,7 @@ def verify_ed25519_signature(public_key_bytes: bytes, message: bytes, signature:
 
 # Names that are enforced somewhere in the code but are not (yet) granted to any role
 # beyond the "*" wildcard holders. They are valid permission names.
-_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read", "intel:read"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
+_UNGRANTED_PERMISSIONS = frozenset({"sla:write", "mssp:onboard", "hunts:read", "intel:read", "alerts:triage"})  # hunts:read: held through lake:query (IMPLIED_BY below) or granted on its own
 
 
 def known_permissions() -> frozenset[str]:
@@ -300,7 +300,10 @@ def known_permissions() -> frozenset[str]:
 # `intel:read` (read the tenant's stored threat intelligence: indicators, actor profiles and published STIX) was split out of `threat_intel:read`, which ALSO guards the feed list (a feed's free-form `config` can
 # hold credentials) and the enrichment routes (they send an indicator to outside providers). Everything that held `threat_intel:read` still reads intelligence exactly as before; a holder of `intel:read` alone can
 # read those five routes and nothing else: CORE's key holds only this one.
-IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",)}
+# `alerts:triage` (claim, escalate and snooze an alert) was split out of `alerts:write`, which ALSO guards submitting and patching alerts and 24 routes in other areas (creating assets, posture findings, identity
+# graph nodes, honeytokens, graph entities, insider-threat indicators and watchlists, feedback, phishing re-triage...). Everything that held `alerts:write` still triages exactly as before; a holder of `alerts:triage`
+# alone can do those three things and nothing else in the API: CORE's key holds only this one, because those three are the only alerts:write routes CORE calls.
+IMPLIED_BY: dict[str, tuple[str, ...]] = {"hunts:read": ("lake:query",), "intel:read": ("threat_intel:read",), "alerts:triage": ("alerts:write",)}
 
 
 def permission_in(granted: Iterable[str], permission: str) -> bool:

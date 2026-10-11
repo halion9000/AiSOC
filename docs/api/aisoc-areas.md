@@ -7,7 +7,7 @@ AiSOC has **463** operations in **78** areas. This is a MAP, not a list of tools
 - **admin**: 1 reads, 1 changes; protection: `mssp:onboard`, `platform:cross_tenant_query`; e.g. List tenants for the support team.; Promote a waitlist entry into a live managed tenant.
 - **agents**: 1 reads, 0 changes; protection: `connectors:read`; e.g. List agent tools
 - **airgap**: 1 reads, 0 changes; protection: `settings:read`; e.g. Current air-gap egress policy
-- **alerts**: 4 reads, 6 changes; protection: `alerts:read`, `alerts:write`; e.g. List alerts; Get alert queue
+- **alerts**: 4 reads, 6 changes; protection: `alerts:read`, `alerts:triage`, `alerts:write`; e.g. List alerts; Get alert queue
 - **api-keys**: 2 reads, 3 changes; protection: `users:read`, `users:write`; e.g. List api keys; Create api key
 - **approvals**: 2 reads, 2 changes; protection: `alerts:read`, `cases:write`; e.g. List approvals; Create approval
 - **assets**: 4 reads, 4 changes; protection: `alerts:delete`, `alerts:read`, `alerts:write`; e.g. List assets; Create asset

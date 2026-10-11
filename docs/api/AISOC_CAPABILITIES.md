@@ -13,7 +13,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [admin](#admin) | 1 | 1 | `mssp:onboard`, `platform:cross_tenant_query` |
 | [agents](#agents) | 1 | 0 | `connectors:read` |
 | [airgap](#airgap) | 1 | 0 | `settings:read` |
-| [alerts](#alerts) | 4 | 6 | `alerts:read`, `alerts:write` |
+| [alerts](#alerts) | 4 | 6 | `alerts:read`, `alerts:triage`, `alerts:write` |
 | [api-keys](#api-keys) | 2 | 3 | `users:read`, `users:write` |
 | [approvals](#approvals) | 2 | 2 | `alerts:read`, `cases:write` |
 | [assets](#assets) | 4 | 4 | `alerts:delete`, `alerts:read`, `alerts:write` |
@@ -118,10 +118,10 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | POST | `/alerts/submit` | Submit alert | `alerts:write` |
 | GET | `/alerts/{alert_id}` | Get alert | `alerts:read` |
 | PATCH | `/alerts/{alert_id}` | Update alert | `alerts:write` |
-| POST | `/alerts/{alert_id}/claim` | Claim alert endpoint | `alerts:write` |
-| POST | `/alerts/{alert_id}/escalate` | Escalate alert | `alerts:write` |
+| POST | `/alerts/{alert_id}/claim` | Claim alert endpoint | `alerts:triage` |
+| POST | `/alerts/{alert_id}/escalate` | Escalate alert | `alerts:triage` |
 | POST | `/alerts/{alert_id}/explain` | Generate a structured AI explanation for an alert | `alerts:read` |
-| POST | `/alerts/{alert_id}/snooze` | Snooze alert | `alerts:write` |
+| POST | `/alerts/{alert_id}/snooze` | Snooze alert | `alerts:triage` |
 
 ## api-keys
 

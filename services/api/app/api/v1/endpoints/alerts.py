@@ -856,7 +856,7 @@ async def update_alert(
 @router.post("/{alert_id}/escalate", response_model=AlertResponse)
 async def escalate_alert(
     alert_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("alerts:write"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:triage"))],
     db: DBSession,
 ) -> AlertResponse:
     """Escalate an alert (raises severity by one level)."""
@@ -880,7 +880,7 @@ async def escalate_alert(
 @router.post("/{alert_id}/claim", response_model=AlertResponse)
 async def claim_alert_endpoint(
     alert_id: uuid.UUID,
-    current_user: Annotated[AuthUser, Depends(require_permission("alerts:write"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:triage"))],
     db: TenantDBSession,
 ) -> AlertResponse:
     """Atomically claim an unassigned alert for the current user.
@@ -908,7 +908,7 @@ async def claim_alert_endpoint(
 async def snooze_alert(
     alert_id: uuid.UUID,
     body: AlertSnoozeRequest,
-    current_user: Annotated[AuthUser, Depends(require_permission("alerts:write"))],
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:triage"))],
     db: TenantDBSession,
 ) -> AlertResponse:
     """Defer an alert for a fixed window from the mobile responder PWA.
