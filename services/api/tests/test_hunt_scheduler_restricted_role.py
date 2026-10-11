@@ -1,7 +1,7 @@
 """The hunt scheduler must not depend on bypassing row-level security.
 
-`run_once` used to begin with `SET LOCAL row_security = off`. That only bypasses RLS for a superuser, the table owner or a BYPASSRLS role. For the ordinary restricted role that docker-compose.rls.yml runs the services as (`aisoc_app`: not a superuser, no BYPASSRLS) the very next SELECT FAILED with
-"query would be affected by row-level security policy", so scheduled hunts silently never ran in the hardened configuration. Verified on a real Postgres (Docker is not available where the suite runs, so the behaviour is pinned here through what the sweep ASKS the database to do):
+`run_once` used to begin with `SET LOCAL row_security = off`. That only bypasses RLS for a superuser, the table owner or a BYPASSRLS role. For the ordinary restricted role (`aisoc_app`: not a superuser, no BYPASSRLS; docker-compose.rls.yml runs `actions` and `agents` as it, and the API can be pointed at it by hand) the very next SELECT FAILED with
+"query would be affected by row-level security policy", so scheduled hunts silently never ran whenever the API connected that way (latent in the shipped config: the overlay does not switch the API yet). Verified on a real Postgres (Docker is not available where the suite runs, so the behaviour is pinned here through what the sweep ASKS the database to do):
   as aisoc_app    the real run_once() raised ProgrammingError: query would be affected by row-level security policy for table "aisoc_saved_hunts"
   as the superuser the same call returned 0.
 """
