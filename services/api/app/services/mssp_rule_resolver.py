@@ -219,7 +219,13 @@ async def _resolve_effective_rules(
             pack_rule_filters: list[Any] = [
                 MSSPRulePackRule.pack_id.in_(list(pack_id_to_overrides.keys())),
             ]
-            pack_rule_join_filters: list[Any] = []
+            # Only rules the PARENT owns, or platform built-ins, may reach a child through its pack. add_rule_to_pack now refuses anything
+            # else, but links created before that check existed (a stranger's rule attached by id) are still in deployed databases:
+            # filtering here stops them leaking too, in the same way the overrides and assignments above are only honoured from the child's
+            # real parent.
+            pack_rule_join_filters: list[Any] = [
+                or_(DetectionRule.tenant_id == parent_id, and_(DetectionRule.tenant_id.is_(None), DetectionRule.is_builtin.is_(True))),
+            ]
             if only_active:
                 pack_rule_join_filters.append(DetectionRule.status == "active")
             if rule_ids:

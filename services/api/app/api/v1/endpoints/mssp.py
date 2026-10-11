@@ -471,7 +471,11 @@ async def add_rule_to_pack(
         raise HTTPException(status_code=404, detail="Rule pack not found")
 
     rule = await db.get(DetectionRule, body.rule_id)
-    if not rule:
+    # A pack is the parent's own curated set, applied to its children: only the parent's own rules, or a platform built-in, may go in it.
+    # Without this check any tenant's rule could be attached to any pack by id, and the child's effective rules would then include (and show
+    # the body of) a stranger's private rule. The refusal is the SAME 404 as for an id that does not exist, so it does not reveal that the
+    # rule exists.
+    if not rule or not (rule.tenant_id == current_user.tenant_id or (rule.tenant_id is None and rule.is_builtin)):
         raise HTTPException(status_code=404, detail="Detection rule not found")
 
     link = MSSPRulePackRule(pack_id=pack_id, rule_id=body.rule_id)
