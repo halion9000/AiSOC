@@ -776,7 +776,8 @@ async def inbound_itsm_webhook(
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to apply inbound status: {exc}",
+            # Generic on purpose: this is answered to an EXTERNAL system, and a SQLAlchemy exception's text includes the SQL statement and its parameter values. The full exception is logged just above.
+            detail="Failed to apply inbound status",
         ) from exc
 
     logger.info(

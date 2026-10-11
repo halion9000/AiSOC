@@ -1126,7 +1126,7 @@ async def _agents_proxy(method: str, path: str, **kwargs: Any) -> httpx.Response
         )
         raise HTTPException(
             status_code=503,
-            detail=f"Agents service unavailable: {exc}",
+            detail="Agents service unavailable",  # the exception is logged above; its text names the internal host and port
         ) from exc
 
 

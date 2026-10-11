@@ -68,6 +68,13 @@ async def _or_503(call: Any) -> Any:
         raise
 
 
+def _query_failed(exc: BaseException) -> HTTPException:
+    """The 503 for a failed graph QUERY. It used to be `detail=f"Graph query failed: {exc}"`, which put the driver's own text (the internal host and port, resolved addresses) in the response to
+    any caller who could read the graph. The exception is logged here, in full, and the caller gets a generic message."""
+    logger.warning("graph query failed (%s): %s", type(exc).__name__, exc)
+    return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Graph query failed")
+
+
 # ─── Request / Response Schemas ───────────────────────────────────────────────
 
 
@@ -287,10 +294,7 @@ async def get_attack_path(
         )
     except Exception as exc:
         if not _is_graph_unavailable(exc):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Graph query failed: {exc}",
-            ) from exc
+            raise _query_failed(exc) from exc
         logger.info(
             "attack-path: graph backend unavailable, using relational fallback (%s: %s)",
             type(exc).__name__,
@@ -346,10 +350,7 @@ async def get_blast_radius(
             hops=hops,
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Graph query failed: {exc}",
-        ) from exc
+        raise _query_failed(exc) from exc
 
     return BlastRadiusResponse(**data)
 
@@ -373,10 +374,7 @@ async def get_entity_neighbors(
             tenant_id=str(current_user.tenant_id),
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Graph query failed: {exc}",
-        ) from exc
+        raise _query_failed(exc) from exc
 
     return EntityNeighborsResponse(**data)
 
@@ -407,10 +405,7 @@ async def get_mitre_coverage(
                 exc_info=False,
             )
             return []
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Graph query failed: {exc}",
-        ) from exc
+        raise _query_failed(exc) from exc
 
     return [
         MitreCoverageItem(
@@ -458,10 +453,7 @@ async def get_mitre_coverage_compat(
                 cells=[],
                 generatedAt=_dt.now(_UTC).isoformat(),
             )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Graph query failed: {exc}",
-        ) from exc
+        raise _query_failed(exc) from exc
 
     cells: list[MitreCoverageCell] = []
     tactics: set[str] = set()
