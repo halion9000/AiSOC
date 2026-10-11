@@ -217,7 +217,7 @@ async def list_hunts(
     hunt_status: str | None = Query(None, alias="status"),
     priority: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=1_000_000),
 ) -> list[HuntResponse]:
     wheres = ["tenant_id = :tenant_id"]
     params: dict[str, Any] = {

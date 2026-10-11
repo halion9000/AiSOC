@@ -85,7 +85,7 @@ def _filtered_audit_query(
 async def list_audit_events(
     current_user: Annotated[AuthUser, Depends(require_permission("audit_log:read"))],
     db: TenantDBSession,
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=50, ge=1, le=200),
     action: str | None = Query(default=None, description="Filter by action prefix, e.g. 'cases:'"),
     resource: str | None = Query(default=None),

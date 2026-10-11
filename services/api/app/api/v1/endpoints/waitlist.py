@@ -54,9 +54,9 @@ import logging
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -381,7 +381,7 @@ async def list_entries(
     db: DBSession,
     user: AuthUser,
     status_filter: str | None = None,
-    limit: int = 100,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> WaitlistEntriesResponse:
     if status_filter is not None:
         normalized = status_filter.strip().lower()

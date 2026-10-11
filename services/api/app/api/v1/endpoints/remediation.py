@@ -124,8 +124,8 @@ async def update_maturity_config(
 @router.get("/gate-log", response_model=list[GateLogOut], dependencies=[Depends(require_permission("remediation:read"))])
 async def list_gate_log(
     decision: str | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[RemediationGateLog]:

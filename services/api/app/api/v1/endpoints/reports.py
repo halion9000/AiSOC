@@ -149,8 +149,8 @@ async def delete_template(
 async def list_artefacts(
     report_type: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
-    limit: int = Query(20, le=100),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ReportArtefact]:

@@ -103,8 +103,8 @@ async def list_findings(
     severity: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
     rule_id: str | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[PostureFinding]:
@@ -213,8 +213,8 @@ async def get_summary(
 
 @router.get("/scans", response_model=list[ScanRunOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_scans(
-    limit: int = Query(20, le=100),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[PostureScanRun]:

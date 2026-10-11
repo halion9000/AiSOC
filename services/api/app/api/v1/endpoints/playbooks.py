@@ -11,10 +11,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status, Depends
+from fastapi import APIRouter, HTTPException, Query, Request, status, Depends
 from app.core.internal_auth import internal_service_headers
 from app.api.v1.deps import AuthUser, require_permission
 
@@ -105,7 +105,7 @@ async def create_playbook(request: Request, user: AuthUser):
 
 
 @router.get("/runs", summary="List playbook runs", dependencies=[Depends(require_permission("playbooks:read"))])
-async def list_runs(user: AuthUser, limit: int = 50):
+async def list_runs(user: AuthUser, limit: Annotated[int, Query(ge=1, le=500)] = 50):
     return await _proxy("GET", "/runs", params={"limit": limit, "tenant_id": str(user.tenant_id)})
 
 

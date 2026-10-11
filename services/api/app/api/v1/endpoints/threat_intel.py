@@ -131,8 +131,8 @@ async def list_iocs(
     ioc_type: str | None = Query(None),
     severity: str | None = Query(None),
     is_active: bool | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
 ) -> list[ThreatIntelIOC]:
     q = select(ThreatIntelIOC).where(ThreatIntelIOC.tenant_id == current_user.tenant_id)
@@ -194,8 +194,8 @@ async def delete_ioc(
 async def list_actors(
     current_user: Annotated[AuthUser, Depends(require_permission("intel:read"))],
     is_active: bool | None = Query(None),
-    limit: int = Query(50, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
 ) -> list[ThreatActor]:
     q = select(ThreatActor).where(ThreatActor.tenant_id == current_user.tenant_id)

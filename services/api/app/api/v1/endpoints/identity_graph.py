@@ -90,8 +90,8 @@ async def list_nodes(
     node_type: str | None = Query(None),
     source_system: str | None = Query(None),
     min_risk: float | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[IdentityNode]:
@@ -158,8 +158,8 @@ async def get_node_edges(
 @router.get("/edges", response_model=list[EdgeOut], dependencies=[Depends(require_permission("alerts:read"))])
 async def list_edges(
     edge_type: str | None = Query(None),
-    limit: int = Query(100, le=1000),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[IdentityEdge]:

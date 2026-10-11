@@ -169,7 +169,7 @@ async def get_tuning_workbench(
     search: str | None = Query(default=None, max_length=200, description="Substring match on name/description/category."),
     enabled_only: bool = Query(default=False, description="Hide rules whose status != 'active'."),
     include_dismissed: bool = Query(default=False, description="Show rules previously dismissed from the workbench."),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=50, ge=1, le=100),
 ) -> TuningResponse:
     """Project every rule the tenant can tune into a workbench feed.

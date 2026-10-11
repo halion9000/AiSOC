@@ -94,7 +94,7 @@ class ApprovalDecisionRequest(BaseModel):
 async def list_approvals(
     user: AuthUser,
     db: TenantDBSession,
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=25, ge=1, le=200),
     status_filter: str | None = Query(default="pending", alias="status"),
     mine: bool = Query(default=False),

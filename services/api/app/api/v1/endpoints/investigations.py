@@ -429,6 +429,7 @@ async def list_events(
     since: int | None = Query(
         default=None,
         ge=0,
+        le=1_000_000_000,
         description="Return only events with seq strictly greater than this value (long-poll)",
     ),
     limit: int = Query(default=200, ge=1, le=1000),
@@ -488,7 +489,7 @@ async def explain_step(
     run_id: uuid.UUID,
     current_user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
     db: TenantDBSession,
-    step: int = Query(..., ge=0, alias="step", description="Event seq to explain"),
+    step: int = Query(..., ge=0, le=1_000_000_000, alias="step", description="Event seq to explain"),
 ) -> ExplainResponse:
     """Return prompt + response + evidence for a single step.
 

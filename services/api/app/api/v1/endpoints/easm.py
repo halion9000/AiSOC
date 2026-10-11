@@ -103,7 +103,7 @@ async def trigger_easm_scan(
 async def list_external_assets(
     tenant_id: UUID | None = Query(None),
     asset_type: ExternalAssetType | None = Query(None),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
@@ -143,7 +143,7 @@ async def list_external_assets(
 async def list_external_asset_drift(
     tenant_id: UUID | None = Query(None),
     external_asset_id: UUID | None = Query(None),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:

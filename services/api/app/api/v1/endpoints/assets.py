@@ -107,8 +107,8 @@ class VulnerabilityOut(VulnerabilityCreate):
 async def list_assets(
     asset_type: str | None = Query(None),
     criticality: str | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Asset]:
@@ -145,8 +145,8 @@ async def create_asset(
 async def list_vulnerabilities(
     severity: str | None = Query(None),
     is_exploited: bool | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[AssetVulnerability]:

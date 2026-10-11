@@ -293,7 +293,7 @@ async def list_evidence(
     case_id: uuid.UUID | None = Query(None),
     ev_status: str | None = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=1_000_000),
 ) -> list[EvidenceResponse]:
     wheres = ["tenant_id = :tenant_id"]
     params: dict[str, Any] = {"tenant_id": user.tenant_id, "limit": limit, "offset": offset}

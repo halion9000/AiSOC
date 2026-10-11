@@ -327,7 +327,8 @@ def test_no_tool_in_the_table_can_reach_a_run_a_result_or_a_query():
 def test_the_hunt_list_limit_and_offset_the_tool_sends_are_within_what_the_api_accepts():
     params = {p["name"]: _resolve(p["schema"]) for p in _operation("GET", "/hunts")["parameters"] if p["in"] == "query"}
     assert params["limit"]["maximum"] >= 200 and params["limit"]["minimum"] <= 1
-    assert params["offset"]["minimum"] == 0 and "maximum" not in params["offset"], "the tool allows offsets up to 100000; if the API gains a maximum below that, the tool's bound must follow"
+    # The API now caps offset at 1,000,000 (an unbounded offset overflowed Postgres: see test_integer_query_params_are_bounded.py). The tool allows offsets up to 100,000, so the cap must stay at or above that; if it is ever lowered below, the tool's bound must follow.
+    assert params["offset"]["minimum"] == 0 and params["offset"].get("maximum", float("inf")) >= 100_000, "the tool allows offsets up to 100000; the API's maximum must not be lower"
 
 
 INTEL_TOOLS = ["aisoc_list_iocs", "aisoc_get_ioc", "aisoc_list_threat_actors", "aisoc_list_stix_indicators", "aisoc_list_stix_bundles"]

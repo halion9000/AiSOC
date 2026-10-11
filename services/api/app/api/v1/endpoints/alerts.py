@@ -618,7 +618,7 @@ async def submit_alert(
 async def list_alerts(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
     db: TenantDBSession,
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=25, ge=1, le=200),
     severity: str | None = Query(default=None),
     status: str | None = Query(default=None),
@@ -730,7 +730,7 @@ async def get_alert_queue(
     db: TenantDBSession,
     owner: Literal["me", "unassigned", "all"] = Query(default="all"),
     period: Literal["24h", "7d", "30d", "all"] = Query(default="all"),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=50, ge=1, le=200),
 ) -> QueueResponse:
     """Investigation Queue workbench feed.

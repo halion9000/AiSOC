@@ -35,9 +35,9 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, or_, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -267,7 +267,7 @@ async def list_tenants(
     user: AuthUser,
     q: str | None = None,
     managed_only: bool = False,
-    limit: int = 200,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 200,
 ) -> TenantListResponse:
     """Read-only tenant list, sorted by creation time descending."""
 

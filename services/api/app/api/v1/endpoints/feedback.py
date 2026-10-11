@@ -18,11 +18,12 @@ Pipeline
 
 from __future__ import annotations
 
+from typing import Annotated
 import uuid
 from datetime import UTC, datetime
 
 import structlog
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select, update
 
@@ -247,7 +248,7 @@ class OverrideEntryModel(BaseModel):
 async def list_overrides_endpoint(
     user: AuthUser,
     db: DBSession,
-    limit: int = 100,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> list[OverrideEntryModel]:
     """List analyst-override entries the agent has 'learned' from."""
     rows = await list_overrides(db, tenant_id=user.tenant_id, limit=limit)

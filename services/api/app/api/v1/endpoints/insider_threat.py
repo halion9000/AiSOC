@@ -98,8 +98,8 @@ class PeerGroupOut(PeerGroupCreate):
 async def list_profiles(
     risk_tier: str | None = Query(None),
     watchlisted_only: bool = Query(False),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[UserRiskProfile]:
@@ -154,8 +154,8 @@ async def update_watchlist(
 async def list_indicators(
     severity: str | None = Query(None),
     indicator_type: str | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[InsiderIndicator]:

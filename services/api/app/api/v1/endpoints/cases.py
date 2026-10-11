@@ -399,7 +399,7 @@ async def list_cases(
     severity: str | None = Query(None),
     assignee: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=1_000_000),
 ) -> list[CaseResponse]:
     # Tenant scoping is non-optional. The aisoc_cases table has carried a
     # tenant_id column since migration 012; until P2-W1 the API simply
