@@ -40,7 +40,7 @@ Guards, all checked before any request: `--yes-write-test-data` is required; `--
 | --- | --- |
 | `--include-destructive` | also run the three flows that replace or remove existing configuration (rule set, settings, a marketplace install) |
 | `--no-cleanup` | leave the objects the `fresh` flow created |
-| `--no-sweep` | skip the sweep that calls every `GET` endpoint as B |
+| `--no-sweep` | skip the sweep that calls every `GET` endpoint as B (and the canaries below) |
 | `--concurrency N` | parallel requests in the sweep (default 3) |
 | `--timeout S` | seconds per request (default 30) |
 | `--spec-file F` | the OpenAPI document, if the deployment does not serve it |
@@ -67,3 +67,13 @@ Each row not as expected shows the flow, the step, the user, the status and the 
 ## How it was verified
 
 Against a live server over real HTTP: the 386 steps matched the in-process run step for step; every guard refused before a request; each preflight defect (same tenant, platform admin, viewer, wrong password) stopped with nothing written; three consecutive runs against one environment each passed in full; cleanup deleted the `fresh` objects; the pre-existing-configuration check above. The `429` handling and the failure paths are covered by unit tests only, since the test server never rate-limits. It has **not** been run against a remote host over `https` or against a deployment with the optional services running.
+
+## The canaries in the sweep
+
+The sweep has B call every `GET` endpoint that takes no path parameter and look for what B must never see. It watches for the ids of the 15 kinds of object A creates in the `fresh` flow, and for two **canaries** that cover what those cannot:
+
+* **A's tenant id.** Nothing B can read may contain it (a response listing another tenant's row, such as a tenant list, is a leak even though no "fresh object" is in it). The two audit endpoints (`/api/v1/audit`, `/api/v1/audit/export`) are the one exception, and only for this canary: they record B's *own* requests, and B's probes of A (a PATCH or DELETE of A's tenant, answered 404) put A's id in their URLs.
+* **A prospect on the public waitlist.** A `CANARY` step has an anonymous visitor join the waitlist with a unique email; that is platform data only a platform operator may read, so the email must never appear in anything B reads. This step runs **only against a scratch database (`run`), never over HTTP (`run-url`)**: it leaves a row that cannot be deleted through the API.
+
+Why they exist: the first version of this sweep passed while `GET /admin/tenants` listed every tenant to any tenant admin and `GET /waitlist/entries` listed every prospect, because neither response contained one of the fresh ids. Run against the code from before those two fixes, the sweep with the canaries fails with `LEAKS` naming exactly those two endpoints; against the fixed code it passes (435 steps, all as expected). What the sweep still cannot see: anything that is not a parameterless `GET` (a `POST`-based read such as GraphQL, a route that needs an id), and data kinds nobody planted a canary for.
+

@@ -52,6 +52,23 @@ RUN: dict[str, str] = {"tag": ""}
 DESTRUCTIVE_FLOWS = frozenset({"business_context_rules", "tenant_settings", "marketplace_installs"})
 
 
+def leaks_in(text: str, path: str, status: int, watch: dict[str, str]) -> list[list]:
+    """What B's response from `path` contains that B must never see: one [path, what it is, status] per watched value found in the body (a value is an id, a tenant id or an email, matched as text)."""
+    return [[path, kind, status] for value, kind in watch.items() if value and value in text]
+
+
+# The endpoints that RECORD THE CALLER'S OWN REQUESTS. B's probes of A's objects put A's tenant id in their URLs (a PATCH or DELETE of A's tenant, answered 404), and the audit log faithfully records them under B's
+# tenant, so A's tenant id legitimately appears there. (Found by running the tenant-id canary: its only hits were B's own tenants:update and tenants:delete attempts against A, each recorded with status 404.)
+RECORDS_B_OWN_REQUESTS = frozenset({"/api/v1/audit", "/api/v1/audit/export"})
+
+
+def watched_on(path: str, fresh_ids: dict[str, str], canaries: dict[str, str], tenant_a: str) -> dict[str, str]:
+    """What B's response from `path` must not contain. On the endpoints that record B's own requests, A's tenant id is not watched (B sent it); every other value still is, there and everywhere else."""
+    if path in RECORDS_B_OWN_REQUESTS:
+        return {**fresh_ids, **{value: kind for value, kind in canaries.items() if value != tenant_a}}
+    return {**fresh_ids, **canaries}
+
+
 def _t(name: str) -> str:
     """A name made unique for this run (nothing is added in-process, where the database is fresh and requests stay byte-identical)."""
     return f"{name}-{RUN['tag']}" if RUN["tag"] else name
@@ -1057,7 +1074,21 @@ async def run_flows(
                         except Exception:  # noqa: BLE001
                             ok = False
                     out.append([flow, st.name, st.user, r.status_code, ok, "" if ok else r.text[:140]])
-            if sweep:  # B calls every GET endpoint and looks for the FRESH ids A created (see the fresh flow)
+            # CANARIES: things B must not see that are not "an object A created". The FRESH ids only cover the kinds of object the flow creates, so a response listing another tenant's TENANT ROW, or platform
+            # data that belongs to no tenant at all, was invisible to this sweep: exactly how GET /admin/tenants (it listed every tenant) and GET /waitlist/entries (every prospect) leaked to ordinary tenant
+            # admins. A's tenant id must never appear in anything B can read; and (on a scratch database only: it leaves a row nobody can delete through the API) a PUBLIC waitlist signup is platform data
+            # that only a platform operator may read, so its email must never appear either.
+            canaries: dict[str, str] = {TENANT_IDS["A"]: "A's tenant id"}
+            if sweep and base_url is None:
+                prospect = f"canary-prospect{('-' + RUN['tag']) if RUN['tag'] else ''}@example.test"
+                joined = await asyncio.wait_for(
+                    _send(c, "POST", "/api/v1/waitlist/signup", json={"email": prospect, "name": "Canary Prospect", "company": "Canary Corp", "role": "CISO", "company_size": "1000+", "message": "leak canary", "motivation": "leak canary"}),
+                    timeout,
+                )
+                if joined.status_code == 200:
+                    canaries[prospect] = "a prospect from the PUBLIC waitlist (platform data, no tenant's)"
+                out.append(["CANARY", "an anonymous visitor joins the waitlist (the canary B must never see)", "-", joined.status_code, joined.status_code == 200, "" if joined.status_code == 200 else joined.text[:140]])
+            if sweep:  # B calls every GET endpoint and looks for the FRESH ids A created (see the fresh flow) and for the canaries above
                 gets = sorted(p for p, ops in spec["paths"].items() if "get" in ops and "{" not in p and p.startswith("/api/v1"))
                 sem, leaks = asyncio.Semaphore(concurrency), []
 
@@ -1065,13 +1096,13 @@ async def run_flows(
                     async with sem:
                         try:
                             x = await asyncio.wait_for(_send(c, "GET", p, headers=tok["B"], retries=1), timeout)
-                            leaks.extend([p, kind, x.status_code] for i, kind in fresh_ids.items() if i in x.text)
+                            leaks.extend(leaks_in(x.text, p, x.status_code, watched_on(p, fresh_ids, canaries, TENANT_IDS["A"])))
                         except Exception:  # noqa: BLE001, S110
                             pass
 
                 await asyncio.gather(*[sweep(p) for p in gets])
                 leaks.sort()
-                out.append(["SWEEP", f"B called {len(gets)} GET endpoints; A created {len(fresh_ids)} FRESH ids that B never mentioned", "B", 200, not leaks, f"LEAKS: {leaks}" if leaks else ""])
+                out.append(["SWEEP", f"B called {len(gets)} GET endpoints; A created {len(fresh_ids)} FRESH ids that B never mentioned, and {len(canaries)} canaries were planted", "B", 200, not leaks, f"LEAKS: {leaks}" if leaks else ""])
             if cleanup:  # the sweep has finished with them: delete what the FRESH flow created, so the next run starts clean (routes come from the API's own spec: <create path>/<id>)
                 for ident, name in fresh_ids.items():
                     try:
