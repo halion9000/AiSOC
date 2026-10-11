@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.rls import cross_tenant_reads
 from app.models.detection_rule import DetectionRule
 from app.models.mssp import (
     MSSPRuleOverride,
@@ -102,6 +103,37 @@ async def _actual_parent_id(db: AsyncSession, tenant_id: uuid.UUID) -> uuid.UUID
 
 
 async def resolve_effective_rules(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    *,
+    include_builtin: bool = True,
+    include_packs: bool = True,
+    rule_ids: list[uuid.UUID] | None = None,
+    rule_language: str | None = None,
+    category: str | None = None,
+    only_active: bool = True,
+) -> list[ResolvedRule]:
+    """Resolve the effective detection ruleset for ``tenant_id`` (see ``_resolve_effective_rules``).
+
+    A CROSS-TENANT read on purpose: the pack layer reads rules owned by the MSSP parent while resolving for the child. The queries below
+    filter by tenant and parent explicitly, so the RLS
+    filter on the session is lifted for the duration (``cross_tenant_reads``) instead of depending on the session having no tenant set at
+    all.
+    """
+    async with cross_tenant_reads(db):
+        return await _resolve_effective_rules(
+            db,
+            tenant_id,
+            include_builtin=include_builtin,
+            include_packs=include_packs,
+            rule_ids=rule_ids,
+            rule_language=rule_language,
+            category=category,
+            only_active=only_active,
+        )
+
+
+async def _resolve_effective_rules(
     db: AsyncSession,
     tenant_id: uuid.UUID,
     *,

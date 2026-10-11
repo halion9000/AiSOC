@@ -1,6 +1,6 @@
 # Making row-level security fail-closed: what was measured, what breaks, and the order to do it in
 
-Status: **a plan with measurements, not a change.** Nothing here has been deployed. Every number below was measured on a scratch PostgreSQL as the restricted role `aisoc_app`, using the repository's own isolation flows (`python -m app.scripts.tenant_flows run`, 435 steps over two tenants), unless it says otherwise.
+Status: **steps 1 and 2 below are done and change no behaviour; steps 3 to 5 are a plan and have not been started.** Nothing in steps 3 to 5 has been deployed. Every number below was measured on a scratch PostgreSQL as the restricted role `aisoc_app`, using the repository's own isolation flows (`python -m app.scripts.tenant_flows run`, 435 steps over two tenants), unless it says otherwise.
 
 ## Where things stand
 
@@ -48,10 +48,10 @@ Not verified, and must be checked before the hook goes out: `app/api/v1/endpoint
 
 ## Proposed order
 
-1. **A tripwire first.** Add a managed-tenant scenario (parent, child, pack, assignment, an effective-rules call as child and as parent) to the isolation flows, so that every later step fails loudly when it breaks this.
-2. **An explicit, narrow cross-tenant read mechanism**: a context manager that clears (later: bypasses) the tenant for a named set of reads, used by the resolver and any other deliberate cross-tenant reader found in the check above. Today it can clear the GUC; with fail-closed policies it needs a role or setting that is granted, never default.
+1. **A tripwire first. DONE, with a caveat.** `tests/test_mssp_resolver_cross_tenant_postgres.py` builds a real parent, child, parent-owned rule, pack and assignment, and runs the real resolver **as `aisoc_app`** with no tenant set, with the child's tenant set and with the parent's, plus a negative control that proves the RLS filter really applies to that role. Reintroducing the original bug (the resolver without the block below) makes it fail. It is an opt-in test in the suite's existing style (`AISOC_TEST_PG_URL` and `AISOC_TEST_PG_APP_URL`, a disposable migrated database) and is **skipped in CI, which does not set them**: someone has to wire it into a job with a Postgres service (`integration.yml` has them) before it protects anything automatically. It lives at the resolver, not in the isolation flows, because the flows act as ordinary tenant admins over HTTP and cannot create a parent/child relationship.
+2. **An explicit, narrow cross-tenant read mechanism. DONE for the one reader found.** `cross_tenant_reads(session)` in `app/db/rls.py` clears the tenant setting for the length of a block (an empty string is the same as unset for `current_tenant_id()`), untags a session tagged by the step 3 hook so the hook cannot re-apply it, and puts back the setting that was in force. `resolve_effective_rules` now runs inside it (and `count_effective_rules`, which calls it). Verified on a real Postgres: the child's effective rules now include the parent's pack rule in all three session states, where the child-tagged state returned nothing. **Today it changes nothing** for the callers (both use a plain `get_db` session with no tenant set). It lifts the policy's filter, it does not replace it: the resolver filters by tenant and parent explicitly. With fail-closed policies it will need a granted bypass (step 4). **Still to do: the other readers listed above (`nl_query.py`, `view_as.py`) have not been reviewed, so none uses it yet.**
 3. **The hook, behind a flag that defaults off**, then on, verified by the flows including step 1.
 4. **Policies to fail-closed**, using the existing fail-closed policy as the template, with a bypass for workers and platform operations (step 2).
 5. **Make the API connect as `aisoc_app` by default** (the overlay's stated direction). Until then, none of this protects the default deployment.
 
-Each step is independently reversible; steps 1 and 2 change no behaviour. **Not started: it needs a decision, because it touches login, the workers and every deployment's database role.**
+Each step is independently reversible; steps 1 and 2 change no behaviour. **Steps 3 to 5 are not started: they need a decision, because they touch login, the workers and every deployment's database role.**
