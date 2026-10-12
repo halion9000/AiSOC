@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from typing import Any
 
 import bcrypt
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 

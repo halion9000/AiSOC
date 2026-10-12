@@ -28,7 +28,7 @@ from typing import Annotated
 import logging
 from fastapi import Depends, HTTPException, Request, Response, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
+from jwt import PyJWTError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -335,7 +335,7 @@ async def _authenticate(
                 detail="Token has been revoked",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-    except JWTError as e:
+    except PyJWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",

@@ -10,7 +10,7 @@ from datetime import timedelta
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from jose import jwt
+import jwt
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session

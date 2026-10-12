@@ -77,7 +77,7 @@ jobs:
       # The same dependency set as `python-test` in ci.yml, plus alembic for the service-migration test.
       API_DEPS: >-
         fastapi "pydantic[email]" pydantic-settings "sqlalchemy[asyncio]" asyncpg
-        structlog "python-jose[cryptography]" "passlib[bcrypt]" tenacity pyyaml
+        structlog cryptography "passlib[bcrypt]" tenacity pyyaml
         prometheus-client "opentelemetry-sdk" "opentelemetry-api"
         "opentelemetry-exporter-otlp-proto-grpc"
         "opentelemetry-instrumentation-fastapi"

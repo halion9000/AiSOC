@@ -127,7 +127,7 @@ const API_DEPS = [
   "sqlalchemy[asyncio]>=2.0,<3",
   "asyncpg",
   "aiosqlite",
-  "python-jose[cryptography]",
+  "cryptography",
   "passlib[bcrypt]",
   "tenacity",
   "prometheus-client",
