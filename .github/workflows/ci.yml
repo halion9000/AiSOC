@@ -270,10 +270,10 @@ jobs:
         "opentelemetry-exporter-otlp-proto-grpc"
         "opentelemetry-instrumentation-fastapi"
         "strawberry-graphql[fastapi]"
-        neo4j redis celery httpx aiofiles email-validator PyJWT
+        neo4j redis celery httpx aiofiles email-validator PyJWT "langchain-core>=0.3,<0.4" "langchain-openai>=0.2,<0.3"
         "sqlglot>=23,<27" aiosqlite
         "croniter>=2.0,<7.0"
-        pytest pytest-asyncio
+        pytest pytest-asyncio "respx>=0.21,<0.23"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -299,7 +299,8 @@ jobs:
       - name: Run API tests (unit + GraphQL schema)
         working-directory: services/api
         env:
-          ENVIRONMENT: development
+          # ENVIRONMENT is deliberately NOT set: the suite's own default is what its tests assume (`development` makes anonymous callers a dev user, which the
+          # auth tests refuse to assume, and test_dev_mode_unification asserts the defaults when the variable is unset).
           SECRET_KEY: ci-dummy-secret-key-at-least-32bytes!
           DATABASE_URL: postgresql+asyncpg://x:x@localhost/x
         run: python -m pytest tests/ -v --tb=short

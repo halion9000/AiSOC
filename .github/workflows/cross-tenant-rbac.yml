@@ -85,7 +85,7 @@ jobs:
         "opentelemetry-exporter-otlp-proto-grpc"
         "opentelemetry-instrumentation-fastapi"
         "strawberry-graphql[fastapi]"
-        neo4j redis celery httpx aiofiles email-validator PyJWT
+        neo4j redis celery httpx aiofiles email-validator PyJWT "langchain-core>=0.3,<0.4" "langchain-openai>=0.2,<0.3"
         "sqlglot>=23,<27" aiosqlite
         pytest pytest-asyncio
 

@@ -211,6 +211,9 @@ class TestThePoolOfEachModule:
         assert f"CREATE INDEX IF NOT EXISTS {index}" in mod._DDL and f"CREATE INDEX IF NOT EXISTS {index}" in migrations
 
 
+SENTINEL = "pw-9f3c1a7e-not-a-real-credential"
+
+
 class TestTheEvalSubprocessDoesNotInheritTheDatabase:
     """POST /detection-proposals/run-eval shells out to scripts/run_evals.py, which runs the agents' memory suites. With DATABASE_URL inherited they wrote fixture tenants (t-search, tenant-C, analyst_override:ALT-100...) into the live
     aisoc_institutional_memory and never cleaned them up. Found because the row counts differed between two databases the same requests had been sent to."""
@@ -225,8 +228,8 @@ class TestTheEvalSubprocessDoesNotInheritTheDatabase:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr(dp.subprocess, "run", fake_run)
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://svc:secret@db/aisoc")
-        monkeypatch.setenv("MIGRATION_DATABASE_URL", "postgresql+asyncpg://owner:secret@db/aisoc")
+        monkeypatch.setenv("DATABASE_URL", f"postgresql+asyncpg://svc:{SENTINEL}@db/aisoc")
+        monkeypatch.setenv("MIGRATION_DATABASE_URL", f"postgresql+asyncpg://owner:{SENTINEL}@db/aisoc")
         monkeypatch.setenv("SOME_OTHER_SETTING", "kept")
         dp._run_eval_subprocess(baseline_path=None, out_path=tmp_path / "out.json", max_regression_pp=1.0, timeout_seconds=5)
         return seen
@@ -234,7 +237,9 @@ class TestTheEvalSubprocessDoesNotInheritTheDatabase:
     def test_neither_database_url_reaches_the_eval(self, monkeypatch, tmp_path):
         env = self.captured_env(monkeypatch, tmp_path)
         assert "DATABASE_URL" not in env and "MIGRATION_DATABASE_URL" not in env
-        assert "secret" not in " ".join(env.values())
+        assert SENTINEL not in " ".join(
+            env.values()
+        )  # a UNIQUE value: the word "secret" legitimately appears in other variables, e.g. CI's SECRET_KEY
 
     def test_the_rest_of_the_environment_is_kept_and_the_agents_path_is_added(self, monkeypatch, tmp_path):
         env = self.captured_env(monkeypatch, tmp_path)
