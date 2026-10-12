@@ -205,8 +205,15 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'Default', 'default', 'enterpris
 ON CONFLICT (slug) DO NOTHING;
 
 -- password = "admin" (bcrypt)
+-- RE-RUNNABLE ON A MIGRATED DATABASE. This used to be `INSERT ... VALUES (...) ON CONFLICT (email) DO NOTHING`, but PostgreSQL checks the proposed
+-- row's NOT NULL columns BEFORE it looks for a conflict. Once migration 071 had added the NOT NULL users.account_name (which this row does not set),
+-- running this file a second time failed with `null value in column "account_name"`, and 001_init.sql was never recorded as applied. That is the
+-- normal state of every docker-compose stack: Postgres's own init directory applies every file in this directory, then the migration runner applies them
+-- again. The API logged "1 migrations failed" at every start, and app.scripts.bootstrap_production (which insists every file is recorded) refused to run.
+-- A SELECT that returns no row when the admin already exists evaluates no constraint at all, and on a fresh database (where account_name does not exist
+-- yet) it inserts exactly what the VALUES form did.
 INSERT INTO users (id, tenant_id, email, username, hashed_password, role, is_active, is_verified)
-VALUES (
+SELECT
     '00000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000001',
     'admin@aisoc.local',
@@ -215,4 +222,4 @@ VALUES (
     'admin',
     TRUE,
     TRUE
-) ON CONFLICT (email) DO NOTHING;
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'admin@aisoc.local');
