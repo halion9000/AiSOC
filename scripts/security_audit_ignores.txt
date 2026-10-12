@@ -23,47 +23,12 @@
 # (serialize-javascript, fast-uri, the babel systemjs plugin, axios, undici, js-yaml, brace-expansion, ...) or is not reported by the audit any more
 # (the next 16.2.11 and sharp 0.35.0 ones are fixed in the versions already locked). Remaining unwaived npm findings are real; see the audit output.
 
-# starlette — transitive via fastapi (capped <0.137). CVE-2024-47874 and
-# CVE-2025-54121 are fixed in 1.0.0 but reaching it requires a risky
-# framework-wide fastapi bump; PYSEC-2026-161 affects 1.0.0 too, so a bump
-# would not clear the audit. Tracked for a coordinated fastapi/starlette upgrade.
-python|PYSEC-2026-161|starlette advisory affects all releases incl. 1.0.0 (latest); no fixed version available|2026-08-25
-python|CVE-2024-47874|starlette multipart DoS; fixed in 1.0.0 but capped by fastapi<0.137; tracked for fastapi bump|2026-08-25
-python|CVE-2025-54121|starlette multipart DoS; fixed in 1.0.0 but capped by fastapi<0.137; tracked for fastapi bump|2026-08-25
-
 # langchain/langgraph — freshly disclosed 2026 advisories with no non-breaking
 # fix in the pinned 0.3.x / 1.0.x lines yet. Tracked for upstream patch.
 python|PYSEC-2026-76|langchain-openai 0.3.35 freshly disclosed; no non-breaking fix in 0.3.x line yet|2026-08-25
 python|PYSEC-2026-77|langchain-text-splitters 0.3.11 freshly disclosed; no non-breaking fix in 0.3.x line yet|2026-08-25
 python|PYSEC-2026-83|langgraph 1.0.1 freshly disclosed; awaiting patched 1.0.x release|2026-08-25
 python|CVE-2026-27794|langgraph-checkpoint 3.0.1 freshly disclosed; awaiting patched release|2026-08-25
-
-# idna — deep transitive dep (httpx/requests/email-validator); freshly
-# disclosed, no fixed version available yet.
-python|CVE-2026-45409|idna 3.13 freshly disclosed; transitive dep, no fixed version available yet|2026-08-25
-
-# starlette — additional fresh disclosures stacking on top of the existing
-# CVE-2024-47874 / CVE-2025-54121 / PYSEC-2026-161 entries above. Fixed in
-# starlette 1.1.0–1.3.1 but still capped by fastapi<0.137 in services/api,
-# services/agents, services/actions. The open dependabot PRs #317/#319/#320
-# lift that cap to <0.139; once those land plus a coordinated starlette
-# bump, all six can be removed in one pass.
-# Both CVE and GHSA forms are listed because pip-audit may report either as
-# the primary id depending on the advisory source.
-python|CVE-2026-48817|starlette HTTPEndpoint dispatch via getattr (fixed in 1.1.0); blocked by fastapi<0.137 cap, tracked for starlette bump|2026-09-25
-python|GHSA-x746-7m8f-x49c|starlette HTTPEndpoint dispatch via getattr (fixed in 1.1.0); blocked by fastapi<0.137 cap, tracked for starlette bump|2026-09-25
-python|CVE-2026-48818|starlette SSRF via UNC paths on Windows (fixed in 1.1.0); Linux-only deployment, blocked by fastapi<0.137 cap|2026-09-25
-python|GHSA-wqp7-x3pw-xc5r|starlette SSRF via UNC paths on Windows (fixed in 1.1.0); Linux-only deployment, blocked by fastapi<0.137 cap|2026-09-25
-python|CVE-2026-54282|starlette hostname poisoning (low severity, fixed in 1.3.0); blocked by fastapi<0.137 cap, tracked for starlette bump|2026-09-25
-python|GHSA-jp82-jpqv-5vv3|starlette hostname poisoning (low severity, fixed in 1.3.0); blocked by fastapi<0.137 cap, tracked for starlette bump|2026-09-25
-python|CVE-2026-54283|starlette urlencoded form DoS (fixed in 1.3.1); blocked by fastapi<0.137 cap, tracked for starlette bump|2026-09-25
-python|GHSA-82w8-qh3p-5jfq|starlette urlencoded form DoS (fixed in 1.3.1); blocked by fastapi<0.137 cap, tracked for starlette bump|2026-09-25
-
-# pydantic-settings — fixed in 2.14.2 (a patch bump within ^2.x). The agents
-# service caps to ^2.1.0 and api uses ^2.2.1, both of which would resolve to
-# 2.14.2; pip-audit's bundled DB may still be referencing 2.14.1. Suppress
-# briefly while we float the pin and let the next poetry lock pick up 2.14.2.
-python|GHSA-4xgf-cpjx-pc3j|pydantic-settings symlink follow (fixed in 2.14.2); patch bump tracked, waiting on next poetry lock refresh|2026-09-25
 
 # langchain / langgraph-checkpoint / langgraph-sdk — newly disclosed Q2/Q3
 # 2026 advisories that all require MAJOR version bumps (langchain 0.3 → 1.3,
@@ -104,26 +69,3 @@ python|GHSA-qh6h-p6c9-ff54|langchain-core prompts.loading path traversal (fixed 
 # image_url), so no untrusted image URL ever reaches it.
 python|PYSEC-2026-2562|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
 python|GHSA-2g6r-c272-w58r|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
-
-# ── 2026-07-30 triage (expire 2026-10-28) ────────────────────────────────────
-# Fresh high-severity advisories published after the last green main run
-# (2026-07-19). `pnpm audit` reports fixAvailable=false for every one of these:
-# the direct dependents cap the transitive version, so no clean in-tree
-# auto-fix exists. next (framework) + sharp (native binary) have patched
-# releases but their bumps must be verified individually (App Router behaviour /
-# native rebuild matrix), so each real remediation is tracked for a dedicated
-# PR rather than folded into a dependency-audit unblock.
-
-# Transitive build/tooling deps (SVG/CSS/YAML/URI/glob processing pulled in by
-# the web + docs toolchains). pnpm reports fixAvailable=false for each because
-# the capping dependents have not shipped updated pins; tracked for overrides
-# once upstream releases them.
-# v7.7.0 batch (2026-08-04) — freshly-disclosed high CVEs; fixes tracked for dedicated dependency PRs (expire in <90 days).
-python|CVE-2026-69247|cryptography high (48.0.1/49.0.0); fixed in 50.0.0 but held by the <50 and <49 version caps across services (49 to 50 is a major bump needing cross-service compat testing); tracked for a dedicated dependency PR|2026-10-28
-python|CVE-2026-69248|cryptography high (48.0.1); fixed in 50.0.0, held by the <50/<49 major-version caps; tracked for a dedicated dependency PR|2026-10-28
-python|CVE-2026-69249|cryptography high (48.0.1); fixed in 50.0.0, held by the <50/<49 major-version caps; tracked for a dedicated dependency PR|2026-10-28
-python|CVE-2026-59881|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
-python|CVE-2026-69243|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
-python|CVE-2026-69244|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
-# 2026-08-11 batch — freshly-disclosed high advisories (all transitive; expire <90d; tracked for dep-bump PRs).
-python|CVE-2026-71554|h2 4.3.0 HTTP/2 advisory; transitive (httpx/httpcore + aiohttp stack); tracked for the next lock refresh|2026-11-05
