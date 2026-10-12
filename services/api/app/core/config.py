@@ -175,6 +175,13 @@ class Settings(BaseSettings):
     # decrypt anything until it's set, so credentials cannot be silently
     # written in plaintext. Rotate by re-encrypting via
     # ``AISOC_CREDENTIAL_KEY_ROTATION_FROM`` (comma-separated previous keys).
+    # Step 3 of docs/security/rls-fail-closed-plan.md. When true, every request's database session is TAGGED with the tenant the request is for
+    # (session.info["rls_tenant_id"]) and a SQLAlchemy `after_begin` listener re-applies `app.current_tenant_id` at the start of EVERY transaction,
+    # so the tenant survives a handler's mid-request commit(). Default OFF: with it off nothing is tagged and behaviour is exactly today's.
+    # It changes nothing for a connection that is a superuser (RLS does not apply to one), and nothing for fail-open policies; it is the
+    # prerequisite for fail-closed policies (step 4).
+    AISOC_RLS_TAG_SESSIONS: bool = False
+
     AISOC_CREDENTIAL_KEY: str = ""
     AISOC_CREDENTIAL_KEY_ROTATION_FROM: str = ""
 

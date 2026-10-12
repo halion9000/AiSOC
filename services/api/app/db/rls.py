@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import CurrentUser, get_current_user
 from app.db.database import AsyncSessionLocal
+from app.db.rls_hook import tag_session
 
 
 async def set_rls_context(session: AsyncSession, tenant_id: uuid.UUID) -> None:
@@ -57,6 +58,7 @@ async def get_tenant_db(
     """
     async with AsyncSessionLocal() as session:
         try:
+            await tag_session(session, current_user.tenant_id)
             await set_rls_context(session, current_user.tenant_id)
             yield session
             await session.commit()

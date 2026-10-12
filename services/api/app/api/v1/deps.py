@@ -42,6 +42,7 @@ from app.api.v1.dev_auth import (
 from app.core.security import decode_token, has_permission, hash_api_key, permission_in
 from app.core.token_revocation import is_revoked
 from app.db.database import get_db
+from app.db.rls_hook import tag_session
 from app.models.tenant import ApiKey, User
 from app.services.view_as import (
     ACTING_DENIED_PERMISSIONS,
@@ -270,11 +271,13 @@ async def get_current_user(
     user = await _authenticate(credentials, db)
     requested = None if request is None or credentials is None else request.headers.get(VIEW_AS_HEADER)
     if not requested or not requested.strip() or is_account_level(request.url.path):
+        await tag_session(db, user.tenant_id)
         return user
     if user.scopes is not None:
         raise refuse_api_key()
     target = await resolve_view_as(db, user, requested, request.method, request.url.path)
     if target is None:
+        await tag_session(db, user.tenant_id)
         return user
     if request.method.upper() in SAFE_METHODS:
         await record_view(
@@ -304,6 +307,8 @@ async def get_current_user(
     if response is not None:
         response.headers[VIEWING_HEADER] = str(target.tenant_id)
         response.headers[VIEWING_ACCESS_HEADER] = target.access
+    # AFTER view-as: the effective tenant of this request is the VIEWED one, and record_view / record_act_as above ran in their own scope
+    await tag_session(db, target.tenant_id)
     return CurrentUser(
         user_id=user.user_id,
         tenant_id=target.tenant_id,

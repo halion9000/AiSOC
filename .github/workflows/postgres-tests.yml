@@ -142,6 +142,7 @@ jobs:
             tests/test_mssp_resolver_cross_tenant_postgres.py \
             tests/test_view_as_audit_postgres.py \
             tests/test_tenant_access_postgres.py \
+            tests/test_rls_session_tag_postgres.py \
             tests/test_service_migrations_postgres.py \
             -v --tb=short -rs --junitxml=postgres-tests.junit.xml
 
