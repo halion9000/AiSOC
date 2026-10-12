@@ -19,10 +19,10 @@
 # newest version) or is a framework-capped transitive dep where a bump is both
 # risky and ineffective. Time-boxed for re-evaluation within 90 days.
 
-# pnpm — all three packages are already at their latest published versions
-# (serialize-javascript 6.0.2, fast-uri 3.1.0, babel plugin 7.29.0); no fixed
-# release exists. fast-uri/babel are build/tooling-only transitive deps.
-pnpm|GHSA-5c6j-r48x-rmvq|serialize-javascript 6.0.2 is latest; no patched release; not used to serialize untrusted input|2026-08-25
+# pnpm — fast-uri 3.1.0 and the babel plugin 7.29.0 are already at their latest published
+# versions; no fixed release exists. They are build/tooling-only transitive deps.
+# (serialize-javascript GHSA-5c6j-r48x-rmvq is NOT ignored: this entry claimed no patched
+# release, but 7.0.3 fixes it, so the root pnpm override pins >=7.0.3 and the waiver is gone.)
 pnpm|GHSA-q3j6-qgpj-74h6|fast-uri 3.1.0 is latest; ReDoS advisory has no fixed version; transitive build/tooling dep|2026-08-25
 pnpm|GHSA-v39h-62p7-jpjc|fast-uri 3.1.0 is latest; ReDoS advisory has no fixed version; transitive build/tooling dep|2026-08-25
 pnpm|GHSA-fv7c-fp4j-7gwp|@babel/plugin-transform-modules-systemjs 7.29.0 is latest; build-time only, not shipped to runtime|2026-08-25

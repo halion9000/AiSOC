@@ -9,6 +9,7 @@ overrides:
   form-data: '>=4.0.6'
   ws: '>=8.21.0'
   hono: '>=4.12.25'
+  serialize-javascript: '>=7.0.3'
 
 importers:
 
@@ -10125,7 +10126,7 @@ packages:
       globby: 13.2.2
       normalize-path: 3.0.0
       schema-utils: 4.3.3
-      serialize-javascript: 6.0.2
+      serialize-javascript: 7.1.2
       webpack: 5.108.4(clean-css@5.3.3)(cssnano@6.1.2)(html-minifier-terser@7.2.0)(postcss@8.5.26)
     dev: false
 
@@ -10298,7 +10299,7 @@ packages:
       jest-worker: 29.7.0
       postcss: 8.5.26
       schema-utils: 4.3.3
-      serialize-javascript: 6.0.2
+      serialize-javascript: 7.1.2
       webpack: 5.108.4(clean-css@5.3.3)(cssnano@6.1.2)(html-minifier-terser@7.2.0)(postcss@8.5.26)
     dev: false
 
@@ -17420,12 +17421,6 @@ packages:
     engines: {node: '>=10'}
     dev: false
 
-  /randombytes@2.1.0:
-    resolution: {integrity: sha512-vYl3iOX+4CKUWuxGi9Ukhie6fsqXqS9FE2Zaic4tNFD2N2QQaXOMFbuKK4QmDHC0JO6B1Zp41J0LpT0oR68amQ==}
-    dependencies:
-      safe-buffer: 5.2.1
-    dev: false
-
   /range-parser@1.2.0:
     resolution: {integrity: sha512-kA5WQoNVo4t9lNx2kQNFCxKeBl5IbbSNBl1M/tLkw9WCn+hxNBAW5Qh8gdhs63CJnhjJ2zQWFoqPJP2sK1AV5A==}
     engines: {node: '>= 0.6'}
@@ -18391,10 +18386,9 @@ packages:
       - supports-color
     dev: false
 
-  /serialize-javascript@6.0.2:
-    resolution: {integrity: sha512-Saa1xPByTTq2gdeFZYLLo+RFE35NHZkAbqZeWNd3BpzppeVisAqpDjcp8dyf6uIvEqJRd46jemmyA4iFIeVk8g==}
-    dependencies:
-      randombytes: 2.1.0
+  /serialize-javascript@7.1.2:
+    resolution: {integrity: sha512-GL2BWwVa6JydKO6l/ljVgjAZF4QJ3S7dWDWi53s5GZT8PJzD2fNxi67HANQGKAqPrwEpL5ba7gUBGi0Ls/sEoQ==}
+    engines: {node: '>=20.0.0'}
     dev: false
 
   /serve-handler@6.1.7:
