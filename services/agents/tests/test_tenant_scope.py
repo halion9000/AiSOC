@@ -10,7 +10,6 @@ import pathlib
 import uuid
 
 import pytest
-
 from app.core import tenant_scope as ts
 from app.hunt import store as hunt_store
 from app.investigator import ledger
@@ -226,7 +225,7 @@ class TestNoQueryInThesModulesRunsUnscoped:
 
     def functions(self, rel):
         tree = ast.parse((pathlib.Path(__file__).resolve().parents[1] / rel).read_text(encoding="utf-8"))
-        return [n for n in ast.walk(tree) if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))]
+        return [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef)]
 
     @staticmethod
     def conn_calls(fn):
@@ -234,7 +233,7 @@ class TestNoQueryInThesModulesRunsUnscoped:
         found = []
 
         def visit(node, scoped):
-            if isinstance(node, (ast.AsyncWith, ast.With)):
+            if isinstance(node, ast.AsyncWith | ast.With):
                 here = scoped or any(
                     isinstance(i.context_expr, ast.Call) and getattr(i.context_expr.func, "id", "") == "tenant_scope" for i in node.items
                 )
@@ -278,7 +277,7 @@ class TestNoQueryInThesModulesRunsUnscoped:
         def inside(node, target, scoped=False):
             if node is target:
                 return scoped
-            if isinstance(node, (ast.AsyncWith, ast.With)):
+            if isinstance(node, ast.AsyncWith | ast.With):
                 scoped = scoped or any(
                     isinstance(i.context_expr, ast.Call) and getattr(i.context_expr.func, "id", "") == "tenant_scope" for i in node.items
                 )

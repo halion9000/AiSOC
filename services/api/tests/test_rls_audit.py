@@ -10,7 +10,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 from app.scripts import rls_audit as ra
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
@@ -60,13 +59,13 @@ def policies(*rows):
 
 
 def report(**over):
-    base = dict(
-        role=("aisoc", True, False),
-        tables=["a", "b", "c", "d", "users", "plain"],
-        tenant_tables={"a", "b", "c", "d", "users"},
-        rls_enabled={"a", "b", "c"},
-        policies=policies(("a", STANDARD), ("b", STANDARD), ("c", STANDARD)),
-    )
+    base = {
+        "role": ("aisoc", True, False),
+        "tables": ["a", "b", "c", "d", "users", "plain"],
+        "tenant_tables": {"a", "b", "c", "d", "users"},
+        "rls_enabled": {"a", "b", "c"},
+        "policies": policies(("a", STANDARD), ("b", STANDARD), ("c", STANDARD)),
+    }
     base.update(over)
     return ra.build_report(**base)
 

@@ -13,19 +13,19 @@ from app.api.v1.deps import AuthUser, DBSession, SessionUser, bearer_scheme, get
 
 __all__ = ["router", "get_current_user"]
 from app.core.config import settings
-from app.core.trusted_proxy import resolve_client_ip
-from app.services import login_throttle
-from app.services.user_lookup import find_user_by_login
-from app.core.security import known_permissions
-from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
 from app.core.security import (
     capabilities_for_role,
     create_access_token,
     create_refresh_token,
     decode_token,
+    known_permissions,
     verify_password_or_equalise,
 )
+from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
+from app.core.trusted_proxy import resolve_client_ip
 from app.models.tenant import User
+from app.services import login_throttle
+from app.services.user_lookup import find_user_by_login
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

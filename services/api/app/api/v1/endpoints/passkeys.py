@@ -44,7 +44,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from sqlalchemy import and_, select, update
 
-from app.api.v1.deps import SessionUser, DBSession
+from app.api.v1.deps import DBSession, SessionUser
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token
 from app.db.rls import TenantDBSession

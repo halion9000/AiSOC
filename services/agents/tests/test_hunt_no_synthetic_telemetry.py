@@ -8,11 +8,10 @@ Two defects, both fabricating security data:
 """
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from app.api import hunt_search
 from app.hunt import scheduler
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 INVENTED = [
     "WS-DEV-01",

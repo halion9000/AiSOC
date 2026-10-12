@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 from app.scripts import rls_audit as ra
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"

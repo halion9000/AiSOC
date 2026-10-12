@@ -28,6 +28,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from app.api.v1.deps import CurrentUser, get_current_user, get_db
 from app.api.v1.endpoints import stix_taxii
 from app.api.v1.endpoints.stix_taxii import (
     MispPushResult,
@@ -40,7 +41,6 @@ from app.api.v1.endpoints.stix_taxii import (
 from app.api.v1.endpoints.stix_taxii import (
     router as stix_router,
 )
-from app.api.v1.deps import CurrentUser, get_current_user, get_db
 from app.core.airgap import AirgapViolation
 from app.core.config import settings
 from app.services.misp_push import (

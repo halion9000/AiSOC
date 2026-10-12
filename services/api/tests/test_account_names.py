@@ -14,18 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-from pydantic import ValidationError
-from sqlalchemy import create_engine, text, select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
-from settings_support import patch_login_allow_email
-
 from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import tenants as tn
 from app.core import account_names as an
@@ -36,6 +25,15 @@ from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
 from app.services import account_names as svc
 from app.services.user_lookup import find_user_by_account_name, find_user_by_login
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+from settings_support import patch_login_allow_email
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 PASSWORD = "correct horse battery staple"
 HASH = get_password_hash(PASSWORD)
@@ -519,7 +517,7 @@ class TestEveryCreationPathSetsAName:
         """Every `User(` construction in app/ must be one of the four above (a fifth must be added to the list, with its name set explicitly)."""
         found = []
         for p in APP.rglob("*.py"):
-            for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for _n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
                 if re.search(r"(?<![\w.])User\(\s*$", line) or re.search(r"(?<![\w.])User\(id=|(?<![\w.])User\(tenant_id=", line):
                     found.append(str(p.relative_to(APP)))
         assert sorted(set(found)) == [

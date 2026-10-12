@@ -1,7 +1,6 @@
 """The agents service says, once, when its database role bypasses row-level security (see the API's test of the same name)."""
 
 import pytest
-
 from app.core import db_role
 
 

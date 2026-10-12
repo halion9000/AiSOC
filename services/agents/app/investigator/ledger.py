@@ -31,9 +31,10 @@ from datetime import datetime
 from typing import Any
 
 import asyncpg
+import structlog
+
 from app.core.db_role import warn_if_rls_bypassed
 from app.core.tenant_scope import tenant_scope
-import structlog
 
 logger = structlog.get_logger()
 

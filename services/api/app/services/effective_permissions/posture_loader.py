@@ -31,6 +31,7 @@ from typing import Any
 
 import httpx
 import structlog
+
 from app.core.internal_auth import connectors_service_headers
 
 logger = structlog.get_logger()

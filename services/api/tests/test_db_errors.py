@@ -7,11 +7,10 @@ Found by sending ordinary create requests to the real API on real Postgres: thre
 import httpx
 import pytest
 import structlog
+from app.core import db_errors as de
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError, OperationalError, ProgrammingError
-
-from app.core import db_errors as de
 
 
 class Driver(Exception):

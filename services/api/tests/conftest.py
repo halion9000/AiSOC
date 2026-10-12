@@ -3,9 +3,8 @@
 import os
 
 import pytest
-from redis.exceptions import ConnectionError as RedisConnectionError
-
 from app.core import token_revocation
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 
 class FakeRedis:

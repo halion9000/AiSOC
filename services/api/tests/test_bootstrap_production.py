@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 from app.scripts import bootstrap_production as bp
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
@@ -41,7 +40,7 @@ def test_missing_migrations_is_strict():
 def test_core_key_scopes_are_minimal_and_valid():
     from app.api.v1.endpoints import api_keys
 
-    allowed = next(v for k, v in vars(api_keys).items() if k.isupper() and "SCOPE" in k and isinstance(v, (set, frozenset, list, tuple)))
+    allowed = next(v for k, v in vars(api_keys).items() if k.isupper() and "SCOPE" in k and isinstance(v, set | frozenset | list | tuple))
     assert set(bp.CORE_KEY_SCOPES) <= set(allowed), "CORE's key must only use scopes AiSOC recognises"
     assert "*" not in bp.CORE_KEY_SCOPES
     assert not any(s.endswith(":delete") for s in bp.CORE_KEY_SCOPES), "CORE never deletes"

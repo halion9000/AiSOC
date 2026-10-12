@@ -24,8 +24,8 @@ from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.copilot_tools import (
-    COPILOT_TOOL_SCHEMAS,
     CONFIRMED_ACTIONS,
+    COPILOT_TOOL_SCHEMAS,
     TOOL_PERMISSIONS,
     ConfirmationError,
     execute_copilot_tool,

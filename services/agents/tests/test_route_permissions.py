@@ -1,7 +1,6 @@
 """The agents route->permission table: exact answers, and full coverage of console-facing routes."""
 
 import pytest
-
 from app.core.route_permissions import CONSOLE_FACING_PREFIXES, RULES, required_permission
 from app.main import app
 

@@ -13,10 +13,9 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from app.api import contextual
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-
-from app.api import contextual
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("langchain_openai") is None, reason="langchain_openai is not installed in this environment"
@@ -336,5 +335,5 @@ class TestEachRouteIsWiredToItsHandler:
 
 class TestNothingIsStored:
     def test_the_module_holds_no_per_call_state(self):
-        mutable = [n for n, v in vars(contextual).items() if isinstance(v, (list, set)) and not n.startswith("__")]
+        mutable = [n for n, v in vars(contextual).items() if isinstance(v, list | set) and not n.startswith("__")]
         assert mutable == []  # no stores to leak across tenants; the only dicts are the constant catalogues

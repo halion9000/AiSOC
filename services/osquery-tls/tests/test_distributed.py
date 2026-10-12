@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-
 INTERNAL = {"Authorization": "Bearer test-api-token"}  # the internal API's token (tests/conftest.py)
 
 

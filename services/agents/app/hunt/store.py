@@ -14,8 +14,9 @@ import uuid
 from typing import Any
 
 import asyncpg
-from app.core.tenant_scope import tenant_scope
 import structlog
+
+from app.core.tenant_scope import tenant_scope
 
 from .engine import HuntFindingDraft, HuntRunResult
 from .loader import HuntDefinition

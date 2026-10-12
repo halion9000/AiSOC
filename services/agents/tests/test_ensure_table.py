@@ -6,13 +6,11 @@ to an in-memory dict (a get returned the value, but 0 rows were persisted and no
 table with 10 rows against 0.
 """
 
-from pathlib import Path
-
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from app.core import ensure_table as et
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "api" / "migrations"

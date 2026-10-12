@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-
 from app.models.fim_event import FimEvent
 
 AUTH = {"Authorization": "Bearer test-api-token"}

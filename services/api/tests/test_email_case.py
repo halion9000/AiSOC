@@ -13,13 +13,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import tenants as tn
@@ -29,6 +22,12 @@ from app.db.database import Base
 from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
 from app.services.user_lookup import find_user_by_email
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 PASSWORD = "correct horse battery staple"
 HASH = get_password_hash(PASSWORD)

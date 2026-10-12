@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from app.artifacts import IocSighting, VerdictSignature
-from app.crypto import verify, opt_out_message
+from app.crypto import opt_out_message, verify
 
 DEFAULT_K = 5
 

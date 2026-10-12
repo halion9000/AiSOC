@@ -8,8 +8,6 @@ that the GET poll endpoint maps internal state properly.
 
 from __future__ import annotations
 
-import pytest
-
 
 def test_agent_investigation_response_model_fields():
     """_AgentInvestigationResponse must have the fields the UI reads."""
@@ -51,8 +49,8 @@ def test_agent_investigation_response_with_findings():
 
 def test_get_agent_investigation_returns_404_for_unknown_run():
     """GET /agents/investigations/{id} must 404, never fabricate data."""
-    from fastapi.testclient import TestClient
     from app.main import app
+    from fastapi.testclient import TestClient
 
     client = TestClient(app)
     resp = client.get("/api/v1/agents/investigations/nonexistent-run-id")

@@ -8,11 +8,10 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import tenants as tn
 from app.core.security import ROLE_PERMISSIONS
+from fastapi import HTTPException
 
 TENANT = uuid.uuid4()
 

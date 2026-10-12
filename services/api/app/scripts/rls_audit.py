@@ -31,9 +31,9 @@ import asyncio
 import json
 import re
 import sys
-from urllib.parse import quote, urlsplit, urlunsplit
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import quote, urlsplit, urlunsplit
 
 STANDARD_SETTING = "app.current_tenant_id"
 APP_ROLE = "aisoc_app"

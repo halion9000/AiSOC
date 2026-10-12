@@ -15,7 +15,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.api.v1.deps import CurrentUser
 
 APP = Path(__file__).resolve().parent.parent / "app"
@@ -68,7 +67,7 @@ def literals(path: Path) -> list[str]:
     docs = {
         id(n.body[0].value)
         for n in ast.walk(tree)
-        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        if isinstance(n, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
         and n.body
         and isinstance(n.body[0], ast.Expr)
         and isinstance(getattr(n.body[0], "value", None), ast.Constant)
@@ -104,7 +103,7 @@ class TestNoRouteIsBoundToAHelper:
         for p in sorted(EP.glob("*.py")):
             for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
                 if (
-                    isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
                     and n.name.startswith("_")
                     and any(
                         isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and ast.unparse(d.func.value).endswith("router")
@@ -131,16 +130,16 @@ class TestDetectionLoopSuggest:
         return seen
 
     def alert(self, **over):
-        base = dict(
-            rule_id=None,
-            tenant_id=TID,
-            title="Odd PowerShell",
-            severity="high",
-            mitre_techniques=["T1059.001"],
-            raw_event={"proc": "powershell.exe"},
-            entities={},
-            iocs=[],
-        )
+        base = {
+            "rule_id": None,
+            "tenant_id": TID,
+            "title": "Odd PowerShell",
+            "severity": "high",
+            "mitre_techniques": ["T1059.001"],
+            "raw_event": {"proc": "powershell.exe"},
+            "entities": {},
+            "iocs": [],
+        }
         base.update(over)
         return SimpleNamespace(**base)
 
@@ -221,14 +220,14 @@ class TestDetectionLoopSuggest:
 @pytest.mark.asyncio
 class TestIdentityTimeline:
     def row(self, **over):
-        base = dict(
-            id=uuid.uuid4(),
-            created_at=datetime(2026, 10, 9, tzinfo=UTC),
-            severity="high",
-            title="alice logged in oddly",
-            evidence={"k": "v"},
-            mitre_techniques=["T1078"],
-        )
+        base = {
+            "id": uuid.uuid4(),
+            "created_at": datetime(2026, 10, 9, tzinfo=UTC),
+            "severity": "high",
+            "title": "alice logged in oddly",
+            "evidence": {"k": "v"},
+            "mitre_techniques": ["T1078"],
+        }
         base.update(over)
         return SimpleNamespace(**base)
 

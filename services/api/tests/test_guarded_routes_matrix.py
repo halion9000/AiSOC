@@ -10,14 +10,13 @@ import uuid
 import httpx
 import pytest
 import respx
-from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import airgap, api_keys, compliance, deployment, fusion, llm_status, nl_detection, stix_taxii, translation
 from app.core.security import ROLE_PERMISSIONS, has_permission
 from app.main import app
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 from route_introspect import required_permissions
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -111,7 +110,7 @@ def test_the_table_matches_what_the_code_actually_enforces():
                     actual[(m, "/api/v1" + r.path)] = required_permissions(r)  # r.path already includes the router prefix
     for method, path, perm in ROUTES:
         template = None
-        for (m, t), perms in actual.items():
+        for (m, t), _perms in actual.items():
             if m == method:
                 import re
 

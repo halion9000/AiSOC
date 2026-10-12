@@ -22,9 +22,9 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
-from app.core.service_auth import require_service_token
 from app.api import router as router_mod
 from app.api.router import router, set_worker
+from app.core.service_auth import require_service_token
 from app.models.alert import (
     AlertSeverity,
     FusedAlert,

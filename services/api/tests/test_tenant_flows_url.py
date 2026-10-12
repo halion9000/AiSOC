@@ -5,7 +5,6 @@ It writes test data into real environments, so every guard runs before any reque
 import json
 
 import pytest
-
 from app.core.security import known_permissions
 from app.scripts import tenant_flows as tf
 
@@ -148,9 +147,7 @@ def script_for(ids=("tid-a", "tid-b"), can_select=(False, False), missing=((), (
                 v = viewable[i]
                 if v is None:
                     return R(404)
-                return (
-                    R(200, {"tenants": [{"id": t} for t in ([ids[i]] if v == "own" else v)]}) if isinstance(v, (list, str)) else R(200, v)
-                )
+                return R(200, {"tenants": [{"id": t} for t in ([ids[i]] if v == "own" else v)]}) if isinstance(v, list | str) else R(200, v)
             if path == "/api/v1/tenants/selectable":
                 return R(200, {"can_select_other_tenants": can_select[i]}) if can_select[i] is not None else R(404)
             if path == "/api/v1/auth/authorize":

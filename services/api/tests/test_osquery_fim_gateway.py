@@ -9,15 +9,14 @@ import uuid
 import httpx
 import pytest
 import respx
-from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.api.v1.dev_auth import DEMO_TENANT_ID
 from app.api.v1.endpoints import osquery_fim
 from app.core.security import ROLE_PERMISSIONS
 from app.main import app
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 from route_introspect import required_permissions
 
 BASE = "http://osquery-tls:9001"

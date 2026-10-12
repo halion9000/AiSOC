@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
+
 from app.core.ensure_table import close_quietly, ensure_table, report_unavailable
 
 logger = structlog.get_logger()

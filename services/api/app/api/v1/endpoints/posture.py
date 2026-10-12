@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_permission
 from app.api.v1.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.models.posture import PostureFinding, PostureScanRun
@@ -22,7 +23,6 @@ from app.services.destinations import (
     build_opsgenie_payload,
     build_soar_handoff_payload,
 )
-from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/posture", tags=["posture"])
 

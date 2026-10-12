@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.core.service_auth import require_service_token
 from app.models.alert import AnalystFeedback, FusedAlert, FusionDecision, RawAlert
 from app.workers.consumer import FusionWorker
-from app.core.service_auth import require_service_token
 
 router = APIRouter()
 

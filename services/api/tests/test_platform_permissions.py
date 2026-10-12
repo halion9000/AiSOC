@@ -8,12 +8,11 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import api_keys as ak
 from app.api.v1.endpoints import rbac
 from app.core.security import PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, known_permissions, permission_in
+from fastapi import HTTPException
 
 TENANT = uuid.uuid4()
 

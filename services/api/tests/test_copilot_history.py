@@ -12,14 +12,6 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import copilot
 from app.db.database import Base
@@ -27,6 +19,13 @@ from app.db.rls import get_tenant_db
 from app.models.copilot_conversation import CopilotConversation
 from app.models.tenant import Tenant
 from app.services import copilot_history
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 DB = SimpleNamespace(factory=None, sync=None, path=None)
 LLM = SimpleNamespace(sent=[], replies=[], raise_on_call=False, tool_loop=False, tool_calls=0, tool_users=[])
@@ -106,7 +105,7 @@ def chat(c, message, conversation_id=None):
 
 def history_seen_by_model(call_index=-1) -> list[str]:
     """The human/AI turns the model was actually sent on a given call (system prompts excluded)."""
-    return [m.content for m in LLM.sent[call_index] if isinstance(m, (HumanMessage, AIMessage))]
+    return [m.content for m in LLM.sent[call_index] if isinstance(m, HumanMessage | AIMessage)]
 
 
 def stored(tenant_id, owner, conversation_id):

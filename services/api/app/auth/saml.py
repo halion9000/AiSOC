@@ -35,7 +35,7 @@ from typing import Any
 
 import jwt as _jwt
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ async def saml_login(request: Request, redirect: str = "/") -> Response:
         auth = OneLogin_Saml2_Auth(req, _saml_settings())
         login_url: str = auth.login(return_to=redirect)
         return RedirectResponse(url=login_url)
-    except ImportError:
+    except ImportError as exc:
         # B1 fix: fail closed when python3-saml is not installed.
         # Previously this returned a 200 stub page that could be mistaken
         # for a working login flow. Operators must install the dependency
@@ -148,7 +148,7 @@ async def saml_login(request: Request, redirect: str = "/") -> Response:
         raise HTTPException(
             status_code=501,
             detail="SAML is not available. Install python3-saml and configure SAML_IDP_SSO_URL.",
-        )
+        ) from exc
     except Exception as exc:
         logger.exception("SAML login error")
         # Generic: this endpoint is reachable before authentication, and the exception text can carry configuration detail (certificate
@@ -192,14 +192,14 @@ async def saml_acs(request: Request) -> Response:
         response.set_cookie("aisoc_token", token, httponly=True, samesite="lax", secure=request.url.scheme == "https")
         return response
 
-    except ImportError:
+    except ImportError as exc:
         # B1 fix: fail closed when python3-saml is not installed.
         # Previously this minted a stub JWT that granted access without
         # any IdP verification — an authentication bypass.
         raise HTTPException(
             status_code=501,
             detail="SAML is not available. Install python3-saml and configure SAML_IDP_SSO_URL.",
-        )
+        ) from exc
 
 
 @router.get("/metadata")

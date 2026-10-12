@@ -11,10 +11,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import compliance, knowledge_base, phishing
+from fastapi import HTTPException
 
 APP = Path(__file__).resolve().parent.parent / "app"
 TENANT = uuid.uuid4()

@@ -4,9 +4,8 @@ It must answer 200 without credentials, and it must appear in the OpenAPI
 schema so the B10 frontend-route gate can see it.
 """
 
-from fastapi.testclient import TestClient
-
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 def test_api_v1_health_answers_without_auth() -> None:

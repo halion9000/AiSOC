@@ -33,9 +33,9 @@ import functools
 import inspect
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import HTTPException, status
@@ -140,7 +140,7 @@ async def access_grants(db: Any, user: Any) -> Grants:
     everywhere = (
         (await db.execute(select(AllTenantAccessGrant.access).where(AllTenantAccessGrant.user_id == user.user_id))).scalars().first()
     )
-    return Grants({tenant_id: level for tenant_id, level in rows}, everywhere)
+    return Grants(dict(rows), everywhere)
 
 
 def _stronger(a: str | None, b: str | None) -> str | None:

@@ -13,11 +13,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import detection_proposals as dp
 from app.models.detection_proposal import DetectionRuleProposal
+from fastapi import HTTPException
 
 TID = uuid.uuid4()
 
@@ -27,33 +26,33 @@ def user(tenant=None):
 
 
 def proposal(tenant="mine", **over):
-    base = dict(
-        id=uuid.uuid4(),
-        tenant_id=TID if tenant == "mine" else tenant,
-        base_rule_id=None,
-        promoted_rule_id=None,
-        name="p",
-        description=None,
-        rule_language="sigma",
-        rule_body="title: x",
-        category="c",
-        severity="medium",
-        confidence=50,
-        mitre_tactics=[],
-        mitre_techniques=[],
-        tags=[],
-        status="proposed",
-        eval_result={},
-        review_comments=[],
-        proposed_by_id=None,
-        decided_by_id=None,
-        decision_comment=None,
-        decided_at=None,
-        source=None,
-        github_pr_url=None,
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
+    base = {
+        "id": uuid.uuid4(),
+        "tenant_id": TID if tenant == "mine" else tenant,
+        "base_rule_id": None,
+        "promoted_rule_id": None,
+        "name": "p",
+        "description": None,
+        "rule_language": "sigma",
+        "rule_body": "title: x",
+        "category": "c",
+        "severity": "medium",
+        "confidence": 50,
+        "mitre_tactics": [],
+        "mitre_techniques": [],
+        "tags": [],
+        "status": "proposed",
+        "eval_result": {},
+        "review_comments": [],
+        "proposed_by_id": None,
+        "decided_by_id": None,
+        "decision_comment": None,
+        "decided_at": None,
+        "source": None,
+        "github_pr_url": None,
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+    }
     base.update(over)
     return DetectionRuleProposal(**base)
 

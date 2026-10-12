@@ -71,10 +71,10 @@ from app.api.v1.dev_auth import (
     DEMO_USER_ROLE,
     is_dev_mode,
 )
+from app.core.internal_auth import ingest_service_headers
 from app.core.security import decode_token
 from app.db.database import get_db
 from app.models.tenant import User
-from app.core.internal_auth import ingest_service_headers
 
 logger = logging.getLogger(__name__)
 

@@ -15,11 +15,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine, event, insert, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.db.database import Base
 from app.models.copilot_conversation import CopilotConversation
 from app.models.data_lifecycle import RetentionPolicyRow
@@ -27,6 +22,10 @@ from app.models.detection_suggestion import DetectionSuggestion
 from app.models.tenant import Tenant
 from app.services.retention import TERMINAL_ACTION_STATUSES
 from app.workers import retention_sweeper as rs
+from sqlalchemy import create_engine, event, insert, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 NOW = datetime(2026, 10, 8, 12, 0, tzinfo=UTC)
 A, B, C = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -34,16 +33,16 @@ LIVE = ["pending", "awaiting_approval", "approved", "running"]
 
 
 def cfg(**over):
-    base = dict(
-        RETENTION_DRY_RUN=False,
-        RETENTION_BATCH_SIZE=1000,
-        RETENTION_MAX_BATCHES_PER_SWEEP=100,
-        RETENTION_COPILOT_CONVERSATIONS_DAYS=90,
-        RETENTION_DETECTION_SUGGESTIONS_DAYS=180,
-        RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS=730,
-        RETENTION_INITIAL_DELAY_SECONDS=0,
-        RETENTION_SWEEP_INTERVAL_SECONDS=3600,
-    )
+    base = {
+        "RETENTION_DRY_RUN": False,
+        "RETENTION_BATCH_SIZE": 1000,
+        "RETENTION_MAX_BATCHES_PER_SWEEP": 100,
+        "RETENTION_COPILOT_CONVERSATIONS_DAYS": 90,
+        "RETENTION_DETECTION_SUGGESTIONS_DAYS": 180,
+        "RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS": 730,
+        "RETENTION_INITIAL_DELAY_SECONDS": 0,
+        "RETENTION_SWEEP_INTERVAL_SECONDS": 3600,
+    }
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -252,7 +251,7 @@ class TestResponseActionsAreHandledWithGreatCare:
         assert recent in remaining_actions() and ancient not in remaining_actions()
 
     def test_the_default_window_applies_when_the_tenant_set_none(self):
-        keep, drop = action(A, "completed", 500), action(A, "completed", 900)
+        keep, _drop = action(A, "completed", 500), action(A, "completed", 900)
         sweep()
         assert remaining_actions() == {keep}
         sweep(RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS=100)

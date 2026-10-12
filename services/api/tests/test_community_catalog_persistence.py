@@ -14,19 +14,18 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import create_engine, event
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1.endpoints import community
 from app.api.v1.endpoints import playbooks as playbooks_api
 from app.db.database import Base
 from app.models.community_catalog import CommunityCatalogItem
 from app.models.detection_rule import DetectionRule
 from app.models.tenant import Tenant
+from fastapi import HTTPException
+from sqlalchemy import create_engine, event
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 SIGMA = """title: Suspicious PowerShell
 id: {rule_id}
@@ -242,7 +241,7 @@ def _all_rows(db_path, kind):
     engine = create_engine(f"sqlite:///{db_path}")
     try:
         with Session(engine) as s:
-            return [r for r in s.query(CommunityCatalogItem).filter_by(kind=kind).all()]
+            return list(s.query(CommunityCatalogItem).filter_by(kind=kind).all())
     finally:
         engine.dispose()
 

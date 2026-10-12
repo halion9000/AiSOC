@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.services import alert_explain as ae
 
 MINE, THEIRS = uuid.uuid4(), uuid.uuid4()
@@ -33,7 +32,7 @@ class FakeDB:
 
 
 def alert(rid, **over):
-    base = dict(raw_event={}, tags=[f"rule:{rid}"], tenant_id=MINE, mitre_techniques=[], category=None)
+    base = {"raw_event": {}, "tags": [f"rule:{rid}"], "tenant_id": MINE, "mitre_techniques": [], "category": None}
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -75,8 +74,8 @@ def test_every_detection_rule_select_in_the_service_names_the_tenant():
     src = Path(ae.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
     bad = []
-    for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))]:
-        for stmt in [s for s in ast.walk(fn) if isinstance(s, (ast.Assign, ast.Expr, ast.Return, ast.AnnAssign))]:
+    for fn in [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef)]:
+        for stmt in [s for s in ast.walk(fn) if isinstance(s, ast.Assign | ast.Expr | ast.Return | ast.AnnAssign)]:
             text = ast.get_source_segment(src, stmt) or ""
             if "select(DetectionRule)" in text and ".where(" in text and "tenant" not in text.lower() and "filters" not in text:
                 bad.append(f"{fn.name}: {' '.join(text.split())[:90]}")

@@ -11,15 +11,14 @@ import uuid
 import httpx
 import pytest
 import respx
-from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import enrichment
 from app.core.security import ROLE_PERMISSIONS
-from app.services.explain_rate_limit import ExplainRateLimiter
 from app.main import app
+from app.services.explain_rate_limit import ExplainRateLimiter
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 from route_introspect import required_permissions
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")

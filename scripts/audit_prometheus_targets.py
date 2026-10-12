@@ -85,8 +85,13 @@ THIRD_PARTY_HOSTS: set[str] = {
 # Services we are intentionally NOT scraping even though they CAN
 # have /metrics (they may be opt-in, gated behind a profile, or
 # kept out of the default observability surface for cost reasons).
-# Currently empty — every instrumented service is in-scope.
-SCRAPE_EXEMPT: set[str] = set()
+#
+# agents, enrichment: FALSE POSITIVES of `has_metrics_endpoint`, which matches the literal "/metrics" anywhere in non-test source. In both
+# services that literal is only an entry in the service-auth EXEMPT-PATHS list (agents/app/core/service_auth.py OPEN_PATHS,
+# enrichment/internal/serviceauth): there is NO metrics handler (no prometheus_client / generate_latest use in agents although the package is
+# a declared dependency, no promhttp in enrichment). A scrape job would be a permanently-down target. The real gap is that these two
+# services are not instrumented; closing it means adding a handler (as services/ingest does with promhttp) AND removing them from here.
+SCRAPE_EXEMPT: set[str] = {"agents", "enrichment"}
 
 def parse_prometheus() -> list[tuple[str, str, int]]:
     """Return ``[(job, host, port), ...]`` from prometheus.yml.

@@ -5,17 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from app.core.security import ROLE_PERMISSIONS
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_permission
 from app.api.v1.endpoints.auth import get_current_user
+from app.core.security import ROLE_PERMISSIONS
 from app.db.database import get_db
 from app.models.mssp import MSSPDelegation, MSSPTenantMetrics, MSSPTenantNote
 from app.models.tenant import Tenant, User
-from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/mssp", tags=["mssp"])
 

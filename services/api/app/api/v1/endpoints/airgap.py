@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.core.airgap import airgap_status
 from app.api.v1.deps import require_permission
+from app.core.airgap import airgap_status
 
 router = APIRouter(prefix="/airgap", tags=["airgap"])
 

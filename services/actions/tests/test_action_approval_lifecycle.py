@@ -19,13 +19,6 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app import db as db_module
 from app.api import router as router_module
 from app.core import config as config_module
@@ -35,6 +28,12 @@ from app.models.action_record import ActionRecord
 from app.security.authz import require_service_auth
 from app.security.chatops_token import mint_token
 from app.services.executor_registry import EXECUTOR_REGISTRY
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 PARAMS = {"vendor": "crowdstrike", "duration_minutes": 30, "reason_code": "ransomware"}
 SECRET = "chatops-test-secret-0123456789abcdef"
@@ -94,17 +93,17 @@ def make_app(db_path) -> FastAPI:
 
 
 def make_request(action_type=ActionType.ISOLATE_HOST, **over) -> ActionRequest:
-    fields = dict(
-        incident_id=uuid.uuid4(),
-        tenant_id=uuid.uuid4(),
-        action_type=action_type,
-        target="web-01",
-        parameters=dict(PARAMS),
-        requested_by="soc-bot",
-        rationale="contain the host",
-        auto_rollback=True,
-        rollback_after_seconds=600,
-    )
+    fields = {
+        "incident_id": uuid.uuid4(),
+        "tenant_id": uuid.uuid4(),
+        "action_type": action_type,
+        "target": "web-01",
+        "parameters": dict(PARAMS),
+        "requested_by": "soc-bot",
+        "rationale": "contain the host",
+        "auto_rollback": True,
+        "rollback_after_seconds": 600,
+    }
     fields.update(over)
     return ActionRequest(**fields)
 

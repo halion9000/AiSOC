@@ -14,11 +14,10 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from app.api.v1.deps import CurrentUser
 from fastapi import HTTPException
 from sqlalchemy import Boolean, text
 from sqlalchemy.exc import ArgumentError
-
-from app.api.v1.deps import CurrentUser
 
 APP = Path(__file__).resolve().parent.parent / "app"
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
@@ -171,9 +170,11 @@ def shadowed(paths: dict) -> list[tuple[list[str], str, str]]:
         lm = {m for m in paths[later] if m in METHODS}
         for earlier in order[:i]:
             esegs = earlier.strip("/").split("/")
-            if len(esegs) != len(lsegs) or not all(a == b or (a.startswith("{") and a.endswith("}")) for a, b in zip(esegs, lsegs)):
+            if len(esegs) != len(lsegs) or not all(
+                a == b or (a.startswith("{") and a.endswith("}")) for a, b in zip(esegs, lsegs, strict=False)
+            ):
                 continue
-            if not any(a.startswith("{") and not b.startswith("{") for a, b in zip(esegs, lsegs)):
+            if not any(a.startswith("{") and not b.startswith("{") for a, b in zip(esegs, lsegs, strict=False)):
                 continue
             both = lm & {m for m in paths[earlier] if m in METHODS}
             if both:
@@ -215,9 +216,8 @@ class TestPlaybookRequestBodies:
 
     @pytest.fixture
     def handlers(self, monkeypatch):
-        from starlette.requests import Request
-
         from app.api.v1.endpoints import playbooks as pb
+        from starlette.requests import Request
 
         calls = []
 

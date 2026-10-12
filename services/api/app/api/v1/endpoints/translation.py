@@ -18,12 +18,12 @@ import os
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.api.v1.deps import require_permission
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
 from app.services.model_aliases import resolve_model_alias
-from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/translation", tags=["translation"])
 

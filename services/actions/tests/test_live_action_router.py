@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from app.core.config import get_settings
 from app.live_actions import (
     LiveActionExecutor,
     LiveActionRequest,
@@ -33,7 +34,6 @@ from app.live_actions import (
     register_executor,
     reset_for_tests,
 )
-from app.core.config import get_settings
 from app.main import app
 from fastapi.testclient import TestClient
 

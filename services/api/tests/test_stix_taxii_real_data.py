@@ -13,17 +13,16 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from app.api.v1.endpoints import stix_taxii as stix
+from app.db.database import Base
+from app.models.stix_object import StixObject
+from app.models.tenant import Tenant
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
-
-from app.api.v1.endpoints import stix_taxii as stix
-from app.db.database import Base
-from app.models.stix_object import StixObject
-from app.models.tenant import Tenant
 
 INVENTED = [
     "198.51.100.47",

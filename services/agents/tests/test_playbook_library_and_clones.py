@@ -11,13 +11,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import respx
-from fastapi.testclient import TestClient
-
 from app.api import playbooks as pb_api
 from app.core import service_auth
 from app.playbook import Playbook, PlaybookRun
 from app.playbook import tenant_store as TS
 from app.playbook.models import PlaybookStep
+from fastapi.testclient import TestClient
 
 API = "http://api:8000"
 AUTHZ = f"{API}/api/v1/auth/authorize"

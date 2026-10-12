@@ -20,8 +20,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Uuid, and_, case, column, delete, exists, func, select, table
 from sqlalchemy import DateTime as SADateTime
+from sqlalchemy import Uuid, and_, case, column, delete, exists, func, select, table
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings

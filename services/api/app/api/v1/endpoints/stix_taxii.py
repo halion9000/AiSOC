@@ -13,11 +13,15 @@ import uuid
 from datetime import UTC, datetime
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Query, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import CurrentUser, get_current_user, get_db, require_permission
 from app.core.airgap import AirgapViolation
 from app.core.config import settings
+from app.models.stix_object import StixObject
 from app.services.misp_push import (
     MispNotConfigured,
     MispPushError,
@@ -25,11 +29,6 @@ from app.services.misp_push import (
     stix_bundle_to_misp_event,
     stix_indicator_to_misp_event,
 )
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.api.v1.deps import CurrentUser, get_current_user, get_db, require_permission
-from app.models.stix_object import StixObject
 
 logger = logging.getLogger("aisoc.stix_taxii")
 

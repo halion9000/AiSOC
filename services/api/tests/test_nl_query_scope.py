@@ -9,11 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
-from pydantic import ValidationError
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import nl_query as nq
+from fastapi import HTTPException
+from pydantic import ValidationError
 
 TENANT = uuid.uuid4()
 GOOD_TAIL = "\n| WHERE @timestamp > NOW() - 24h\n| STATS n = COUNT(*) BY user.name\n| LIMIT 500"

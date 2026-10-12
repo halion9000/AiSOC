@@ -17,13 +17,12 @@ import uuid
 import httpx
 import pytest
 import respx
-from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.core.security import ROLE_PERMISSIONS, has_permission
 from app.main import app
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 from route_introspect import required_permissions
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -210,7 +209,7 @@ def test_api_key_scopes_are_enforced(mod_name, route, method, perm):
 def test_the_agents_service_key_can_still_read_the_graph():
     """The agents service looks up attack paths and blast radius with its own read-only key."""
     agents_key = ["alerts:read", "cases:read"]
-    for mod, route, method, perm in ROWS:
+    for mod, route, method, _perm in ROWS:
         if mod == "graph" and method == "GET":
             assert _call(_client(_user("admin", scopes=agents_key)), method, route) not in (401, 403), route.path
 
@@ -218,7 +217,7 @@ def test_the_agents_service_key_can_still_read_the_graph():
 def test_core_key_keeps_everything_core_uses():
     """CORE's key (alerts rw, cases rw, connectors:read) must not lose any call it makes."""
     core_scopes = ["alerts:read", "alerts:write", "cases:read", "cases:write", "connectors:read"]
-    for mod, route, method, perm in ROWS:
+    for mod, route, method, _perm in ROWS:
         if mod in ("metrics", "approvals", "insights"):
             assert _call(_client(_user("admin", scopes=core_scopes)), method, route) not in (401, 403), route.path
 

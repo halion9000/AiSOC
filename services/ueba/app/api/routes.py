@@ -12,9 +12,9 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.core.service_auth import require_service_token
 from app.models.ueba import EntityBaseline, PeerGroup, UEBAAnomaly
 from app.services.scoring import ScoringService
-from app.core.service_auth import require_service_token
 
 router = APIRouter(prefix="/api/v1/ueba", tags=["ueba"], dependencies=[Depends(require_service_token)])
 

@@ -15,12 +15,11 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from app.api.v1.endpoints import mssp
 from app.db.database import Base
 from app.models.mssp import MSSPTenantMetrics
 from app.models.tenant import Tenant
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 TABLES = [m.__table__ for m in (Tenant, MSSPTenantMetrics)]
 INVENTED = [
@@ -242,7 +241,6 @@ def test_the_module_no_longer_defines_mock_data():
 @pytest.mark.parametrize("path", ["/tenants", "/overview", "/incidents"])
 def test_the_routes_still_require_mssp_read(path):
     from fastapi.routing import APIRoute
-
     from route_introspect import required_permissions
 
     routes = [r for r in mssp.router.routes if isinstance(r, APIRoute) and r.path.endswith(path) and "GET" in r.methods]

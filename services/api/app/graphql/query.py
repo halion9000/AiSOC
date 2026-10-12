@@ -15,17 +15,17 @@ from __future__ import annotations
 import math
 import os
 import uuid
+from datetime import UTC, datetime
 
 import httpx
 import strawberry
 from fastapi import HTTPException
-from datetime import UTC, datetime
-
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 from strawberry.types import Info
 
+from app.core.internal_auth import internal_service_headers
 from app.graphql.types import (
     AlertPage,
     AlertType,
@@ -42,7 +42,6 @@ from app.graphql.types import (
 from app.models.alert import Alert
 from app.models.connector import Connector
 from app.models.detection_rule import DetectionRule
-from app.core.internal_auth import internal_service_headers
 
 _AGENTS_URL = os.getenv("AGENTS_SERVICE_URL") or os.getenv("AGENTS_API_URL", "http://agents:8084")
 

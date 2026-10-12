@@ -13,13 +13,6 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import community
 from app.api.v1.endpoints import playbooks as playbooks_api
@@ -27,6 +20,12 @@ from app.db.database import Base
 from app.models.community_catalog import CommunityCatalogItem
 from app.models.detection_rule import DetectionRule
 from app.models.tenant import Tenant
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 SIGMA = """title: Suspicious PowerShell
 id: {rule_id}

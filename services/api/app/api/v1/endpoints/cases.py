@@ -38,11 +38,11 @@ import os
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Literal, Annotated
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Response, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text

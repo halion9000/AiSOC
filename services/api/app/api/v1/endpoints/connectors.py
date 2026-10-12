@@ -40,6 +40,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+
 from app.core.internal_auth import connectors_service_headers
 
 # Connector type IDs are restricted to alphanumeric, hyphens, and underscores.

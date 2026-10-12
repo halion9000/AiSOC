@@ -7,11 +7,10 @@ import uuid
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import fusion, osquery_fim
 from app.services import tenant_selection as ts
+from fastapi import HTTPException
 
 HOME, OTHER = uuid.uuid4(), uuid.uuid4()
 APP = Path(__file__).resolve().parent.parent / "app"

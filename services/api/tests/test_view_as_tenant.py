@@ -14,14 +14,6 @@ from types import SimpleNamespace
 from typing import Annotated
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import platform_tenant_access as pta
@@ -33,6 +25,13 @@ from app.models.tenant import ApiKey, Tenant, User
 from app.models.tenant_access import AllTenantAccessGrant, TenantAccessGrant
 from app.services import view_as
 from app.services.view_as import ERROR_HEADER, VIEW_AS_HEADER, VIEWING_HEADER
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 V = VIEW_AS_HEADER
 
@@ -624,7 +623,7 @@ class TestTheViewIsLogged:
     def test_a_view_is_logged_with_who_home_and_viewed(self, world, caplog):
         with caplog.at_level(logging.INFO, logger=deps.logger.name):
             get_users(world, "p_admin", view=world.tenants["C1"].id)
-        (rec,) = [r for r in caplog.records if r.name == deps.logger.name and "viewing" in r.getMessage()]
+        (rec,) = (r for r in caplog.records if r.name == deps.logger.name and "viewing" in r.getMessage())
         assert (rec.viewer, rec.home_tenant, rec.viewed_tenant, rec.http_method, rec.path) == (
             str(world.users["p_admin"].id),
             str(world.tenants["P"].id),
@@ -754,7 +753,7 @@ class TestRecordView:
         for column in ("audit_log.tenant_id =", "audit_log.actor_id =", "audit_log.action =", "audit_log.created_at >="):
             assert column in sql, column
         assert self.target in params.values() and self.viewer.user_id in params.values() and "tenant:viewed" in params.values()
-        (cutoff,) = [v for v in params.values() if isinstance(v, datetime)]
+        (cutoff,) = (v for v in params.values() if isinstance(v, datetime))
         assert abs((datetime.now(UTC) - view_as.VIEW_AUDIT_WINDOW) - cutoff) < timedelta(seconds=5)
 
     def test_the_window_is_fifteen_minutes(self):
@@ -1747,11 +1746,13 @@ class TestGrantingFullAccess:
         assert r.status_code == 422 and audits == []
 
     def test_changing_the_level_updates_the_one_grant_and_is_audited_with_before_and_after(self, world, audits):
-        call = lambda level: world.client.put(
-            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}",
-            headers=world.auth("platform"),
-            json={"access": level},
-        )  # noqa: E731
+        def call(level):
+            return world.client.put(
+                f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}",
+                headers=world.auth("platform"),
+                json={"access": level},
+            )  # noqa: E731
+
         before = len(grants_of(world, "C1"))
         r = call("full")
         assert r.status_code == 200 and r.json()["access"] == "full" and len(grants_of(world, "C1")) == before
@@ -1765,9 +1766,13 @@ class TestGrantingFullAccess:
         assert write(world, "tech_view", "C1").status_code == 200
 
     def test_downgrading_stops_the_writes_and_asking_for_the_same_level_again_audits_nothing(self, world, audits):
-        call = lambda level, who="tech_full": world.client.put(
-            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, who)}", headers=world.auth("platform"), json={"access": level}
-        )  # noqa: E731
+        def call(level, who="tech_full"):
+            return world.client.put(
+                f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, who)}",
+                headers=world.auth("platform"),
+                json={"access": level},
+            )  # noqa: E731
+
         assert call("full").status_code == 200 and audits == [], "already full: nothing to change, nothing to audit"
         assert call("view").status_code == 200 and [a["action"] for a in audits] == ["tenant:access_changed"]
         r = write(world, "tech_full", "C1")
@@ -1875,9 +1880,9 @@ class TestGrantingAllTenants:
         assert all_audits == []
 
     def test_changing_the_level_and_repeating_it(self, world, all_audits):
-        put_all = lambda level: world.client.put(
-            f"{ALL_URL}/{account(world, 'tech_all_view')}", headers=world.auth("platform"), json={"access": level}
-        )  # noqa: E731
+        def put_all(level):
+            return world.client.put(f"{ALL_URL}/{account(world, 'tech_all_view')}", headers=world.auth("platform"), json={"access": level})  # noqa: E731
+
         assert put_all("view").status_code == 200 and all_audits == [], "already view: nothing to change"
         assert put_all("full").status_code == 200 and [a["action"] for a in all_audits] == ["platform:all_tenant_access_changed"]
         assert all_audits[0]["changes"]["before"] == "view" and all_audits[0]["changes"]["after"] == "full"
@@ -2121,9 +2126,8 @@ class TestTheRealAuditMiddlewareFilesUnderTheRightTenant:
     a route is visible to the middleware afterwards, which the whole design relies on."""
 
     def run(self, monkeypatch, acting):
-        from fastapi import Request
-
         from app.middleware import audit_middleware as am
+        from fastapi import Request
 
         added: list = []
 

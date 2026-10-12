@@ -13,7 +13,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.graphql import query as q
 
 NOW = datetime(2026, 10, 9, 12, 0, tzinfo=UTC)
@@ -21,23 +20,23 @@ HOUR = timedelta(hours=1)
 
 
 def row(**over):
-    base = dict(
-        id=uuid.uuid4(),
-        tenant_id=uuid.uuid4(),
-        case_number=None,
-        title="t",
-        description=None,
-        severity="high",
-        status="new",
-        assignee=None,
-        mitre_techniques=[],
-        alert_ids=[],
-        tags={},
-        sla_due_at=None,
-        resolved_at=None,
-        created_at=NOW,
-        updated_at=NOW,
-    )
+    base = {
+        "id": uuid.uuid4(),
+        "tenant_id": uuid.uuid4(),
+        "case_number": None,
+        "title": "t",
+        "description": None,
+        "severity": "high",
+        "status": "new",
+        "assignee": None,
+        "mitre_techniques": [],
+        "alert_ids": [],
+        "tags": {},
+        "sla_due_at": None,
+        "resolved_at": None,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -147,7 +146,7 @@ class TestFetchCase:
 class TestListCases:
     async def listing(self, **kw):
         db = fake_db(rows=[row(title="a"), row(title="b")], count=2)
-        args = dict(page=1, page_size=25, status=None, priority=None, search=None)
+        args = {"page": 1, "page_size": 25, "status": None, "priority": None, "search": None}
         args.update(kw)
         items, total, page, size = await q._list_cases(db, kw.pop("tid", uuid.uuid4()), **args)
         return db, items, total, page, size

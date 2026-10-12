@@ -8,7 +8,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-
 from app.security import egress_guard as g
 
 g.install_egress_guard()

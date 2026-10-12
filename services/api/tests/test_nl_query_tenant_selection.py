@@ -9,11 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-from pydantic import ValidationError
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import nl_query as nq
+from fastapi import HTTPException
+from pydantic import ValidationError
 
 HOME, OTHER, THIRD = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 TAIL = "\n| WHERE @timestamp > NOW() - 24h\n| LIMIT 500"

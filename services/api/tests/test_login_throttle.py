@@ -17,13 +17,6 @@ from types import SimpleNamespace
 
 import bcrypt
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import auth
 from app.core import security
@@ -34,6 +27,12 @@ from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
 from app.scripts import login_lockout
 from app.services import login_throttle
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 PASSWORD = "correct horse battery staple"
 GENERIC = "Incorrect account name or password"
@@ -346,7 +345,7 @@ class TestLogging:
         with caplog.at_level(logging.WARNING, logger=login_throttle.logger.name):
             for _ in range(5):
                 attempt(world, "alice@a.example")
-        (rec,) = [r for r in caplog.records if r.name == login_throttle.logger.name]
+        (rec,) = (r for r in caplog.records if r.name == login_throttle.logger.name)
         import hashlib
 
         assert rec.email_sha256 == hashlib.sha256(b"alice@a.example").hexdigest()[:16] and rec.failures_limit == 5

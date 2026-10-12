@@ -37,8 +37,8 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.alert import Alert
-from app.services import case_metrics
 from app.models.remediation import RemediationGateLog
+from app.services import case_metrics
 
 # ---------------------------------------------------------------------------
 # Output schemas (Pydantic) — what the endpoint actually returns.

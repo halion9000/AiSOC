@@ -26,8 +26,8 @@ from app.core.scheduler_lock import scheduler_lock
 from app.core.telemetry import instrument_app
 from app.db.clickhouse import close_clickhouse
 from app.db.database import engine
-from app.db.role_check import schedule_role_check
 from app.db.neo4j import close_neo4j, init_neo4j
+from app.db.role_check import schedule_role_check
 from app.graphql.schema import graphql_router
 from app.middleware.audit_middleware import AuditMiddleware
 from app.middleware.demo_mode import DemoModeMiddleware
@@ -35,8 +35,8 @@ from app.models import Base
 from app.services.plugin_manager import get_plugin_manager
 from app.workers.alert_email_worker import run_forever as run_alert_email
 from app.workers.hunt_scheduler import run_forever as run_hunt_scheduler
-from app.workers.retention_sweeper import run_retention_sweeper
 from app.workers.oauth_refresh import run_forever as run_oauth_refresh
+from app.workers.retention_sweeper import run_retention_sweeper
 from app.workers.weekly_digest_task import run_forever as run_weekly_digest
 
 _metrics_bearer = HTTPBearer(auto_error=False)

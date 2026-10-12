@@ -11,19 +11,18 @@ from pydantic import BaseModel, ConfigDict, EmailStr, model_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.db.rls_scope import acting_as_argument
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.account_names import InvalidAccountName, validate_account_name
 from app.core.emails import normalize_email
 from app.core.security import get_password_hash
-from app.services.account_names import account_name_taken, unique_account_name
-from app.services.tenant_selection import selectable_tenants
-from app.services.audit import emit_audit
-from app.services.user_lookup import find_user_by_account_name
-from app.services.tenant_selection import CROSS_TENANT_PERMISSION
-from app.services.view_as import home_tenant_of, may_manage_access, viewable_access
+from app.db.rls_scope import acting_as_argument
 from app.models.tenant import Tenant, User
 from app.models.tenant_access import ACCESS_VIEW, TenantAccessGrant
+from app.services.account_names import account_name_taken, unique_account_name
+from app.services.audit import emit_audit
+from app.services.tenant_selection import CROSS_TENANT_PERMISSION, selectable_tenants
+from app.services.user_lookup import find_user_by_account_name
+from app.services.view_as import home_tenant_of, may_manage_access, viewable_access
 
 logger = logging.getLogger(__name__)
 

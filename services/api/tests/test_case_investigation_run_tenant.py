@@ -8,10 +8,9 @@ import uuid
 
 import httpx
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import cases as cases_ep
+from fastapi import HTTPException
 
 MINE, THEIRS = uuid.uuid4(), uuid.uuid4()
 

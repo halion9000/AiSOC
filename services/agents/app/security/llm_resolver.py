@@ -82,8 +82,8 @@ from urllib.parse import urlparse
 import asyncpg
 import structlog
 
-from app.security.credential_vault import CredentialVaultError, get_vault
 from app.core.tenant_scope import tenant_scope
+from app.security.credential_vault import CredentialVaultError, get_vault
 
 # NOTE: ``app.investigator.ledger`` is imported lazily inside
 # :func:`resolve_llm_config` rather than at module load time. The

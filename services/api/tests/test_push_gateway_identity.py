@@ -6,7 +6,6 @@ The gateway forwards the JSON body to the realtime service, and the realtime ser
 import uuid
 
 import pytest
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import push
 

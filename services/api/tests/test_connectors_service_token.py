@@ -16,7 +16,6 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
-
 from app.api.v1.endpoints import connectors as connectors_ep
 from app.core.internal_auth import connectors_service_headers
 from app.services import case_fanout

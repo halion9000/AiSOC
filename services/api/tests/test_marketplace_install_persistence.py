@@ -11,17 +11,16 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from app.api.v1.endpoints import marketplace as mp
+from app.db.database import Base
+from app.models.marketplace import MarketplaceInstall
+from app.models.tenant import Tenant
 from fastapi import HTTPException
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
-
-from app.api.v1.endpoints import marketplace as mp
-from app.db.database import Base
-from app.models.marketplace import MarketplaceInstall
-from app.models.tenant import Tenant
 
 CONTENT = b"title: a detection\n"
 ITEM = {"id": "det-1", "type": "detection", "name": "Detection One", "version": "2.1.0", "path": "detections/one.yml"}
@@ -310,7 +309,7 @@ class TestTheItemTypeIsPartOfTheKey:
             await mp.list_installed(current_user=person(), db=s)
 
         run(env, go)
-        (q,) = [x for x in statements if "marketplace_installs" in x]
+        (q,) = (x for x in statements if "marketplace_installs" in x)
         assert "ORDER BY marketplace_installs.item_type, marketplace_installs.item_id" in q
 
 
@@ -351,8 +350,8 @@ class TestNoInstallStateLivesInTheProcessAnyMore:
         assert not hasattr(mp, "_installed") and not hasattr(mp, "_installed_lock")
 
     def test_no_module_level_dict_holds_installs(self):
-        import re
         import inspect
+        import re
 
         src = inspect.getsource(mp)
         assert not re.search(r"^_\w*install\w*\s*(:[^=\n]+)?=\s*\{\}", src, re.M), "a module-level mapping of installs is back"

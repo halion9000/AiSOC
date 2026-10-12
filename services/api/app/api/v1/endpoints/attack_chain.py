@@ -19,9 +19,9 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import timedelta
-from typing import Any, Literal, Annotated
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission

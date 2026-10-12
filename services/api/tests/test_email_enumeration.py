@@ -19,13 +19,6 @@ from types import SimpleNamespace
 
 import bcrypt
 import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import tenants as tn
@@ -34,6 +27,12 @@ from app.core.security import get_password_hash, verify_password, verify_passwor
 from app.db.database import Base
 from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 PASSWORD = "correct horse battery staple"
 GENERIC = "Incorrect account name or password"
@@ -233,7 +232,7 @@ class TestCreatingAUserDoesNotRevealWhoIsRegisteredElsewhere:
         assert e.value.status_code == 409 and "already" not in e.value.detail
 
     def test_a_clash_is_found_whatever_the_tenant_so_the_unique_constraint_is_never_what_decides(self, world):
-        for owner, other, email in ((world.ta, world.tb, "alice@a.example"), (world.tb, world.ta, "bob@b.example")):
+        for _owner, other, email in ((world.ta, world.tb, "alice@a.example"), (world.tb, world.ta, "bob@b.example")):
             with pytest.raises(HTTPException) as e:
                 create(world, other, email)
             assert e.value.status_code == 409 and "cannot be used" in e.value.detail
@@ -250,7 +249,7 @@ class TestCreatingAUserDoesNotRevealWhoIsRegisteredElsewhere:
         with caplog.at_level(logging.WARNING, logger=tn.logger.name):
             with pytest.raises(HTTPException):
                 create(world, world.ta, "bob@b.example", caller=caller)
-        (rec,) = [r for r in caplog.records if r.name == tn.logger.name]
+        (rec,) = (r for r in caplog.records if r.name == tn.logger.name)
         assert rec.levelno == logging.WARNING
         assert (rec.acting_tenant, rec.acting_user) == (str(world.ta.id), str(caller.user_id))
         assert rec.email_sha256 == hashlib.sha256(b"bob@b.example").hexdigest()[:16]

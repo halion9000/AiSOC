@@ -8,10 +8,9 @@ conversation, so an analyst could read invented findings as the copilot's analys
 import json
 
 import pytest
+from app.api import copilot
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from app.api import copilot
 
 CANNED_FRAGMENTS = [
     "I've analysed the alert context",

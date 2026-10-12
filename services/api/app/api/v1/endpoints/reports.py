@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_permission
 from app.api.v1.endpoints.auth import get_current_user
 from app.db.database import get_db
 from app.models.report import ReportArtefact, ReportTemplate
@@ -22,7 +23,6 @@ from app.models.tenant import User
 from app.services.digest_html import render_digest_html
 from app.services.digest_pdf import WeasyPrintUnavailableError, render_digest_pdf
 from app.services.executive_digest import ExecutiveDigest, build_weekly_digest
-from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 

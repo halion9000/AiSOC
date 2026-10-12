@@ -35,7 +35,7 @@ def unguarded_routes() -> list[str]:
                 for kw in node.value.keywords:
                     if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
                         prefix = kw.value.value
-        for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]:
             for dec in fn.decorator_list:
                 if not (
                     isinstance(dec, ast.Call)

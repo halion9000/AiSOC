@@ -107,7 +107,7 @@ async def sweep_response_actions(
     session: AsyncSession, *, now: datetime, default_days: int, batch: int, max_batches: int, dry_run: bool
 ) -> int:
     """Per tenant, because each tenant has its own window. Every delete names the tenant AND restricts to finished statuses: never RLS, never age alone."""
-    windows = {t: d for t, d in (await session.execute(select(RetentionPolicyRow.tenant_id, RetentionPolicyRow.audit_days))).all()}
+    windows = dict((await session.execute(select(RetentionPolicyRow.tenant_id, RetentionPolicyRow.audit_days))).all())
     finished = response_actions.c.status.in_(TERMINAL_ACTION_STATUSES)
     tenants = [t for (t,) in (await session.execute(select(response_actions.c.tenant_id).where(finished).distinct())).all()]
     total = 0

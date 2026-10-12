@@ -10,13 +10,6 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import auth
 from app.api.v1.endpoints import platform_alert_email as pae
@@ -28,6 +21,12 @@ from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
 from app.scripts import alert_email as cli
 from app.services.alert_email.graph import MailError
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 SECRET = "api-test-secret-VALUE-31ef"
 from pathlib import Path  # noqa: E402

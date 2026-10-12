@@ -13,7 +13,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
 from app.api.v1.deps import CurrentUser
 from app.services import case_metrics as cm
 

@@ -21,7 +21,7 @@ class InvalidSettings(ValueError):
 
 def normalize_recipients(values: Any) -> list[str]:
     """Trimmed, lower-cased, de-duplicated, order kept. Raises InvalidSettings for anything that is not a plain address (no names, no angle brackets, no control characters) or for too many."""
-    if not isinstance(values, (list, tuple)):
+    if not isinstance(values, list | tuple):
         raise InvalidSettings("recipients must be a list of email addresses")
     out: list[str] = []
     for value in values:

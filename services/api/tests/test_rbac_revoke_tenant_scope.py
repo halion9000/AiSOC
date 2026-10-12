@@ -8,10 +8,9 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import rbac
+from fastapi import HTTPException
 
 TENANT, OTHER = uuid.uuid4(), uuid.uuid4()
 

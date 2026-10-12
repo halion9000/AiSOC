@@ -8,13 +8,12 @@ pins both the structure (no route without a permission) and the behavior.
 import uuid
 
 import pytest
-from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import attack_chain, cases
 from app.main import app
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
 CASE = uuid.uuid4()
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")

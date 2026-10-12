@@ -7,13 +7,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+from app.core.service_auth import require_service_token
 from app.models.purple_team import (
     AtomicTest,
     DetectionDriftSnapshot,
@@ -29,7 +30,6 @@ from app.services.drift import (
     latest_two_snapshots,
     list_snapshots,
 )
-from app.core.service_auth import require_service_token
 
 LOG = logging.getLogger(__name__)
 

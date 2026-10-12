@@ -8,11 +8,10 @@ devices, so they are now session-only: an API key gets HTTP 403 before anything 
 import uuid
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.endpoints import auth, passkeys, push
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 CRED = uuid.uuid4()
 # (method, router prefix + path, json body). Bodies are valid so a 422 can never be mistaken for the check.

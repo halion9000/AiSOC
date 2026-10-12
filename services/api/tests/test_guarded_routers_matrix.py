@@ -16,14 +16,13 @@ import uuid
 import httpx
 import pytest
 import respx
-from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import marketplace, mssp, remediation, reports
 from app.core.security import ROLE_PERMISSIONS, has_permission
 from app.main import app
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 from route_introspect import required_permissions
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -95,7 +94,7 @@ def test_discovery_found_the_routers():
 
 def test_every_route_requires_exactly_the_permission_for_its_kind():
     problems = []
-    for module, route, method, perm in ROWS:
+    for _module, route, method, perm in ROWS:
         actual = required_permissions(route)
         if perm is None:
             continue

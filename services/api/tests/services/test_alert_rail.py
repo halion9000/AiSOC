@@ -403,7 +403,7 @@ class TestBuildMiniTimeline:
     async def test_the_case_opening_names_the_case_and_who_opened_it(self) -> None:
         case = self._case_row(title="Phish at finance", created_by="sam@example.com", status="investigating")
         events = await build_mini_timeline(_mock_db_returning([case], [], []), _alert())
-        (opened,) = [e for e in events if e.kind == "case_opened"]
+        (opened,) = (e for e in events if e.kind == "case_opened")
         assert (
             opened.summary == "Case opened: Phish at finance"
             and opened.agent == "sam@example.com"

@@ -61,11 +61,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_permission
 from app.core.airgap import is_host_allowed_for_airgap
 from app.core.config import settings
 from app.models.llm_credential import TenantLlmCredential
 from app.security.credential_vault import CredentialVaultError, get_vault
-from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/llm", tags=["llm"])
 

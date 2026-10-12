@@ -1012,10 +1012,10 @@ def _sixth_batch() -> dict[str, list[Step]]:
 
 def _seventh_batch() -> dict[str, list[Step]]:
     """Business-context rules. Rule ids are user-chosen slugs (not UUIDs), so the isolation question is a COLLISION: two tenants using the same slug must each see, change and delete only their own."""
-    rule = (
-        lambda marker,
-        sev: f"id: flow-rule-a\ndescription: {marker}\nwhen:\n  field: alert.severity\n  op: eq\n  value: high\nthen:\n  set_severity: {sev}\n"
-    )  # noqa: E731
+
+    def rule(marker, sev):
+        return f"id: flow-rule-a\ndescription: {marker}\nwhen:\n  field: alert.severity\n  op: eq\n  value: high\nthen:\n  set_severity: {sev}\n"  # noqa: E731
+
     mine = lambda yes, no: (lambda r, c: _has(r, yes) and _lacks(r, no))  # noqa: E731  (the positive control and the exclusion are in the SAME response)
     return {
         "business_context_rules": [

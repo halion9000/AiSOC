@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import data_lifecycle as dl
 from app.models.data_lifecycle import RetentionPolicyRow

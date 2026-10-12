@@ -11,10 +11,9 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
+from app import copilot_tools as ct
 from app.api.v1.deps import CurrentUser
 from app.core.security import has_permission
-from app import copilot_tools as ct
 
 TID = uuid.uuid4()
 
@@ -247,7 +246,7 @@ class TestDeleteCaseIsRefused:
         docstrings = {
             id(n.body[0].value)
             for n in ast.walk(tree)
-            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            if isinstance(n, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
             and n.body
             and isinstance(n.body[0], ast.Expr)
             and isinstance(getattr(n.body[0], "value", None), ast.Constant)

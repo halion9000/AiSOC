@@ -28,8 +28,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
-from app.services.tenant_selection import resolve_requested_tenant
 from app.api.v1.dev_auth import DEMO_TENANT_ID
+from app.services.tenant_selection import resolve_requested_tenant
 
 router = APIRouter(prefix="/osquery/fim", tags=["osquery"])
 

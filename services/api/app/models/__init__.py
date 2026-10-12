@@ -2,12 +2,16 @@
 
 from app.db.database import Base
 from app.models.alert import Alert
+from app.models.alert_email import AlertEmailLog, PlatformAlertEmailSettings
 from app.models.asset import AlertAssetCorrelation, Asset, AssetVulnerability
 from app.models.business_context_rule_set import BusinessContextRuleSet
 from app.models.case import Case, CaseTask, CaseTimeline
+from app.models.community_catalog import CommunityCatalogItem
 from app.models.connector import Connector
+from app.models.copilot_conversation import CopilotConversation
 from app.models.detection_proposal import DetectionEvalBaseline, DetectionRuleProposal
 from app.models.detection_rule import DetectionRule
+from app.models.detection_suggestion import DetectionSuggestion
 from app.models.easm import ExternalAsset, ExternalAssetDrift
 from app.models.identity_graph import AlertIdentityLink, IdentityEdge, IdentityNode
 from app.models.inbox import TenantInboxToken
@@ -19,6 +23,8 @@ from app.models.investigation import (
     InvestigationRun,
 )
 from app.models.llm_credential import TenantLlmCredential
+from app.models.login_failure import LoginFailure
+from app.models.marketplace import MarketplaceInstall
 from app.models.mssp import (
     MSSPDelegation,
     MSSPRuleOverride,
@@ -28,11 +34,8 @@ from app.models.mssp import (
     MSSPTenantMetrics,
     MSSPTenantNote,
 )
-from app.models.alert_email import AlertEmailLog, PlatformAlertEmailSettings
-from app.models.login_failure import LoginFailure
-from app.models.marketplace import MarketplaceInstall
-from app.models.tenant_access import AllTenantAccessGrant, TenantAccessGrant
 from app.models.oauth import OAuthAppCredential, OAuthState
+from app.models.outcome_suppression import OutcomeSuppression
 from app.models.posture import PostureDriftEvent, PostureFinding, PostureScanRun
 from app.models.published_replay import PublishedReplay
 from app.models.remediation import RemediationGateLog, RemediationMaturity, RemediationWhitelist
@@ -43,16 +46,13 @@ from app.models.responder import (
     PasskeyChallenge,
     PasskeyCredential,
 )
-from app.models.outcome_suppression import OutcomeSuppression
 from app.models.saved_hunt import SavedHunt
-from app.models.saved_view import SavedView
-from app.models.community_catalog import CommunityCatalogItem
-from app.models.copilot_conversation import CopilotConversation
-from app.models.detection_suggestion import DetectionSuggestion
 from app.models.saved_hunt_search import SavedHuntSearch
-from app.models.stix_object import StixObject
+from app.models.saved_view import SavedView
 from app.models.shift import Shift
+from app.models.stix_object import StixObject
 from app.models.tenant import ApiKey, Tenant, User
+from app.models.tenant_access import AllTenantAccessGrant, TenantAccessGrant
 from app.models.threat_intel import ThreatActor, ThreatIntelFeed, ThreatIntelIOC
 
 __all__ = [
@@ -123,4 +123,7 @@ __all__ = [
     "UserRiskProfile",
     "ExternalAsset",
     "ExternalAssetDrift",
+    "BusinessContextRuleSet",
+    "OutcomeSuppression",
+    "Shift",
 ]

@@ -13,11 +13,6 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from sqlalchemy import Column, DateTime, MetaData, String, Table, Uuid, create_engine, insert, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
 from app.core.config import settings
 from app.db.database import Base
 from app.models.alert_email import AlertEmailLog, PlatformAlertEmailSettings
@@ -25,6 +20,10 @@ from app.models.tenant import Tenant
 from app.services.alert_email import compose, settings_store
 from app.services.alert_email.graph import GraphMailer, MailError, scrub
 from app.workers import alert_email_worker as worker
+from sqlalchemy import Column, DateTime, MetaData, String, Table, Uuid, create_engine, insert, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 NOW = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
 SECRET = "s3cret-client-value-9d1f"
@@ -51,7 +50,13 @@ class MockGraph:
 
     def mailer(self, **kw):
         client = httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
-        defaults = dict(tenant_id="entra-tenant", client_id="client-1", client_secret=SECRET, sender="alerts@msp.example", client=client)
+        defaults = {
+            "tenant_id": "entra-tenant",
+            "client_id": "client-1",
+            "client_secret": SECRET,
+            "sender": "alerts@msp.example",
+            "client": client,
+        }
         return GraphMailer(**{**defaults, **kw})
 
 
@@ -274,7 +279,7 @@ class TestTheEmailText:
         assert "\n" not in subject and "\r" not in subject
         for forbidden in ("\r", "\x00", "\x1b", "\u202e", "\u2028", "\u2029", "\u200b", "\u200f", "\ufeff", "\t"):
             assert forbidden not in subject and forbidden not in body
-        assert not any(l.lstrip().lower().startswith(("bcc:", "subject:")) for l in body.split("\n"))
+        assert not any(line.lstrip().lower().startswith(("bcc:", "subject:")) for line in body.split("\n"))
 
     @pytest.mark.parametrize(
         "raw,shown",

@@ -9,10 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import graph as graph_mod
+from fastapi import HTTPException
 
 MINE = uuid.uuid4()
 
@@ -34,13 +33,13 @@ class FakeDB:
 
 
 def case_row(**over):
-    base = dict(
-        id=uuid.uuid4(),
-        title="the title",
-        severity="high",
-        mitre_techniques=["T1059", {"id": "T1566"}],
-        alert_ids=[uuid.uuid4(), uuid.uuid4()],
-    )
+    base = {
+        "id": uuid.uuid4(),
+        "title": "the title",
+        "severity": "high",
+        "mitre_techniques": ["T1059", {"id": "T1566"}],
+        "alert_ids": [uuid.uuid4(), uuid.uuid4()],
+    }
     base.update(over)
     return SimpleNamespace(**base)
 

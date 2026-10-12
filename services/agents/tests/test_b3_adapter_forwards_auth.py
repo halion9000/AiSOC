@@ -6,12 +6,11 @@ alert lookup sent no credentials, so the Investigate button 502'd in production.
 
 import types
 
+import app.api.investigate as inv
 import httpx
 import pytest
 import respx
 from fastapi.testclient import TestClient
-
-import app.api.investigate as inv
 
 
 class _FakeLaunch:

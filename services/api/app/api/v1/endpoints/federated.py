@@ -45,10 +45,10 @@ from sqlalchemy import select
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.config import settings
+from app.core.internal_auth import connectors_service_headers
 from app.models.audit import AuditLog
 from app.models.connector import Connector
 from app.security.credential_vault import CredentialVaultError, get_vault
-from app.core.internal_auth import connectors_service_headers
 
 logger = logging.getLogger(__name__)
 

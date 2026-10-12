@@ -13,7 +13,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from test_schema_drift import migration_columns  # tests/ is on sys.path (pytest's default import mode); the parser is already tested there
 
 APP = Path(__file__).resolve().parent.parent / "app"
@@ -29,7 +28,7 @@ def raw_inserts(source: str) -> list[tuple[str, list[str], int]]:
     docs = {
         id(n.body[0].value)
         for n in ast.walk(tree)
-        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        if isinstance(n, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
         and n.body
         and isinstance(n.body[0], ast.Expr)
         and isinstance(getattr(n.body[0], "value", None), ast.Constant)
@@ -139,7 +138,7 @@ def raw_reads_and_updates(source: str) -> list[tuple[str, str, list[str], int]]:
     docs = {
         id(n.body[0].value)
         for n in ast.walk(tree)
-        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        if isinstance(n, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
         and n.body
         and isinstance(n.body[0], ast.Expr)
         and isinstance(getattr(n.body[0], "value", None), ast.Constant)
@@ -229,9 +228,8 @@ class TestMigration064:
         assert "source" in migration_columns()["detection_rule_proposals"]
 
     def test_the_orm_model_has_the_column(self):
-        from sqlalchemy import String
-
         from app.models.detection_proposal import DetectionRuleProposal
+        from sqlalchemy import String
 
         col = DetectionRuleProposal.__table__.c.source
         assert col.nullable and isinstance(col.type, String) and col.type.length == 50

@@ -27,13 +27,13 @@ from __future__ import annotations
 
 import uuid
 
+import jwt
 import pytest
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import realtime as realtime_ep
 from app.core.config import DEV_REALTIME_TICKET_SECRET, Settings, realtime_ticket_secret, warn_if_insecure_defaults
 from app.core.security import REALTIME_TICKET_AUDIENCE
 from fastapi import HTTPException
-import jwt
 
 # A real 64-char secret used across the "happy path" tests — anything outside
 # INSECURE_SECRET_KEY_DEFAULTS and non-empty resolves as configured.

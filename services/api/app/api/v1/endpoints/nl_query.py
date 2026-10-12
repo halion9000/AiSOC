@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 
@@ -187,7 +187,10 @@ def validate_index_pattern(value: str) -> str:
     return value
 
 
-from app.services.tenant_selection import CROSS_TENANT_PERMISSION, selectable_tenants  # noqa: E402  (the one definition of who may read other tenants)
+from app.services.tenant_selection import (  # noqa: E402  (the one definition of who may read other tenants)
+    CROSS_TENANT_PERMISSION,
+    selectable_tenants,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +203,7 @@ class TenantScope:
     tenant_ids: tuple[str, ...] = ()
 
 
-def resolve_tenant_scope(body: "NLQueryTranslateRequest", user: Any) -> TenantScope:
+def resolve_tenant_scope(body: NLQueryTranslateRequest, user: Any) -> TenantScope:
     """The tenant scope this request is entitled to.
 
     Nothing selected, or only the caller's own tenant selected, is `own`. Anything wider (another tenant, several tenants, or all of them) needs the platform permission `platform:cross_tenant_query` (held by platform_admin only, or by an API key carrying that exact scope) AND a
@@ -308,7 +311,7 @@ class NLQueryTranslateRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _one_way_to_choose_tenants(self) -> "NLQueryTranslateRequest":
+    def _one_way_to_choose_tenants(self) -> NLQueryTranslateRequest:
         if self.all_tenants and self.tenant_ids:
             raise ValueError("choose either tenant_ids or all_tenants, not both")
         if self.tenant_ids is not None and len(self.tenant_ids) == 0:

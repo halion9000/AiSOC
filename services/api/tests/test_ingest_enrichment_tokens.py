@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from app.core.internal_auth import enrichment_service_headers, ingest_service_headers
 
 APP = Path(__file__).resolve().parents[1] / "app"

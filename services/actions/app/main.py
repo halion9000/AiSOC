@@ -18,17 +18,17 @@ without restarting the process.
 
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 from fastapi import FastAPI
-
-import asyncio
 
 from app._health import install_health_routes
 from app.api.live_actions_router import router as live_actions_router
 from app.api.router import router as legacy_router
 from app.db import dispose_engine
-from app.live_actions import register_builtin_executors
 from app.db_role import warn_if_rls_bypassed
+from app.live_actions import register_builtin_executors
 from app.store_readiness import check_action_store, mark_ready_when_store_answers
 
 logger = structlog.get_logger(__name__)

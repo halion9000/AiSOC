@@ -11,7 +11,6 @@ config, log, distributed read/write) were always protected by the enroll secret 
 from __future__ import annotations
 
 import pytest
-
 from app.core.config import settings
 from app.core.security import PLACEHOLDER_ENROLL_SECRET, enforce_secure_defaults
 from app.main import app

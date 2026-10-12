@@ -56,9 +56,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.internal_auth import connectors_service_headers
 from app.models.connector import Connector
 from app.security.credential_vault import CredentialVaultError, get_vault
-from app.core.internal_auth import connectors_service_headers
 
 logger = logging.getLogger(__name__)
 

@@ -12,12 +12,11 @@ import uuid
 import httpx
 import pytest
 import respx
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.core.config import settings
 from app.main import app
+from fastapi.testclient import TestClient
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
 PB = "pb-1"

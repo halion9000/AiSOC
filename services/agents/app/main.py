@@ -8,7 +8,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app._health import install_health_routes
-from app.core.service_auth import ServiceAuthMiddleware
 from app.api.contextual import router as contextual_router
 from app.api.copilot import router as copilot_router
 from app.api.explain import router as explain_router
@@ -18,6 +17,7 @@ from app.api.investigate import router as investigate_router
 from app.api.playbooks import router as playbook_router
 from app.api.router import router
 from app.api.triage import router as triage_router
+from app.core.service_auth import ServiceAuthMiddleware
 from app.core.telemetry import instrument_app
 from app.hunt import scheduler as hunt_scheduler
 from app.hunt import store as hunt_store

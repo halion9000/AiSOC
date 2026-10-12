@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.scripts import platform_admin as pa
 
 API = Path(__file__).resolve().parent.parent
@@ -45,7 +44,7 @@ class FakeSession:
         res.scalar_one_or_none.return_value = payload
         res.scalar_one.return_value = payload
         res.scalars.return_value.first.return_value = (
-            None if isinstance(payload, (list, int)) else payload
+            None if isinstance(payload, list | int) else payload
         )  # the shared lookups read with .scalars().first()
         res.scalars.return_value.all.return_value = payload if isinstance(payload, list) else []
         return res
@@ -57,7 +56,7 @@ class FakeSession:
     @property
     def written_roles(self):
         """The role value each UPDATE actually sets (what lands in the database, not what the tool reports)."""
-        return [b.get("role") for st, b in zip(self.statements, self.bound) if st.startswith("UPDATE")]
+        return [b.get("role") for st, b in zip(self.statements, self.bound, strict=False) if st.startswith("UPDATE")]
 
 
 @pytest.fixture

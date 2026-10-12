@@ -12,11 +12,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-
 from app import copilot_tools as ct
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import copilot as cp
+from fastapi import HTTPException
 
 TENANT, OTHER_TENANT = uuid.uuid4(), uuid.uuid4()
 
@@ -95,7 +94,7 @@ class TestTheToken:
         assert data["a"] == "delete_alert" and data["args"] == {"alert_id": "a"} and data["exp"] == exp
 
     def test_two_tokens_for_the_same_action_differ(self):
-        kw = dict(tenant_id=str(TENANT), user_id="u1", action="delete_alert", args={"alert_id": "a"})
+        kw = {"tenant_id": str(TENANT), "user_id": "u1", "action": "delete_alert", "args": {"alert_id": "a"}}
         assert ct.issue_confirmation(**kw)[0] != ct.issue_confirmation(**kw)[0]
 
     @pytest.mark.parametrize("bad", ["", "nodot", "a.b.c.d", "!!!.???", "x" * 50, "."])

@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 
 import pytest
-
 from app.core.config import Settings
 from app.scripts import rls_audit as ra
 from app.scripts import run_migrations as rm

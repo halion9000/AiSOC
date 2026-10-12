@@ -4,8 +4,9 @@ import uuid
 from datetime import UTC, datetime
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+
 from app.api.v1.deps import require_permission
 
 router = APIRouter(prefix="/deployment", tags=["Deployment"])

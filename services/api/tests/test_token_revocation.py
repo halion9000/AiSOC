@@ -8,15 +8,8 @@ life; get_current_user and /auth/refresh refuse a recorded token. If the denylis
 import uuid
 from datetime import timedelta
 
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 import jwt
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
-
+import pytest
 from app.api.v1 import deps
 from app.api.v1.endpoints import auth
 from app.core import token_revocation
@@ -25,6 +18,12 @@ from app.core.security import decode_token, get_password_hash, hash_api_key
 from app.db.database import Base
 from app.models.login_failure import LoginFailure
 from app.models.tenant import ApiKey, Tenant, User
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 PASSWORD = "correct horse battery staple"
 

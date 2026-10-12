@@ -14,9 +14,10 @@ import re
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, status, Depends
-from app.core.internal_auth import internal_service_headers
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+
 from app.api.v1.deps import AuthUser, require_permission
+from app.core.internal_auth import internal_service_headers
 
 _AGENTS_URL = os.getenv("AGENTS_SERVICE_URL") or os.getenv("AGENTS_API_URL", "http://agents:8084")
 

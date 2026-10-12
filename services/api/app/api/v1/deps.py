@@ -21,18 +21,17 @@ activates the RLS policies defined in ``migrations/002_rls.sql``.
         ...
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-import logging
 from fastapi import Depends, HTTPException, Request, Response, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWTError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.token_revocation import is_revoked
 from app.api.v1.dev_auth import (
     DEMO_TENANT_ID,
     DEMO_USER_EMAIL,
@@ -41,6 +40,7 @@ from app.api.v1.dev_auth import (
     is_dev_mode,
 )
 from app.core.security import decode_token, has_permission, hash_api_key, permission_in
+from app.core.token_revocation import is_revoked
 from app.db.database import get_db
 from app.models.tenant import ApiKey, User
 from app.services.view_as import (

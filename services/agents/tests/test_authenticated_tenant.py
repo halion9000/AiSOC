@@ -13,16 +13,15 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import respx
-from fastapi import HTTPException
-from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
-
 from app.api import explain as explain_mod
 from app.api import investigate as inv
 from app.api import router as router_mod
 from app.api import triage as tri
 from app.core import caller as caller_mod
 from app.core import service_auth
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 API = "http://api:8000"
 AUTHZ = f"{API}/api/v1/auth/authorize"

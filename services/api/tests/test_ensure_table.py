@@ -1,13 +1,11 @@
 """The API's copy of cost telemetry had the same runtime DDL (see the agents test of the same name for the full story): as aisoc_app it leaked a pool per call and silently stopped recording run costs, which a READ-ONLY differential
 of the API under both roles could not show. Also: the eval subprocess no longer inherits the database connection."""
 
-from pathlib import Path
-
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from app.core import ensure_table as et
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "api" / "migrations"

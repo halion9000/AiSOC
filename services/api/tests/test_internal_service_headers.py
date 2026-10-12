@@ -10,9 +10,7 @@ import uuid
 from types import SimpleNamespace
 
 import httpx
-import pytest
 import respx
-
 from app.api.v1.endpoints import cases as cases_ep
 from app.api.v1.endpoints import playbooks as playbooks_ep
 from app.core.config import settings

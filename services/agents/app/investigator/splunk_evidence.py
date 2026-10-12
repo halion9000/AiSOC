@@ -32,10 +32,10 @@ from typing import Any
 import httpx
 import structlog
 
+from app.core.tenant_scope import tenant_scope
 from app.investigator import ledger as ledger_module
 from app.models.state import InvestigationState
 from app.security.credential_vault import get_vault
-from app.core.tenant_scope import tenant_scope
 
 logger = structlog.get_logger()
 

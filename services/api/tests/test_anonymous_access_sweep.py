@@ -17,7 +17,6 @@ import re
 
 import httpx
 import pytest
-
 from app.api.v1 import deps
 from app.main import app
 
@@ -66,7 +65,7 @@ async def _status(client: httpx.AsyncClient, method: str, path: str):
     try:
         r = await asyncio.wait_for(client.request(method, url, json={} if method in BODY_METHODS else None), timeout=6)
         return r.status_code
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return "kept the connection open (streaming) without credentials"
     except Exception as exc:  # a route that blows up without credentials has not refused them
         return f"error: {type(exc).__name__}"
@@ -82,7 +81,7 @@ async def _sweep() -> dict[tuple[str, str], object]:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             routes = _all_routes()
             results = await asyncio.gather(*[_status(client, m, p) for m, p in routes])
-            return dict(zip(routes, results))
+            return dict(zip(routes, results, strict=False))
     finally:
         app.dependency_overrides.pop(deps.get_db, None)
 

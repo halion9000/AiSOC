@@ -32,13 +32,12 @@ from urllib.parse import quote
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.core.internal_auth import fusion_service_headers
 from app.core.logging import safe_log_value
 from app.services.tenant_selection import resolve_requested_tenant
-
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +145,7 @@ async def ml_status() -> dict[str, Any]:
 _DEFAULT_THRESHOLD = 100.0
 
 
-def _effective_tenant(tenant_id: UUID | None, user: "AuthUser") -> str:
+def _effective_tenant(tenant_id: UUID | None, user: AuthUser) -> str:
     """The tenant this request is for. The fusion service trusts the tenant_id it is sent, so the check lives here.
 
     Omitted: the caller's own tenant (taken from their verified login, never from the request), so a client never has to know or guess it: the console used to send a BUILD-TIME constant here, which is 'default' (not even a UUID: a 422) on a standard build and some other tenant's id elsewhere (a 403).

@@ -8,11 +8,10 @@ import inspect
 import uuid
 from typing import Any
 
-from test_tenant_provision import _MockSession, _run, _waitlist_row  # the existing module's in-memory session helpers
-
 from app.api.v1.endpoints import tenant_provision as endpoint
 from app.models.tenant import Tenant
 from app.services.tenant_provision import provision_from_waitlist
+from test_tenant_provision import _MockSession, _run, _waitlist_row  # the existing module's in-memory session helpers
 
 
 def _provision(**extra: Any):

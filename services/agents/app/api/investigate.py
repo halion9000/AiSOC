@@ -21,11 +21,11 @@ from uuid import UUID, uuid4
 
 import httpx
 import structlog
-from app.core.caller import authenticated_tenant, resolve_tenant, visible_run
-from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
+from app.core.caller import authenticated_tenant, resolve_tenant, visible_run
 from app.investigator import InvestigatorOrchestrator
 from app.orchestrator.router import RouterOrchestrator
 
@@ -455,8 +455,8 @@ async def legacy_investigate(
         logger.error("legacy_investigate.alert_fetch_failed", alert_id=alert_id, error=str(exc))
         raise FastAPIHTTPException(
             status_code=502,
-            detail=f"Could not fetch alert {alert_id} from core API: {exc}",
-        )
+            detail=f"Could not fetch alert {alert_id} from the core API",  # the cause is logged above, not returned
+        ) from exc
 
     case_id = str(alert.get("caseId") or alert.get("case_id") or alert_id)
     tenant_id = str(alert.get("tenantId") or alert.get("tenant_id") or "default")

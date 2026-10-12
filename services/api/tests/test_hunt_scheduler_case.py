@@ -11,14 +11,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.workers import hunt_scheduler as hs
 
 APP = Path(__file__).resolve().parent.parent / "app"
 
 
 def hunt(**over):
-    base = dict(id=uuid.uuid4(), tenant_id=uuid.uuid4(), name="lateral-movement sweep", nl_query="show me psexec from workstations")
+    base = {"id": uuid.uuid4(), "tenant_id": uuid.uuid4(), "name": "lateral-movement sweep", "nl_query": "show me psexec from workstations"}
     base.update(over)
     return SimpleNamespace(**base)
 

@@ -18,12 +18,12 @@ Pipeline
 
 from __future__ import annotations
 
-from typing import Annotated
 import uuid
 from datetime import UTC, datetime
+from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select, update
 

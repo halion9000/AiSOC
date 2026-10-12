@@ -31,8 +31,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
 import json
+import logging
 import os
 import re
 import sys
@@ -125,9 +125,9 @@ async def _apply_migrations_strict() -> int:
 
 
 async def _verify_orm_tables(session) -> None:
-    import app.models  # noqa: F401,PLC0415  (registers every model)
     from sqlalchemy import text  # noqa: PLC0415
 
+    import app.models  # noqa: F401,PLC0415  (registers every model)
     from app.db.database import Base  # noqa: PLC0415
 
     rows = await session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"))
@@ -209,14 +209,12 @@ def plan_seeded_admin_update(seeded) -> tuple[bool, dict | None]:
 async def run(
     email: str, password: str | None, rotate_core_key: bool, rotate_agents_key: bool = False, admin_name: str | None = None
 ) -> dict:
-    from datetime import UTC, datetime  # noqa: PLC0415
-
     from sqlalchemy import select, update  # noqa: PLC0415
 
-    from app.core.security import generate_api_key, get_password_hash  # noqa: PLC0415
-    from app.db.database import AsyncSessionLocal  # noqa: PLC0415
-    from app.models.tenant import ApiKey, User  # noqa: PLC0415
     from app.core.account_names import InvalidAccountName, validate_account_name  # noqa: PLC0415
+    from app.core.security import get_password_hash  # noqa: PLC0415
+    from app.db.database import AsyncSessionLocal  # noqa: PLC0415
+    from app.models.tenant import User  # noqa: PLC0415
     from app.services.account_names import account_name_taken, unique_account_name  # noqa: PLC0415
     from app.services.user_lookup import find_user_by_email  # noqa: PLC0415
 

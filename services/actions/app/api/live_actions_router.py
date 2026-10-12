@@ -35,7 +35,6 @@ import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.security.authz import require_service_auth
 from app.live_actions import (
     LiveActionDescriptor,
     LiveActionRequest,
@@ -45,6 +44,7 @@ from app.live_actions import (
     list_descriptors,
     list_vendors_for_capability,
 )
+from app.security.authz import require_service_auth
 
 logger = structlog.get_logger(__name__)
 # Every route here needs the service bearer token (AISOC_ACTIONS_SERVICE_TOKEN), failing closed when it is not

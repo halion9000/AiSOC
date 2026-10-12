@@ -3,12 +3,11 @@
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.core.security import ROLE_PERMISSIONS, has_permission, known_permissions
 from app.main import app
+from fastapi.testclient import TestClient
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
 

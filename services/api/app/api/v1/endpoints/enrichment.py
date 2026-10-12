@@ -30,8 +30,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.v1.deps import AuthUser, require_permission
-from app.services.explain_rate_limit import ExplainRateLimiter
 from app.core.internal_auth import enrichment_service_headers
+from app.services.explain_rate_limit import ExplainRateLimiter
 
 router = APIRouter(prefix="/enrichment", tags=["enrichment"])
 

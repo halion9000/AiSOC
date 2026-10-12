@@ -39,13 +39,12 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import AuthUser, CurrentUser, DBSession, get_db, require_permission
-from app.services.community_catalog import CatalogStore, ItemExists
-from app.db.rls import TenantDBSession
 from app.core.security import verify_ed25519_signature
+from app.db.rls import TenantDBSession
+from app.services.community_catalog import CatalogStore, ItemExists
 
 router = APIRouter(prefix="/community", tags=["community"])
 

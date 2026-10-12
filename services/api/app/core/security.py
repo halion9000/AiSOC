@@ -5,8 +5,8 @@ Security utilities: JWT tokens, password hashing, RBAC, API key generation
 import hashlib
 import secrets
 import uuid
-from datetime import UTC, datetime, timedelta
 from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
@@ -346,7 +346,7 @@ def permission_in(granted: Iterable[str], permission: str) -> bool:
     """Is `permission` covered by `granted`: a role's list, an API key's scopes, or a database role's permission names? The ONE matching rule.
 
     A platform permission (see PLATFORM_PERMISSIONS) must be named exactly; neither "*" nor "<resource>:*" covers it. Anything else is covered by "*", by the exact name, or by "<resource>:*"."""
-    granted = granted if isinstance(granted, (list, set, frozenset, tuple)) else list(granted)
+    granted = granted if isinstance(granted, list | set | frozenset | tuple) else list(granted)
     if permission in PLATFORM_PERMISSIONS:
         return permission in granted
     if "*" in granted or permission in granted:

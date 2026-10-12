@@ -17,15 +17,14 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from app.api.v1.endpoints import mssp
 from app.db.database import Base
 from app.models.detection_rule import DetectionRule
 from app.models.mssp import MSSPDelegation, MSSPRuleOverride, MSSPRulePack, MSSPRulePackAssignment, MSSPRulePackRule, MSSPTenantNote
 from app.models.tenant import Tenant
 from app.services.mssp_rule_resolver import count_effective_rules, resolve_effective_rules
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 TABLES = [
     m.__table__

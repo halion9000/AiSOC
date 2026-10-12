@@ -7,15 +7,15 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, AliasChoices
+from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.core.service_auth import require_service_token
 from app.models.honeytoken import Honeytoken, HoneytokenTrigger
 from app.services.alerting import send_alert
 from app.services.generator import TOKEN_GENERATORS, generate_token
-from app.core.service_auth import require_service_token
 
 router = APIRouter(prefix="/api/v1/honeytokens", tags=["honeytokens"])
 

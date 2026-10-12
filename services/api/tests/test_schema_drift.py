@@ -10,9 +10,8 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql as pg
-
 from app.scripts import schema_drift as sd
+from sqlalchemy.dialects import postgresql as pg
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 

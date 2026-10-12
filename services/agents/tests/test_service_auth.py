@@ -3,14 +3,13 @@
 import httpx
 import pytest
 import respx
+from app.core import service_auth
+from app.core.service_auth import ServiceAuthMiddleware
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect
-
-from app.core import service_auth
-from app.core.service_auth import ServiceAuthMiddleware
 
 ME = "http://api:8000/api/v1/auth/me"
 AUTHZ = "http://api:8000/api/v1/auth/authorize"

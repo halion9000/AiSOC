@@ -23,17 +23,17 @@ v1.5 (SOC Console parity) adds:
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import and_, func, select, text
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.config import settings
 from app.models.alert import Alert
-from app.services import case_metrics as case_counts  # not `case_metrics`: get_dashboard_metrics has a local variable of that name
 from app.models.connector import Connector
 from app.models.detection_rule import DetectionRule
 from app.models.remediation import RemediationGateLog
+from app.services import case_metrics as case_counts  # not `case_metrics`: get_dashboard_metrics has a local variable of that name
 
 logger = logging.getLogger(__name__)
 

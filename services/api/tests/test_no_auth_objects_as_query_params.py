@@ -26,9 +26,8 @@ def test_no_route_takes_an_auth_or_db_object_as_a_query_parameter():
 def test_the_detector_would_catch_the_original_mistake():
     from typing import Annotated, Any
 
-    from fastapi import APIRouter, FastAPI
-
     from app.api.v1.deps import require_permission
+    from fastapi import APIRouter, FastAPI
 
     broken = FastAPI()
     r = APIRouter()

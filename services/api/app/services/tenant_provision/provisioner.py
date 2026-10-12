@@ -64,16 +64,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.emails import normalize_email
 from app.models.tenant import Tenant, User
-from app.services.account_names import unique_account_name
-from app.services.user_lookup import find_user_by_email
 from app.models.waitlist import (
     WAITLIST_STATUS_ONBOARDED,
     WaitlistEntry,
 )
+from app.services.account_names import unique_account_name
 from app.services.tenant_provision.templates import (
     TenantTemplateBundle,
     get_default_template_bundle,
 )
+from app.services.user_lookup import find_user_by_email
 
 logger = logging.getLogger(__name__)
 

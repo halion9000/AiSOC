@@ -39,6 +39,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import require_permission
 from app.api.v1.endpoints.auth import get_current_user
 from app.core.config import settings
 from app.db.database import get_db
@@ -56,7 +57,6 @@ from app.services.effective_permissions.service import (
     cache_result_into_neo4j,
     resolve_effective_permissions,
 )
-from app.api.v1.deps import require_permission
 
 logger = logging.getLogger(__name__)
 

@@ -9,11 +9,10 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
-
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import identity_graph as ig
 from app.models.identity_graph import AlertIdentityLink, IdentityEdge
+from fastapi import HTTPException
 
 
 def _user() -> CurrentUser:
