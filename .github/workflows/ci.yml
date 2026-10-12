@@ -263,6 +263,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: python-lint
     env:
+      # apscheduler + langgraph: tests/test_b10_backend_route_coverage.py spawns a SUBPROCESS that imports the AGENTS app to read its OpenAPI,
+      # and that import needs them (found in an isolated venv; a machine that has them installed system-wide hides it). Ranges are the ones
+      # services/agents/pyproject.toml declares: an unconstrained langgraph would pull langchain-core to 1.x and undo the <0.4 pin above.
       API_DEPS: >-
         fastapi "pydantic[email]" pydantic-settings "sqlalchemy[asyncio]" asyncpg
         structlog cryptography "passlib[bcrypt]" tenacity pyyaml
@@ -273,6 +276,7 @@ jobs:
         neo4j redis celery httpx aiofiles email-validator PyJWT "langchain-core>=0.3,<0.4" "langchain-openai>=0.2,<0.3"
         "sqlglot>=23,<27" aiosqlite
         "croniter>=2.0,<7.0"
+        "apscheduler>=3.10.4,<4" "langgraph>=0.2.40,<1.1.0"
         pytest pytest-asyncio "respx>=0.21,<0.23"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -397,7 +401,8 @@ jobs:
         # loads the canonical scripts/generate_detections.py (imports yaml).
         # sqlalchemy[asyncio] + aiosqlite: the honeytokens tenancy tests build an in-memory SQLite database; apscheduler: purple-team's scheduler.
         # (Found by building this exact list in a clean environment: without them honeytokens fails 5 tests and purple-team fails at collection.)
-        run: pip install --quiet pydantic pydantic-settings pytest pytest-asyncio structlog redis aioredis fastapi httpx aiokafka asyncpg clickhouse-driver pyyaml cryptography 'sqlalchemy[asyncio]>=2,<3' 'aiosqlite>=0.19,<0.22' 'apscheduler>=3.10,<4'
+        # alembic: ueba, honeytokens and purple-team each have migration tests that run `alembic` in a SUBPROCESS (so a developer machine that has it installed system-wide hides its absence).
+        run: pip install --quiet pydantic pydantic-settings pytest pytest-asyncio structlog redis aioredis fastapi httpx aiokafka asyncpg clickhouse-driver pyyaml cryptography 'sqlalchemy[asyncio]>=2,<3' 'aiosqlite>=0.19,<0.22' 'apscheduler>=3.10,<4' 'alembic>=1.13,<2'
       - name: Install pytest-cov (Phase 2.2 coverage gate)
         run: pip install --quiet 'pytest-cov>=4,<7'
       # Phase 2.2 — every wave-1 service now has a measured coverage
@@ -520,7 +525,8 @@ jobs:
             'pyyaml>=6,<7' \
             'jinja2>=3,<4' \
             'jsonschema>=4,<5' \
-            'tenacity>=8,<10'
+            'tenacity>=8,<10' \
+          'alembic>=1.13,<2'
       # threatintel imports these at collection time and they are not in the shared set (every other service would install them for nothing).
       # The ranges are the ones services/threatintel/pyproject.toml declares, so CI tests what is shipped.
       - name: Install service-specific dependencies (threatintel)
