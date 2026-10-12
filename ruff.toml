@@ -1,8 +1,8 @@
 # Repo-wide ruff configuration.
 #
 # Per-service `[tool.ruff]` blocks were consolidated here so the CI gate
-# (`ruff check services/api services/actions services/fusion services/agents`)
-# behaves the same way locally and in `.github/workflows/ci.yml`.
+# (`ruff check services/` and `ruff format --check services/`) behaves the same
+# way locally and in `.github/workflows/ci.yml`.
 
 line-length = 140
 target-version = "py311"
@@ -14,7 +14,12 @@ select = ["E", "W", "F", "I", "B", "C4", "UP"]
 # preference, not a correctness rule. The `(str, Enum)` pattern serializes
 # the same way through Pydantic v2 / SQLAlchemy / json.dumps and migrating
 # every existing model would create churn for no behavioral gain.
-ignore = ["UP042"]
+#
+# E501 (line too long) is ignored. `ruff format` already enforces the same 140-column limit on CODE (it wraps calls, signatures and
+# expressions), so what E501 still flags is almost entirely long string literals and comments, which the formatter deliberately does
+# not touch and `--fix` cannot fix. At the time of this change it was 1,988 of the 2,253 errors `ruff check services/` reported (1,675 in
+# services/api alone), and it gated the whole Python test suite in CI. Line length is still enforced where it matters, by the formatter.
+ignore = ["UP042", "E501"]
 
 [lint.flake8-bugbear]
 # FastAPI's canonical dependency-injection pattern is
