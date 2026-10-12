@@ -17,7 +17,7 @@ export function FrameworkView({ framework }: Props) {
         The compliance evidence pipeline for <code>{framework}</code> is not
         available in the current AiSOC build. Heatmap, export, and collection
         endpoints have not been implemented yet. Deploy the full compliance
-        service or upgrade to a release that includes this framework's
+        service or upgrade to a release that includes this framework&apos;s
         automation to enable it.
       </p>
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-800/60 text-xs text-gray-400 border border-gray-700">
