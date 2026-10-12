@@ -9,53 +9,40 @@
 # Example:
 # python|CVE-2026-12345|Upstream fix not released; tracked in issue #123|2026-07-15
 
-# ── 2026-05-28 triage (expire 2026-08-25) ────────────────────────────────────
-# cryptography==42.0.8 advisories (CVE-2024-12797, CVE-2026-26007,
-# GHSA-h4gh-qq45-vh27, PYSEC-2026-35) are NOT ignored — fixed by bumping the
-# connectors/osquery-tls floor to >=44.0.1 so they resolve to the clean 48.x
-# line already used by the api/actions services.
-#
-# Everything below has no patched release available (packages already at their
-# newest version) or is a framework-capped transitive dep where a bump is both
-# risky and ineffective. Time-boxed for re-evaluation within 90 days.
+# -- 2026-10-12 triage (expire 2027-01-08) ------------------------------------------------------------------------------------------------
+# EVERY waiver below has ONE root cause: the langchain-core 0.3 -> 1.x migration, which has not been done and is a regression-prone change.
+# Verified against PyPI metadata on 2026-10-12 (not copied from earlier waivers): every fixed release needs langchain-core >=1.0 (langchain-openai,
+# langchain-text-splitters and langchain 1.x need >=1.2.31 / >=1.4.6; langgraph 1.0.10 needs langgraph-prebuilt >=1.0.8 which needs >=1.0), and
+# langgraph 1.0.1 itself pins langgraph-checkpoint<4 and langgraph-sdk<0.3. Our pyproject caps (langchain-core <0.4) are what hold them back.
+# EXPOSURE, verified by grep of services/api/app and services/agents/app: none of the vulnerable features is used (legacy load_prompt,
+# get_num_tokens_from_messages, FileSearchMiddleware/loaders, text splitters, checkpoint savers/caches, the langgraph SDK client and its auth).
+# Remove each entry when the migration lands. Both the PYSEC and the GHSA form are listed because pip-audit may report either as the primary id.
+python|PYSEC-2026-2192|langchain 0.3.30: path traversal in the file-search middleware and loaders (medium); fixed in langchain 1.3.9, which requires langchain-core>=1.4.6; FileSearchMiddleware and the loaders are not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-gr75-jv2w-4656|langchain 0.3.30: path traversal in the file-search middleware and loaders (medium); fixed in langchain 1.3.9, which requires langchain-core>=1.4.6; FileSearchMiddleware and the loaders are not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-2193|langchain-core 0.3.86: path traversal in the legacy load_prompt functions (high); fixed in langchain-core 1.2.22, a major bump; load_prompt is not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-qh6h-p6c9-ff54|langchain-core 0.3.86: path traversal in the legacy load_prompt functions (high); fixed in langchain-core 1.2.22, a major bump; load_prompt is not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-2562|langchain-core 0.3.86: SSRF via image_url in ChatOpenAI.get_num_tokens_from_messages (low); fixed in langchain-core 1.2.11, a major bump; get_num_tokens_from_messages is not called in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-2g6r-c272-w58r|langchain-core 0.3.86: SSRF via image_url in ChatOpenAI.get_num_tokens_from_messages (low); fixed in langchain-core 1.2.11, a major bump; get_num_tokens_from_messages is not called in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-76|langchain-openai 0.2.14,0.3.35: image-token SSRF protection bypass via DNS rebinding (low); fixed in langchain-openai 1.1.14, which requires langchain-core>=1.2.31; get_num_tokens_from_messages is not called in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-r7w7-9xr2-qq2r|langchain-openai 0.2.14,0.3.35: image-token SSRF protection bypass via DNS rebinding (low); fixed in langchain-openai 1.1.14, which requires langchain-core>=1.2.31; get_num_tokens_from_messages is not called in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-77|langchain-text-splitters 0.3.11: HTMLHeaderTextSplitter.split_text_from_url SSRF redirect bypass (medium); fixed in langchain-text-splitters 1.1.2, which requires langchain-core>=1.2.31; text splitters are not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-fv5p-p927-qmxr|langchain-text-splitters 0.3.11: HTMLHeaderTextSplitter.split_text_from_url SSRF redirect bypass (medium); fixed in langchain-text-splitters 1.1.2, which requires langchain-core>=1.2.31; text splitters are not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-83|langgraph 1.0.1: unsafe msgpack deserialization in checkpoint loading (medium); fixed in langgraph 1.0.10, which needs langgraph-prebuilt>=1.0.8, which requires langchain-core>=1.0; no checkpoint saver is used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-g48c-2wqr-h844|langgraph 1.0.1: unsafe msgpack deserialization in checkpoint loading (medium); fixed in langgraph 1.0.10, which needs langgraph-prebuilt>=1.0.8, which requires langchain-core>=1.0; no checkpoint saver is used in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-2573|langgraph-checkpoint 3.0.1: unsafe JSON deserialization in checkpoint loading (medium); fixed in langgraph-checkpoint 4.1.1; langgraph 1.0.1 pins langgraph-checkpoint<4.0.0; no checkpoint saver is used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-fjqc-hq36-qh5p|langgraph-checkpoint 3.0.1: unsafe JSON deserialization in checkpoint loading (medium); fixed in langgraph-checkpoint 4.1.1; langgraph 1.0.1 pins langgraph-checkpoint<4.0.0; no checkpoint saver is used in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-2574|langgraph-checkpoint 3.0.1: BaseCache deserialization of untrusted data (medium); fixed in langgraph-checkpoint 4.0.0; langgraph 1.0.1 pins langgraph-checkpoint<4.0.0; no cache or checkpoint saver is used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-mhr3-j7m5-c7c9|langgraph-checkpoint 3.0.1: BaseCache deserialization of untrusted data (medium); fixed in langgraph-checkpoint 4.0.0; langgraph 1.0.1 pins langgraph-checkpoint<4.0.0; no cache or checkpoint saver is used in api or agents code (checked 2026-10-12)|2027-01-08
+python|CVE-2026-104873|langgraph-sdk 0.2.15: custom auth silently ignores actions= on resource decorators (high); fixed in langgraph-sdk 0.4.4; langgraph 1.0.1 pins langgraph-sdk<0.3.0; the langgraph SDK and its custom auth are not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-fvww-7h3r-vfhp|langgraph-sdk 0.2.15: custom auth silently ignores actions= on resource decorators (high); fixed in langgraph-sdk 0.4.4; langgraph 1.0.1 pins langgraph-sdk<0.3.0; the langgraph SDK and its custom auth are not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-2194|langgraph-sdk 0.2.15: unsafe URL path construction (medium); fixed in langgraph-sdk 0.3.15; langgraph 1.0.1 pins langgraph-sdk<0.3.0; the langgraph SDK client is not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-w39p-vh2g-g8g5|langgraph-sdk 0.2.15: unsafe URL path construction (medium); fixed in langgraph-sdk 0.3.15; langgraph 1.0.1 pins langgraph-sdk<0.3.0; the langgraph SDK client is not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|PYSEC-2026-2575|langgraph-sdk 0.2.15: unsafe URL path construction (medium); fixed in langgraph-sdk 0.3.15; langgraph 1.0.1 pins langgraph-sdk<0.3.0; the langgraph SDK client is not used in api or agents code (checked 2026-10-12)|2027-01-08
+python|GHSA-w39p-vh2g-g8g5|langgraph-sdk 0.2.15: unsafe URL path construction (medium); fixed in langgraph-sdk 0.3.15; langgraph 1.0.1 pins langgraph-sdk<0.3.0; the langgraph SDK client is not used in api or agents code (checked 2026-10-12)|2027-01-08
 
-# pnpm — NO waivers. Every npm advisory that used to be waived is either fixed by the root pnpm overrides in package.json
-# (serialize-javascript, fast-uri, the babel systemjs plugin, axios, undici, js-yaml, brace-expansion, ...) or is not reported by the audit any more
-# (the next 16.2.11 and sharp 0.35.0 ones are fixed in the versions already locked). Remaining unwaived npm findings are real; see the audit output.
-
-# langchain/langgraph — freshly disclosed 2026 advisories with no non-breaking
-# fix in the pinned 0.3.x / 1.0.x lines yet. Tracked for upstream patch.
-python|PYSEC-2026-76|langchain-openai 0.3.35 freshly disclosed; no non-breaking fix in 0.3.x line yet|2026-08-25
-python|PYSEC-2026-77|langchain-text-splitters 0.3.11 freshly disclosed; no non-breaking fix in 0.3.x line yet|2026-08-25
-python|PYSEC-2026-83|langgraph 1.0.1 freshly disclosed; awaiting patched 1.0.x release|2026-08-25
-python|CVE-2026-27794|langgraph-checkpoint 3.0.1 freshly disclosed; awaiting patched release|2026-08-25
-
-# langchain / langgraph-checkpoint / langgraph-sdk — newly disclosed Q2/Q3
-# 2026 advisories that all require MAJOR version bumps (langchain 0.3 → 1.3,
-# langgraph 0.2 → 4.x). Those bumps have known breaking API changes and need
-# dedicated PRs with regression coverage; out of scope for an audit unblock.
-python|GHSA-gr75-jv2w-4656|langchain path traversal in file-search middleware (fixed in 1.3.9); requires langchain 0.3 → 1.3 major bump, tracked for dedicated PR|2026-09-25
-python|CVE-2026-48775|langgraph-checkpoint unsafe JSON deserialization (fixed in 4.1.1); requires langgraph 0.2 → 4.x major bump, tracked for dedicated PR|2026-09-25
-python|GHSA-fjqc-hq36-qh5p|langgraph-checkpoint unsafe JSON deserialization (fixed in 4.1.1); requires langgraph 0.2 → 4.x major bump, tracked for dedicated PR|2026-09-25
-python|CVE-2026-48776|langgraph-sdk unsafe URL path construction (fixed in 0.3.15); transitive via langgraph, blocked by same major bump as CVE-2026-48775|2026-09-25
-python|GHSA-w39p-vh2g-g8g5|langgraph-sdk unsafe URL path construction (fixed in 0.3.15); transitive via langgraph, blocked by same major bump as CVE-2026-48775|2026-09-25
-
-# ── 2026-07-13 triage (expire 2026-10-11) ────────────────────────────────────
-# langchain-core prompt-loading path traversal (langchain_core.prompts.loading
-# reads files from paths in deserialized config dicts). Fixed only in
-# langchain-core 1.2.22 — a major bump from our pinned 0.3.x line with breaking
-# API changes, blocked by the same langchain 0.3 → 1.x migration tracked above
-# (GHSA-gr75-jv2w-4656 et al.). The vulnerable prompts.loading module is not
-# imported anywhere in this codebase (verified via repo-wide grep).
-# Both PYSEC and GHSA forms listed since pip-audit may report either as primary.
-python|PYSEC-2026-2193|langchain-core prompts.loading path traversal (fixed in 1.2.22); requires langchain 0.3 → 1.x major bump, module unused in codebase; tracked with langchain migration PR|2026-10-11
-python|GHSA-qh6h-p6c9-ff54|langchain-core prompts.loading path traversal (fixed in 1.2.22); requires langchain 0.3 → 1.x major bump, module unused in codebase; tracked with langchain migration PR|2026-10-11
-
-# langchain-core SSRF via image_url token counting in
-# ChatOpenAI.get_num_tokens_from_messages (low severity, freshly disclosed).
-# Fixed only in langchain-core 1.2.11 — same langchain 0.3 → 1.x major bump as
-# the entries above. The affected method is not called anywhere in this
-# codebase (verified via repo-wide grep for get_num_tokens_from_messages /
-# image_url), so no untrusted image URL ever reaches it.
-python|PYSEC-2026-2562|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
-python|GHSA-2g6r-c272-w58r|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
+# -- npm (expire 2027-01-08): the only two high advisories with NO patched release; both are build tooling of apps/docs only ------------------------
+# braces <=3.0.3 and http-cache-semantics <=4.2.0 (both published 2026-09-18, not withdrawn). Neither appears in the web app's production graph
+# (`pnpm why --prod` finds no path): braces comes via docusaurus -> fast-glob -> micromatch, http-cache-semantics via docusaurus -> update-notifier ->
+# got -> cacheable-request. Re-check for a patched release at expiry.
+pnpm|GHSA-vfj7-8cjw-p6xm|braces 3.0.3: stack-exhaustion DoS on deeply nested patterns; no patched release exists; apps/docs build tooling only (docusaurus via micromatch); not in the production dependency graph|2027-01-08
+pnpm|GHSA-ch52-4w7c-c8xp|http-cache-semantics 4.2.0: max-stale handling can disclose cross-user cached responses; no patched release exists; apps/docs build tooling only (docusaurus update-notifier via got); not in the production dependency graph|2027-01-08
