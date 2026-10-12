@@ -554,7 +554,9 @@ async def _fetch_cases(
     # From aisoc_cases (see app.services.case_metrics); this read the old `cases` table, which nothing writes, so every digest said there were no cases.
     # Pull any case created from a permissive lower bound (30 days before the window); the pure builder then filters precisely by date.
     rows = await case_metrics.digest_rows(db, tenant_id, start - timedelta(days=30))
-    return [CaseRow(status=r.status or "new", created_at=r.created_at, closed_at=r.closed_at, sla_breached=bool(r.sla_breached)) for r in rows]
+    return [
+        CaseRow(status=r.status or "new", created_at=r.created_at, closed_at=r.closed_at, sla_breached=bool(r.sla_breached)) for r in rows
+    ]
 
 
 async def _fetch_gate_log(

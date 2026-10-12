@@ -6,6 +6,7 @@
 
 `status` also says which ALERT_EMAIL_* environment variables are missing (by name, never the values). `test` sends one test message through the real sender to the configured recipients. Output is JSON; exit 0 on success, 1 on a refusal.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,7 +34,13 @@ async def run(action: str, *, recipients: str | None = None, min_severity: str |
             if recipients is None and min_severity is None and enable is None:
                 raise AlertEmailCliError("give at least one of --recipients, --min-severity, --enable, --disable")
             try:
-                row = await update_settings(db, updated_by="cli", enabled=enable, min_severity=min_severity, recipients=None if recipients is None else [r for r in recipients.split(",") if r.strip()])
+                row = await update_settings(
+                    db,
+                    updated_by="cli",
+                    enabled=enable,
+                    min_severity=min_severity,
+                    recipients=None if recipients is None else [r for r in recipients.split(",") if r.strip()],
+                )
             except InvalidSettings as exc:
                 raise AlertEmailCliError(str(exc)) from None
             return {"ok": True, **_status(row).model_dump(mode="json")}
@@ -48,7 +55,11 @@ async def run(action: str, *, recipients: str | None = None, min_severity: str |
 
                 raise AlertEmailCliError("these environment variables are not set: " + ", ".join(missing_credentials()))
             try:
-                await mailer.send(to, "[AiSOC] Test email: alert email is working", "This is a test of AiSOC's alert email, requested from the command line. If you can read this, the Microsoft Graph setup works.\n")
+                await mailer.send(
+                    to,
+                    "[AiSOC] Test email: alert email is working",
+                    "This is a test of AiSOC's alert email, requested from the command line. If you can read this, the Microsoft Graph setup works.\n",
+                )
             except MailError as exc:
                 raise AlertEmailCliError(scrub(str(exc), (mailer.client_secret,))) from None
             return {"ok": True, "sent_to": to}
@@ -68,7 +79,14 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--disable", dest="enable", action="store_false")
     args = parser.parse_args(argv)
     try:
-        result = asyncio.run(run(args.action, recipients=getattr(args, "recipients", None), min_severity=getattr(args, "min_severity", None), enable=getattr(args, "enable", None)))
+        result = asyncio.run(
+            run(
+                args.action,
+                recipients=getattr(args, "recipients", None),
+                min_severity=getattr(args, "min_severity", None),
+                enable=getattr(args, "enable", None),
+            )
+        )
     except AlertEmailCliError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1

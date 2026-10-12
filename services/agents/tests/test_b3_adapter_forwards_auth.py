@@ -3,6 +3,7 @@
 In production the API refuses anonymous requests; before this the adapter's
 alert lookup sent no credentials, so the Investigate button 502'd in production.
 """
+
 import types
 
 import httpx
@@ -17,7 +18,9 @@ class _FakeLaunch:
     def __init__(self):
         self.case_id = None
 
-    async def __call__(self, *, case_id, body, background_tasks, request):  # `request` is how launch_investigation learns the authenticated caller's tenant
+    async def __call__(
+        self, *, case_id, body, background_tasks, request
+    ):  # `request` is how launch_investigation learns the authenticated caller's tenant
         self.case_id = case_id
         self.request = request
         inv._runs["run-1"] = {"started_at": "2026-10-06T00:00:00"}  # what the real launch records
@@ -40,6 +43,7 @@ def test_adapter_forwards_the_callers_authorization(monkeypatch, auth):
         return_value=httpx.Response(200, json={"id": "a-1", "caseId": "c-9", "title": "t"})
     )
     from app.main import app
+
     resp = TestClient(app).post("/api/v1/agents/investigate", json={"alertId": "a-1"}, headers={"Authorization": auth})
     assert route.called, resp.text
     assert route.calls[0].request.headers.get("authorization") == auth
@@ -51,6 +55,7 @@ def test_adapter_sends_no_authorization_when_caller_sent_none(monkeypatch):
     monkeypatch.setattr(inv, "launch_investigation", _FakeLaunch())
     route = respx.get("http://api:8000/api/v1/alerts/a-2").mock(return_value=httpx.Response(200, json={"id": "a-2"}))
     from app.main import app
+
     TestClient(app).post("/api/v1/agents/investigate", json={"alertId": "a-2"})
     assert route.called
     assert "authorization" not in route.calls[0].request.headers

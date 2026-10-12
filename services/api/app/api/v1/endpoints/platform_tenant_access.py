@@ -4,6 +4,7 @@ A customer's own administrators, and an MSP's, can grant a person access to the 
 default would be far more dangerous than on one tenant. With `full` the person can also WRITE in any tenant, acting with their own role's permissions and never on identity or credential administration (see app.services.view_as); each write is recorded in that tenant's own audit log. These routes
 are themselves refused while the caller is working in another tenant (they sit under /platform). The grant and its removal are audited in the platform administrator's own tenant log; what the person then does is audited in each tenant they work in.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -41,14 +42,25 @@ class AllAccessGrantResponse(BaseModel):
 
 def _response(grant: AllTenantAccessGrant, user: User) -> AllAccessGrantResponse:
     return AllAccessGrantResponse(
-        user_id=user.id, account_name=user.account_name, email=user.email, username=user.username, home_tenant_id=user.tenant_id, access=grant.access, granted_by=grant.granted_by_label, created_at=grant.created_at
+        user_id=user.id,
+        account_name=user.account_name,
+        email=user.email,
+        username=user.username,
+        home_tenant_id=user.tenant_id,
+        access=grant.access,
+        granted_by=grant.granted_by_label,
+        created_at=grant.created_at,
     )
 
 
 @router.get("", response_model=list[AllAccessGrantResponse])
-async def list_all_tenant_access(current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession) -> list[AllAccessGrantResponse]:
+async def list_all_tenant_access(
+    current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession
+) -> list[AllAccessGrantResponse]:
     """Everyone who has been granted every tenant, and at which level."""
-    rows = (await db.execute(select(AllTenantAccessGrant, User).join(User, User.id == AllTenantAccessGrant.user_id).order_by(User.account_name))).all()
+    rows = (
+        await db.execute(select(AllTenantAccessGrant, User).join(User, User.id == AllTenantAccessGrant.user_id).order_by(User.account_name))
+    ).all()
     return [_response(g, u) for g, u in rows]
 
 
@@ -71,7 +83,12 @@ async def grant_all_tenant_access(
         return _response(existing, grantee)
     before = existing.access if existing is not None else None
     if existing is None:
-        grant = AllTenantAccessGrant(user_id=grantee_id, access=body.access, granted_by=current_user.user_id, granted_by_label=current_user.email or str(current_user.user_id))
+        grant = AllTenantAccessGrant(
+            user_id=grantee_id,
+            access=body.access,
+            granted_by=current_user.user_id,
+            granted_by_label=current_user.email or str(current_user.user_id),
+        )
         db.add(grant)
     else:
         existing.access = body.access

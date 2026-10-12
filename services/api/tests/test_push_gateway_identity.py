@@ -2,6 +2,7 @@
 
 The gateway forwards the JSON body to the realtime service, and the realtime service takes the user from `body.user_id` BEFORE the verified `X-User-Id` header (its comment says "the API gateway is expected to validate it"). The gateway forwarded the body unchanged, so any signed-in user could post
 `{"subscription": <their browser>, "user_id": "<someone else>"}` and receive that person's p0 alerts, agent approval requests and on-call handoffs. The identity fields now come from the verified session, whatever the client sent."""
+
 import uuid
 
 import pytest

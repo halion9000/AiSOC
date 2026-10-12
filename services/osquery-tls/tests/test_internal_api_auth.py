@@ -7,6 +7,7 @@ check. Anyone who could reach the service could queue an arbitrary SQL query on 
 packs run across a tenant's fleet, and read FIM events for any tenant. The agent-facing routes (enroll,
 config, log, distributed read/write) were always protected by the enroll secret / node key.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -33,8 +34,11 @@ INTERNAL = [
 ]
 # Agent-facing: authenticated by the enroll secret / node key, NOT by the internal token.
 AGENT_PATHS = {
-    "/api/v1/osquery/enroll", "/api/v1/osquery/config", "/api/v1/osquery/log",
-    "/api/v1/osquery/distributed/read", "/api/v1/osquery/distributed/write",
+    "/api/v1/osquery/enroll",
+    "/api/v1/osquery/config",
+    "/api/v1/osquery/log",
+    "/api/v1/osquery/distributed/read",
+    "/api/v1/osquery/distributed/write",
 }
 HEALTH = {"/healthz", "/livez", "/readyz"}
 
@@ -64,10 +68,21 @@ async def test_the_right_token_gets_past_the_gate(client, configured, method, pa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("header", [
-    "Bearer wrong-token", f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", "Bearer", "Bearer ", f"Basic {TOKEN}", TOKEN, "",
-    f"Token {TOKEN}", f"Bearer  {TOKEN} extra",
-])
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Bearer wrong-token",
+        f"Bearer {TOKEN}x",
+        f"Bearer {TOKEN[:-1]}",
+        "Bearer",
+        "Bearer ",
+        f"Basic {TOKEN}",
+        TOKEN,
+        "",
+        f"Token {TOKEN}",
+        f"Bearer  {TOKEN} extra",
+    ],
+)
 async def test_only_the_exact_token_is_accepted(client, configured, header):
     r = await client.post("/api/v1/osquery/distributed/enqueue", json=INTERNAL[0][2], headers={"Authorization": header})
     assert r.status_code == 401, f"{header!r} was accepted"
@@ -149,11 +164,14 @@ def test_the_known_internal_routes_are_all_in_the_schema():
     schema = app.openapi()["paths"]
     for method, path, _ in INTERNAL:
         template = path.split("?")[0]
-        assert any(m == method.lower() and _matches(template, p) for p, ops in schema.items() for m in ops), f"{method} {template} not mounted"
+        assert any(
+            m == method.lower() and _matches(template, p) for p, ops in schema.items() for m in ops
+        ), f"{method} {template} not mounted"
 
 
 def _matches(concrete: str, template: str) -> bool:
     import re
+
     return re.fullmatch(re.sub(r"\{[^}]+\}", "[^/]+", template), concrete) is not None
 
 

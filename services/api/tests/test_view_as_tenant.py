@@ -4,6 +4,7 @@ The console's tenant switcher sent the chosen tenant as `X-Tenant-Id`, which the
 `X-View-As-Tenant` header, for a tenant the caller may view, for reading only (app.services.view_as). A real SQLite database and the real routers (mounted under /api/v1, as in production, so the account-level path rule sees real paths). Row-level
 security follows the viewed tenant because the principal's tenant_id does; SQLite has none, so that was checked on real Postgres as the non-superuser role (the live scenario in the commit message).
 """
+
 import asyncio
 import itertools
 import logging
@@ -37,7 +38,13 @@ V = VIEW_AS_HEADER
 
 
 def tenant(name, parent=None):
-    return Tenant(id=uuid.uuid4(), name=name, slug=name.lower() + "-" + uuid.uuid4().hex[:6], parent_tenant_id=parent.id if parent else None, mssp_role="parent" if name == "P" else ("child" if parent else None))
+    return Tenant(
+        id=uuid.uuid4(),
+        name=name,
+        slug=name.lower() + "-" + uuid.uuid4().hex[:6],
+        parent_tenant_id=parent.id if parent else None,
+        mssp_role="parent" if name == "P" else ("child" if parent else None),
+    )
 
 
 def user(t, email, role):
@@ -49,7 +56,17 @@ def world(tmp_path, monkeypatch):
     """P is an MSSP parent with two children (C1, C2); X is unrelated; PL holds a platform admin. GRANTS: p_admin may view C1 and C2, p_analyst only C1, nobody else anything (being in P confers nothing by itself). Users are minted tokens directly (no password hashing)."""
     path = tmp_path / "viewas.db"
     sync = create_engine(f"sqlite:///{path}")
-    Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__, LoginFailure.__table__, TenantAccessGrant.__table__, AllTenantAccessGrant.__table__])
+    Base.metadata.create_all(
+        sync,
+        tables=[
+            Tenant.__table__,
+            User.__table__,
+            ApiKey.__table__,
+            LoginFailure.__table__,
+            TenantAccessGrant.__table__,
+            AllTenantAccessGrant.__table__,
+        ],
+    )
     P, X, PL = tenant("P"), tenant("X"), tenant("PL")
     C1, C2 = tenant("C1", P), tenant("C2", P)
     users = {
@@ -70,15 +87,60 @@ def world(tmp_path, monkeypatch):
         "tech_mixed_a": user(X, "tech-mixed-a@x.example", "soc_analyst"),  # VIEW on C1 + every tenant full: the stronger wins
         "tech_mixed_b": user(X, "tech-mixed-b@x.example", "soc_analyst"),  # FULL on C1 + every tenant view: the stronger wins
         "admin_full": user(X, "admin-full@x.example", "admin"),  # FULL on C1; an admin holds users:write and the wildcard
-        "platform_all_full": user(PL, "platform-all-full@pl.example", "platform_admin"),  # a platform admin who ALSO holds every tenant at full
+        "platform_all_full": user(
+            PL, "platform-all-full@pl.example", "platform_admin"
+        ),  # a platform admin who ALSO holds every tenant at full
     }
     raw_key = "aisoc_" + uuid.uuid4().hex
-    key = ApiKey(id=uuid.uuid4(), tenant_id=P.id, user_id=users["p_admin"].id, name="ci", key_prefix=raw_key[:12], hashed_key=hash_api_key(raw_key), scopes=["*"], is_active=True)
+    key = ApiKey(
+        id=uuid.uuid4(),
+        tenant_id=P.id,
+        user_id=users["p_admin"].id,
+        name="ci",
+        key_prefix=raw_key[:12],
+        hashed_key=hash_api_key(raw_key),
+        scopes=["*"],
+        is_active=True,
+    )
     with Session(sync, expire_on_commit=False) as s:
         s.add_all([P, X, PL, C1, C2, *users.values(), key])
         s.commit()
-        s.add_all([TenantAccessGrant(user_id=users[who].id, tenant_id=t.id, access=level, granted_by=users["platform"].id, granted_by_label="platform@pl.example") for who, t, level in (("p_admin", C1, "view"), ("p_admin", C2, "view"), ("p_analyst", C1, "view"), ("tech_full", C1, "full"), ("tech_full", C2, "view"), ("tech_view", C1, "view"), ("tech_mixed_a", C1, "view"), ("tech_mixed_b", C1, "full"), ("admin_full", C1, "full"))])
-        s.add_all([AllTenantAccessGrant(user_id=users[who].id, access=level, granted_by=users["platform"].id, granted_by_label="platform@pl.example") for who, level in (("tech_all_full", "full"), ("tech_all_view", "view"), ("tech_mixed_a", "full"), ("tech_mixed_b", "view"), ("platform_all_full", "full"))])
+        s.add_all(
+            [
+                TenantAccessGrant(
+                    user_id=users[who].id,
+                    tenant_id=t.id,
+                    access=level,
+                    granted_by=users["platform"].id,
+                    granted_by_label="platform@pl.example",
+                )
+                for who, t, level in (
+                    ("p_admin", C1, "view"),
+                    ("p_admin", C2, "view"),
+                    ("p_analyst", C1, "view"),
+                    ("tech_full", C1, "full"),
+                    ("tech_full", C2, "view"),
+                    ("tech_view", C1, "view"),
+                    ("tech_mixed_a", C1, "view"),
+                    ("tech_mixed_b", C1, "full"),
+                    ("admin_full", C1, "full"),
+                )
+            ]
+        )
+        s.add_all(
+            [
+                AllTenantAccessGrant(
+                    user_id=users[who].id, access=level, granted_by=users["platform"].id, granted_by_label="platform@pl.example"
+                )
+                for who, level in (
+                    ("tech_all_full", "full"),
+                    ("tech_all_view", "view"),
+                    ("tech_mixed_a", "full"),
+                    ("tech_mixed_b", "view"),
+                    ("platform_all_full", "full"),
+                )
+            ]
+        )
         s.commit()
     factory = async_sessionmaker(create_async_engine(f"sqlite+aiosqlite:///{path}", poolclass=NullPool), expire_on_commit=False)
 
@@ -86,7 +148,9 @@ def world(tmp_path, monkeypatch):
         return False
 
     monkeypatch.setattr(deps, "is_revoked", not_revoked)
-    views: list[tuple] = []  # what the dependency asked to be audited (audit_log is Postgres-only, so it is not in this SQLite world; record_view itself is tested below)
+    views: list[
+        tuple
+    ] = []  # what the dependency asked to be audited (audit_log is Postgres-only, so it is not in this SQLite world; record_view itself is tested below)
 
     async def record(db, user, target, request=None):
         views.append((user.user_id, user.tenant_id, target, request.method))
@@ -123,6 +187,7 @@ def world(tmp_path, monkeypatch):
     @probe.post("/platform")
     async def probe_platform(u: Annotated[deps.AuthUser, Depends(deps.require_permission("platform:cross_tenant_query"))]):
         return handler_event(u, "platform")
+
     app = FastAPI()
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(tn.router, prefix="/api/v1")
@@ -136,7 +201,18 @@ def world(tmp_path, monkeypatch):
     app.dependency_overrides[deps.get_db] = session
     tenants = {"P": P, "C1": C1, "C2": C2, "X": X, "PL": PL}
     token = lambda u: create_access_token({"sub": str(u.id), "tenant_id": str(u.tenant_id), "role": u.role, "email": u.email})  # noqa: E731
-    yield SimpleNamespace(client=TestClient(app), views=views, events=events, audit_state=audit_state, factory=factory, sync=sync, users=users, tenants=tenants, api_key=raw_key, auth=lambda who: {"Authorization": "Bearer " + token(users[who])})
+    yield SimpleNamespace(
+        client=TestClient(app),
+        views=views,
+        events=events,
+        audit_state=audit_state,
+        factory=factory,
+        sync=sync,
+        users=users,
+        tenants=tenants,
+        api_key=raw_key,
+        auth=lambda who: {"Authorization": "Bearer " + token(users[who])},
+    )
     sync.dispose()
 
 
@@ -168,7 +244,11 @@ class TestWhatEachCallerMayView:
     def test_a_platform_admin_may_view_every_tenant_their_own_first(self, world):
         T = world.tenants
         got = self.listing(world, "platform")
-        assert got[0] == ("self", str(T["PL"].id)) and {i for _, i in got} == {str(t.id) for t in T.values()} and {r for r, _ in got[1:]} == {"platform"}
+        assert (
+            got[0] == ("self", str(T["PL"].id))
+            and {i for _, i in got} == {str(t.id) for t in T.values()}
+            and {r for r, _ in got[1:]} == {"platform"}
+        )
         assert len(got) == len({i for _, i in got}) == len(T), "every tenant exactly once: a set of ids would hide a repeated one"
 
     @pytest.mark.parametrize("who", ["p_viewer", "p_service"])
@@ -179,8 +259,13 @@ class TestWhatEachCallerMayView:
     def test_a_tenant_is_always_viewable_by_its_own_people_whatever_their_permissions_and_another_is_not_without_a_reason(self, world):
         nobody = SimpleNamespace(tenant_id=world.tenants["P"].id, holds=lambda permission: False)
         assert view_as.may_view_tenant(nobody, world.tenants["P"]) is True
-        assert view_as.may_view_tenant(nobody, world.tenants["C1"]) is False and view_as.may_view_tenant(nobody, world.tenants["X"]) is False
-        assert view_as.may_view_tenant(nobody, world.tenants["C1"], granted={world.tenants["C1"].id}) is True and view_as.may_view_tenant(nobody, world.tenants["X"], granted={world.tenants["C1"].id}) is False
+        assert (
+            view_as.may_view_tenant(nobody, world.tenants["C1"]) is False and view_as.may_view_tenant(nobody, world.tenants["X"]) is False
+        )
+        assert (
+            view_as.may_view_tenant(nobody, world.tenants["C1"], granted={world.tenants["C1"].id}) is True
+            and view_as.may_view_tenant(nobody, world.tenants["X"], granted={world.tenants["C1"].id}) is False
+        )
 
     @staticmethod
     async def grants_of(world, user):
@@ -190,15 +275,25 @@ class TestWhatEachCallerMayView:
     def test_every_rule_is_relative_to_the_persons_home_never_to_the_tenant_being_viewed(self, world):
         """A principal that is already viewing C1 is still the same PERSON: their grants are theirs (C2 too) and their list is theirs. It must not reason from C1's position (where C2 would be a stranger)."""
         T = world.tenants
-        viewing = deps.CurrentUser(user_id=world.users["p_admin"].id, tenant_id=T["C1"].id, role="admin", email="p-admin@p.example", home_tenant_id=T["P"].id)
+        viewing = deps.CurrentUser(
+            user_id=world.users["p_admin"].id, tenant_id=T["C1"].id, role="admin", email="p-admin@p.example", home_tenant_id=T["P"].id
+        )
         assert view_as.home_tenant_of(viewing) == T["P"].id
         granted = asyncio.run(self.grants_of(world, viewing))
         assert granted == {T["C1"].id, T["C2"].id}
-        assert view_as.may_view_tenant(viewing, T["C2"], granted) is True and view_as.may_view_tenant(viewing, T["P"], granted) is True and view_as.may_view_tenant(viewing, T["X"], granted) is False
+        assert (
+            view_as.may_view_tenant(viewing, T["C2"], granted) is True
+            and view_as.may_view_tenant(viewing, T["P"], granted) is True
+            and view_as.may_view_tenant(viewing, T["X"], granted) is False
+        )
 
         async def go():
             async with world.factory() as s:
-                return await view_as.viewable_tenants(s, viewing), await tn.list_viewable_tenants(current_user=viewing, db=s), await view_as.resolve_view_as(s, viewing, str(T["P"].id), "GET")
+                return (
+                    await view_as.viewable_tenants(s, viewing),
+                    await tn.list_viewable_tenants(current_user=viewing, db=s),
+                    await view_as.resolve_view_as(s, viewing, str(T["P"].id), "GET"),
+                )
 
         listing, response, naming_home = asyncio.run(go())
         assert [(rel, t.id) for t, rel in listing] == [("self", T["P"].id), ("granted", T["C1"].id), ("granted", T["C2"].id)]
@@ -210,20 +305,30 @@ class TestWhatEachCallerMayView:
 
     def test_a_tenant_nobody_granted_is_never_listed(self, world):
         T = world.tenants
-        assert str(T["C1"].id) not in [i for _, i in self.listing(world, "x_admin")] and str(T["C1"].id) not in [i for _, i in self.listing(world, "c2_admin")]
+        assert str(T["C1"].id) not in [i for _, i in self.listing(world, "x_admin")] and str(T["C1"].id) not in [
+            i for _, i in self.listing(world, "c2_admin")
+        ]
 
     def test_what_the_list_offers_is_exactly_what_the_server_honours(self, world):
         """For every caller and every tenant: it is in the list if and only if viewing it is allowed. The console can only offer what will work, and nothing that works is hidden."""
         for who, (name, t) in itertools.product(world.users, world.tenants.items()):
             offered = str(t.id) in [i for _, i in self.listing(world, who)]
-            r = world.client.get("/api/v1/tenants/me/identity", headers={**world.auth(who), V: str(t.id)})  # readable by every role, and it says which tenant answered
+            r = world.client.get(
+                "/api/v1/tenants/me/identity", headers={**world.auth(who), V: str(t.id)}
+            )  # readable by every role, and it says which tenant answered
             honoured = r.status_code == 200 and r.json()["id"] == str(t.id)
             assert offered == honoured, f"{who} -> {name}: offered={offered} honoured={honoured} ({r.status_code})"
 
 
 class TestViewing:
     def test_without_the_header_a_caller_sees_their_own_tenant(self, world):
-        assert emails(get_users(world, "p_admin")) == ["p-admin@p.example", "p-analyst@p.example", "p-lead@p.example", "p-service@p.example", "p-viewer@p.example"]
+        assert emails(get_users(world, "p_admin")) == [
+            "p-admin@p.example",
+            "p-analyst@p.example",
+            "p-lead@p.example",
+            "p-service@p.example",
+            "p-viewer@p.example",
+        ]
 
     def test_an_operator_viewing_a_child_sees_the_childs_data_not_their_own(self, world):
         r = get_users(world, "p_admin", view=world.tenants["C1"].id)
@@ -233,7 +338,9 @@ class TestViewing:
         assert get_users(world, "p_admin", view=world.tenants["C2"].id).headers[VIEWING_HEADER] == str(world.tenants["C2"].id)
 
     def test_a_platform_admin_may_view_any_tenant(self, world):
-        assert emails(get_users(world, "platform", view=world.tenants["X"].id)) == sorted(u.email for u in world.users.values() if u.tenant_id == world.tenants["X"].id)
+        assert emails(get_users(world, "platform", view=world.tenants["X"].id)) == sorted(
+            u.email for u in world.users.values() if u.tenant_id == world.tenants["X"].id
+        )
 
     def test_naming_your_own_tenant_changes_nothing_and_says_nothing(self, world):
         r = get_users(world, "p_admin", view=world.tenants["P"].id)
@@ -249,7 +356,22 @@ class TestViewing:
         with Session(world.sync) as s:
             assert s.scalars(select(User.tenant_id).where(User.email == "p-admin@p.example")).one() == world.tenants["P"].id
 
-    @pytest.mark.parametrize("who,target", [("c1_admin", "P"), ("c1_admin", "C2"), ("c2_admin", "C1"), ("x_admin", "P"), ("x_admin", "C1"), ("p_service", "C1"), ("p_viewer", "C1"), ("p_viewer", "C2"), ("p_analyst", "C2"), ("p_admin", "X"), ("p_admin", "PL")])
+    @pytest.mark.parametrize(
+        "who,target",
+        [
+            ("c1_admin", "P"),
+            ("c1_admin", "C2"),
+            ("c2_admin", "C1"),
+            ("x_admin", "P"),
+            ("x_admin", "C1"),
+            ("p_service", "C1"),
+            ("p_viewer", "C1"),
+            ("p_viewer", "C2"),
+            ("p_analyst", "C2"),
+            ("p_admin", "X"),
+            ("p_admin", "PL"),
+        ],
+    )
     def test_a_tenant_the_caller_may_not_view_is_refused(self, world, who, target):
         r = get_users(world, who, view=world.tenants[target].id)
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "forbidden"
@@ -299,7 +421,12 @@ class TestViewingIsReadOnly:
     def test_reading_methods_are_allowed(self, world, method):
         async def go():
             async with world.factory() as s:
-                return await view_as.resolve_view_as(s, SimpleNamespace(user_id=world.users["p_admin"].id, tenant_id=world.tenants["P"].id, holds=lambda p: False), str(world.tenants["C1"].id), method)
+                return await view_as.resolve_view_as(
+                    s,
+                    SimpleNamespace(user_id=world.users["p_admin"].id, tenant_id=world.tenants["P"].id, holds=lambda p: False),
+                    str(world.tenants["C1"].id),
+                    method,
+                )
 
         result = asyncio.run(go())
         assert (result.tenant_id, result.access) == (world.tenants["C1"].id, "view")
@@ -308,7 +435,12 @@ class TestViewingIsReadOnly:
     def test_every_other_method_is_refused(self, world, method):
         async def go():
             async with world.factory() as s:
-                return await view_as.resolve_view_as(s, SimpleNamespace(user_id=world.users["p_admin"].id, tenant_id=world.tenants["P"].id, holds=lambda p: False), str(world.tenants["C1"].id), method)
+                return await view_as.resolve_view_as(
+                    s,
+                    SimpleNamespace(user_id=world.users["p_admin"].id, tenant_id=world.tenants["P"].id, holds=lambda p: False),
+                    str(world.tenants["C1"].id),
+                    method,
+                )
 
         with pytest.raises(HTTPException) as e:
             asyncio.run(go())
@@ -323,7 +455,11 @@ class TestViewingIsReadOnly:
 
     def test_changing_a_user_while_viewing_is_refused_and_changes_nothing(self, world):
         target = world.users["c1_admin"]
-        r = world.client.patch(f"/api/v1/tenants/me/users/{target.id}", headers={**world.auth("p_admin"), V: str(world.tenants["C1"].id)}, json={"is_active": False})
+        r = world.client.patch(
+            f"/api/v1/tenants/me/users/{target.id}",
+            headers={**world.auth("p_admin"), V: str(world.tenants["C1"].id)},
+            json={"is_active": False},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "read_only"
         with Session(world.sync) as s:
             assert s.get(User, target.id).is_active is True
@@ -340,11 +476,15 @@ class TestViewingIsReadOnly:
 
 class TestApiKeysAndAccountLevelRoutes:
     def test_an_api_key_may_not_view_another_tenant_it_acts_on_its_own(self, world):
-        r = world.client.get("/api/v1/tenants/me/users", headers={"Authorization": "Bearer " + world.api_key, V: str(world.tenants["C1"].id)})
+        r = world.client.get(
+            "/api/v1/tenants/me/users", headers={"Authorization": "Bearer " + world.api_key, V: str(world.tenants["C1"].id)}
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "session_only"
 
     def test_an_api_key_that_sends_the_header_for_its_own_tenant_is_refused_too_one_rule_not_two(self, world):
-        r = world.client.get("/api/v1/tenants/me/users", headers={"Authorization": "Bearer " + world.api_key, V: str(world.tenants["P"].id)})
+        r = world.client.get(
+            "/api/v1/tenants/me/users", headers={"Authorization": "Bearer " + world.api_key, V: str(world.tenants["P"].id)}
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "session_only"
 
     def test_an_api_key_without_the_header_works_as_before(self, world):
@@ -362,11 +502,43 @@ class TestApiKeysAndAccountLevelRoutes:
     def test_a_bad_value_does_not_break_an_account_level_route(self, world):
         assert world.client.get("/api/v1/auth/me", headers={**world.auth("p_admin"), V: "default"}).status_code == 200
 
-    @pytest.mark.parametrize("path", ["/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/me", "/api/v1/auth/me/preferences", "/api/v1/auth/refresh", "/api/v1/push/subscribe", "/api/v1/push/test", "/api/v1/passkeys/credentials", "/api/v1/passkeys/register/begin", "/api/v1/tenants/viewable", "/api/v2/auth/me"])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/auth/login",
+            "/api/v1/auth/logout",
+            "/api/v1/auth/me",
+            "/api/v1/auth/me/preferences",
+            "/api/v1/auth/refresh",
+            "/api/v1/push/subscribe",
+            "/api/v1/push/test",
+            "/api/v1/passkeys/credentials",
+            "/api/v1/passkeys/register/begin",
+            "/api/v1/tenants/viewable",
+            "/api/v2/auth/me",
+        ],
+    )
     def test_these_paths_always_act_as_the_signed_in_person(self, path):
         assert view_as.is_account_level(path)
 
-    @pytest.mark.parametrize("path", ["/api/v1/tenants/me", "/api/v1/tenants/me/users", "/api/v1/tenants/selectable", "/api/v1/alerts", "/api/v1/cases", "/api/v1/authority", "/api/v1/pushy", "/api/v1/passkeysx", "/api/v1/tenants/viewable/extra", "/api/v1/tenants/viewables", "/api/v1/x/auth/me", "/auth/me", "/api/v1/mssp/children"])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/tenants/me",
+            "/api/v1/tenants/me/users",
+            "/api/v1/tenants/selectable",
+            "/api/v1/alerts",
+            "/api/v1/cases",
+            "/api/v1/authority",
+            "/api/v1/pushy",
+            "/api/v1/passkeysx",
+            "/api/v1/tenants/viewable/extra",
+            "/api/v1/tenants/viewables",
+            "/api/v1/x/auth/me",
+            "/auth/me",
+            "/api/v1/mssp/children",
+        ],
+    )
     def test_these_do_not(self, path):
         assert not view_as.is_account_level(path)
 
@@ -377,14 +549,20 @@ class TestApiKeysAndAccountLevelRoutes:
         os.environ.setdefault("ENVIRONMENT", "test")
         from app.main import app
 
-        paths = [p for p in app.openapi()["paths"] if p.startswith(("/api/v1/auth/", "/api/v1/push/", "/api/v1/passkeys/", "/api/v1/tenants/viewable"))]
+        paths = [
+            p
+            for p in app.openapi()["paths"]
+            if p.startswith(("/api/v1/auth/", "/api/v1/push/", "/api/v1/passkeys/", "/api/v1/tenants/viewable"))
+        ]
         assert len(paths) >= 17
         assert [p for p in paths if not view_as.is_account_level(p.replace("{credential_id}", "x"))] == []
 
 
 class TestThePrincipalWhileViewing:
     def request(self, view, method="GET", path="/api/v1/tenants/me/users"):
-        return SimpleNamespace(headers={V: str(view)} if view is not None else {}, method=method, url=SimpleNamespace(path=path), state=SimpleNamespace())
+        return SimpleNamespace(
+            headers={V: str(view)} if view is not None else {}, method=method, url=SimpleNamespace(path=path), state=SimpleNamespace()
+        )
 
     def principal(self, world, who, view, **kw):
         creds = SimpleNamespace(credentials=world.auth(who)["Authorization"].split(" ", 1)[1])
@@ -397,7 +575,13 @@ class TestThePrincipalWhileViewing:
 
     def test_it_is_for_the_viewed_tenant_with_the_callers_own_identity_and_home(self, world):
         u = self.principal(world, "p_admin", world.tenants["C1"].id)
-        assert (u.tenant_id, u.home_tenant_id, u.user_id, u.role, u.email) == (world.tenants["C1"].id, world.tenants["P"].id, world.users["p_admin"].id, "admin", "p-admin@p.example")
+        assert (u.tenant_id, u.home_tenant_id, u.user_id, u.role, u.email) == (
+            world.tenants["C1"].id,
+            world.tenants["P"].id,
+            world.users["p_admin"].id,
+            "admin",
+            "p-admin@p.example",
+        )
         assert u.viewing_other_tenant is True
 
     def test_it_is_a_plain_principal_when_nothing_is_being_viewed(self, world):
@@ -441,7 +625,13 @@ class TestTheViewIsLogged:
         with caplog.at_level(logging.INFO, logger=deps.logger.name):
             get_users(world, "p_admin", view=world.tenants["C1"].id)
         (rec,) = [r for r in caplog.records if r.name == deps.logger.name and "viewing" in r.getMessage()]
-        assert (rec.viewer, rec.home_tenant, rec.viewed_tenant, rec.http_method, rec.path) == (str(world.users["p_admin"].id), str(world.tenants["P"].id), str(world.tenants["C1"].id), "GET", "/api/v1/tenants/me/users")
+        assert (rec.viewer, rec.home_tenant, rec.viewed_tenant, rec.http_method, rec.path) == (
+            str(world.users["p_admin"].id),
+            str(world.tenants["P"].id),
+            str(world.tenants["C1"].id),
+            "GET",
+            "/api/v1/tenants/me/users",
+        )
 
     def test_nothing_is_logged_when_nothing_is_viewed_or_when_it_is_refused(self, world, caplog):
         with caplog.at_level(logging.INFO, logger=deps.logger.name):
@@ -477,8 +667,14 @@ class TestTheViewIsAuditedInTheViewedTenant:
         get_users(world, "p_admin", view=world.tenants["X"].id)  # not allowed
         get_users(world, "p_admin", view=uuid.uuid4())  # does not exist
         get_users(world, "p_admin", view="default")  # not a tenant id
-        world.client.post("/api/v1/tenants/me/users", headers={**world.auth("p_admin"), V: str(world.tenants["C1"].id)}, json={"email": "z@z.example", "username": "zz", "password": "Str0ng-Passw0rd!", "role": "soc_analyst"})  # a write
-        world.client.get("/api/v1/tenants/me/users", headers={"Authorization": "Bearer " + world.api_key, V: str(world.tenants["C1"].id)})  # an API key
+        world.client.post(
+            "/api/v1/tenants/me/users",
+            headers={**world.auth("p_admin"), V: str(world.tenants["C1"].id)},
+            json={"email": "z@z.example", "username": "zz", "password": "Str0ng-Passw0rd!", "role": "soc_analyst"},
+        )  # a write
+        world.client.get(
+            "/api/v1/tenants/me/users", headers={"Authorization": "Bearer " + world.api_key, V: str(world.tenants["C1"].id)}
+        )  # an API key
         world.client.get("/api/v1/auth/me", headers={**world.auth("p_admin"), V: str(world.tenants["C1"].id)})  # an account-level route
         assert world.views == []
 
@@ -507,7 +703,9 @@ class FakeSession:
 
 class TestRecordView:
     def setup_method(self):
-        self.viewer = SimpleNamespace(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), home_tenant_id=None, email="op@msp.example", role="admin")
+        self.viewer = SimpleNamespace(
+            user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), home_tenant_id=None, email="op@msp.example", role="admin"
+        )
         self.viewer.home_tenant_id = self.viewer.tenant_id
         self.target = uuid.uuid4()
         self.request = SimpleNamespace(headers={})
@@ -526,9 +724,20 @@ class TestRecordView:
         wrote, calls = self.run(db, monkeypatch)
         assert wrote is True and db.commits == 1 and len(calls) == 1
         (call,) = calls
-        assert call["db"] is db and call["tenant_id"] == self.target and call["tenant_id"] != self.viewer.tenant_id, "the viewed tenant's log, not the viewer's"
-        assert (call["actor_id"], call["actor_email"], call["action"], call["resource"], call["resource_id"]) == (self.viewer.user_id, "op@msp.example", "tenant:viewed", "tenant", str(self.target))
-        assert call["changes"] == {"viewer_home_tenant_id": str(self.viewer.tenant_id), "viewer_role": "admin"} and call["request"] is self.request
+        assert (
+            call["db"] is db and call["tenant_id"] == self.target and call["tenant_id"] != self.viewer.tenant_id
+        ), "the viewed tenant's log, not the viewer's"
+        assert (call["actor_id"], call["actor_email"], call["action"], call["resource"], call["resource_id"]) == (
+            self.viewer.user_id,
+            "op@msp.example",
+            "tenant:viewed",
+            "tenant",
+            str(self.target),
+        )
+        assert (
+            call["changes"] == {"viewer_home_tenant_id": str(self.viewer.tenant_id), "viewer_role": "admin"}
+            and call["request"] is self.request
+        )
 
     def test_it_writes_nothing_when_this_person_already_has_one_inside_the_window(self, monkeypatch):
         db = FakeSession(recent=(uuid.uuid4(),))
@@ -609,7 +818,10 @@ def count_grants(world):
 
 def grants_of(world, tenant):
     with Session(world.sync) as s:
-        return sorted((g.user_id, g.access) for g in s.scalars(select(TenantAccessGrant).where(TenantAccessGrant.tenant_id == world.tenants[tenant].id)))
+        return sorted(
+            (g.user_id, g.access)
+            for g in s.scalars(select(TenantAccessGrant).where(TenantAccessGrant.tenant_id == world.tenants[tenant].id))
+        )
 
 
 class TestWhoMayManageAccess:
@@ -624,13 +836,23 @@ class TestWhoMayManageAccess:
     def test_a_platform_admin_may_manage_any_tenant(self, world, tenant):
         assert self.may(world, "platform", tenant) is True
 
-    @pytest.mark.parametrize("who,tenant,expected", [
-        ("p_admin", "P", True), ("p_admin", "C1", True), ("p_admin", "C2", True),  # an MSP's admin: their own tenant and their customers
-        ("p_admin", "X", False), ("p_admin", "PL", False),
-        ("c1_admin", "C1", True),  # a customer's admin: their own tenant
-        ("c1_admin", "P", False), ("c1_admin", "C2", False), ("c1_admin", "X", False),  # never their parent, a sibling, or a stranger
-        ("x_admin", "X", True), ("x_admin", "C1", False), ("x_admin", "P", False),
-    ])
+    @pytest.mark.parametrize(
+        "who,tenant,expected",
+        [
+            ("p_admin", "P", True),
+            ("p_admin", "C1", True),
+            ("p_admin", "C2", True),  # an MSP's admin: their own tenant and their customers
+            ("p_admin", "X", False),
+            ("p_admin", "PL", False),
+            ("c1_admin", "C1", True),  # a customer's admin: their own tenant
+            ("c1_admin", "P", False),
+            ("c1_admin", "C2", False),
+            ("c1_admin", "X", False),  # never their parent, a sibling, or a stranger
+            ("x_admin", "X", True),
+            ("x_admin", "C1", False),
+            ("x_admin", "P", False),
+        ],
+    )
     def test_an_administrator_may_manage_their_own_tenant_and_the_ones_it_is_the_parent_of(self, world, who, tenant, expected):
         assert self.may(world, who, tenant) is expected
 
@@ -646,7 +868,9 @@ class TestWhoMayManageAccess:
 
     def test_the_rule_is_relative_to_the_persons_home_not_the_tenant_they_are_viewing(self, world):
         T = world.tenants
-        viewing = deps.CurrentUser(user_id=world.users["p_admin"].id, tenant_id=T["C1"].id, role="admin", email="p-admin@p.example", home_tenant_id=T["P"].id)
+        viewing = deps.CurrentUser(
+            user_id=world.users["p_admin"].id, tenant_id=T["C1"].id, role="admin", email="p-admin@p.example", home_tenant_id=T["P"].id
+        )
         assert view_as.may_manage_access(viewing, T["C2"]) is True and view_as.may_manage_access(viewing, T["X"]) is False
 
 
@@ -656,7 +880,11 @@ class TestGrantingAccess:
         r = put(world, "platform", "C1", account(world, "x_admin"))
         assert r.status_code == 200
         assert who_answers(world, "x_admin", "C1") == (200, str(world.tenants["C1"].id))
-        w = world.client.post("/api/v1/tenants/me/users", headers={**world.auth("x_admin"), V: str(world.tenants["C1"].id)}, json={"account_name": "zzz-intruder", "password": "Str0ng-Passw0rd!"})
+        w = world.client.post(
+            "/api/v1/tenants/me/users",
+            headers={**world.auth("x_admin"), V: str(world.tenants["C1"].id)},
+            json={"account_name": "zzz-intruder", "password": "Str0ng-Passw0rd!"},
+        )
         assert w.status_code == 403 and w.headers[ERROR_HEADER] == "read_only", "a grant is read-only"
 
     def test_a_customers_own_admin_grants_an_msp_technician_access_to_their_tenant(self, world, audits):
@@ -679,7 +907,13 @@ class TestGrantingAccess:
 
     def test_the_response_says_who_what_where_and_by_whom(self, world, audits):
         r = put(world, "platform", "C1", account(world, "x_admin")).json()
-        assert (r["tenant_id"], r["account_name"], r["home_tenant_id"], r["access"], r["granted_by"]) == (str(world.tenants["C1"].id), account(world, "x_admin"), str(world.tenants["X"].id), "view", "platform@pl.example")
+        assert (r["tenant_id"], r["account_name"], r["home_tenant_id"], r["access"], r["granted_by"]) == (
+            str(world.tenants["C1"].id),
+            account(world, "x_admin"),
+            str(world.tenants["X"].id),
+            "view",
+            "platform@pl.example",
+        )
         assert r["user_id"] == str(world.users["x_admin"].id) and r["created_at"]
 
     def test_it_is_idempotent_one_row_and_no_second_audit_event(self, world, audits):
@@ -702,7 +936,18 @@ class TestGrantingAccess:
 
     def test_a_deactivated_account_cannot_be_granted_anything(self, world, audits):
         with Session(world.sync) as s:
-            s.add(User(id=uuid.uuid4(), tenant_id=world.tenants["X"].id, email="gone@x.example", username="gone", account_name="gone-user", hashed_password="x", role="admin", is_active=False))
+            s.add(
+                User(
+                    id=uuid.uuid4(),
+                    tenant_id=world.tenants["X"].id,
+                    email="gone@x.example",
+                    username="gone",
+                    account_name="gone-user",
+                    hashed_password="x",
+                    role="admin",
+                    is_active=False,
+                )
+            )
             s.commit()
         r = put(world, "platform", "C1", "gone-user")
         assert r.status_code == 422 and "deactivated" in r.json()["detail"] and audits == []
@@ -736,11 +981,19 @@ class TestGrantingAccess:
             def __getattr__(self, name):
                 return getattr(self.session, name)
 
-        platform = SimpleNamespace(tenant_id=world.tenants["PL"].id, home_tenant_id=world.tenants["PL"].id, user_id=world.users["platform"].id, email="platform@pl.example", holds=lambda p: True)
+        platform = SimpleNamespace(
+            tenant_id=world.tenants["PL"].id,
+            home_tenant_id=world.tenants["PL"].id,
+            user_id=world.users["platform"].id,
+            email="platform@pl.example",
+            holds=lambda p: True,
+        )
 
         async def go():
             async with world.factory() as s:
-                return await tn.grant_tenant_access(tenant_id=world.tenants["C1"].id, account_name=account(world, "x_admin"), current_user=platform, db=RacesAtCommit(s))
+                return await tn.grant_tenant_access(
+                    tenant_id=world.tenants["C1"].id, account_name=account(world, "x_admin"), current_user=platform, db=RacesAtCommit(s)
+                )
 
         out = asyncio.run(go())
         assert out.account_name == account(world, "x_admin") and out.access == "view"
@@ -749,9 +1002,21 @@ class TestGrantingAccess:
     def test_the_grant_is_audited_in_the_TARGET_tenants_own_log(self, world, audits):
         put(world, "p_admin", "C2", account(world, "x_admin"))
         (event,) = audits
-        assert event["tenant_id"] == world.tenants["C2"].id and event["action"] == "tenant:access_granted" and event["resource"] == "tenant_access"
-        assert event["actor_id"] == world.users["p_admin"].id and event["actor_email"] == "p-admin@p.example" and event["resource_id"] == str(world.users["x_admin"].id)
-        assert event["changes"] == {"account_name": account(world, "x_admin"), "home_tenant_id": str(world.tenants["X"].id), "access": "view"}
+        assert (
+            event["tenant_id"] == world.tenants["C2"].id
+            and event["action"] == "tenant:access_granted"
+            and event["resource"] == "tenant_access"
+        )
+        assert (
+            event["actor_id"] == world.users["p_admin"].id
+            and event["actor_email"] == "p-admin@p.example"
+            and event["resource_id"] == str(world.users["x_admin"].id)
+        )
+        assert event["changes"] == {
+            "account_name": account(world, "x_admin"),
+            "home_tenant_id": str(world.tenants["X"].id),
+            "access": "view",
+        }
 
 
 class TestWhoMayGrant:
@@ -762,7 +1027,18 @@ class TestWhoMayGrant:
         assert (stranger.status_code, stranger.json()) == (ghost.status_code, ghost.json()) == (404, {"detail": "Tenant not found"})
         assert count_grants(world) == before and audits == []
 
-    @pytest.mark.parametrize("who,tenant", [("x_admin", "C1"), ("x_admin", "P"), ("c1_admin", "C2"), ("c1_admin", "P"), ("c1_admin", "X"), ("p_admin", "X"), ("p_admin", "PL")])
+    @pytest.mark.parametrize(
+        "who,tenant",
+        [
+            ("x_admin", "C1"),
+            ("x_admin", "P"),
+            ("c1_admin", "C2"),
+            ("c1_admin", "P"),
+            ("c1_admin", "X"),
+            ("p_admin", "X"),
+            ("p_admin", "PL"),
+        ],
+    )
     def test_the_people_who_may_not_manage_a_tenant_cannot_grant_on_it(self, world, audits, who, tenant):
         before = count_grants(world)
         assert put(world, who, tenant, account(world, "p_viewer")).status_code == 404
@@ -784,11 +1060,17 @@ class TestWhoMayGrant:
 
     def test_nobody_can_grant_while_viewing_another_tenant_the_view_is_read_only(self, world, audits):
         """p_admin is viewing C1 (granted). Even though they may manage C2's access from their home, a request sent from inside a view is a write and is refused."""
-        r = world.client.put(f"/api/v1/tenants/{world.tenants['C2'].id}/access/{account(world, 'x_admin')}", headers={**world.auth("p_admin"), V: str(world.tenants["C1"].id)})
+        r = world.client.put(
+            f"/api/v1/tenants/{world.tenants['C2'].id}/access/{account(world, 'x_admin')}",
+            headers={**world.auth("p_admin"), V: str(world.tenants["C1"].id)},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "read_only" and audits == []
 
     def test_an_api_key_cannot_use_the_view_header_but_acts_on_its_own_tenant_as_before(self, world, audits):
-        r = world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}", headers={"Authorization": "Bearer " + world.api_key})
+        r = world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}",
+            headers={"Authorization": "Bearer " + world.api_key},
+        )
         assert r.status_code == 200, "the key belongs to P's admin: P is C1's parent"
 
 
@@ -800,12 +1082,20 @@ class TestListingAccess:
         r = self.list(world, "c1_admin", "C1").json()
         P, X = str(world.tenants["P"].id), str(world.tenants["X"].id)
         assert {(g["account_name"], g["home_tenant_id"], g["access"]) for g in r} == {
-            (account(world, "p_admin"), P, "view"), (account(world, "p_analyst"), P, "view"),
-            (account(world, "tech_full"), X, "full"), (account(world, "tech_view"), X, "view"), (account(world, "tech_mixed_a"), X, "view"), (account(world, "tech_mixed_b"), X, "full"), (account(world, "admin_full"), X, "full"),
+            (account(world, "p_admin"), P, "view"),
+            (account(world, "p_analyst"), P, "view"),
+            (account(world, "tech_full"), X, "full"),
+            (account(world, "tech_view"), X, "view"),
+            (account(world, "tech_mixed_a"), X, "view"),
+            (account(world, "tech_mixed_b"), X, "full"),
+            (account(world, "admin_full"), X, "full"),
         }, "who, where they come from, and at which level"
 
     def test_only_that_tenants_grants_are_listed(self, world):
-        assert {g["account_name"] for g in self.list(world, "p_admin", "C2").json()} == {account(world, "p_admin"), account(world, "tech_full")}
+        assert {g["account_name"] for g in self.list(world, "p_admin", "C2").json()} == {
+            account(world, "p_admin"),
+            account(world, "tech_full"),
+        }
         assert self.list(world, "x_admin", "X").json() == []
 
     def test_the_listing_follows_the_same_who_may_manage_rule(self, world):
@@ -820,7 +1110,9 @@ class TestListingAccess:
         monkeypatch.setattr(deps, "is_dev_mode", lambda: False)
         assert world.client.get(f"/api/v1/tenants/{world.tenants['C1'].id}/access").status_code in (401, 403)
 
-    def test_in_development_mode_a_request_with_no_credentials_is_the_demo_user_who_still_cannot_manage_a_tenant_that_is_not_theirs(self, world, monkeypatch):
+    def test_in_development_mode_a_request_with_no_credentials_is_the_demo_user_who_still_cannot_manage_a_tenant_that_is_not_theirs(
+        self, world, monkeypatch
+    ):
         """The documented development fallback does not widen this: the demo user is just another principal, so the management rule applies to it (the same 404 as for a stranger)."""
         monkeypatch.setattr(deps, "is_dev_mode", lambda: True)
         r = world.client.get(f"/api/v1/tenants/{world.tenants['C1'].id}/access")
@@ -858,7 +1150,9 @@ class TestRevokingAccess:
 
     def test_a_revoked_person_can_be_granted_again(self, world, audits):
         delete(world, "platform", "C1", account(world, "p_analyst"))
-        assert put(world, "platform", "C1", account(world, "p_analyst")).status_code == 200 and who_answers(world, "p_analyst", "C1")[0] == 200
+        assert (
+            put(world, "platform", "C1", account(world, "p_analyst")).status_code == 200 and who_answers(world, "p_analyst", "C1")[0] == 200
+        )
 
 
 class TestTheGrantsTableAndTheRule:
@@ -870,26 +1164,34 @@ class TestTheGrantsTableAndTheRule:
 
     def test_one_grant_per_person_and_tenant_and_it_goes_with_either(self):
         assert "UNIQUE (user_id, tenant_id)" in self.SQL
-        assert "user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE" in self.SQL and "tenant_id UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE" in self.SQL
+        assert (
+            "user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE" in self.SQL
+            and "tenant_id UUID NOT NULL REFERENCES tenants (id) ON DELETE CASCADE" in self.SQL
+        )
 
     def test_the_grant_survives_its_granters_deletion_with_the_label_kept(self):
         assert "granted_by UUID REFERENCES users (id) ON DELETE SET NULL" in self.SQL and "granted_by_label TEXT NOT NULL" in self.SQL
 
     def test_only_view_access_exists_and_row_level_security_is_the_standard_policy_on_the_granted_tenant(self):
         assert "CHECK (access IN ('view'))" in self.SQL
-        assert "ENABLE ROW LEVEL SECURITY" in self.SQL and "USING (tenant_id = current_tenant_id() OR current_tenant_id() IS NULL)" in self.SQL
+        assert (
+            "ENABLE ROW LEVEL SECURITY" in self.SQL and "USING (tenant_id = current_tenant_id() OR current_tenant_id() IS NULL)" in self.SQL
+        )
 
     def test_the_blanket_children_rule_is_gone(self):
         import inspect
 
         assert not hasattr(view_as, "MSSP_READ_PERMISSION")
-        assert "parent_tenant_id" not in inspect.getsource(view_as.may_view_tenant) and "parent_tenant_id" not in inspect.getsource(view_as.viewable_tenants)
+        assert "parent_tenant_id" not in inspect.getsource(view_as.may_view_tenant) and "parent_tenant_id" not in inspect.getsource(
+            view_as.viewable_tenants
+        )
 
     def test_the_grants_are_the_persons_own_never_another_persons(self, world):
         T = world.tenants
         for who, expected in (("p_admin", {T["C1"].id, T["C2"].id}), ("p_analyst", {T["C1"].id}), ("p_viewer", set()), ("platform", set())):
             u = world.users[who]
             principal = deps.CurrentUser(user_id=u.id, tenant_id=u.tenant_id, role=u.role, email=u.email)
+
             async def go(s, principal=principal):
                 return await view_as.granted_tenant_ids(s, principal)
 
@@ -910,7 +1212,18 @@ class TestCapabilities:
         assert capabilities_for_role("platform_admin") == ["manage_users", "platform_admin"]
         assert capabilities_for_role("no-such-role") == []
 
-    @pytest.mark.parametrize("who,expected", [("platform", ["manage_users", "platform_admin"]), ("p_admin", ["manage_users"]), ("c1_admin", ["manage_users"]), ("p_lead", []), ("p_analyst", []), ("p_viewer", []), ("p_service", [])])
+    @pytest.mark.parametrize(
+        "who,expected",
+        [
+            ("platform", ["manage_users", "platform_admin"]),
+            ("p_admin", ["manage_users"]),
+            ("c1_admin", ["manage_users"]),
+            ("p_lead", []),
+            ("p_analyst", []),
+            ("p_viewer", []),
+            ("p_service", []),
+        ],
+    )
     def test_me_tells_the_console_what_each_kind_of_person_may_do(self, world, who, expected):
         r = world.client.get("/api/v1/auth/me", headers=world.auth(who))
         assert r.status_code == 200 and r.json()["capabilities"] == expected, who
@@ -919,7 +1232,16 @@ class TestCapabilities:
         from app.core.security import ROLE_PERMISSIONS, capabilities_for_role
 
         got = {role: capabilities_for_role(role) for role in ROLE_PERMISSIONS}
-        assert got == {"platform_admin": ["manage_users", "platform_admin"], "admin": ["manage_users"], "tenant_admin": ["manage_users"], "soc_lead": [], "soc_analyst": [], "threat_hunter": [], "viewer": [], "api_service": []}
+        assert got == {
+            "platform_admin": ["manage_users", "platform_admin"],
+            "admin": ["manage_users"],
+            "tenant_admin": ["manage_users"],
+            "soc_lead": [],
+            "soc_analyst": [],
+            "threat_hunter": [],
+            "viewer": [],
+            "api_service": [],
+        }
 
     def test_a_capability_is_exactly_the_permission_it_stands_for(self):
         """If a role holds the permission it has the capability, and never otherwise: nothing is granted by the name."""
@@ -954,7 +1276,9 @@ class TestManageableTenants:
 
     def test_a_customers_admin_manages_only_their_own_tenant_never_their_parent_or_a_sibling(self, world):
         T = world.tenants
-        assert self.listing(world, "c1_admin") == [("self", str(T["C1"].id))] and self.listing(world, "x_admin") == [("self", str(T["X"].id))]
+        assert self.listing(world, "c1_admin") == [("self", str(T["C1"].id))] and self.listing(world, "x_admin") == [
+            ("self", str(T["X"].id))
+        ]
 
     @pytest.mark.parametrize("who", ["p_viewer", "p_analyst", "p_service", "p_lead"])
     def test_a_role_that_cannot_manage_access_is_offered_nothing(self, world, who):
@@ -968,7 +1292,9 @@ class TestManageableTenants:
             for name, t in world.tenants.items():
                 r = world.client.put(f"/api/v1/tenants/{t.id}/access/nobody-by-that-name", headers=world.auth(who))
                 allowed = r.status_code != 404 or r.json().get("detail") != "Tenant not found"
-                assert (str(t.id) in offered) == allowed, f"{who} -> {name}: offered={str(t.id) in offered} allowed={allowed} ({r.status_code} {r.text[:60]})"
+                assert (
+                    str(t.id) in offered
+                ) == allowed, f"{who} -> {name}: offered={str(t.id) in offered} allowed={allowed} ({r.status_code} {r.text[:60]})"
 
     def test_the_answer_names_the_callers_home_tenant(self, world):
         r = world.client.get("/api/v1/tenants/manageable", headers=world.auth("p_admin"))
@@ -987,8 +1313,30 @@ class TestManageableTenants:
 # ======================================================================================================================================================================
 ALL = ["P", "C1", "C2", "X", "PL"]
 # who may WRITE in which tenant through the probe route (alerts:write), besides their own tenant: exactly the FULL grants, specific or all-tenants, the stronger of the two winning
-FULL_IN = {"tech_full": {"C1"}, "tech_all_full": set(ALL), "tech_mixed_a": set(ALL), "tech_mixed_b": {"C1"}, "admin_full": {"C1"}, "platform_all_full": set(ALL)}
-HOME = {"p_admin": "P", "p_analyst": "P", "c1_admin": "C1", "c2_admin": "C2", "x_admin": "X", "platform": "PL", "tech_full": "X", "tech_view": "X", "tech_all_full": "X", "tech_all_view": "X", "tech_mixed_a": "X", "tech_mixed_b": "X", "admin_full": "X", "platform_all_full": "PL"}
+FULL_IN = {
+    "tech_full": {"C1"},
+    "tech_all_full": set(ALL),
+    "tech_mixed_a": set(ALL),
+    "tech_mixed_b": {"C1"},
+    "admin_full": {"C1"},
+    "platform_all_full": set(ALL),
+}
+HOME = {
+    "p_admin": "P",
+    "p_analyst": "P",
+    "c1_admin": "C1",
+    "c2_admin": "C2",
+    "x_admin": "X",
+    "platform": "PL",
+    "tech_full": "X",
+    "tech_view": "X",
+    "tech_all_full": "X",
+    "tech_all_view": "X",
+    "tech_mixed_a": "X",
+    "tech_mixed_b": "X",
+    "admin_full": "X",
+    "platform_all_full": "PL",
+}
 
 
 def write(world, who, tenant=None, path="/api/v1/probe/write", method="post"):
@@ -1006,7 +1354,10 @@ class TestWritingWithFullAccess:
         T, u = world.tenants, world.users["tech_full"]
         assert r.status_code == 200 and r.json() == {"tenant_id": str(T["C1"].id), "home_tenant_id": str(T["X"].id), "access": "full"}
         assert r.headers[VIEWING_HEADER] == str(T["C1"].id) and r.headers["X-Viewing-Access"] == "full"
-        assert world.events == [("audit", u.id, T["C1"].id, "full", "POST", "/api/v1/probe/write"), ("handler", "write", T["C1"].id, T["X"].id, "full")]
+        assert world.events == [
+            ("audit", u.id, T["C1"].id, "full", "POST", "/api/v1/probe/write"),
+            ("handler", "write", T["C1"].id, T["X"].id, "full"),
+        ]
 
     def test_the_write_is_recorded_in_the_tenants_own_log_BEFORE_it_is_carried_out(self, world):
         write(world, "tech_full", "C1")
@@ -1028,14 +1379,28 @@ class TestWritingWithFullAccess:
         assert [e[4] for e in world.events if e[0] == "audit"] == ["POST", "DELETE"]
 
     def test_with_view_access_a_write_is_refused_and_nothing_is_recorded_or_done(self, world):
-        for who, tenant in (("tech_view", "C1"), ("tech_full", "C2"), ("tech_all_view", "C1"), ("tech_mixed_b", "C2"), ("platform", "C1"), ("p_admin", "C1")):
+        for who, tenant in (
+            ("tech_view", "C1"),
+            ("tech_full", "C2"),
+            ("tech_all_view", "C1"),
+            ("tech_mixed_b", "C2"),
+            ("platform", "C1"),
+            ("p_admin", "C1"),
+        ):
             r = write(world, who, tenant)
             assert r.status_code == 403 and r.headers[ERROR_HEADER] == "read_only", (who, tenant)
         assert world.events == []
 
     def test_with_no_grant_it_is_forbidden_and_looks_the_same_as_a_tenant_that_does_not_exist(self, world):
-        real, ghost = write(world, "x_admin", "C1"), world.client.post("/api/v1/probe/write", headers={**world.auth("x_admin"), V: str(uuid.uuid4())})
-        assert (real.status_code, real.headers[ERROR_HEADER], real.json()) == (ghost.status_code, ghost.headers[ERROR_HEADER], ghost.json()) and real.status_code == 403 and real.headers[ERROR_HEADER] == "forbidden"
+        real, ghost = (
+            write(world, "x_admin", "C1"),
+            world.client.post("/api/v1/probe/write", headers={**world.auth("x_admin"), V: str(uuid.uuid4())}),
+        )
+        assert (
+            (real.status_code, real.headers[ERROR_HEADER], real.json()) == (ghost.status_code, ghost.headers[ERROR_HEADER], ghost.json())
+            and real.status_code == 403
+            and real.headers[ERROR_HEADER] == "forbidden"
+        )
         assert world.events == []
 
     @pytest.mark.parametrize("method", ["post", "delete"])
@@ -1048,13 +1413,20 @@ class TestWritingWithFullAccess:
                 assert (r.status_code == 200) == allowed, f"{who} -> {tenant} {method}: {r.status_code} {r.text[:80]}"
                 if allowed:
                     assert handled(world)[0][2] == world.tenants[tenant].id, "the write ran for that tenant"
-                    assert (len(world.events) == 2) == (tenant != home), "the cross-tenant write was recorded first; the person's own tenant needs no such record"
+                    assert (len(world.events) == 2) == (
+                        tenant != home
+                    ), "the cross-tenant write was recorded first; the person's own tenant needs no such record"
                 else:
                     assert r.headers[ERROR_HEADER] in ("forbidden", "read_only") and world.events == []
 
     def test_a_write_in_a_persons_own_tenant_is_unchanged_and_carries_no_acting_level(self, world):
         r = write(world, "tech_full")
-        assert r.status_code == 200 and r.json()["access"] is None and r.json()["tenant_id"] == r.json()["home_tenant_id"] and [e[0] for e in world.events] == ["handler"]
+        assert (
+            r.status_code == 200
+            and r.json()["access"] is None
+            and r.json()["tenant_id"] == r.json()["home_tenant_id"]
+            and [e[0] for e in world.events] == ["handler"]
+        )
 
     def test_the_stronger_of_a_specific_grant_and_an_all_tenants_grant_wins(self, world):
         assert write(world, "tech_mixed_a", "C1").status_code == 200, "view on C1 + everything full: full"
@@ -1074,7 +1446,10 @@ class TestWritingWithFullAccess:
         assert world.client.get("/api/v1/tenants/me/identity", headers=headers("tech_all_view")).status_code == 200
 
     def test_a_platform_admin_alone_still_reads_everything_but_writes_nowhere_else(self, world):
-        assert world.client.get("/api/v1/tenants/me/identity", headers={**world.auth("platform"), V: str(world.tenants["C1"].id)}).status_code == 200
+        assert (
+            world.client.get("/api/v1/tenants/me/identity", headers={**world.auth("platform"), V: str(world.tenants["C1"].id)}).status_code
+            == 200
+        )
         assert write(world, "platform", "C1").status_code == 403
         assert write(world, "platform_all_full", "C1").status_code == 200, "an all-tenants FULL grant is what lets a platform admin write"
 
@@ -1089,11 +1464,16 @@ class TestWritingWithFullAccess:
     def test_downgrading_full_to_view_takes_effect_on_the_very_next_request(self, world):
         assert write(world, "tech_full", "C1").status_code == 200
         with Session(world.sync) as s:
-            s.query(TenantAccessGrant).filter_by(user_id=world.users["tech_full"].id, tenant_id=world.tenants["C1"].id).update({"access": "view"})
+            s.query(TenantAccessGrant).filter_by(user_id=world.users["tech_full"].id, tenant_id=world.tenants["C1"].id).update(
+                {"access": "view"}
+            )
             s.commit()
         r = write(world, "tech_full", "C1")
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "read_only"
-        assert world.client.get("/api/v1/tenants/me/identity", headers={**world.auth("tech_full"), V: str(world.tenants["C1"].id)}).status_code == 200, "they can still read it"
+        assert (
+            world.client.get("/api/v1/tenants/me/identity", headers={**world.auth("tech_full"), V: str(world.tenants["C1"].id)}).status_code
+            == 200
+        ), "they can still read it"
 
     def test_removing_an_all_tenants_grant_takes_effect_on_the_very_next_request(self, world):
         assert write(world, "tech_all_full", "C2").status_code == 200
@@ -1121,7 +1501,11 @@ class TestWritingWithFullAccess:
                 return await deps.get_current_user(creds, s, req, SimpleNamespace(headers={}))
 
         asyncio.run(go())
-        assert (req.state.acting_tenant_id, req.state.acting_home_tenant_id, req.state.acting_access) == (world.tenants["C1"].id, world.tenants["X"].id, "full")
+        assert (req.state.acting_tenant_id, req.state.acting_home_tenant_id, req.state.acting_access) == (
+            world.tenants["C1"].id,
+            world.tenants["X"].id,
+            "full",
+        )
 
 
 class TestWhatFullAccessStillCannotDo:
@@ -1131,7 +1515,11 @@ class TestWhatFullAccessStillCannotDo:
     def test_creating_a_user_in_another_tenant_is_refused_and_nothing_is_created_or_recorded(self, world, who):
         with Session(world.sync) as s:
             before = len(s.scalars(select(User.id)).all())
-        r = world.client.post("/api/v1/tenants/me/users", headers={**world.auth(who), V: str(world.tenants["C1"].id)}, json={"account_name": "planted.admin", "password": "Str0ng-Passw0rd!", "role": "admin"})
+        r = world.client.post(
+            "/api/v1/tenants/me/users",
+            headers={**world.auth(who), V: str(world.tenants["C1"].id)},
+            json={"account_name": "planted.admin", "password": "Str0ng-Passw0rd!", "role": "admin"},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "not_allowed_here" and "another tenant" in r.json()["detail"]
         with Session(world.sync) as s:
             assert len(s.scalars(select(User.id)).all()) == before
@@ -1140,27 +1528,55 @@ class TestWhatFullAccessStillCannotDo:
     def test_changing_a_user_in_another_tenant_is_refused_too_and_the_role_is_not_changed(self, world):
         """The route that exists is PATCH /tenants/me/users/{id}; the path rule for every method is covered by the matrix below."""
         target = world.users["c1_admin"].id
-        r = world.client.patch(f"/api/v1/tenants/me/users/{target}", headers={**world.auth("admin_full"), V: str(world.tenants["C1"].id)}, json={"role": "viewer"})
+        r = world.client.patch(
+            f"/api/v1/tenants/me/users/{target}",
+            headers={**world.auth("admin_full"), V: str(world.tenants["C1"].id)},
+            json={"role": "viewer"},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "not_allowed_here"
         with Session(world.sync) as s:
             assert s.get(User, target).role == "admin"
         assert world.events == []
 
     def test_nobody_can_change_who_has_access_while_working_in_another_tenant_not_even_to_themselves(self, world):
-        r = world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}", headers={**world.auth("admin_full"), V: str(world.tenants["C1"].id)}, json={"access": "full"})
+        r = world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}",
+            headers={**world.auth("admin_full"), V: str(world.tenants["C1"].id)},
+            json={"access": "full"},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "not_allowed_here"
-        r = world.client.delete(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}", headers={**world.auth("admin_full"), V: str(world.tenants["C1"].id)})
+        r = world.client.delete(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}",
+            headers={**world.auth("admin_full"), V: str(world.tenants["C1"].id)},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "not_allowed_here"
 
     def test_with_view_access_the_same_requests_are_read_only_not_allowed_here(self, world):
-        r = world.client.post("/api/v1/tenants/me/users", headers={**world.auth("tech_view"), V: str(world.tenants["C1"].id)}, json={"account_name": "x.y", "password": "Str0ng-Passw0rd!"})
+        r = world.client.post(
+            "/api/v1/tenants/me/users",
+            headers={**world.auth("tech_view"), V: str(world.tenants["C1"].id)},
+            json={"account_name": "x.y", "password": "Str0ng-Passw0rd!"},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "read_only"
 
     @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
-    @pytest.mark.parametrize("path", [
-        "/api/v1/tenants/me/users", "/api/v1/tenants/me/users/abc", f"/api/v1/tenants/{uuid.uuid4()}/access", f"/api/v1/tenants/{uuid.uuid4()}/access/some.name", "/api/v1/api-keys", "/api/v1/api-keys/abc",
-        "/api/v1/rbac/roles", "/api/v1/rbac", "/api/v1/platform/alert-email", "/api/v1/platform/all-tenant-access/x", "/api/v1/mssp/children", "/api/v1/mssp",
-    ])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/tenants/me/users",
+            "/api/v1/tenants/me/users/abc",
+            f"/api/v1/tenants/{uuid.uuid4()}/access",
+            f"/api/v1/tenants/{uuid.uuid4()}/access/some.name",
+            "/api/v1/api-keys",
+            "/api/v1/api-keys/abc",
+            "/api/v1/rbac/roles",
+            "/api/v1/rbac",
+            "/api/v1/platform/alert-email",
+            "/api/v1/platform/all-tenant-access/x",
+            "/api/v1/mssp/children",
+            "/api/v1/mssp",
+        ],
+    )
     def test_every_identity_credential_platform_and_mssp_route_is_blocked_for_a_write_with_full_access(self, world, method, path):
         user = SimpleNamespace(user_id=world.users["tech_all_full"].id, tenant_id=world.tenants["X"].id, holds=lambda p: False)
 
@@ -1172,14 +1588,31 @@ class TestWhatFullAccessStillCannotDo:
             asyncio.run(go())
         assert e.value.status_code == 403 and e.value.headers[ERROR_HEADER] == "not_allowed_here"
 
-    @pytest.mark.parametrize("method,path", [
-        ("POST", "/api/v1/alerts/abc/claim"), ("POST", "/api/v1/cases"), ("PATCH", "/api/v1/cases/abc"), ("POST", "/api/v1/connectors"), ("PUT", "/api/v1/playbooks/abc"), ("POST", "/api/v1/investigations"),
-        ("POST", "/api/v1/remediation/actions"), ("DELETE", "/api/v1/hunts/abc"),
-        # lookalikes of a blocked prefix are NOT blocked: the match is on the whole path segment
-        ("POST", "/api/v1/api-keys-report"), ("POST", "/api/v1/rbacx"), ("POST", "/api/v1/platformer"), ("POST", "/api/v1/mssp-reports"), ("POST", "/api/v1/tenants/me/usersettings"),
-        # and reading the same places is not blocked at all
-        ("GET", "/api/v1/tenants/me/users"), ("GET", "/api/v1/api-keys"), ("GET", "/api/v1/rbac/roles"), ("GET", "/api/v1/platform/alert-email"), ("GET", "/api/v1/mssp/children"),
-    ])
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            ("POST", "/api/v1/alerts/abc/claim"),
+            ("POST", "/api/v1/cases"),
+            ("PATCH", "/api/v1/cases/abc"),
+            ("POST", "/api/v1/connectors"),
+            ("PUT", "/api/v1/playbooks/abc"),
+            ("POST", "/api/v1/investigations"),
+            ("POST", "/api/v1/remediation/actions"),
+            ("DELETE", "/api/v1/hunts/abc"),
+            # lookalikes of a blocked prefix are NOT blocked: the match is on the whole path segment
+            ("POST", "/api/v1/api-keys-report"),
+            ("POST", "/api/v1/rbacx"),
+            ("POST", "/api/v1/platformer"),
+            ("POST", "/api/v1/mssp-reports"),
+            ("POST", "/api/v1/tenants/me/usersettings"),
+            # and reading the same places is not blocked at all
+            ("GET", "/api/v1/tenants/me/users"),
+            ("GET", "/api/v1/api-keys"),
+            ("GET", "/api/v1/rbac/roles"),
+            ("GET", "/api/v1/platform/alert-email"),
+            ("GET", "/api/v1/mssp/children"),
+        ],
+    )
     def test_everything_else_is_allowed_with_full_access_and_so_are_reads_of_the_blocked_places(self, world, method, path):
         user = SimpleNamespace(user_id=world.users["tech_all_full"].id, tenant_id=world.tenants["X"].id, holds=lambda p: False)
 
@@ -1191,7 +1624,9 @@ class TestWhatFullAccessStillCannotDo:
         assert result.tenant_id == world.tenants["C1"].id and result.access == "full"
 
     def test_the_wildcard_role_cannot_use_users_write_while_working_in_another_tenant_but_can_at_home(self, world):
-        assert write(world, "admin_full", None, path="/api/v1/probe/users-write").status_code == 200, "an admin holds users:write in their own tenant"
+        assert (
+            write(world, "admin_full", None, path="/api/v1/probe/users-write").status_code == 200
+        ), "an admin holds users:write in their own tenant"
         r = write(world, "admin_full", "C1", path="/api/v1/probe/users-write")
         assert r.status_code == 403 and "Not available while working in another tenant: users:write" in r.json()["detail"]
         assert handled(world) == [handled(world)[0]], "only the at-home call ran"
@@ -1202,7 +1637,9 @@ class TestWhatFullAccessStillCannotDo:
         assert r.status_code == 403 and "platform:cross_tenant_query" in r.json()["detail"]
 
     def test_the_denied_permissions_are_exactly_these(self):
-        assert view_as.ACTING_DENIED_PERMISSIONS == frozenset({"users:write", "mssp:manage", "mssp:onboard", "platform:cross_tenant_query", "plugins:admin"})
+        assert view_as.ACTING_DENIED_PERMISSIONS == frozenset(
+            {"users:write", "mssp:manage", "mssp:onboard", "platform:cross_tenant_query", "plugins:admin"}
+        )
 
     def test_an_api_key_still_cannot_work_in_another_tenant_at_all(self, world):
         r = world.client.post("/api/v1/probe/write", headers={"Authorization": "Bearer " + world.api_key, V: str(world.tenants["C1"].id)})
@@ -1221,16 +1658,27 @@ class TestAccessLevelsAreReported:
 
     def test_a_person_sees_their_own_tenant_as_full_and_each_grant_at_its_level(self, world):
         T = world.tenants
-        assert self.levels(world, "tech_full") == [("self", "full", str(T["X"].id)), ("granted", "full", str(T["C1"].id)), ("granted", "view", str(T["C2"].id))]
+        assert self.levels(world, "tech_full") == [
+            ("self", "full", str(T["X"].id)),
+            ("granted", "full", str(T["C1"].id)),
+            ("granted", "view", str(T["C2"].id)),
+        ]
 
     def test_an_all_tenants_grant_lists_every_other_tenant_at_its_level(self, world):
         T = world.tenants
         full = self.levels(world, "tech_all_full")
-        assert full[0] == ("self", "full", str(T["X"].id)) and {i for _, _, i in full} == {str(t.id) for t in T.values()} and {a for _, a, _ in full[1:]} == {"full"} and {r for r, _, _ in full[1:]} == {"granted"}
+        assert (
+            full[0] == ("self", "full", str(T["X"].id))
+            and {i for _, _, i in full} == {str(t.id) for t in T.values()}
+            and {a for _, a, _ in full[1:]} == {"full"}
+            and {r for r, _, _ in full[1:]} == {"granted"}
+        )
         assert {a for _, a, _ in self.levels(world, "tech_all_view")[1:]} == {"view"}
 
     def test_a_platform_admin_sees_every_tenant_as_view_unless_they_also_hold_all_tenants_at_full(self, world):
-        assert {a for _, a, _ in self.levels(world, "platform")[1:]} == {"view"} and {r for r, _, _ in self.levels(world, "platform")[1:]} == {"platform"}
+        assert {a for _, a, _ in self.levels(world, "platform")[1:]} == {"view"} and {
+            r for r, _, _ in self.levels(world, "platform")[1:]
+        } == {"platform"}
         both = self.levels(world, "platform_all_full")
         assert {a for _, a, _ in both[1:]} == {"full"} and {r for r, _, _ in both[1:]} == {"platform"}
 
@@ -1238,7 +1686,9 @@ class TestAccessLevelsAreReported:
         T = world.tenants
         a = {i: acc for _, acc, i in self.levels(world, "tech_mixed_a")}
         b = {i: acc for _, acc, i in self.levels(world, "tech_mixed_b")}
-        assert a[str(T["C1"].id)] == "full" and b[str(T["C1"].id)] == "full" and b[str(T["C2"].id)] == "view" and a[str(T["C2"].id)] == "full"
+        assert (
+            a[str(T["C1"].id)] == "full" and b[str(T["C1"].id)] == "full" and b[str(T["C2"].id)] == "view" and a[str(T["C2"].id)] == "full"
+        )
 
     def test_what_is_reported_is_exactly_what_the_server_does_for_every_person_and_tenant(self, world):
         """Listed at `full` if and only if a write there is accepted; listed at `view` if and only if a write is refused as read-only."""
@@ -1263,48 +1713,110 @@ class TestGrantingFullAccess:
         assert r.status_code == 200 and r.json()["access"] == "view"
 
     def test_an_empty_body_is_read_only_too(self, world, audits):
-        r = world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}", headers=world.auth("platform"), json={})
+        r = world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}", headers=world.auth("platform"), json={}
+        )
         assert r.status_code == 200 and r.json()["access"] == "view"
 
     def test_full_can_be_granted_and_the_person_can_then_write_at_once(self, world, audits):
         assert write(world, "x_admin", "C1").status_code == 403
-        r = world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}", headers=world.auth("platform"), json={"access": "full"})
+        r = world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}",
+            headers=world.auth("platform"),
+            json={"access": "full"},
+        )
         assert r.status_code == 200 and r.json()["access"] == "full"
         assert write(world, "x_admin", "C1").status_code == 200
 
-    @pytest.mark.parametrize("body", [{"access": "write"}, {"access": "admin"}, {"access": "FULL"}, {"access": ""}, {"access": None}, {"access": "full", "role": "admin"}, {"extra": 1}])
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"access": "write"},
+            {"access": "admin"},
+            {"access": "FULL"},
+            {"access": ""},
+            {"access": None},
+            {"access": "full", "role": "admin"},
+            {"extra": 1},
+        ],
+    )
     def test_an_invalid_body_is_a_422_and_nothing_changes(self, world, audits, body):
-        r = world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}", headers=world.auth("platform"), json=body)
+        r = world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'x_admin')}", headers=world.auth("platform"), json=body
+        )
         assert r.status_code == 422 and audits == []
 
     def test_changing_the_level_updates_the_one_grant_and_is_audited_with_before_and_after(self, world, audits):
-        call = lambda level: world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}", headers=world.auth("platform"), json={"access": level})  # noqa: E731
+        call = lambda level: world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}",
+            headers=world.auth("platform"),
+            json={"access": level},
+        )  # noqa: E731
         before = len(grants_of(world, "C1"))
         r = call("full")
         assert r.status_code == 200 and r.json()["access"] == "full" and len(grants_of(world, "C1")) == before
         (event,) = audits
-        assert event["action"] == "tenant:access_changed" and event["tenant_id"] == world.tenants["C1"].id and event["changes"]["before"] == "view" and event["changes"]["after"] == "full"
+        assert (
+            event["action"] == "tenant:access_changed"
+            and event["tenant_id"] == world.tenants["C1"].id
+            and event["changes"]["before"] == "view"
+            and event["changes"]["after"] == "full"
+        )
         assert write(world, "tech_view", "C1").status_code == 200
 
     def test_downgrading_stops_the_writes_and_asking_for_the_same_level_again_audits_nothing(self, world, audits):
-        call = lambda level, who="tech_full": world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, who)}", headers=world.auth("platform"), json={"access": level})  # noqa: E731
+        call = lambda level, who="tech_full": world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, who)}", headers=world.auth("platform"), json={"access": level}
+        )  # noqa: E731
         assert call("full").status_code == 200 and audits == [], "already full: nothing to change, nothing to audit"
         assert call("view").status_code == 200 and [a["action"] for a in audits] == ["tenant:access_changed"]
         r = write(world, "tech_full", "C1")
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "read_only"
 
     def test_a_new_full_grant_is_audited_with_its_level_in_the_target_tenants_log(self, world, audits):
-        world.client.put(f"/api/v1/tenants/{world.tenants['C2'].id}/access/{account(world, 'x_admin')}", headers=world.auth("p_admin"), json={"access": "full"})
+        world.client.put(
+            f"/api/v1/tenants/{world.tenants['C2'].id}/access/{account(world, 'x_admin')}",
+            headers=world.auth("p_admin"),
+            json={"access": "full"},
+        )
         (event,) = audits
-        assert event["action"] == "tenant:access_granted" and event["tenant_id"] == world.tenants["C2"].id and event["changes"]["access"] == "full"
+        assert (
+            event["action"] == "tenant:access_granted"
+            and event["tenant_id"] == world.tenants["C2"].id
+            and event["changes"]["access"] == "full"
+        )
 
-    @pytest.mark.parametrize("who,tenant,expected", [("c1_admin", "C1", 200), ("p_admin", "C1", 200), ("p_admin", "C2", 200), ("platform", "X", 200), ("x_admin", "C1", 404), ("c1_admin", "C2", 404), ("c1_admin", "P", 404), ("p_viewer", "C1", 403), ("p_lead", "P", 403), ("tech_all_full", "C1", 403)])
-    def test_the_same_people_who_may_grant_view_may_grant_full_and_nobody_else_including_a_technician_with_full_access(self, world, audits, who, tenant, expected):
-        r = world.client.put(f"/api/v1/tenants/{world.tenants[tenant].id}/access/{account(world, 'x_admin' if tenant != 'X' else 'c1_admin')}", headers=world.auth(who), json={"access": "full"})
+    @pytest.mark.parametrize(
+        "who,tenant,expected",
+        [
+            ("c1_admin", "C1", 200),
+            ("p_admin", "C1", 200),
+            ("p_admin", "C2", 200),
+            ("platform", "X", 200),
+            ("x_admin", "C1", 404),
+            ("c1_admin", "C2", 404),
+            ("c1_admin", "P", 404),
+            ("p_viewer", "C1", 403),
+            ("p_lead", "P", 403),
+            ("tech_all_full", "C1", 403),
+        ],
+    )
+    def test_the_same_people_who_may_grant_view_may_grant_full_and_nobody_else_including_a_technician_with_full_access(
+        self, world, audits, who, tenant, expected
+    ):
+        r = world.client.put(
+            f"/api/v1/tenants/{world.tenants[tenant].id}/access/{account(world, 'x_admin' if tenant != 'X' else 'c1_admin')}",
+            headers=world.auth(who),
+            json={"access": "full"},
+        )
         assert r.status_code == expected, (who, tenant, r.status_code, r.text[:80])
 
     def test_a_viewable_entry_reports_the_level_after_a_change(self, world, audits):
-        world.client.put(f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}", headers=world.auth("platform"), json={"access": "full"})
+        world.client.put(
+            f"/api/v1/tenants/{world.tenants['C1'].id}/access/{account(world, 'tech_view')}",
+            headers=world.auth("platform"),
+            json={"access": "full"},
+        )
         r = world.client.get("/api/v1/tenants/viewable", headers=world.auth("tech_view")).json()["tenants"]
         assert {t["id"]: t["access"] for t in r}[str(world.tenants["C1"].id)] == "full"
 
@@ -1326,9 +1838,16 @@ ALL_URL = "/api/v1/platform/all-tenant-access"
 class TestGrantingAllTenants:
     """Only a platform administrator can hand out EVERY tenant."""
 
-    @pytest.mark.parametrize("who", ["p_admin", "c1_admin", "x_admin", "p_viewer", "p_analyst", "p_lead", "p_service", "admin_full", "tech_all_full", "tech_full"])
-    @pytest.mark.parametrize("method,path,body", [("get", "", None), ("put", "/some.account", {"access": "full"}), ("delete", "/some.account", None)])
-    def test_nobody_but_a_platform_administrator_may_use_it_not_even_a_technician_who_already_has_everything(self, world, all_audits, who, method, path, body):
+    @pytest.mark.parametrize(
+        "who",
+        ["p_admin", "c1_admin", "x_admin", "p_viewer", "p_analyst", "p_lead", "p_service", "admin_full", "tech_all_full", "tech_full"],
+    )
+    @pytest.mark.parametrize(
+        "method,path,body", [("get", "", None), ("put", "/some.account", {"access": "full"}), ("delete", "/some.account", None)]
+    )
+    def test_nobody_but_a_platform_administrator_may_use_it_not_even_a_technician_who_already_has_everything(
+        self, world, all_audits, who, method, path, body
+    ):
         r = world.client.request(method.upper(), ALL_URL + path, headers=world.auth(who), **({"json": body} if body is not None else {}))
         assert r.status_code == 403 and all_audits == [], (who, method)
 
@@ -1339,17 +1858,26 @@ class TestGrantingAllTenants:
     def test_a_platform_admin_grants_all_tenants_and_the_person_can_then_work_in_every_one(self, world, all_audits):
         assert write(world, "x_admin", "C1").status_code == 403
         r = world.client.put(f"{ALL_URL}/{account(world, 'x_admin')}", headers=world.auth("platform"), json={"access": "full"})
-        assert r.status_code == 200 and r.json()["access"] == "full" and r.json()["account_name"] == account(world, "x_admin") and r.json()["granted_by"] == "platform@pl.example"
+        assert (
+            r.status_code == 200
+            and r.json()["access"] == "full"
+            and r.json()["account_name"] == account(world, "x_admin")
+            and r.json()["granted_by"] == "platform@pl.example"
+        )
         assert all(write(world, "x_admin", t).status_code == 200 for t in ("P", "C1", "C2", "PL"))
 
     def test_the_level_must_be_stated_there_is_no_default(self, world, all_audits):
         for body in (None, {}, {"access": "write"}, {"access": None}, {"access": "full", "extra": 1}):
-            r = world.client.put(f"{ALL_URL}/{account(world, 'x_admin')}", headers=world.auth("platform"), **({"json": body} if body is not None else {}))
+            r = world.client.put(
+                f"{ALL_URL}/{account(world, 'x_admin')}", headers=world.auth("platform"), **({"json": body} if body is not None else {})
+            )
             assert r.status_code == 422, body
         assert all_audits == []
 
     def test_changing_the_level_and_repeating_it(self, world, all_audits):
-        put_all = lambda level: world.client.put(f"{ALL_URL}/{account(world, 'tech_all_view')}", headers=world.auth("platform"), json={"access": level})  # noqa: E731
+        put_all = lambda level: world.client.put(
+            f"{ALL_URL}/{account(world, 'tech_all_view')}", headers=world.auth("platform"), json={"access": level}
+        )  # noqa: E731
         assert put_all("view").status_code == 200 and all_audits == [], "already view: nothing to change"
         assert put_all("full").status_code == 200 and [a["action"] for a in all_audits] == ["platform:all_tenant_access_changed"]
         assert all_audits[0]["changes"]["before"] == "view" and all_audits[0]["changes"]["after"] == "full"
@@ -1358,24 +1886,64 @@ class TestGrantingAllTenants:
     def test_it_is_audited_in_the_platform_administrators_own_tenant_log(self, world, all_audits):
         world.client.put(f"{ALL_URL}/{account(world, 'x_admin')}", headers=world.auth("platform"), json={"access": "view"})
         (event,) = all_audits
-        assert event["action"] == "platform:all_tenant_access_granted" and event["tenant_id"] == world.tenants["PL"].id and event["actor_id"] == world.users["platform"].id
-        assert event["changes"] == {"account_name": account(world, "x_admin"), "home_tenant_id": str(world.tenants["X"].id), "before": None, "after": "view"}
+        assert (
+            event["action"] == "platform:all_tenant_access_granted"
+            and event["tenant_id"] == world.tenants["PL"].id
+            and event["actor_id"] == world.users["platform"].id
+        )
+        assert event["changes"] == {
+            "account_name": account(world, "x_admin"),
+            "home_tenant_id": str(world.tenants["X"].id),
+            "before": None,
+            "after": "view",
+        }
 
     def test_it_lists_who_has_every_tenant_and_at_which_level(self, world, all_audits):
         r = world.client.get(ALL_URL, headers=world.auth("platform")).json()
-        assert {(g["account_name"], g["access"], g["home_tenant_id"]) for g in r} == {(account(world, who), level, str(world.tenants[HOME[who]].id)) for who, level in (("tech_all_full", "full"), ("tech_all_view", "view"), ("tech_mixed_a", "full"), ("tech_mixed_b", "view"), ("platform_all_full", "full"))}
+        assert {(g["account_name"], g["access"], g["home_tenant_id"]) for g in r} == {
+            (account(world, who), level, str(world.tenants[HOME[who]].id))
+            for who, level in (
+                ("tech_all_full", "full"),
+                ("tech_all_view", "view"),
+                ("tech_mixed_a", "full"),
+                ("tech_mixed_b", "view"),
+                ("platform_all_full", "full"),
+            )
+        }
 
     def test_revoking_ends_it_at_once_and_leaves_the_persons_specific_grants_alone(self, world, all_audits):
         assert write(world, "tech_mixed_a", "C2").status_code == 200
         r = world.client.delete(f"{ALL_URL}/{account(world, 'tech_mixed_a')}", headers=world.auth("platform"))
-        assert r.status_code == 204 and [a["action"] for a in all_audits] == ["platform:all_tenant_access_revoked"] and all_audits[0]["changes"]["before"] == "full"
+        assert (
+            r.status_code == 204
+            and [a["action"] for a in all_audits] == ["platform:all_tenant_access_revoked"]
+            and all_audits[0]["changes"]["before"] == "full"
+        )
         assert write(world, "tech_mixed_a", "C2").status_code == 403
-        assert world.client.get("/api/v1/tenants/me/identity", headers={**world.auth("tech_mixed_a"), V: str(world.tenants["C1"].id)}).status_code == 200, "their specific VIEW grant on C1 remains"
+        assert (
+            world.client.get(
+                "/api/v1/tenants/me/identity", headers={**world.auth("tech_mixed_a"), V: str(world.tenants["C1"].id)}
+            ).status_code
+            == 200
+        ), "their specific VIEW grant on C1 remains"
 
     def test_unknown_inactive_and_missing_grants(self, world, all_audits):
-        assert world.client.put(f"{ALL_URL}/nobody-by-that-name", headers=world.auth("platform"), json={"access": "view"}).status_code == 404
+        assert (
+            world.client.put(f"{ALL_URL}/nobody-by-that-name", headers=world.auth("platform"), json={"access": "view"}).status_code == 404
+        )
         with Session(world.sync) as s:
-            s.add(User(id=uuid.uuid4(), tenant_id=world.tenants["X"].id, email="gone2@x.example", username="gone2", account_name="gone-two", hashed_password="x", role="admin", is_active=False))
+            s.add(
+                User(
+                    id=uuid.uuid4(),
+                    tenant_id=world.tenants["X"].id,
+                    email="gone2@x.example",
+                    username="gone2",
+                    account_name="gone-two",
+                    hashed_password="x",
+                    role="admin",
+                    is_active=False,
+                )
+            )
             s.commit()
         r = world.client.put(f"{ALL_URL}/gone-two", headers=world.auth("platform"), json={"access": "view"})
         assert r.status_code == 422 and "deactivated" in r.json()["detail"]
@@ -1384,9 +1952,17 @@ class TestGrantingAllTenants:
         assert all_audits == []
 
     def test_it_cannot_be_used_from_inside_another_tenant_even_by_a_platform_administrator_with_full_access(self, world, all_audits):
-        r = world.client.put(f"{ALL_URL}/{account(world, 'x_admin')}", headers={**world.auth("platform_all_full"), V: str(world.tenants["C1"].id)}, json={"access": "full"})
+        r = world.client.put(
+            f"{ALL_URL}/{account(world, 'x_admin')}",
+            headers={**world.auth("platform_all_full"), V: str(world.tenants["C1"].id)},
+            json={"access": "full"},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "not_allowed_here" and all_audits == []
-        r = world.client.put(f"{ALL_URL}/{account(world, 'x_admin')}", headers={**world.auth("platform"), V: str(world.tenants["C1"].id)}, json={"access": "full"})
+        r = world.client.put(
+            f"{ALL_URL}/{account(world, 'x_admin')}",
+            headers={**world.auth("platform"), V: str(world.tenants["C1"].id)},
+            json={"access": "full"},
+        )
         assert r.status_code == 403 and r.headers[ERROR_HEADER] == "read_only"
 
 
@@ -1423,8 +1999,19 @@ class TestTheAuditTrailForActingInAnotherTenant:
         db = Db()
         asyncio.run(view_as.record_act_as(db, user, C1, "full", req))
         (c,) = calls
-        assert (c["tenant_id"], c["actor_id"], c["actor_email"], c["action"], c["resource"], c["resource_id"]) == (C1, U, "tech@x.example", "tenant:acted", "tenant", str(C1))
-        assert c["changes"] == {"acted_from_tenant_id": str(X), "role": "soc_analyst", "access": "full", "method": "POST", "path": "/api/v1/cases"} and db.committed == 1
+        assert (c["tenant_id"], c["actor_id"], c["actor_email"], c["action"], c["resource"], c["resource_id"]) == (
+            C1,
+            U,
+            "tech@x.example",
+            "tenant:acted",
+            "tenant",
+            str(C1),
+        )
+        assert (
+            c["changes"]
+            == {"acted_from_tenant_id": str(X), "role": "soc_analyst", "access": "full", "method": "POST", "path": "/api/v1/cases"}
+            and db.committed == 1
+        )
 
     def test_if_the_intent_record_fails_the_error_is_not_swallowed(self, monkeypatch):
         async def emit(**kw):
@@ -1432,17 +2019,32 @@ class TestTheAuditTrailForActingInAnotherTenant:
 
         monkeypatch.setattr(view_as, "emit_audit", emit)
         with pytest.raises(RuntimeError):
-            asyncio.run(view_as.record_act_as(SimpleNamespace(commit=lambda: None), SimpleNamespace(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="a@b", role="r"), uuid.uuid4(), "full", SimpleNamespace(method="POST", url=SimpleNamespace(path="/x"))))
+            asyncio.run(
+                view_as.record_act_as(
+                    SimpleNamespace(commit=lambda: None),
+                    SimpleNamespace(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="a@b", role="r"),
+                    uuid.uuid4(),
+                    "full",
+                    SimpleNamespace(method="POST", url=SimpleNamespace(path="/x")),
+                )
+            )
 
 
 class TestMigration074AndTheModels:
-    SQL = " ".join((Path(__file__).resolve().parent.parent / "migrations" / "074_full_access_and_all_tenant_grants.sql").read_text().split())
+    SQL = " ".join(
+        (Path(__file__).resolve().parent.parent / "migrations" / "074_full_access_and_all_tenant_grants.sql").read_text().split()
+    )
 
     def test_the_level_check_allows_view_and_full_only(self):
-        assert "DROP CONSTRAINT IF EXISTS tenant_access_grants_access_check" in self.SQL and "CHECK (access IN ('view', 'full'))" in self.SQL
+        assert (
+            "DROP CONSTRAINT IF EXISTS tenant_access_grants_access_check" in self.SQL and "CHECK (access IN ('view', 'full'))" in self.SQL
+        )
 
     def test_the_all_tenants_table_is_keyed_by_person_has_a_level_check_and_no_tenant_id_so_no_rls_is_owed(self):
-        assert "user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE" in self.SQL and "access VARCHAR(16) NOT NULL CHECK (access IN ('view', 'full'))" in self.SQL
+        assert (
+            "user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE" in self.SQL
+            and "access VARCHAR(16) NOT NULL CHECK (access IN ('view', 'full'))" in self.SQL
+        )
         assert "tenant_id" not in self.SQL.split("CREATE TABLE IF NOT EXISTS all_tenant_access_grants")[1]
 
     def test_the_migration_creates_what_the_model_declares(self):
@@ -1466,30 +2068,44 @@ class TestTheAccessLevelRule:
     def person(self, platform=False):
         return SimpleNamespace(user_id=uuid.uuid4(), tenant_id=self.HOME, holds=lambda p: platform and p == "platform:cross_tenant_query")
 
-    @pytest.mark.parametrize("platform,by_tenant,everywhere,tenant,expected", [
-        (False, {}, None, "HOME", "full"),  # their own tenant: always full
-        (False, {"OTHER": "view"}, "view", "HOME", "full"),  # grants do not demote it
-        (False, {}, None, "OTHER", None),  # a stranger: nothing
-        (False, {"THIRD": "full"}, None, "OTHER", None),  # a grant to a DIFFERENT tenant is nothing here
-        (False, {"OTHER": "view"}, None, "OTHER", "view"),
-        (False, {"OTHER": "full"}, None, "OTHER", "full"),
-        (False, {}, "view", "OTHER", "view"),
-        (False, {}, "full", "OTHER", "full"),
-        (False, {"OTHER": "view"}, "full", "OTHER", "full"),  # the stronger wins, either way round
-        (False, {"OTHER": "full"}, "view", "OTHER", "full"),
-        (False, {"OTHER": "view"}, "view", "OTHER", "view"),
-        (True, {}, None, "OTHER", "view"),  # the platform permission alone: read-only
-        (True, {"OTHER": "full"}, None, "OTHER", "full"),
-        (True, {}, "full", "OTHER", "full"),
-        (True, {"OTHER": "view"}, "view", "OTHER", "view"),
-    ])
+    @pytest.mark.parametrize(
+        "platform,by_tenant,everywhere,tenant,expected",
+        [
+            (False, {}, None, "HOME", "full"),  # their own tenant: always full
+            (False, {"OTHER": "view"}, "view", "HOME", "full"),  # grants do not demote it
+            (False, {}, None, "OTHER", None),  # a stranger: nothing
+            (False, {"THIRD": "full"}, None, "OTHER", None),  # a grant to a DIFFERENT tenant is nothing here
+            (False, {"OTHER": "view"}, None, "OTHER", "view"),
+            (False, {"OTHER": "full"}, None, "OTHER", "full"),
+            (False, {}, "view", "OTHER", "view"),
+            (False, {}, "full", "OTHER", "full"),
+            (False, {"OTHER": "view"}, "full", "OTHER", "full"),  # the stronger wins, either way round
+            (False, {"OTHER": "full"}, "view", "OTHER", "full"),
+            (False, {"OTHER": "view"}, "view", "OTHER", "view"),
+            (True, {}, None, "OTHER", "view"),  # the platform permission alone: read-only
+            (True, {"OTHER": "full"}, None, "OTHER", "full"),
+            (True, {}, "full", "OTHER", "full"),
+            (True, {"OTHER": "view"}, "view", "OTHER", "view"),
+        ],
+    )
     def test_the_level_for_each_combination(self, platform, by_tenant, everywhere, tenant, expected):
         ids = {"HOME": self.HOME, "OTHER": self.OTHER, "THIRD": self.THIRD}
         grants = view_as.Grants({ids[k]: v for k, v in by_tenant.items()}, everywhere)
         assert view_as.access_level(self.person(platform), ids[tenant], grants) == expected
 
     def test_stronger_picks_the_higher_level_and_treats_nothing_as_the_lowest(self):
-        assert [view_as._stronger(a, b) for a, b in (("view", "full"), ("full", "view"), ("view", "view"), ("full", "full"), (None, "view"), ("view", None), (None, None))] == ["full", "full", "view", "full", "view", "view", None]
+        assert [
+            view_as._stronger(a, b)
+            for a, b in (
+                ("view", "full"),
+                ("full", "view"),
+                ("view", "view"),
+                ("full", "full"),
+                (None, "view"),
+                ("view", None),
+                (None, None),
+            )
+        ] == ["full", "full", "view", "full", "view", "view", None]
 
     def test_may_view_tenant_still_answers_the_yes_or_no_for_ids_and_for_levels(self):
         T = SimpleNamespace(id=self.OTHER)
@@ -1548,7 +2164,11 @@ class TestTheRealAuditMiddlewareFilesUnderTheRightTenant:
         added, home, other, person = self.run(monkeypatch, acting=True)
         (event,) = added
         assert event.tenant_id == other and event.actor_id == person and event.actor_email == "tech@x.example"
-        assert event.metadata_["acting_from_tenant_id"] == str(home) and event.metadata_["access"] == "full" and event.metadata_["status_code"] == 200
+        assert (
+            event.metadata_["acting_from_tenant_id"] == str(home)
+            and event.metadata_["access"] == "full"
+            and event.metadata_["status_code"] == 200
+        )
         assert event.entry_hash is not None, "it is chained into that tenant's history"
 
     def test_an_ordinary_request_is_filed_under_the_token_tenant_as_before(self, monkeypatch):

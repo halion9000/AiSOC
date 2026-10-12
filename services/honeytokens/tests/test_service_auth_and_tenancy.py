@@ -5,6 +5,7 @@ delete, triggers) took no tenant at all, so any caller could read, revoke or del
 The canary callback (POST /webhook/trigger) stays reachable without the service token on purpose: planted canaries report back
 through it and their only credential is the unguessable token id.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,8 +47,12 @@ def _configure(monkeypatch, *, token, environment):
 
 
 def _routes():
-    return sorted((m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops
-                  if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p) and (m.upper(), p) not in PUBLIC)
+    return sorted(
+        (m.upper(), p)
+        for p, ops in app.openapi()["paths"].items()
+        for m in ops
+        if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p) and (m.upper(), p) not in PUBLIC
+    )
 
 
 def _call(c, method, path, headers=None):
@@ -75,7 +80,9 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
     assert _past(_call(_configure(monkeypatch, token=TOKEN, environment="production"), method, path, GOOD))
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None])
+@pytest.mark.parametrize(
+    "environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None]
+)
 @pytest.mark.parametrize("method,path", _routes())
 def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(monkeypatch, environment, method, path):
     c = _configure(monkeypatch, token=None, environment=environment)
@@ -86,7 +93,12 @@ def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(
 
 @pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", ""])
 def test_only_the_exact_token_is_accepted(monkeypatch, header):
-    assert _configure(monkeypatch, token=TOKEN, environment="production").get("/api/v1/honeytokens", headers={"Authorization": header}).status_code == 401
+    assert (
+        _configure(monkeypatch, token=TOKEN, environment="production")
+        .get("/api/v1/honeytokens", headers={"Authorization": header})
+        .status_code
+        == 401
+    )
 
 
 def test_the_canary_callback_stays_reachable_without_the_service_token(monkeypatch):
@@ -104,7 +116,8 @@ def _run_scenario(monkeypatch, scenario):
     for table in Base.metadata.tables.values():  # sqlite cannot render gen_random_uuid()/now() defaults
         for col in table.columns:
             if col.server_default is not None and re.search(r"gen_random_uuid|now\(\)", str(getattr(col.server_default, "arg", "")), re.I):
-                stripped.append((col, col.server_default)); col.server_default = None
+                stripped.append((col, col.server_default))
+                col.server_default = None
 
     async def main():
         import httpx
@@ -124,9 +137,30 @@ def _run_scenario(monkeypatch, scenario):
 
         async def seed(tenant, name):
             async with factory() as s:
-                tok = Honeytoken(id=uuid.uuid4(), tenant_id=tenant, name=name, token_type="aws_key", token_value="AKIAFAKE", metadata_={}, status="active", created_at=now, updated_at=now)
-                s.add(tok); await s.flush()
-                s.add(HoneytokenTrigger(id=uuid.uuid4(), honeytoken_id=tok.id, tenant_id=tenant, source_ip="203.0.113.9", request_headers={}, request_body={}, triggered_at=now))
+                tok = Honeytoken(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant,
+                    name=name,
+                    token_type="aws_key",
+                    token_value="AKIAFAKE",
+                    metadata_={},
+                    status="active",
+                    created_at=now,
+                    updated_at=now,
+                )
+                s.add(tok)
+                await s.flush()
+                s.add(
+                    HoneytokenTrigger(
+                        id=uuid.uuid4(),
+                        honeytoken_id=tok.id,
+                        tenant_id=tenant,
+                        source_ip="203.0.113.9",
+                        request_headers={},
+                        request_body={},
+                        triggered_at=now,
+                    )
+                )
                 await s.commit()
                 return tok.id
 
@@ -164,7 +198,9 @@ def test_a_tenant_cannot_revoke_or_delete_another_tenants_token(monkeypatch):
             row = (await s.execute(select(Honeytoken).where(Honeytoken.id == ids["tok_b"]))).scalar_one()
             assert row.status == "active", "B's token was revoked by tenant A"
         # the owner can
-        assert (await c.patch(f"/api/v1/honeytokens/{ids['tok_b']}/revoke", params={"tenant_id": str(ids["b"])})).json()["status"] == "revoked"
+        assert (await c.patch(f"/api/v1/honeytokens/{ids['tok_b']}/revoke", params={"tenant_id": str(ids["b"])})).json()[
+            "status"
+        ] == "revoked"
         assert (await c.delete(f"/api/v1/honeytokens/{ids['tok_b']}", params={"tenant_id": str(ids["b"])})).status_code == 204
         async with factory() as s:
             assert (await s.execute(select(Honeytoken).where(Honeytoken.id == ids["tok_b"]))).scalar_one_or_none() is None
@@ -192,6 +228,7 @@ def test_listing_is_scoped_to_the_tenant(monkeypatch):
 
 def test_a_token_response_carries_its_metadata_under_the_metadata_key(monkeypatch):
     """TokenOut read `metadata` off the ORM object, which is SQLAlchemy's MetaData(), so every response failed validation."""
+
     async def scenario(c, factory, ids):
         async with factory() as s:
             row = (await s.execute(select(Honeytoken).where(Honeytoken.id == ids["tok_a"]))).scalar_one()

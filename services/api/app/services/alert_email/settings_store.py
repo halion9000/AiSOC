@@ -1,4 +1,5 @@
 """The platform-wide alert email setting (one row, id = 1): on or off, from which severity, to whom. Edited only by platform administrators."""
+
 from __future__ import annotations
 
 import re
@@ -45,7 +46,14 @@ async def get_settings(db: Any) -> PlatformAlertEmailSettings:
 
 
 async def update_settings(
-    db: Any, *, updated_by: str, enabled: bool | None = None, min_severity: str | None = None, recipients: Any = None, now: datetime | None = None, commit: bool = True
+    db: Any,
+    *,
+    updated_by: str,
+    enabled: bool | None = None,
+    min_severity: str | None = None,
+    recipients: Any = None,
+    now: datetime | None = None,
+    commit: bool = True,
 ) -> PlatformAlertEmailSettings:
     """Change any of the three. Turning it ON needs at least one recipient and starts the clock: only alerts created AFTER that moment are ever emailed (switching on never mails a backlog). Commits, unless `commit=False` (so a caller can write its audit event in the same transaction)."""
     now = now or datetime.now(UTC)

@@ -3,6 +3,7 @@
 The handler proxies the read to the agents service with the INTERNAL token, which the agents service trusts without scoping (the API is supposed to have authorised the caller), and then returned whatever
 came back: any user who knew a run id could read any tenant's investigation. The check belongs here, where the caller's tenant is known.
 """
+
 import uuid
 
 import httpx
@@ -66,7 +67,9 @@ async def test_a_foreign_run_answers_exactly_like_an_unknown_one(agents):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("body", [{"run_id": "x"}, {"run_id": "x", "tenant_id": None}, {"run_id": "x", "tenant_id": ""}, ["not", "a", "dict"], "a string", 7])
+@pytest.mark.parametrize(
+    "body", [{"run_id": "x"}, {"run_id": "x", "tenant_id": None}, {"run_id": "x", "tenant_id": ""}, ["not", "a", "dict"], "a string", 7]
+)
 async def test_a_run_with_no_recorded_owner_or_an_odd_shape_is_refused(agents, body):
     agents["odd"] = (200, body)
     with pytest.raises(HTTPException) as err:

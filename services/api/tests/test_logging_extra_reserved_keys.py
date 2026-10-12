@@ -2,6 +2,7 @@
 
 `logger.info("...", extra={"created": True})` raises `KeyError: Attempt to overwrite 'created' in LogRecord`. In a request handler that runs AFTER the database commit, that is a 500 for an action that actually succeeded: PUT /oauth/app/{connector_type} and the LLM-credential upsert both returned 500 on every save for this reason (the row was stored, the caller was told it failed).
 This scans every logging call in app/ whose `extra` is a dict literal and fails on any reserved key."""
+
 import ast
 import logging
 from pathlib import Path

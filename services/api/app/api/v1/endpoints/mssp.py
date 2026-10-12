@@ -133,7 +133,9 @@ async def list_notes(
     return list(result.scalars().all())
 
 
-@router.post("/notes", response_model=TenantNoteOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.post(
+    "/notes", response_model=TenantNoteOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))]
+)
 async def create_note(
     body: TenantNoteCreate,
     db: AsyncSession = Depends(get_db),
@@ -173,7 +175,12 @@ async def list_delegations(
     return list(result.scalars().all())
 
 
-@router.post("/delegations", response_model=DelegationOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.post(
+    "/delegations",
+    response_model=DelegationOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def create_delegation(
     body: DelegationCreate,
     db: AsyncSession = Depends(get_db),
@@ -195,7 +202,12 @@ async def create_delegation(
     return delegation
 
 
-@router.delete("/delegations/{delegation_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.delete(
+    "/delegations/{delegation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def revoke_delegation(
     delegation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -389,7 +401,12 @@ async def list_rule_packs(
     return list(result.scalars().all())
 
 
-@router.post("/rule-packs", response_model=RulePackOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.post(
+    "/rule-packs",
+    response_model=RulePackOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def create_rule_pack(
     body: RulePackCreate,
     db: AsyncSession = Depends(get_db),
@@ -446,7 +463,12 @@ async def update_rule_pack(
     return pack
 
 
-@router.delete("/rule-packs/{pack_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.delete(
+    "/rule-packs/{pack_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def delete_rule_pack(
     pack_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -484,7 +506,12 @@ async def add_rule_to_pack(
     return {"status": "ok", "pack_id": str(pack_id), "rule_id": str(body.rule_id)}
 
 
-@router.delete("/rule-packs/{pack_id}/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.delete(
+    "/rule-packs/{pack_id}/rules/{rule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def remove_rule_from_pack(
     pack_id: uuid.UUID,
     rule_id: uuid.UUID,
@@ -500,7 +527,12 @@ async def remove_rule_from_pack(
         await db.commit()
 
 
-@router.post("/rule-packs/{pack_id}/assign", response_model=PackAssignmentOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.post(
+    "/rule-packs/{pack_id}/assign",
+    response_model=PackAssignmentOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def assign_pack_to_child(
     pack_id: uuid.UUID,
     body: PackAssignmentCreate,
@@ -523,7 +555,12 @@ async def assign_pack_to_child(
     return assignment
 
 
-@router.post("/overrides", response_model=RuleOverrideOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.post(
+    "/overrides",
+    response_model=RuleOverrideOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def create_rule_override(
     body: RuleOverrideCreate,
     db: AsyncSession = Depends(get_db),
@@ -573,7 +610,12 @@ async def list_overrides(
     return list(result.scalars().all())
 
 
-@router.delete("/overrides/{override_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("mssp:manage"))])
+@router.delete(
+    "/overrides/{override_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_permission("mssp:manage"))],
+)
 async def delete_override(
     override_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -594,7 +636,9 @@ async def delete_override(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/children/{child_id}/effective-rules", response_model=list[EffectiveRuleOut], dependencies=[Depends(require_permission("mssp:read"))])
+@router.get(
+    "/children/{child_id}/effective-rules", response_model=list[EffectiveRuleOut], dependencies=[Depends(require_permission("mssp:read"))]
+)
 async def list_effective_rules_for_child(
     child_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -637,7 +681,11 @@ async def list_effective_rules_for_child(
     ]
 
 
-@router.get("/children/{child_id}/effective-rules/count", response_model=EffectiveRuleCountOut, dependencies=[Depends(require_permission("mssp:read"))])
+@router.get(
+    "/children/{child_id}/effective-rules/count",
+    response_model=EffectiveRuleCountOut,
+    dependencies=[Depends(require_permission("mssp:read"))],
+)
 async def count_effective_rules_for_child(
     child_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

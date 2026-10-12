@@ -702,7 +702,9 @@ async def explain(req: ExplainRequest, request: Request) -> StreamingResponse:
     throttle. The body is still NDJSON so an SSE/EventSource client
     that ignores status codes still gets a structured failure.
     """
-    req.tenant_id = resolve_tenant(req.tenant_id, authenticated_tenant(request))  # the authenticated caller's tenant, never the body's claim
+    req.tenant_id = resolve_tenant(
+        req.tenant_id, authenticated_tenant(request)
+    )  # the authenticated caller's tenant, never the body's claim
     limiter = _get_explain_limiter()
     decision: RateLimitDecision | None = None
     if limiter is not None:

@@ -175,7 +175,9 @@ class FinishRequest(BaseModel):
 class AuthenticateBeginRequest(BaseModel):
     """Who is signing in, as typed: an account name (or, while LOGIN_ALLOW_EMAIL is on, an email). The JSON key `email` still works; `account_name` and `username` are accepted too. Omit it for a discoverable-credential sign-in."""
 
-    identifier: str | None = Field(default=None, max_length=320, validation_alias=AliasChoices("account_name", "username", "email", "identifier"))
+    identifier: str | None = Field(
+        default=None, max_length=320, validation_alias=AliasChoices("account_name", "username", "email", "identifier")
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 

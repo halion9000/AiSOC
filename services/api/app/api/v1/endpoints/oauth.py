@@ -574,7 +574,8 @@ async def upsert_oauth_app(
         extra={
             "tenant": current_user.tenant_id,
             "connector_type": _safe_log_val(safe_type),
-            "was_created": existing is None,  # NOT "created": that is a reserved LogRecord attribute and makes logging raise, i.e. a 500 after the commit
+            "was_created": existing
+            is None,  # NOT "created": that is a reserved LogRecord attribute and makes logging raise, i.e. a 500 after the commit
         },
     )
     return OAuthAppView(

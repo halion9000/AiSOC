@@ -2,6 +2,7 @@
 
 Bootstrap applies migrations first, and migration 067 promotes the earliest ACTIVE admin to platform_admin: on a fresh database that is this account. Bootstrap then disables it. Before this fix it stayed platform_admin while disabled (found by bootstrapping an empty database and listing the users): harmless, since it cannot log in, but a disabled
 account must not keep elevated rights and it showed up as a platform administrator. It is now demoted to viewer when it is disabled, and an install already in that state is repaired."""
+
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,7 +66,7 @@ class TestWiring:
 
     def test_run_applies_the_plan_and_reports_it(self):
         assert "newly_disabled, seeded_values = plan_seeded_admin_update(seeded)" in self.src
-        assert 'update(User).where(User.id == SEEDED_ADMIN_ID).values(**seeded_values)' in self.src
+        assert "update(User).where(User.id == SEEDED_ADMIN_ID).values(**seeded_values)" in self.src
         assert 'result["default_admin_disabled"] = newly_disabled' in self.src
 
     def test_the_demotion_target_is_not_an_elevated_role(self):

@@ -4,6 +4,7 @@ Every route answered anonymous requests, including atomics/run and caldera/run, 
 Callers send ``Authorization: Bearer <AISOC_PURPLE_TEAM_SERVICE_TOKEN>``. There is no development mode: with no token configured every route answers 503, and CORE generates the token on every build, so a properly set
 up stack always has one. Read at call time so tests and redeploys can change it.
 """
+
 from __future__ import annotations
 
 import os
@@ -20,4 +21,6 @@ async def require_service_token(authorization: Annotated[str | None, Header()] =
     scheme, _, supplied = (authorization or "").partition(" ")
     supplied = supplied.strip()
     if scheme.lower() != "bearer" or not supplied or not secrets.compare_digest(supplied.encode(), token.encode()):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid or missing service token", headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid or missing service token", headers={"WWW-Authenticate": "Bearer"}
+        )

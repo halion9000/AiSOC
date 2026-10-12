@@ -2,6 +2,7 @@
 
 /nl-query/execute runs with the SERVER's Elasticsearch credentials. Nothing selected (or only your own tenant) searches your own tenant. Choosing other tenants, several tenants, or all of them is a platform-level action: it needs the platform permission AND NL_QUERY_TENANT_FIELD (the field holding each event's tenant),
 because without that field the search could not be restricted to the tenants chosen. The predicate is `== "<id>"` for one tenant, `IN (...)` for several and absent for all; a tenant that does not exist is a 404; and anything wider than your own tenant is logged."""
+
 import logging
 import uuid
 from types import SimpleNamespace
@@ -162,7 +163,10 @@ class TestThePredicate:
         assert self.scoped(nq.TenantScope("selected", (str(OTHER),))) == f'FROM logs-*\n| WHERE tenant.id == "{OTHER}"' + TAIL
 
     def test_several_selected_tenants_use_in(self, field):
-        assert self.scoped(nq.TenantScope("selected", (str(OTHER), str(THIRD)))) == f'FROM logs-*\n| WHERE tenant.id IN ("{OTHER}", "{THIRD}")' + TAIL
+        assert (
+            self.scoped(nq.TenantScope("selected", (str(OTHER), str(THIRD))))
+            == f'FROM logs-*\n| WHERE tenant.id IN ("{OTHER}", "{THIRD}")' + TAIL
+        )
 
     def test_all_tenants_adds_no_predicate(self, field):
         assert self.scoped(nq.TenantScope("all")) == "FROM logs-*" + TAIL
@@ -205,7 +209,9 @@ class TestEndpoints:
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM logs-*" + TAIL), "deterministic")))
         monkeypatch.setattr(nq, "_execute_esql", run)
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
-        out = await nq.execute_query(body=nq.NLQueryExecuteRequest(question=Q, tenant_ids=[OTHER, THIRD]), user=principal(), db=FakeDB([OTHER, THIRD]))
+        out = await nq.execute_query(
+            body=nq.NLQueryExecuteRequest(question=Q, tenant_ids=[OTHER, THIRD]), user=principal(), db=FakeDB([OTHER, THIRD])
+        )
         assert run.await_args.args[0] == f'FROM logs-*\n| WHERE tenant.id IN ("{OTHER}", "{THIRD}")' + TAIL
         assert out.tenant_scope == "selected" and out.tenant_ids == [str(OTHER), str(THIRD)] and out.esql == run.await_args.args[0]
 
@@ -249,7 +255,13 @@ class TestEndpoints:
             await nq.translate_query(body=req(all_tenants=True), user=u, db=FakeDB())
             await nq.translate_query(body=req(tenant_ids=[OTHER]), user=u, db=FakeDB([OTHER]))
         msgs = [r.getMessage() for r in caplog.records if "nl_query.cross_tenant" in r.getMessage()]
-        assert len(msgs) == 2 and str(u.user_id) in msgs[0] and "scope=all" in msgs[0] and "scope=selected" in msgs[1] and str(OTHER) in msgs[1]
+        assert (
+            len(msgs) == 2
+            and str(u.user_id) in msgs[0]
+            and "scope=all" in msgs[0]
+            and "scope=selected" in msgs[1]
+            and str(OTHER) in msgs[1]
+        )
 
 
 @pytest.mark.asyncio

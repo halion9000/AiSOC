@@ -6,6 +6,7 @@ Two defects, both fabricating security data:
   2. The hunt scheduler's telemetry provider DEFAULTED to "synthetic", the benchmark dataset in tests/eval_data, so in any checkout containing that folder scheduled hunts recorded findings from
      benchmark data as if they were the tenant's. The default is now "ingest" (the live path, not wired yet: an empty stream, an empty run). "synthetic" must be requested explicitly.
 """
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -13,7 +14,15 @@ from fastapi.testclient import TestClient
 from app.api import hunt_search
 from app.hunt import scheduler
 
-INVENTED = ["WS-DEV-01", "corp.example", "192.0.2.42", "AssumeRole", "arn:aws:iam::123456789:role/Admin", "DOMAIN\\\\analyst", "explorer.exe"]
+INVENTED = [
+    "WS-DEV-01",
+    "corp.example",
+    "192.0.2.42",
+    "AssumeRole",
+    "arn:aws:iam::123456789:role/Admin",
+    "DOMAIN\\\\analyst",
+    "explorer.exe",
+]
 
 
 @pytest.fixture

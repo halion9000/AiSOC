@@ -8,6 +8,7 @@ Now: the managed tenants are the caller's real child tenants, each with its late
 metric ``None`` if not: nothing in this codebase writes snapshots yet, and a missing number must not be replaced by a made-up one), and there is
 no cross-tenant incident feed yet, so that route returns an empty list. Runs against a real database engine (in-memory SQLite).
 """
+
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -22,7 +23,17 @@ from app.models.mssp import MSSPTenantMetrics
 from app.models.tenant import Tenant
 
 TABLES = [m.__table__ for m in (Tenant, MSSPTenantMetrics)]
-INVENTED = ["Acme Corp", "Globex Industries", "Initech LLC", "Wayne Enterprises", "Stark Solutions", "INC-4201", "Jordan Lee", "Morgan Chen", "t-acme"]
+INVENTED = [
+    "Acme Corp",
+    "Globex Industries",
+    "Initech LLC",
+    "Wayne Enterprises",
+    "Stark Solutions",
+    "INC-4201",
+    "Jordan Lee",
+    "Morgan Chen",
+    "t-acme",
+]
 
 
 def run(coro_fn):
@@ -51,8 +62,17 @@ async def tenant(s, name, parent=None):
 
 def snapshot(t, *, minutes_ago=0, open_alerts=0, critical=0, cases=0, mttr=None, breaches=0, connectors=0, health=None):
     return MSSPTenantMetrics(
-        id=uuid.uuid4(), tenant_id=t.id, snapshot_at=datetime.now(UTC) - timedelta(minutes=minutes_ago), open_alerts=open_alerts, critical_alerts=critical,
-        open_cases=cases, mttr_minutes=mttr, sla_breaches=breaches, connector_count=connectors, health_score=health, raw_data={},
+        id=uuid.uuid4(),
+        tenant_id=t.id,
+        snapshot_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
+        open_alerts=open_alerts,
+        critical_alerts=critical,
+        open_cases=cases,
+        mttr_minutes=mttr,
+        sla_breaches=breaches,
+        connector_count=connectors,
+        health_score=health,
+        raw_data={},
     )
 
 
@@ -73,7 +93,14 @@ def test_a_workspace_with_no_children_has_no_managed_tenants_and_no_figures():
     rows, overview = run(body)
     assert rows == []
     assert overview.total_tenants == 0 and overview.tenants_reporting == 0
-    for figure in (overview.total_open_alerts, overview.total_critical_alerts, overview.total_open_cases, overview.avg_health_score, overview.avg_mttr_minutes, overview.sla_breach_count):
+    for figure in (
+        overview.total_open_alerts,
+        overview.total_critical_alerts,
+        overview.total_open_cases,
+        overview.avg_health_score,
+        overview.avg_mttr_minutes,
+        overview.sla_breach_count,
+    ):
         assert figure is None
 
 
@@ -83,13 +110,24 @@ def test_real_children_are_listed_by_name_with_no_metrics_until_a_snapshot_exist
         await tenant(s, "Zeta Customer", parent.id)
         await tenant(s, "Alpha Customer", parent.id)
         await s.commit()
-        return await mssp.list_managed_tenants(db=s, current_user=caller(parent)), await mssp.mssp_overview(db=s, current_user=caller(parent))
+        return await mssp.list_managed_tenants(db=s, current_user=caller(parent)), await mssp.mssp_overview(
+            db=s, current_user=caller(parent)
+        )
 
     rows, overview = run(body)
     assert [r.name for r in rows] == ["Alpha Customer", "Zeta Customer"]
     for row in rows:
         assert row.has_metrics is False
-        assert (row.snapshot_at, row.health_score, row.open_alerts, row.critical_alerts, row.open_cases, row.mttr_minutes, row.sla_breaches, row.connector_count) == (None,) * 8
+        assert (
+            row.snapshot_at,
+            row.health_score,
+            row.open_alerts,
+            row.critical_alerts,
+            row.open_cases,
+            row.mttr_minutes,
+            row.sla_breaches,
+            row.connector_count,
+        ) == (None,) * 8
     assert overview.total_tenants == 2 and overview.tenants_reporting == 0 and overview.total_open_alerts is None
 
 
@@ -100,20 +138,39 @@ def test_the_newest_snapshot_wins_and_totals_cover_only_tenants_that_report():
         silent = await tenant(s, "Silent Customer", parent.id)
         s.add_all(
             [
-                snapshot(reporting, minutes_ago=600, open_alerts=99, critical=9, cases=9, mttr=999.0, breaches=9, connectors=9, health=10.0),  # stale: must lose
+                snapshot(
+                    reporting, minutes_ago=600, open_alerts=99, critical=9, cases=9, mttr=999.0, breaches=9, connectors=9, health=10.0
+                ),  # stale: must lose
                 snapshot(reporting, minutes_ago=5, open_alerts=12, critical=2, cases=4, mttr=30.0, breaches=1, connectors=3, health=80.0),
             ]
         )
         await s.commit()
-        return await mssp.list_managed_tenants(db=s, current_user=caller(parent)), await mssp.mssp_overview(db=s, current_user=caller(parent)), silent
+        return (
+            await mssp.list_managed_tenants(db=s, current_user=caller(parent)),
+            await mssp.mssp_overview(db=s, current_user=caller(parent)),
+            silent,
+        )
 
     rows, overview, silent = run(body)
     by_name = {r.name: r for r in rows}
     fresh = by_name["Reporting Customer"]
-    assert fresh.has_metrics and (fresh.open_alerts, fresh.critical_alerts, fresh.open_cases, fresh.mttr_minutes, fresh.sla_breaches, fresh.connector_count, fresh.health_score) == (12, 2, 4, 30.0, 1, 3, 80.0)
+    assert fresh.has_metrics and (
+        fresh.open_alerts,
+        fresh.critical_alerts,
+        fresh.open_cases,
+        fresh.mttr_minutes,
+        fresh.sla_breaches,
+        fresh.connector_count,
+        fresh.health_score,
+    ) == (12, 2, 4, 30.0, 1, 3, 80.0)
     assert by_name["Silent Customer"].has_metrics is False
     assert overview.total_tenants == 2 and overview.tenants_reporting == 1
-    assert (overview.total_open_alerts, overview.total_critical_alerts, overview.total_open_cases, overview.sla_breach_count) == (12, 2, 4, 1)
+    assert (overview.total_open_alerts, overview.total_critical_alerts, overview.total_open_cases, overview.sla_breach_count) == (
+        12,
+        2,
+        4,
+        1,
+    )
     assert (overview.avg_health_score, overview.avg_mttr_minutes) == (80.0, 30.0)
 
 
@@ -150,7 +207,9 @@ def test_there_is_no_cross_tenant_incident_feed_and_none_is_invented():
     async def body(s):
         parent = await tenant(s, "Parent MSSP")
         await s.commit()
-        return await mssp.list_cross_tenant_incidents(severity=None, db=s, current_user=caller(parent)), await mssp.list_cross_tenant_incidents(severity="high", db=s, current_user=caller(parent))
+        return await mssp.list_cross_tenant_incidents(
+            severity=None, db=s, current_user=caller(parent)
+        ), await mssp.list_cross_tenant_incidents(severity="high", db=s, current_user=caller(parent))
 
     unfiltered, filtered = run(body)
     assert unfiltered == [] and filtered == []
@@ -164,7 +223,11 @@ def test_none_of_the_invented_demo_names_can_come_back():
         await s.commit()
         out = []
         for who in (solo, parent):
-            out += [await mssp.list_managed_tenants(db=s, current_user=caller(who)), await mssp.mssp_overview(db=s, current_user=caller(who)), await mssp.list_cross_tenant_incidents(severity=None, db=s, current_user=caller(who))]
+            out += [
+                await mssp.list_managed_tenants(db=s, current_user=caller(who)),
+                await mssp.mssp_overview(db=s, current_user=caller(who)),
+                await mssp.list_cross_tenant_incidents(severity=None, db=s, current_user=caller(who)),
+            ]
         return repr(out)
 
     text = run(body)

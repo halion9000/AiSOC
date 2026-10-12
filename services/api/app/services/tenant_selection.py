@@ -4,6 +4,7 @@ A caller may always read their OWN tenant. Naming any other tenant needs the pla
 Before this module fusion checked the role NAME `platform_admin`, osquery_fim checked the role name too (plus a demo-tenant alias), and /nl-query checked the permission: three answers to the same question, so an API key judged by its scopes was allowed in one place and refused in another.
 
 The tenant a request acts on is never taken from a header or a query string on trust: a request may only NAME a tenant, and this decides whether the caller is entitled to it."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable

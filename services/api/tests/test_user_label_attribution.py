@@ -3,6 +3,7 @@
 Three endpoints stored `str(user)`, the Python repr of the CurrentUser object ("<app.api.v1.deps.CurrentUser object at 0x...>"), where a person's identity belonged: the knowledge-base author, the phishing submitter and the compliance evidence REVIEWER. Beyond the meaningless value (and an in-process memory address in API output), the compliance review took the reviewer from the REQUEST BODY first,
 so a caller could attribute their approval of audit evidence to anyone they named (shown on real Postgres: a review naming ceo@victim-company.example was stored as reviewed by them). The identity now comes from the authenticated user, always.
 """
+
 import ast
 import re
 import uuid
@@ -66,12 +67,16 @@ class TestTheEndpoints:
     async def test_with_no_reviewer_named_it_is_still_the_user_and_not_an_object_repr(self):
         db, u = RecordingDB(), user("real.reviewer@example.test")
         with pytest.raises(HTTPException):
-            await compliance.review_evidence(evidence_id=uuid.uuid4(), body=compliance.ReviewEvidenceRequest(decision="accepted"), db=db, user=u)
+            await compliance.review_evidence(
+                evidence_id=uuid.uuid4(), body=compliance.ReviewEvidenceRequest(decision="accepted"), db=db, user=u
+            )
         assert db.params[0]["reviewer"] == "real.reviewer@example.test" and "object at" not in str(db.params[0]["reviewer"])
 
     async def test_the_phishing_submitter_is_the_authenticated_user(self):
         db, u = RecordingDB(), user("submitter@example.test")
-        body = phishing.SubmitRequest.model_construct(artifact_kind="email", raw_content="x", sender="s@example.test", subject="s", recipients=[], message_id=None, metadata={})
+        body = phishing.SubmitRequest.model_construct(
+            artifact_kind="email", raw_content="x", sender="s@example.test", subject="s", recipients=[], message_id=None, metadata={}
+        )
         with pytest.raises(Exception):  # noqa: B017, PT011  (the recording DB fails the statement on purpose)
             await phishing.submit(body=body, db=db, user=u)
         assert any(p.get("by") == "submitter@example.test" for p in db.params), db.params
@@ -93,7 +98,14 @@ class TestNoStringifiedPrincipalAnywhere:
                 continue
             tree = ast.parse(f.read_text(encoding="utf-8", errors="replace"))
             for n in ast.walk(tree):
-                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "str" and len(n.args) == 1 and isinstance(n.args[0], ast.Name) and n.args[0].id in {"user", "current_user", "auth_user", "principal", "actor"}:
+                if (
+                    isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Name)
+                    and n.func.id == "str"
+                    and len(n.args) == 1
+                    and isinstance(n.args[0], ast.Name)
+                    and n.args[0].id in {"user", "current_user", "auth_user", "principal", "actor"}
+                ):
                     bad.append(f"{f.relative_to(APP)}:{n.lineno}")
         assert bad == [], "use .label (or an explicit field) instead:\n" + "\n".join(bad)
 
@@ -109,7 +121,14 @@ class TestMigration066:
         assert self.sql.count("BEGIN;") == 1 and self.sql.count("COMMIT;") == 1
         assert names.index("066_clean_user_object_repr.sql") == names.index("065_backfill_alert_case_id.sql") + 1
 
-    @pytest.mark.parametrize("table,col", [("aisoc_kb_documents", "created_by"), ("aisoc_phishing_submissions", "submitted_by"), ("aisoc_compliance_evidence", "reviewed_by")])
+    @pytest.mark.parametrize(
+        "table,col",
+        [
+            ("aisoc_kb_documents", "created_by"),
+            ("aisoc_phishing_submissions", "submitted_by"),
+            ("aisoc_compliance_evidence", "reviewed_by"),
+        ],
+    )
     def test_it_clears_exactly_the_polluted_values_in_each_table(self, table, col):
         assert f"UPDATE {table} SET {col} = 'unknown' WHERE {col} LIKE '<app.api.v1.deps.CurrentUser object at 0x%';" in self.norm()
 

@@ -66,7 +66,11 @@ class CatalogStore:
         return [dict(r.data) for r in rows]
 
     async def create(self, db: AsyncSession, item_id: str, entry: dict[str, Any], *, submitter_tenant_id: uuid.UUID | None = None) -> None:
-        db.add(CommunityCatalogItem(kind=self.kind, item_id=item_id, status=_status_of(entry), submitter_tenant_id=submitter_tenant_id, data=_jsonable(entry)))
+        db.add(
+            CommunityCatalogItem(
+                kind=self.kind, item_id=item_id, status=_status_of(entry), submitter_tenant_id=submitter_tenant_id, data=_jsonable(entry)
+            )
+        )
         try:
             await db.commit()
         except IntegrityError as exc:

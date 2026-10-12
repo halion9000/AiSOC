@@ -26,7 +26,9 @@ def authenticated_tenant(source: Request | WebSocket) -> str | None:
         return None
     tenant = caller.get("tenant_id")
     if not tenant:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your tenant could not be determined, so this request was refused.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Your tenant could not be determined, so this request was refused."
+        )
     return str(tenant)
 
 

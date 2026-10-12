@@ -2,6 +2,7 @@
 
 `_open_case_for_hits` added a row to the old `cases` table, which nothing reads, so every case a scheduled hunt opened was invisible everywhere. Checked on real Postgres: after the fix a hunt's case is listed by REST and GraphQL for its own tenant and by no other, and a hunt with no hits opens nothing.
 """
+
 import json
 import re
 import uuid
@@ -90,7 +91,12 @@ class TestWhatIsWritten:
 
     async def test_casts_are_written_as_CAST_not_the_glued_double_colon(self):
         sql, _ = await self.row()
-        assert "CAST(:mitre AS JSONB)" in sql and "CAST(:alert_ids AS UUID[])" in sql and "CAST(:frameworks AS TEXT[])" in sql and "CAST(:tags AS JSONB)" in sql
+        assert (
+            "CAST(:mitre AS JSONB)" in sql
+            and "CAST(:alert_ids AS UUID[])" in sql
+            and "CAST(:frameworks AS TEXT[])" in sql
+            and "CAST(:tags AS JSONB)" in sql
+        )
         assert not re.search(r":\w+::", sql)
 
     async def test_every_named_parameter_is_supplied(self):

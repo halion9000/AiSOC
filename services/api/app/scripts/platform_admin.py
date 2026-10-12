@@ -11,6 +11,7 @@ Name the person by ACCOUNT NAME (`--name`, what they sign in with; an account ne
 
 Revoking the LAST active platform_admin is refused (nobody could then administer the platform) unless --force is given. A person's open sessions pick up the change on their next request.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,7 +26,9 @@ class PlatformAdminError(RuntimeError):
     pass
 
 
-async def run(action: str, email: str | None = None, *, name: str | None = None, to_role: str = "tenant_admin", force: bool = False) -> dict:
+async def run(
+    action: str, email: str | None = None, *, name: str | None = None, to_role: str = "tenant_admin", force: bool = False
+) -> dict:
     from sqlalchemy import func, select, update  # noqa: PLC0415
 
     from app.core.security import ROLE_PERMISSIONS  # noqa: PLC0415
@@ -36,7 +39,13 @@ async def run(action: str, email: str | None = None, *, name: str | None = None,
     async with AsyncSessionLocal() as session:
         if action == "list":
             rows = (await session.execute(select(User).where(User.role == PLATFORM_ROLE).order_by(User.created_at))).scalars().all()
-            return {"ok": True, "platform_admins": [{"account_name": u.account_name, "email": u.email, "tenant_id": str(u.tenant_id), "active": bool(u.is_active)} for u in rows]}
+            return {
+                "ok": True,
+                "platform_admins": [
+                    {"account_name": u.account_name, "email": u.email, "tenant_id": str(u.tenant_id), "active": bool(u.is_active)}
+                    for u in rows
+                ],
+            }
 
         if bool(email) == bool(name):
             raise PlatformAdminError("give exactly one of --name (the account name) or --email")
@@ -67,12 +76,20 @@ async def run(action: str, email: str | None = None, *, name: str | None = None,
             if user.role != PLATFORM_ROLE:
                 return {"ok": True, **who, "role": user.role, "changed": False}
             if to_role not in ROLE_PERMISSIONS or to_role == PLATFORM_ROLE:
-                raise PlatformAdminError(f"--to-role must be a known role other than {PLATFORM_ROLE}: {', '.join(sorted(r for r in ROLE_PERMISSIONS if r != PLATFORM_ROLE))}.")
+                raise PlatformAdminError(
+                    f"--to-role must be a known role other than {PLATFORM_ROLE}: {', '.join(sorted(r for r in ROLE_PERMISSIONS if r != PLATFORM_ROLE))}."
+                )
             others = (
-                await session.execute(select(func.count()).select_from(User).where(User.role == PLATFORM_ROLE, User.id != user.id, User.is_active.is_not(False)))
+                await session.execute(
+                    select(func.count())
+                    .select_from(User)
+                    .where(User.role == PLATFORM_ROLE, User.id != user.id, User.is_active.is_not(False))
+                )
             ).scalar_one()
             if others == 0 and not force:
-                raise PlatformAdminError(f"{label} is the last active platform_admin: nobody could administer the platform afterwards. Grant the role to someone else first, or pass --force.")
+                raise PlatformAdminError(
+                    f"{label} is the last active platform_admin: nobody could administer the platform afterwards. Grant the role to someone else first, or pass --force."
+                )
             await session.execute(update(User).where(User.id == user.id).values(role=to_role))
             await session.commit()
             return {"ok": True, **who, "role": to_role, "previous_role": PLATFORM_ROLE, "changed": True}
@@ -96,7 +113,15 @@ def main(argv: list[str] | None = None) -> int:
     revoke.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     try:
-        result = asyncio.run(run(args.action, getattr(args, "email", None), name=getattr(args, "name", None), to_role=getattr(args, "to_role", "tenant_admin"), force=getattr(args, "force", False)))
+        result = asyncio.run(
+            run(
+                args.action,
+                getattr(args, "email", None),
+                name=getattr(args, "name", None),
+                to_role=getattr(args, "to_role", "tenant_admin"),
+                force=getattr(args, "force", False),
+            )
+        )
     except PlatformAdminError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1

@@ -3,6 +3,7 @@
 The bot refuses to start without SLACK_SIGNING_SECRET (there is no mode in which it runs unverified), so tests that build the app
 supply one, exactly as a real deployment does. A test that needs the secret ABSENT removes it explicitly (monkeypatch.delenv).
 """
+
 from __future__ import annotations
 
 import sys

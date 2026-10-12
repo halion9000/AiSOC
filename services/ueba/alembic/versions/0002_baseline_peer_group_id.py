@@ -7,6 +7,7 @@ actually built. Nothing had ever run these migrations, so nothing had noticed.
 Revision ID: 0002
 Revises: 0001
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa

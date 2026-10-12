@@ -6,6 +6,7 @@ filtered on NO tenant ("RLS scopes the tenant"), which the default superuser con
 The properties here are the DESTRUCTIVE-SAFETY ones: live response actions are never deleted however old; one tenant's window never touches another tenant's rows; every delete carries an explicit tenant predicate; windows are
 clamped; deletes are batched and bounded; one failing class does not stop the rest; a dry run deletes nothing.
 """
+
 import asyncio
 import re
 import uuid
@@ -34,8 +35,14 @@ LIVE = ["pending", "awaiting_approval", "approved", "running"]
 
 def cfg(**over):
     base = dict(
-        RETENTION_DRY_RUN=False, RETENTION_BATCH_SIZE=1000, RETENTION_MAX_BATCHES_PER_SWEEP=100, RETENTION_COPILOT_CONVERSATIONS_DAYS=90, RETENTION_DETECTION_SUGGESTIONS_DAYS=180,
-        RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS=730, RETENTION_INITIAL_DELAY_SECONDS=0, RETENTION_SWEEP_INTERVAL_SECONDS=3600,
+        RETENTION_DRY_RUN=False,
+        RETENTION_BATCH_SIZE=1000,
+        RETENTION_MAX_BATCHES_PER_SWEEP=100,
+        RETENTION_COPILOT_CONVERSATIONS_DAYS=90,
+        RETENTION_DETECTION_SUGGESTIONS_DAYS=180,
+        RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS=730,
+        RETENTION_INITIAL_DELAY_SECONDS=0,
+        RETENTION_SWEEP_INTERVAL_SECONDS=3600,
     )
     base.update(over)
     return SimpleNamespace(**base)
@@ -52,7 +59,9 @@ class DB:
 def database(tmp_path):
     DB.path = tmp_path / "retention.db"
     DB.sync = create_engine(f"sqlite:///{DB.path}")
-    Base.metadata.create_all(DB.sync, tables=[Tenant.__table__, CopilotConversation.__table__, DetectionSuggestion.__table__, RetentionPolicyRow.__table__])
+    Base.metadata.create_all(
+        DB.sync, tables=[Tenant.__table__, CopilotConversation.__table__, DetectionSuggestion.__table__, RetentionPolicyRow.__table__]
+    )
     rs._meta.create_all(DB.sync)
     engine = create_async_engine(f"sqlite+aiosqlite:///{DB.path}", poolclass=NullPool)
     DB.statements = []
@@ -73,13 +82,31 @@ def ago(days: float) -> datetime:
 def conversation(tenant, age_days, cid=None, created_days=None):
     """`age_days` is when it was last updated; `created_days` (default: the same) is when it was started."""
     with Session(DB.sync) as s:
-        s.add(CopilotConversation(tenant_id=tenant, owner_key="u1", conversation_id=cid or str(uuid.uuid4()), messages=[], created_at=ago(created_days if created_days is not None else age_days), updated_at=ago(age_days)))
+        s.add(
+            CopilotConversation(
+                tenant_id=tenant,
+                owner_key="u1",
+                conversation_id=cid or str(uuid.uuid4()),
+                messages=[],
+                created_at=ago(created_days if created_days is not None else age_days),
+                updated_at=ago(age_days),
+            )
+        )
         s.commit()
 
 
 def suggestion(tenant, age_days):
     with Session(DB.sync) as s:
-        s.add(DetectionSuggestion(id=uuid.uuid4(), tenant_id=tenant, alert_id=uuid.uuid4(), draft_rule_name="n", draft_sigma_yaml="y", created_at=ago(age_days)))
+        s.add(
+            DetectionSuggestion(
+                id=uuid.uuid4(),
+                tenant_id=tenant,
+                alert_id=uuid.uuid4(),
+                draft_rule_name="n",
+                draft_sigma_yaml="y",
+                created_at=ago(age_days),
+            )
+        )
         s.commit()
 
 
@@ -321,7 +348,13 @@ class TestTheLoop:
 
         monkeypatch.setattr(rs, "sweep_once", fake_sweep)
         with pytest.raises(asyncio.CancelledError):
-            asyncio.run(rs.run_retention_sweeper(sleep=fake_sleep, settings=cfg(RETENTION_INITIAL_DELAY_SECONDS=300, RETENTION_SWEEP_INTERVAL_SECONDS=7200), session_factory=DB.factory))
+            asyncio.run(
+                rs.run_retention_sweeper(
+                    sleep=fake_sleep,
+                    settings=cfg(RETENTION_INITIAL_DELAY_SECONDS=300, RETENTION_SWEEP_INTERVAL_SECONDS=7200),
+                    session_factory=DB.factory,
+                )
+            )
         assert sleeps == [300, 7200, 7200] and len(sweeps) == 2  # delay, sweep, interval, sweep, interval(cancelled)
 
     def test_a_failing_sweep_does_not_end_the_loop(self, monkeypatch):
@@ -354,7 +387,9 @@ class TestTheLoop:
 
         monkeypatch.setattr(rs, "sweep_once", noop)
         with pytest.raises(asyncio.CancelledError):
-            asyncio.run(rs.run_retention_sweeper(sleep=fake_sleep, settings=cfg(RETENTION_SWEEP_INTERVAL_SECONDS=0), session_factory=DB.factory))
+            asyncio.run(
+                rs.run_retention_sweeper(sleep=fake_sleep, settings=cfg(RETENTION_SWEEP_INTERVAL_SECONDS=0), session_factory=DB.factory)
+            )
         assert sleeps[1] == 60
 
 
@@ -364,7 +399,11 @@ class TestConfiguration:
 
         s = Settings()
         assert s.RETENTION_SWEEPER_ENABLED is True and s.RETENTION_DRY_RUN is False
-        assert (s.RETENTION_COPILOT_CONVERSATIONS_DAYS, s.RETENTION_DETECTION_SUGGESTIONS_DAYS, s.RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS) == (90, 180, 730)
+        assert (
+            s.RETENTION_COPILOT_CONVERSATIONS_DAYS,
+            s.RETENTION_DETECTION_SUGGESTIONS_DAYS,
+            s.RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS,
+        ) == (90, 180, 730)
         assert s.RETENTION_INITIAL_DELAY_SECONDS >= 60 and s.RETENTION_BATCH_SIZE > 0
 
     def test_it_is_started_under_the_scheduler_lock_and_stopped_at_shutdown(self):

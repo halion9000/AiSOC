@@ -256,7 +256,11 @@ async def test_suggest_same_tenant_scopes_alert_rule_and_proposal(_stub_llm: dic
     assert isinstance(stored, DetectionSuggestion)
     assert stored.tenant_id == user.tenant_id and stored.created_by == user.user_id
     assert stored.id == response.suggestion_id and stored.alert_id == response.alert_id and stored.base_rule_id == rule_id
-    assert stored.draft_sigma_yaml == response.draft_sigma_yaml and stored.rationale == response.rationale and stored.proposal_id == response.proposal_id
+    assert (
+        stored.draft_sigma_yaml == response.draft_sigma_yaml
+        and stored.rationale == response.rationale
+        and stored.proposal_id == response.proposal_id
+    )
     assert stored.proposal_id is not None
     db.commit.assert_awaited_once()
 

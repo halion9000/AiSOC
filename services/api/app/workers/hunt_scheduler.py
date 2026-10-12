@@ -227,7 +227,9 @@ async def _open_case_for_hits(db: AsyncSession, hunt: SavedHunt, hit_count: int)
             "tenant_id": hunt.tenant_id,
             "case_number": f"HUNT-{hunt.id.hex[:8].upper()}-{int(now.timestamp())}",
             "title": f"Scheduled hunt fired: {hunt.name}",
-            "description": (f"Saved hunt {hunt.name!r} returned {hit_count} hit(s) on its scheduled run.\n\nOriginal NL question: {hunt.nl_query}"),
+            "description": (
+                f"Saved hunt {hunt.name!r} returned {hit_count} hit(s) on its scheduled run.\n\nOriginal NL question: {hunt.nl_query}"
+            ),
             "mitre": "[]",
             "alert_ids": [],
             "frameworks": [],

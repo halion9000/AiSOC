@@ -18,6 +18,7 @@ refilling 12 a minute; override with AISOC_ENRICHMENT_RATE_CAPACITY / AISOC_ENRI
 token per indicator actually sent. Requests refused before reaching a provider (no permission, junk input)
 cost nothing. Note the buckets are per tenant but the provider keys are shared by the whole install.
 """
+
 import ipaddress
 import os
 import re
@@ -123,7 +124,6 @@ def to_indicator(result: dict[str, Any]) -> IndicatorOut:
     )
 
 
-
 def _env_float(name: str, default: float) -> float:
     try:
         value = float((os.getenv(name) or "").strip())
@@ -144,7 +144,9 @@ async def _charge(tenant_id: UUID, cost: float, response: Response) -> None:
     try:
         decision = await _limiter.acquire(tenant_id, cost=cost)
     except ValueError as exc:  # more indicators than the bucket can ever hold
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Too many indicators for the configured rate limit: {exc}") from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Too many indicators for the configured rate limit: {exc}"
+        ) from exc
     headers = decision.to_headers()
     for name, value in headers.items():
         response.headers[name] = value

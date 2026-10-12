@@ -1,7 +1,9 @@
 """The agents service says, once, when its database role bypasses row-level security (see the API's test of the same name)."""
+
 import pytest
 
 from app.core import db_role
+
 
 class Spy:
     def __init__(self):
@@ -67,7 +69,9 @@ class TestDbRole:
         assert rec["role"] == "aisoc" and rec["superuser"] is True and "application-level tenant filters" in rec["consequence"]
 
     async def test_a_bypassrls_role_is_warned_about(self, fresh):
-        assert await db_role.warn_if_rls_bypassed(FakePool(row("svc", False, True))) is True and fresh.events("warning") == ["db.rls_bypassed"]
+        assert await db_role.warn_if_rls_bypassed(FakePool(row("svc", False, True))) is True and fresh.events("warning") == [
+            "db.rls_bypassed"
+        ]
 
     async def test_an_ordinary_role_is_not(self, fresh):
         assert await db_role.warn_if_rls_bypassed(FakePool(row("aisoc_app", False, False))) is False

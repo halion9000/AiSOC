@@ -12,6 +12,7 @@ then delete its line from tests/data/unguarded_routes.txt.
 Some routes are legitimately self-service (your own passkeys, push
 subscriptions, saved views). Leave those in the baseline.
 """
+
 import os
 
 from route_auth_scan import unguarded_routes
@@ -44,7 +45,17 @@ def test_the_scanner_actually_sees_the_routes():
     recognises routes that are guarded (cases were fixed in d8d3c28f).
     """
     found = unguarded_routes()
-    for known_open in ("passkeys.py::passkey_register_begin", "saved_views.py::create_saved_view", "push.py::subscribe", "phishing.py::submit"):
+    for known_open in (
+        "passkeys.py::passkey_register_begin",
+        "saved_views.py::create_saved_view",
+        "push.py::subscribe",
+        "phishing.py::submit",
+    ):
         assert any(known_open in r for r in found), f"the scanner no longer detects {known_open}: it is broken"
-    for known_guarded in ("cases.py::create_case", "assets.py::delete_asset", "deployment.py::update_deployment_config", "mssp.py::create_rule_override"):
+    for known_guarded in (
+        "cases.py::create_case",
+        "assets.py::delete_asset",
+        "deployment.py::update_deployment_config",
+        "mssp.py::create_rule_override",
+    ):
         assert not any(known_guarded in r for r in found), f"{known_guarded} should be recognised as guarded"

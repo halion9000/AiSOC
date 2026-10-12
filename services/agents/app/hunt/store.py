@@ -99,7 +99,6 @@ async def sync_catalog(
                 logger.debug("hunt.store.catalog.skip", reason="unknown_tenant", tenant_ref=tenant_ref)
                 return 0
             async with tenant_scope(conn, tenant_id):
-
                 for hunt in hunts:
                     await conn.execute(
                         """
@@ -183,7 +182,6 @@ async def record_run(
                 logger.debug("hunt.store.run.skip", reason="unknown_tenant", tenant_ref=tenant_ref)
                 return None
             async with tenant_scope(conn, tenant_id):
-
                 hyp_row = await conn.fetchrow(
                     "SELECT id FROM hunt_hypotheses WHERE tenant_id = $1 AND hunt_id = $2",
                     tenant_id,

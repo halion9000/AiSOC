@@ -10,6 +10,7 @@ checked here), this finds the call's OWN options object (by matching its parenth
 next call's `method:` is never borrowed) and requires that method on a matching route.
 Paths the API does not serve at all are B10's job and are skipped here.
 """
+
 import re
 
 from app.main import app

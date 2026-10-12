@@ -4,6 +4,7 @@ Ingest accepted events for ANY tenant named in an X-Tenant-ID header with no aut
 vendor quota for anyone who can reach it. Both now require a bearer token. The API's callers are the enrichment gateway and the graph
 WebSocket proxy (which also named a host, `ingest`, that does not exist: the compose service is `ingest-worker`).
 """
+
 import ast
 import re
 from pathlib import Path
@@ -17,7 +18,9 @@ APP = Path(__file__).resolve().parents[1] / "app"
 ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.parametrize("helper,var", [(ingest_service_headers, "AISOC_INGEST_SERVICE_TOKEN"), (enrichment_service_headers, "AISOC_ENRICHMENT_SERVICE_TOKEN")])
+@pytest.mark.parametrize(
+    "helper,var", [(ingest_service_headers, "AISOC_INGEST_SERVICE_TOKEN"), (enrichment_service_headers, "AISOC_ENRICHMENT_SERVICE_TOKEN")]
+)
 def test_the_helpers_send_a_stripped_bearer_token_or_nothing(monkeypatch, helper, var):
     monkeypatch.setenv(var, "  tok-123\n")
     assert helper() == {"Authorization": "Bearer tok-123"}
@@ -52,12 +55,15 @@ def test_the_graph_websocket_proxy_sends_the_ingest_token_and_names_a_real_host(
     assert len(calls) == 1
     assert [ast.unparse(k.value) for k in calls[0].keywords if k.arg == "headers"] == ["ingest_service_headers()"]
     source = (APP / "api/v1/endpoints/graph_ws.py").read_text(encoding="utf-8")
-    assert 'ws://ingest-worker:8080/' in source and 'ws://ingest:8080/' not in source
+    assert "ws://ingest-worker:8080/" in source and "ws://ingest:8080/" not in source
 
 
 def test_each_token_is_only_ever_sent_by_the_modules_meant_to_send_it():
     """Sending one from some other client would hand the credential to a different host."""
-    for helper, allowed in (("ingest_service_headers", {"api/v1/endpoints/graph_ws.py"}), ("enrichment_service_headers", {"api/v1/endpoints/enrichment.py"})):
+    for helper, allowed in (
+        ("ingest_service_headers", {"api/v1/endpoints/graph_ws.py"}),
+        ("enrichment_service_headers", {"api/v1/endpoints/enrichment.py"}),
+    ):
         users = {str(f.relative_to(APP)) for f in APP.rglob("*.py") if helper in f.read_text(encoding="utf-8")} - {"core/internal_auth.py"}
         assert users == allowed, (helper, users)
 
@@ -81,7 +87,11 @@ def test_ingest_token_is_one_secret_shared_by_the_service_and_every_caller():
 
 
 def test_enrichment_token_is_shared_by_the_service_and_the_api_gateway():
-    assert _ref(_env("enrichment")["AISOC_ENRICHMENT_SERVICE_TOKEN"]) == _ref(_env("api")["AISOC_ENRICHMENT_SERVICE_TOKEN"]) == "AISOC_ENRICHMENT_SERVICE_TOKEN"
+    assert (
+        _ref(_env("enrichment")["AISOC_ENRICHMENT_SERVICE_TOKEN"])
+        == _ref(_env("api")["AISOC_ENRICHMENT_SERVICE_TOKEN"])
+        == "AISOC_ENRICHMENT_SERVICE_TOKEN"
+    )
 
 
 @pytest.mark.parametrize("name,service", [("ingest", "ingest-worker"), ("enrichment", "enrichment")])

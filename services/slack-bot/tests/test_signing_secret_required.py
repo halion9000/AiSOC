@@ -4,6 +4,7 @@ Without the secret Bolt cannot verify that a request really came from Slack, so 
 interactive payloads from anyone who can reach it. The old code disabled verification whenever the secret was missing, and later only
 refused outside a "development" environment. Now no environment value, set or unset, changes the answer.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -72,4 +73,3 @@ def test_bolt_is_always_told_to_verify_and_given_the_secret(monkeypatch):
     _build(monkeypatch, secret="  a-real-signing-secret  ")
     assert seen["request_verification_enabled"] is True
     assert seen["signing_secret"] == "a-real-signing-secret"
-

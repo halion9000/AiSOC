@@ -192,7 +192,15 @@ async def list_manageable_tenants(
     managed.sort(key=lambda t: (t.id != home, t.name.lower()))
     return ManageableTenantsResponse(
         home_tenant_id=home,
-        tenants=[ManageableTenant(id=t.id, name=t.name, slug=t.slug, relationship="self" if t.id == home else "child" if t.parent_tenant_id == home else "other") for t in managed],
+        tenants=[
+            ManageableTenant(
+                id=t.id,
+                name=t.name,
+                slug=t.slug,
+                relationship="self" if t.id == home else "child" if t.parent_tenant_id == home else "other",
+            )
+            for t in managed
+        ],
     )
 
 
@@ -250,7 +258,10 @@ async def list_tenant_access(
     tenant = await _tenant_whose_access_the_caller_manages(db, current_user, tenant_id)
     rows = (
         await db.execute(
-            select(TenantAccessGrant, User).join(User, User.id == TenantAccessGrant.user_id).where(TenantAccessGrant.tenant_id == tenant.id).order_by(User.account_name)
+            select(TenantAccessGrant, User)
+            .join(User, User.id == TenantAccessGrant.user_id)
+            .where(TenantAccessGrant.tenant_id == tenant.id)
+            .order_by(User.account_name)
         )
     ).all()
     return [_grant_response(g, u) for g, u in rows]
@@ -273,7 +284,10 @@ async def grant_tenant_access(
     if grantee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No account with that name")
     if grantee.tenant_id == tenant.id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="That account already belongs to this tenant; a grant is for people who belong to another one.")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="That account already belongs to this tenant; a grant is for people who belong to another one.",
+        )
     if grantee.is_active is False:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="That account is deactivated.")
 
@@ -300,7 +314,13 @@ async def grant_tenant_access(
         )
         await db.commit()
         return _grant_response(existing, grantee)
-    grant = TenantAccessGrant(user_id=grantee.id, tenant_id=tenant.id, access=level, granted_by=current_user.user_id, granted_by_label=current_user.email or str(current_user.user_id))
+    grant = TenantAccessGrant(
+        user_id=grantee.id,
+        tenant_id=tenant.id,
+        access=level,
+        granted_by=current_user.user_id,
+        granted_by_label=current_user.email or str(current_user.user_id),
+    )
     db.add(grant)
     try:
         await emit_audit(
@@ -320,7 +340,9 @@ async def grant_tenant_access(
         existing = (await db.execute(find())).scalars().first()
         if existing is None:
             raise
-        return _grant_response(existing, await find_user_by_account_name(db, account_name))  # the person is read again: the rollback expired the copy loaded above
+        return _grant_response(
+            existing, await find_user_by_account_name(db, account_name)
+        )  # the person is read again: the rollback expired the copy loaded above
     await db.refresh(grant)
     return _grant_response(grant, grantee)
 
@@ -338,7 +360,15 @@ async def revoke_tenant_access(
     grantee = await find_user_by_account_name(db, account_name)
     grant = None
     if grantee is not None:
-        grant = (await db.execute(select(TenantAccessGrant).where(TenantAccessGrant.user_id == grantee.id, TenantAccessGrant.tenant_id == tenant.id))).scalars().first()
+        grant = (
+            (
+                await db.execute(
+                    select(TenantAccessGrant).where(TenantAccessGrant.user_id == grantee.id, TenantAccessGrant.tenant_id == tenant.id)
+                )
+            )
+            .scalars()
+            .first()
+        )
     if grantee is None or grant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such grant")
     await db.delete(grant)
@@ -424,7 +454,9 @@ def _require_grantable_role(current_user: Any, role: str) -> None:
     from app.core.security import ROLE_PERMISSIONS  # noqa: PLC0415
 
     if role not in ROLE_PERMISSIONS:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unknown role. Known roles: {', '.join(sorted(ROLE_PERMISSIONS))}.")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unknown role. Known roles: {', '.join(sorted(ROLE_PERMISSIONS))}."
+        )
     if not current_user.can_grant_role(role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot assign a role that grants more than your own.")
 
@@ -451,15 +483,25 @@ async def create_user(
 
     # The optional email. Addresses are unique across ALL tenants, so a clash may be with a user of another organisation. Say so only for the caller's own tenant, whose users the caller can list anyway; for another
     # tenant's user do not confirm that the address is registered anywhere (that would tell this admin who uses the platform), and record the attempt so probing can be seen.
-    email = normalize_email(request.email) if request.email else None  # stored lower-cased: `Alice@x` and `alice@x` are one address (app/core/emails.py)
+    email = (
+        normalize_email(request.email) if request.email else None
+    )  # stored lower-cased: `Alice@x` and `alice@x` are one address (app/core/emails.py)
     if email is not None:
-        owner_tenant = (await db.execute(select(User.tenant_id).where(func.lower(User.email) == email).order_by(User.created_at.asc()).limit(1))).scalar_one_or_none()
+        owner_tenant = (
+            await db.execute(select(User.tenant_id).where(func.lower(User.email) == email).order_by(User.created_at.asc()).limit(1))
+        ).scalar_one_or_none()
         if owner_tenant is not None:
             if owner_tenant == current_user.tenant_id:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists in your organization.")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists in your organization."
+                )
             logger.warning(
                 "user creation refused: the email belongs to a user of another tenant",
-                extra={"acting_tenant": str(current_user.tenant_id), "acting_user": str(current_user.user_id), "email_sha256": hashlib.sha256(email.encode()).hexdigest()[:16]},
+                extra={
+                    "acting_tenant": str(current_user.tenant_id),
+                    "acting_user": str(current_user.user_id),
+                    "email_sha256": hashlib.sha256(email.encode()).hexdigest()[:16],
+                },
             )
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This email address cannot be used. Choose a different one.")
 
@@ -477,7 +519,9 @@ async def create_user(
     except IntegrityError:
         # Two requests took the same name (or email) at once: the database's unique index decided.
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That account name (or email) was just taken. Choose another.") from None
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="That account name (or email) was just taken. Choose another."
+        ) from None
     await db.refresh(user)
     return UserResponse.model_validate(user)
 

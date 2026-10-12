@@ -42,15 +42,15 @@ services/actions/tests/test_action_approval_lifecycle.py:generic-api-key:416
 
 # Obviously fake credentials in agents-service tests: "sk-live-SECRET-key-fragment-12345" (redaction test), "internal-secret-123" (the internal service token the tests
 # configure and send), "sk-AbCdEf0123456789xyz" (an LLM-contract test).
-services/agents/tests/test_contextual_actions.py:generic-api-key:24
-services/agents/tests/test_service_auth.py:generic-api-key:40
-services/agents/tests/test_service_auth.py:generic-api-key:63
-services/agents/tests/test_service_auth.py:generic-api-key:147
-services/agents/tests/test_service_auth.py:generic-api-key:170
+services/agents/tests/test_contextual_actions.py:generic-api-key:27
+services/agents/tests/test_service_auth.py:generic-api-key:47
+services/agents/tests/test_service_auth.py:generic-api-key:70
+services/agents/tests/test_service_auth.py:generic-api-key:155
+services/agents/tests/test_service_auth.py:generic-api-key:179
 services/agents/tests/test_llm_contract_extra.py:generic-api-key:185
 
 # The same fake internal service token ("internal-secret-123") set by an API test.
-services/api/tests/test_playbooks_not_an_anonymous_bypass.py:generic-api-key:28
+services/api/tests/test_playbooks_not_an_anonymous_bypass.py:generic-api-key:29
 
 # A fake inbox token ("tok-abcdef-1234567890") in a Kubernetes audit connector test.
 services/connectors/tests/test_kubernetes_audit.py:generic-api-key:218

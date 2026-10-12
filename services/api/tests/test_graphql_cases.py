@@ -4,6 +4,7 @@ The resolvers used to read the old `cases` table, which never receives a case: a
 (shown on real Postgres, and fixed there: total 1, the case found, openCases 1; the status and severity filters, a literal `%` search, tenant isolation and invalid ids were all checked against a real database too).
 aisoc_cases has no priority, case_type, tactics, ticket refs, summary or resolution and its assignee is free text, so the GraphQL schema is unchanged and the mapping invents nothing.
 """
+
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -20,8 +21,23 @@ HOUR = timedelta(hours=1)
 
 
 def row(**over):
-    base = dict(id=uuid.uuid4(), tenant_id=uuid.uuid4(), case_number=None, title="t", description=None, severity="high", status="new", assignee=None, mitre_techniques=[], alert_ids=[], tags={},
-                sla_due_at=None, resolved_at=None, created_at=NOW, updated_at=NOW)
+    base = dict(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        case_number=None,
+        title="t",
+        description=None,
+        severity="high",
+        status="new",
+        assignee=None,
+        mitre_techniques=[],
+        alert_ids=[],
+        tags={},
+        sla_due_at=None,
+        resolved_at=None,
+        created_at=NOW,
+        updated_at=NOW,
+    )
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -50,7 +66,9 @@ class TestFieldMapping:
 
     def test_alert_ids_are_strings_and_mitre_techniques_are_ids(self):
         a = uuid.uuid4()
-        c = q._aisoc_case_to_type(row(alert_ids=[a], mitre_techniques=["T1041", {"id": "T1566", "name": "Phishing"}, {"name": "no id"}, 7]), NOW)
+        c = q._aisoc_case_to_type(
+            row(alert_ids=[a], mitre_techniques=["T1041", {"id": "T1566", "name": "Phishing"}, {"name": "no id"}, 7]), NOW
+        )
         assert c.alert_ids == [str(a)] and c.mitre_techniques == ["T1041", "T1566"]
 
     def test_null_collections_become_empty(self):
@@ -67,16 +85,19 @@ class TestFieldMapping:
 
 
 class TestSlaBreached:
-    @pytest.mark.parametrize("due,resolved,status,expected", [
-        (None, None, "new", False),  # no deadline is never a breach
-        (NOW + HOUR, None, "new", False),  # not due yet
-        (NOW - HOUR, None, "new", True),  # open and overdue
-        (NOW - HOUR, None, "investigating", True),
-        (NOW - HOUR, None, "resolved", False),  # finished (no resolved_at recorded): not counted as overdue
-        (NOW - HOUR, None, "closed", False),
-        (NOW - HOUR, NOW - 2 * HOUR, "resolved", False),  # resolved before the deadline
-        (NOW - 2 * HOUR, NOW - HOUR, "resolved", True),  # resolved after the deadline
-    ])
+    @pytest.mark.parametrize(
+        "due,resolved,status,expected",
+        [
+            (None, None, "new", False),  # no deadline is never a breach
+            (NOW + HOUR, None, "new", False),  # not due yet
+            (NOW - HOUR, None, "new", True),  # open and overdue
+            (NOW - HOUR, None, "investigating", True),
+            (NOW - HOUR, None, "resolved", False),  # finished (no resolved_at recorded): not counted as overdue
+            (NOW - HOUR, None, "closed", False),
+            (NOW - HOUR, NOW - 2 * HOUR, "resolved", False),  # resolved before the deadline
+            (NOW - 2 * HOUR, NOW - HOUR, "resolved", True),  # resolved after the deadline
+        ],
+    )
     def test_table(self, due, resolved, status, expected):
         assert q._sla_breached(due, resolved, status, NOW) is expected
 
@@ -148,7 +169,11 @@ class TestListCases:
 
     async def test_priority_filters_severity(self):
         db, *_ = await self.listing(priority="critical")
-        assert "AND severity = :priority" in db.executed[0][0] and db.executed[0][1]["priority"] == "critical" and "priority = :priority AND" not in db.executed[0][0]
+        assert (
+            "AND severity = :priority" in db.executed[0][0]
+            and db.executed[0][1]["priority"] == "critical"
+            and "priority = :priority AND" not in db.executed[0][0]
+        )
 
     async def test_search_is_a_bound_escaped_pattern(self):
         db, *_ = await self.listing(search="50%_off\\")
@@ -160,7 +185,19 @@ class TestListCases:
         db, *_ = await self.listing(search=evil, status=evil, priority=evil)
         assert all(evil not in sql and "DROP" not in sql for sql, _ in db.executed)
 
-    @pytest.mark.parametrize("page,size,exp_page,exp_size,offset", [(1, 25, 1, 25, 0), (3, 10, 3, 10, 20), (-5, 10, 1, 10, 0), (0, 10, 1, 10, 0), (1, 99999, 1, 200, 0), (1, 0, 1, 1, 0), (1, -3, 1, 1, 0), (2, 200, 2, 200, 200)])
+    @pytest.mark.parametrize(
+        "page,size,exp_page,exp_size,offset",
+        [
+            (1, 25, 1, 25, 0),
+            (3, 10, 3, 10, 20),
+            (-5, 10, 1, 10, 0),
+            (0, 10, 1, 10, 0),
+            (1, 99999, 1, 200, 0),
+            (1, 0, 1, 1, 0),
+            (1, -3, 1, 1, 0),
+            (2, 200, 2, 200, 200),
+        ],
+    )
     async def test_paging_is_clamped(self, page, size, exp_page, exp_size, offset):
         db, _, _, got_page, got_size = await self.listing(page=page, page_size=size)
         assert (got_page, got_size) == (exp_page, exp_size)
@@ -176,7 +213,9 @@ async def test_open_cases_means_not_resolved_or_closed_for_this_tenant():
     tid, db = uuid.uuid4(), fake_db(count=7)
     assert await q._count_open_cases(db, tid) == 7
     sql, params = db.executed[0]
-    assert "FROM aisoc_cases" in sql and "status NOT IN ('resolved', 'closed')" in sql and "tenant_id = :tid" in sql and params == {"tid": tid}
+    assert (
+        "FROM aisoc_cases" in sql and "status NOT IN ('resolved', 'closed')" in sql and "tenant_id = :tid" in sql and params == {"tid": tid}
+    )
     assert "'open'" not in sql and "in_progress" not in sql, "the legacy vocabulary no case ever has"
 
 
@@ -212,7 +251,13 @@ class TestThroughTheSchema:
         r = await self.run("{ cases { total pages page pageSize items { title priority severity caseNumber caseType } } }", db, admin(tid))
         assert r.errors is None
         cases = r.data["cases"]
-        assert cases["total"] == 1 and cases["pages"] == 1 and cases["items"][0]["title"] == "one" and cases["items"][0]["priority"] == "critical" and cases["items"][0]["caseType"] == "unspecified"
+        assert (
+            cases["total"] == 1
+            and cases["pages"] == 1
+            and cases["items"][0]["title"] == "one"
+            and cases["items"][0]["priority"] == "critical"
+            and cases["items"][0]["caseType"] == "unspecified"
+        )
 
     async def test_an_anonymous_caller_is_refused_and_no_query_runs(self):
         db = fake_db(rows=[row()], count=9)

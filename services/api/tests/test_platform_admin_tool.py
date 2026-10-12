@@ -2,6 +2,7 @@
 
 The original primary administrator is a platform_admin by default (bootstrap_production for new installs, migration 067 for existing ones); this tool gives the role to specific people or takes it away when you have database access. Revoking the LAST active platform_admin is refused unless --force is given,
 because nobody could then administer the platform."""
+
 import json
 import re
 import uuid
@@ -43,7 +44,9 @@ class FakeSession:
         res = MagicMock()
         res.scalar_one_or_none.return_value = payload
         res.scalar_one.return_value = payload
-        res.scalars.return_value.first.return_value = None if isinstance(payload, (list, int)) else payload  # the shared lookups read with .scalars().first()
+        res.scalars.return_value.first.return_value = (
+            None if isinstance(payload, (list, int)) else payload
+        )  # the shared lookups read with .scalars().first()
         res.scalars.return_value.all.return_value = payload if isinstance(payload, list) else []
         return res
 
@@ -84,7 +87,14 @@ class TestGrant:
         u = user("new@example.com", "tenant_admin")
         s = session(u, None)
         out = await pa.run("grant", "NEW@Example.com")
-        assert out == {"ok": True, "account_name": "new", "email": "new@example.com", "role": "platform_admin", "previous_role": "tenant_admin", "changed": True}
+        assert out == {
+            "ok": True,
+            "account_name": "new",
+            "email": "new@example.com",
+            "role": "platform_admin",
+            "previous_role": "tenant_admin",
+            "changed": True,
+        }
         assert len(s.updates) == 1 and "USERS" in s.updates[0]
         assert s.written_roles == ["platform_admin"]  # what is WRITTEN, not just what is reported
         s.commit.assert_awaited_once()
@@ -225,7 +235,14 @@ class TestByAccountName:
     async def test_it_grants_platform_power_to_an_account_that_has_no_email(self, session):
         s = session(user(None, "tenant_admin", account_name="carol.jones"), None)
         out = await pa.run("grant", name="Carol.Jones")
-        assert out == {"ok": True, "account_name": "carol.jones", "email": None, "role": "platform_admin", "previous_role": "tenant_admin", "changed": True}
+        assert out == {
+            "ok": True,
+            "account_name": "carol.jones",
+            "email": None,
+            "role": "platform_admin",
+            "previous_role": "tenant_admin",
+            "changed": True,
+        }
         assert s.written_roles == ["platform_admin"]
         s.commit.assert_awaited_once()
 

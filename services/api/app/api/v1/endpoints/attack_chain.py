@@ -68,7 +68,11 @@ async def get_attack_chain(
         raise HTTPException(status_code=400, detail=f"unknown window: {window}")
 
     # The case is read from aisoc_cases, where the cases API writes it. This used to look in the old `cases` table, which nothing writes, so this endpoint answered 404 case_not_found for every real case.
-    case_row = (await db.execute(text("SELECT alert_ids FROM aisoc_cases WHERE id = :id AND tenant_id = :tid"), {"id": case_id, "tid": user.tenant_id})).first()
+    case_row = (
+        await db.execute(
+            text("SELECT alert_ids FROM aisoc_cases WHERE id = :id AND tenant_id = :tid"), {"id": case_id, "tid": user.tenant_id}
+        )
+    ).first()
     if case_row is None:
         raise HTTPException(status_code=404, detail="case_not_found")
 

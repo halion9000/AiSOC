@@ -4,6 +4,7 @@
 Addresses are now compared by `normalize_email`, found through `find_user_by_email` (compares lower(email), so a LEGACY mixed-case account still signs in), and stored lower-cased on creation; migration 070 adds a unique index on lower(email).
 A real SQLite database and the real router. The index and the migration's duplicate handling were checked on real Postgres (see the commit message).
 """
+
 import asyncio
 import re
 import uuid
@@ -54,7 +55,16 @@ def world(tmp_path):
     base = datetime(2026, 1, 1, tzinfo=UTC)
 
     def user(tenant, email, active=True, age=0):
-        return User(id=uuid.uuid4(), tenant_id=tenant.id, email=email, username=email.split("@")[0], hashed_password=HASH, role="admin", is_active=active, created_at=base + timedelta(days=age))
+        return User(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            email=email,
+            username=email.split("@")[0],
+            hashed_password=HASH,
+            role="admin",
+            is_active=active,
+            created_at=base + timedelta(days=age),
+        )
 
     users = {
         "alice": user(ta, "alice@a.example"),
@@ -96,7 +106,17 @@ def stored(world, address):
 
 
 class TestNormalize:
-    @pytest.mark.parametrize("raw,want", [("Alice@X.com", "alice@x.com"), ("  alice@x.com ", "alice@x.com"), ("ALICE@X.COM", "alice@x.com"), ("alice@x.com", "alice@x.com"), ("A.B+tag@X.Org", "a.b+tag@x.org"), ("\talice@x.com\n", "alice@x.com")])
+    @pytest.mark.parametrize(
+        "raw,want",
+        [
+            ("Alice@X.com", "alice@x.com"),
+            ("  alice@x.com ", "alice@x.com"),
+            ("ALICE@X.COM", "alice@x.com"),
+            ("alice@x.com", "alice@x.com"),
+            ("A.B+tag@X.Org", "a.b+tag@x.org"),
+            ("\talice@x.com\n", "alice@x.com"),
+        ],
+    )
     def test_trimmed_and_lower_cased(self, raw, want):
         assert normalize_email(raw) == want
 
@@ -127,17 +147,65 @@ class TestFindUserByEmail:
     def test_a_deployment_that_already_holds_a_case_pair_gets_a_deterministic_answer_never_an_error(self, world):
         """Two accounts differing only in case (what this change prevents from now on) must not turn sign-in into a 500: an exact-case match wins, otherwise the oldest."""
         with Session(world.sync) as s:
-            s.add(User(id=uuid.uuid4(), tenant_id=world.ta.id, email="Twin@a.example", username="twin1", hashed_password=HASH, role="admin", is_active=True, created_at=datetime(2026, 2, 1, tzinfo=UTC)))
-            s.add(User(id=uuid.uuid4(), tenant_id=world.ta.id, email="twin@a.example", username="twin2", hashed_password=HASH, role="admin", is_active=True, created_at=datetime(2026, 3, 1, tzinfo=UTC)))
+            s.add(
+                User(
+                    id=uuid.uuid4(),
+                    tenant_id=world.ta.id,
+                    email="Twin@a.example",
+                    username="twin1",
+                    hashed_password=HASH,
+                    role="admin",
+                    is_active=True,
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
+                )
+            )
+            s.add(
+                User(
+                    id=uuid.uuid4(),
+                    tenant_id=world.ta.id,
+                    email="twin@a.example",
+                    username="twin2",
+                    hashed_password=HASH,
+                    role="admin",
+                    is_active=True,
+                    created_at=datetime(2026, 3, 1, tzinfo=UTC),
+                )
+            )
             s.commit()
-        assert run(world, lambda s: find_user_by_email(s, "twin@a.example")).email == "twin@a.example"  # exact case wins, though it is the newer
+        assert (
+            run(world, lambda s: find_user_by_email(s, "twin@a.example")).email == "twin@a.example"
+        )  # exact case wins, though it is the newer
         assert run(world, lambda s: find_user_by_email(s, "Twin@a.example")).email == "Twin@a.example"
-        assert run(world, lambda s: find_user_by_email(s, "TWIN@a.example")).email == "Twin@a.example"  # neither matches exactly: the oldest
+        assert (
+            run(world, lambda s: find_user_by_email(s, "TWIN@a.example")).email == "Twin@a.example"
+        )  # neither matches exactly: the oldest
 
     def test_with_a_case_pair_the_active_one_is_chosen_when_asked_for_active(self, world):
         with Session(world.sync) as s:
-            s.add(User(id=uuid.uuid4(), tenant_id=world.ta.id, email="Pair@a.example", username="pair1", hashed_password=HASH, role="admin", is_active=False, created_at=datetime(2026, 2, 1, tzinfo=UTC)))
-            s.add(User(id=uuid.uuid4(), tenant_id=world.ta.id, email="pair@a.example", username="pair2", hashed_password=HASH, role="admin", is_active=True, created_at=datetime(2026, 3, 1, tzinfo=UTC)))
+            s.add(
+                User(
+                    id=uuid.uuid4(),
+                    tenant_id=world.ta.id,
+                    email="Pair@a.example",
+                    username="pair1",
+                    hashed_password=HASH,
+                    role="admin",
+                    is_active=False,
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
+                )
+            )
+            s.add(
+                User(
+                    id=uuid.uuid4(),
+                    tenant_id=world.ta.id,
+                    email="pair@a.example",
+                    username="pair2",
+                    hashed_password=HASH,
+                    role="admin",
+                    is_active=True,
+                    created_at=datetime(2026, 3, 1, tzinfo=UTC),
+                )
+            )
             s.commit()
         assert run(world, lambda s: find_user_by_email(s, "Pair@a.example", active_only=True)).email == "pair@a.example"
 
@@ -224,8 +292,13 @@ class TestNoCodeComparesTheAddressByExactCase:
             "scripts/bootstrap_production.py": "email = email.strip().lower()",
             "scripts/seed_demo.py": "email=DEMO_USER_EMAIL",
         }
+
+        def squash(text):  # layout-independent: the formatter may wrap a line or put parentheses around a conditional expression
+            return re.sub(r"[\s()]+", "", text)
+
         for rel, needle in expected.items():
-            assert needle in (APP / rel).read_text(encoding="utf-8"), f"{rel} no longer stores a normalised address ({needle})"
+            source = (APP / rel).read_text(encoding="utf-8")
+            assert squash(needle) in squash(source), f"{rel} no longer stores a normalised address ({needle})"
 
     def test_the_address_constants_that_are_stored_as_they_are_are_lower_case(self):
         from app.scripts import bootstrap_production, seed_demo
@@ -255,7 +328,10 @@ class TestTheMigration:
 
     def test_it_refuses_to_guess_when_case_duplicates_exist_and_says_how_to_fix_them(self):
         assert "HAVING count(*) > 1" in self.SQL and "RAISE WARNING" in self.SQL and "was NOT created" in self.SQL
-        assert "array_agg(email)" in self.SQL and "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_lower" in self.SQL.split("RAISE WARNING")[1]
+        assert (
+            "array_agg(email)" in self.SQL
+            and "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_lower" in self.SQL.split("RAISE WARNING")[1]
+        )
 
     def test_it_does_not_rewrite_existing_rows(self):
         assert "UPDATE users" not in self.SQL and "DELETE FROM users" not in self.SQL

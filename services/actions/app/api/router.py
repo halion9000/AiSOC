@@ -61,7 +61,11 @@ async def submit_action(request: ActionRequest, _auth: None = Depends(require_se
     record, created = await action_store.create(db, request, status=status, blast_radius=blast_radius, gate_reason=reason)
     if not created:
         # The same action id again (a client retry, say). It used to overwrite the stored record AND execute the action a second time.
-        logger.info("Action already submitted; returning the existing record without executing it again", action_id=str(request.id), status=record["status"])
+        logger.info(
+            "Action already submitted; returning the existing record without executing it again",
+            action_id=str(request.id),
+            status=record["status"],
+        )
         return record
 
     # Auto-execute if approved
@@ -72,12 +76,18 @@ async def submit_action(request: ActionRequest, _auth: None = Depends(require_se
             if await action_store.claim(db, request.id, expected=ActionStatus.APPROVED):
                 try:
                     result = await executor.execute(request)
-                    record = await action_store.finish(db, request.id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error)
+                    record = await action_store.finish(
+                        db, request.id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error
+                    )
                 except Exception as exc:
                     logger.error("Action execution failed", error=str(exc), exc_info=True)
-                    record = await action_store.finish(db, request.id, ActionStatus.FAILED, error=f"execution failed ({type(exc).__name__})")
+                    record = await action_store.finish(
+                        db, request.id, ActionStatus.FAILED, error=f"execution failed ({type(exc).__name__})"
+                    )
         else:
-            record = await action_store.finish(db, request.id, ActionStatus.FAILED, error=f"No executor found for action type: {request.action_type}")
+            record = await action_store.finish(
+                db, request.id, ActionStatus.FAILED, error=f"No executor found for action type: {request.action_type}"
+            )
 
     logger.info(
         "Action submitted",
@@ -136,7 +146,9 @@ async def approve_action(
     if executor:
         try:
             result = await executor.execute(request)
-            record = await action_store.finish(db, action_id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error)
+            record = await action_store.finish(
+                db, action_id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error
+            )
         except Exception as exc:
             logger.error("Approved action execution failed", action_id=action_id, error=str(exc), exc_info=True)
             record = await action_store.finish(db, action_id, ActionStatus.FAILED, error=f"execution failed ({type(exc).__name__})")
@@ -163,13 +175,17 @@ async def reject_action(action_id: str, _auth: None = Depends(require_service_au
 async def list_actions(
     status: str | None = Query(None, description="Filter by status, e.g. running"),
     tenant_id: str | None = Query(None),
-    older_than_seconds: int | None = Query(None, ge=1, description="Only actions not updated for this long; with status=running this finds stuck actions"),
+    older_than_seconds: int | None = Query(
+        None, ge=1, description="Only actions not updated for this long; with status=running this finds stuck actions"
+    ),
     limit: int = Query(100, ge=1, le=500),
     _auth: None = Depends(require_service_auth),
     db: AsyncSession = Depends(get_db),
 ):
     """List actions. `?status=running&older_than_seconds=900` finds actions stuck mid-execution."""
-    return {"items": await action_store.list_actions(db, status=status, tenant_id=tenant_id, older_than_seconds=older_than_seconds, limit=limit)}
+    return {
+        "items": await action_store.list_actions(db, status=status, tenant_id=tenant_id, older_than_seconds=older_than_seconds, limit=limit)
+    }
 
 
 @router.post("/actions/{action_id}/resolve")
@@ -189,7 +205,9 @@ async def resolve_action(
     if result == "not_found":
         raise HTTPException(status_code=404, detail="Action not found")
     if result == "conflict":
-        raise HTTPException(status_code=400, detail=f"Only an action stuck in 'running' can be resolved (current: {_status_text(record or {})})")
+        raise HTTPException(
+            status_code=400, detail=f"Only an action stuck in 'running' can be resolved (current: {_status_text(record or {})})"
+        )
     logger.warning("Stuck action resolved by an operator", action_id=action_id, outcome=outcome.value, resolved_by=resolved_by)
     return record
 

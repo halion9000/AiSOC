@@ -4,6 +4,7 @@ The console's honeytokens and purple-team pages call these paths on the API, whi
 working backend. Pointing the browser at the services directly would have been unsafe: they authenticated nobody, trusted a
 caller-supplied tenant_id, and purple-team can launch adversary simulations.
 """
+
 import json
 import re
 import uuid
@@ -48,7 +49,9 @@ def _client(role="platform_admin", tenant=DEMO_TENANT_ID, anonymous=False) -> Te
 
     app.dependency_overrides[deps.get_db] = fake_db
     if not anonymous:
-        app.dependency_overrides[deps.get_current_user] = lambda: CurrentUser(user_id=uuid.uuid4(), tenant_id=tenant, role=role, email="t@example.com", scopes=None)
+        app.dependency_overrides[deps.get_current_user] = lambda: CurrentUser(
+            user_id=uuid.uuid4(), tenant_id=tenant, role=role, email="t@example.com", scopes=None
+        )
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -127,7 +130,12 @@ def test_the_canary_callback_is_not_proxied():
 
 def test_running_a_simulation_and_syncing_need_the_admin_level_permission():
     needs = {(g.name, r.path): r.permission for g, r in ALL}
-    assert needs[("purple-team", "/atomics/run")] == needs[("purple-team", "/caldera/run")] == needs[("purple-team", "/atomics/sync")] == "settings:write"
+    assert (
+        needs[("purple-team", "/atomics/run")]
+        == needs[("purple-team", "/caldera/run")]
+        == needs[("purple-team", "/atomics/sync")]
+        == "settings:write"
+    )
     assert all(r.permission == "alerts:read" for g, r in ALL if r.method == "GET")
 
 
@@ -290,7 +298,14 @@ def _ref(value):
     return re.match(r"\$\{(\w+)", str(value)).group(1)
 
 
-@pytest.mark.parametrize("name,var", [("honeytokens", "AISOC_HONEYTOKENS_SERVICE_TOKEN"), ("purple-team", "AISOC_PURPLE_TEAM_SERVICE_TOKEN"), ("ueba", "AISOC_UEBA_SERVICE_TOKEN")])
+@pytest.mark.parametrize(
+    "name,var",
+    [
+        ("honeytokens", "AISOC_HONEYTOKENS_SERVICE_TOKEN"),
+        ("purple-team", "AISOC_PURPLE_TEAM_SERVICE_TOKEN"),
+        ("ueba", "AISOC_UEBA_SERVICE_TOKEN"),
+    ],
+)
 def test_compose_gives_each_service_its_token(name, var):
     assert _ref(_compose_env(name)[var]) == var
     if name != "ueba":

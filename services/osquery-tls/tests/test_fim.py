@@ -3,6 +3,7 @@
 The service had no tests for these endpoints, and the console expects fields they did not return
 (`node_key` and `since` filters, `active_nodes`), which is part of how the mismatch went unnoticed.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -16,19 +17,23 @@ T0 = datetime(2026, 10, 1, 12, 0, 0)  # naive: SQLite stores no timezone
 
 
 def _event(tenant="acme", node="node-a", host="web-1", path="/etc/passwd", action="UPDATED", minutes=0, **extra):
-    return FimEvent(tenant_id=tenant, node_key=node, hostname=host, target_path=path, action=action, event_time=T0 + timedelta(minutes=minutes), **extra)
+    return FimEvent(
+        tenant_id=tenant, node_key=node, hostname=host, target_path=path, action=action, event_time=T0 + timedelta(minutes=minutes), **extra
+    )
 
 
 @pytest.fixture
 async def seeded(db_session):
-    db_session.add_all([
-        _event(path="/etc/passwd", action="UPDATED", minutes=0, node="node-a", host="web-1"),
-        _event(path="/etc/passwd", action="UPDATED", minutes=10, node="node-a", host="web-1"),
-        _event(path="/etc/shadow", action="CREATED", minutes=20, node="node-b", host="db-1"),
-        _event(path="/var/log/app.log", action="DELETED", minutes=30, node="node-b", host="db-1"),
-        _event(path="/etc/hosts", action="ATTRIBUTES_MODIFIED", minutes=40, node="node-c", host="web-2"),
-        _event(tenant="other", path="/etc/secret-of-another-tenant", action="CREATED", minutes=50, node="node-z", host="x"),
-    ])
+    db_session.add_all(
+        [
+            _event(path="/etc/passwd", action="UPDATED", minutes=0, node="node-a", host="web-1"),
+            _event(path="/etc/passwd", action="UPDATED", minutes=10, node="node-a", host="web-1"),
+            _event(path="/etc/shadow", action="CREATED", minutes=20, node="node-b", host="db-1"),
+            _event(path="/var/log/app.log", action="DELETED", minutes=30, node="node-b", host="db-1"),
+            _event(path="/etc/hosts", action="ATTRIBUTES_MODIFIED", minutes=40, node="node-c", host="web-2"),
+            _event(tenant="other", path="/etc/secret-of-another-tenant", action="CREATED", minutes=50, node="node-z", host="x"),
+        ]
+    )
     await db_session.commit()
 
 
@@ -69,16 +74,19 @@ async def test_newest_first(client, seeded):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("params,expected_paths", [
-    ({"action": "created"}, {"/etc/shadow"}),                       # case-insensitive
-    ({"action": "UPDATED"}, {"/etc/passwd"}),
-    ({"path_prefix": "/etc/"}, {"/etc/passwd", "/etc/shadow", "/etc/hosts"}),
-    ({"hostname": "db-1"}, {"/etc/shadow", "/var/log/app.log"}),
-    ({"node_key": "node-b"}, {"/etc/shadow", "/var/log/app.log"}),
-    ({"node_key": "node-c"}, {"/etc/hosts"}),
-    ({"node_key": "node-z"}, set()),                                # another tenant's node: invisible here
-    ({"action": "UPDATED", "node_key": "node-b"}, set()),           # filters combine (AND)
-])
+@pytest.mark.parametrize(
+    "params,expected_paths",
+    [
+        ({"action": "created"}, {"/etc/shadow"}),  # case-insensitive
+        ({"action": "UPDATED"}, {"/etc/passwd"}),
+        ({"path_prefix": "/etc/"}, {"/etc/passwd", "/etc/shadow", "/etc/hosts"}),
+        ({"hostname": "db-1"}, {"/etc/shadow", "/var/log/app.log"}),
+        ({"node_key": "node-b"}, {"/etc/shadow", "/var/log/app.log"}),
+        ({"node_key": "node-c"}, {"/etc/hosts"}),
+        ({"node_key": "node-z"}, set()),  # another tenant's node: invisible here
+        ({"action": "UPDATED", "node_key": "node-b"}, set()),  # filters combine (AND)
+    ],
+)
 async def test_filters(client, seeded, params, expected_paths):
     page = await _events(client, **params)
     assert {e["target_path"] for e in page["items"]} == expected_paths

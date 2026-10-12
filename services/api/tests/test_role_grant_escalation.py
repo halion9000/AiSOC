@@ -2,6 +2,7 @@
 
 POST /tenants/me/users and PATCH /tenants/me/users/{id} took any `role` string from the request. Roles holding users:write include tenant_admin, so (shown live) a tenant_admin created a platform_admin user (201) that then succeeded at an action the tenant_admin itself was refused (plugin administration), and promoted ITSELF (200).
 Now nobody can grant a role whose permissions they do not all hold, an unknown role is refused, nobody changes their own role, and nobody edits a user whose role grants more than their own."""
+
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -38,7 +39,9 @@ class TestCanGrantRole:
         """The rule itself, for every pair: a grant is allowed exactly when the grantor holds every permission of the target (a wildcard target needs a wildcard)."""
         for grantor in ROLE_PERMISSIONS:
             for target, perms in ROLE_PERMISSIONS.items():
-                expected = ("*" not in perms or "*" in ROLE_PERMISSIONS[grantor]) and all(principal(grantor).holds(p) for p in perms if p != "*")
+                expected = ("*" not in perms or "*" in ROLE_PERMISSIONS[grantor]) and all(
+                    principal(grantor).holds(p) for p in perms if p != "*"
+                )
                 assert principal(grantor).can_grant_role(target) == expected, (grantor, target)
 
     @pytest.mark.parametrize("bad", ["", "root", "superuser", "Platform_Admin", "platform_admin ", "*", "../admin"])
@@ -47,7 +50,9 @@ class TestCanGrantRole:
 
     def test_an_api_key_can_only_grant_roles_within_its_scopes(self):
         narrow = principal("tenant_admin", scopes=["users:write", "alerts:read"])
-        assert not narrow.can_grant_role("tenant_admin") and not narrow.can_grant_role("platform_admin") and not narrow.can_grant_role("admin")
+        assert (
+            not narrow.can_grant_role("tenant_admin") and not narrow.can_grant_role("platform_admin") and not narrow.can_grant_role("admin")
+        )
 
     def test_an_api_key_with_the_wildcard_scope_can_grant_a_wildcard_role(self):
         assert principal("viewer", scopes=["*"]).can_grant_role("admin")
@@ -96,7 +101,17 @@ class FakeDB:
 def row(role, uid=None, active=True):
     from app.models.tenant import User  # the ORM user, built without a database
 
-    return User(id=uid or uuid.uuid4(), tenant_id=TENANT, email=f"{role}-{uuid.uuid4().hex[:4]}@example.test", account_name=f"user-{uuid.uuid4().hex[:8]}", username="u", hashed_password="x", role=role, is_active=active, created_at=datetime.now(UTC))
+    return User(
+        id=uid or uuid.uuid4(),
+        tenant_id=TENANT,
+        email=f"{role}-{uuid.uuid4().hex[:4]}@example.test",
+        account_name=f"user-{uuid.uuid4().hex[:8]}",
+        username="u",
+        hashed_password="x",
+        role=role,
+        is_active=active,
+        created_at=datetime.now(UTC),
+    )
 
 
 @pytest.mark.asyncio

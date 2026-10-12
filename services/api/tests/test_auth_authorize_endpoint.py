@@ -1,4 +1,5 @@
 """POST /api/v1/auth/authorize: the one place other services ask "may this caller do X?"."""
+
 import uuid
 
 import pytest
@@ -37,7 +38,9 @@ def _ask(client, permission):
 
 
 @pytest.mark.parametrize("role", list(ROLE_PERMISSIONS))
-@pytest.mark.parametrize("permission", ["playbooks:execute", "playbooks:write", "lake:query", "cases:write", "alerts:read", "settings:write"])
+@pytest.mark.parametrize(
+    "permission", ["playbooks:execute", "playbooks:write", "lake:query", "cases:write", "alerts:read", "settings:write"]
+)
 def test_answers_match_the_role_table(role, permission):
     user = _user(role)
     r = _ask(_client(user), permission)
@@ -67,7 +70,16 @@ def test_anonymous_in_production_is_401(monkeypatch):
 def test_every_permission_the_agents_table_uses_is_known():
     from app.core.security import known_permissions as kp
 
-    agents_uses = {"playbooks:read", "playbooks:write", "playbooks:execute", "lake:query", "settings:write", "alerts:read", "cases:read", "cases:write"}
+    agents_uses = {
+        "playbooks:read",
+        "playbooks:write",
+        "playbooks:execute",
+        "lake:query",
+        "settings:write",
+        "alerts:read",
+        "cases:read",
+        "cases:write",
+    }
     assert agents_uses <= kp(), f"the agents service asks about permissions the API rejects: {agents_uses - kp()}"
     assert "*" not in known_permissions()
 

@@ -4,6 +4,7 @@ Three writers INSERTed a `source` into detection_rule_proposals and no migration
 had suggestions, and the hunt scheduler's failure, with no savepoint, aborted the whole transaction. Shown on real Postgres: after the scheduler's default callback the transaction was POISONED and the commit left 0 cases and 0 proposals, so a scheduled hunt could never keep a case.
 With migration 064 and a savepoint the same run leaves 1 case and 1 proposal (source=hunt-finding), and a deliberately invalid query inside the proposal step leaves the transaction healthy and the case committed.
 """
+
 import ast
 import re
 import uuid
@@ -25,12 +26,21 @@ RUNNER_TABLES = {"aisoc_schema_migrations"}
 def raw_inserts(source: str) -> list[tuple[str, list[str], int]]:
     """(table, columns, line) for every INSERT INTO t (cols) in the file's string literals, docstrings excluded."""
     tree = ast.parse(source)
-    docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0], "value", None), ast.Constant)}
+    docs = {
+        id(n.body[0].value)
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and n.body
+        and isinstance(n.body[0], ast.Expr)
+        and isinstance(getattr(n.body[0], "value", None), ast.Constant)
+    }
     out = []
     for n in ast.walk(tree):
         if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs:
             for m in INSERT.finditer(n.value):
-                out.append((m.group(1).lower(), [c.strip().strip('"').split()[0].lower() for c in m.group(2).split(",") if c.strip()], n.lineno))
+                out.append(
+                    (m.group(1).lower(), [c.strip().strip('"').split()[0].lower() for c in m.group(2).split(",") if c.strip()], n.lineno)
+                )
     return out
 
 
@@ -43,11 +53,14 @@ class TestTheDetector:
         assert raw_inserts('def f():\n    """INSERT INTO ghosts (a, b) VALUES"""\n    return 1\n') == []
 
     def test_it_finds_several_in_one_file(self):
-        assert [t for t, _, _ in raw_inserts('a = "INSERT INTO one (x) VALUES (1)"\nb = "INSERT INTO two (y, z) VALUES (1, 2)"\n')] == ["one", "two"]
+        assert [t for t, _, _ in raw_inserts('a = "INSERT INTO one (x) VALUES (1)"\nb = "INSERT INTO two (y, z) VALUES (1, 2)"\n')] == [
+            "one",
+            "two",
+        ]
 
     def test_it_reports_a_column_the_table_lacks(self):
         cols = {"proposals": {"id", "name"}}
-        (table, names, _), = raw_inserts('x = "INSERT INTO proposals (id, name, source) VALUES (1, 2, 3)"')
+        ((table, names, _),) = raw_inserts('x = "INSERT INTO proposals (id, name, source) VALUES (1, 2, 3)"')
         assert [c for c in names if c not in cols[table]] == ["source"]
 
 
@@ -69,7 +82,9 @@ class TestEveryRawInsertNamesRealColumns:
     def test_no_insert_names_a_column_no_migration_creates(self):
         checked, bad, _ = self.scan()
         assert checked >= 20, f"the scan only reached {checked} INSERT statements: it has gone blind"
-        assert bad == [], "an INSERT that names a missing column fails on every call (and, unguarded, aborts the whole transaction):\n" + "\n".join(bad)
+        assert bad == [], (
+            "an INSERT that names a missing column fails on every call (and, unguarded, aborts the whole transaction):\n" + "\n".join(bad)
+        )
 
     def test_the_only_tables_skipped_are_the_runners_own(self):
         _, _, skipped = self.scan()
@@ -79,9 +94,32 @@ class TestEveryRawInsertNamesRealColumns:
 # ---- reads and updates --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Only forms that can be judged reliably: a single table (no JOIN / UNION / WITH), a plain column list (no function, cast, expression or `*`), and UPDATE ... SET col = ... . Anything else is not judged, never guessed at.
 IDENT = r"[a-z_][a-z0-9_]*"
-SELECT = re.compile(rf"\bSELECT\s+(?!DISTINCT\b)(?P<list>[^;()]*?)\s+FROM\s+(?:public\.)?(?P<t>{IDENT})(?:\s+(?:AS\s+)?(?P<alias>{IDENT}))?\s*(?=WHERE|ORDER|LIMIT|GROUP|$|\)|\n|;|FOR\s)", re.I | re.S)
+SELECT = re.compile(
+    rf"\bSELECT\s+(?!DISTINCT\b)(?P<list>[^;()]*?)\s+FROM\s+(?:public\.)?(?P<t>{IDENT})(?:\s+(?:AS\s+)?(?P<alias>{IDENT}))?\s*(?=WHERE|ORDER|LIMIT|GROUP|$|\)|\n|;|FOR\s)",
+    re.I | re.S,
+)
 UPDATE = re.compile(rf"\bUPDATE\s+(?:public\.)?(?P<t>{IDENT})\s+SET\s+(?P<set>.*?)(?:\s+WHERE\b|\s+RETURNING\b|$)", re.I | re.S)
-NOT_COLUMNS = {"select", "from", "where", "null", "true", "false", "case", "when", "then", "else", "end", "and", "or", "not", "distinct", "as", "count", "now", "coalesce"}
+NOT_COLUMNS = {
+    "select",
+    "from",
+    "where",
+    "null",
+    "true",
+    "false",
+    "case",
+    "when",
+    "then",
+    "else",
+    "end",
+    "and",
+    "or",
+    "not",
+    "distinct",
+    "as",
+    "count",
+    "now",
+    "coalesce",
+}
 
 
 def select_columns(select_list: str) -> list[str] | None:
@@ -98,10 +136,19 @@ def select_columns(select_list: str) -> list[str] | None:
 def raw_reads_and_updates(source: str) -> list[tuple[str, str, list[str], int]]:
     """(kind, table, columns, line) for every judgeable single-table SELECT list and UPDATE ... SET in the file's string literals."""
     tree = ast.parse(source)
-    docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0], "value", None), ast.Constant)}
+    docs = {
+        id(n.body[0].value)
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and n.body
+        and isinstance(n.body[0], ast.Expr)
+        and isinstance(getattr(n.body[0], "value", None), ast.Constant)
+    }
     out = []
     for n in ast.walk(tree):
-        if not (isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs and len(n.value) < 3000) or re.search(r"\bJOIN\b|\bUNION\b|\bWITH\b", n.value, re.I):
+        if not (isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs and len(n.value) < 3000) or re.search(
+            r"\bJOIN\b|\bUNION\b|\bWITH\b", n.value, re.I
+        ):
             continue
         for m in SELECT.finditer(n.value):
             names = select_columns(m.group("list"))
@@ -115,7 +162,7 @@ def raw_reads_and_updates(source: str) -> list[tuple[str, str, list[str], int]]:
 
 class TestTheReadAndUpdateDetector:
     def judge(self, sql):
-        (kind, table, names, _), = raw_reads_and_updates(f'x = "{sql}"')
+        ((kind, table, names, _),) = raw_reads_and_updates(f'x = "{sql}"')
         cols = {"alerts": {"id", "title", "severity", "created_at", "tenant_id", "rule_id", "status", "updated_at"}}
         return kind, [c for c in names if c not in cols[table]]
 
@@ -130,7 +177,16 @@ class TestTheReadAndUpdateDetector:
         assert self.judge("UPDATE alerts SET status = :s, bogus_col = :b, updated_at = NOW() WHERE id = :i") == ("UPDATE", ["bogus_col"])
         assert self.judge("UPDATE alerts SET status = :s, updated_at = NOW() WHERE id = :i") == ("UPDATE", [])
 
-    @pytest.mark.parametrize("sql", ["SELECT count(*) FROM alerts", "SELECT * FROM alerts", "SELECT lower(title) FROM alerts", "SELECT a.id FROM alerts a JOIN x ON x.id = a.id", "WITH q AS (SELECT 1) SELECT id FROM alerts"])
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT count(*) FROM alerts",
+            "SELECT * FROM alerts",
+            "SELECT lower(title) FROM alerts",
+            "SELECT a.id FROM alerts a JOIN x ON x.id = a.id",
+            "WITH q AS (SELECT 1) SELECT id FROM alerts",
+        ],
+    )
     def test_shapes_it_cannot_judge_are_skipped_not_guessed(self, sql):
         assert [r for r in raw_reads_and_updates(f'x = "{sql}"') if r[0] == "SELECT"] == []
 
@@ -163,7 +219,10 @@ class TestMigration064:
 
     def test_it_adds_a_nullable_source_column_idempotently_in_a_transaction(self):
         assert re.search(r"ALTER TABLE detection_rule_proposals ADD COLUMN IF NOT EXISTS source VARCHAR\(50\);", self.sql)
-        assert "NOT NULL" not in self.sql.split("ADD COLUMN", 1)[1].split(";", 1)[0] and "DEFAULT" not in self.sql.split("ADD COLUMN", 1)[1].split(";", 1)[0]
+        assert (
+            "NOT NULL" not in self.sql.split("ADD COLUMN", 1)[1].split(";", 1)[0]
+            and "DEFAULT" not in self.sql.split("ADD COLUMN", 1)[1].split(";", 1)[0]
+        )
         assert self.sql.count("BEGIN;") == 1 and self.sql.count("COMMIT;") == 1
 
     def test_the_parser_sees_it(self):
@@ -181,7 +240,14 @@ class TestMigration064:
         names = sorted(p.name for p in MIGRATIONS.glob("*.sql"))
         assert names.index("064_detection_proposal_source.sql") == names.index("063_rls_for_uncovered_tenant_tables.sql") + 1
 
-    @pytest.mark.parametrize("path,source", [("api/v1/endpoints/detection_loop.py", "detection-loop"), ("api/v1/endpoints/rule_tuning.py", "auto-tuner"), ("workers/hunt_scheduler.py", "hunt-finding")])
+    @pytest.mark.parametrize(
+        "path,source",
+        [
+            ("api/v1/endpoints/detection_loop.py", "detection-loop"),
+            ("api/v1/endpoints/rule_tuning.py", "auto-tuner"),
+            ("workers/hunt_scheduler.py", "hunt-finding"),
+        ],
+    )
     def test_each_writer_records_its_own_source(self, path, source):
         assert f"'{source}'" in (APP / path).read_text(encoding="utf-8")
 

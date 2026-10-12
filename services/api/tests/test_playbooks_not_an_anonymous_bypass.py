@@ -6,6 +6,7 @@ it to list, create, delete and RUN playbooks through the agents service. These
 tests stand in for the agents service and prove it is never reached unless the
 caller is allowed.
 """
+
 import uuid
 
 import httpx
@@ -83,7 +84,7 @@ def test_an_analyst_can_read_and_run_but_not_author():
     c = _client(_user("soc_analyst"))
     assert c.get("/api/v1/playbooks").status_code == 200
     assert c.post(f"/api/v1/playbooks/{PB}/run", json={}).status_code != 403
-    assert c.post("/api/v1/playbooks", json={}).status_code == 403   # playbooks:write is admin / tenant_admin
+    assert c.post("/api/v1/playbooks", json={}).status_code == 403  # playbooks:write is admin / tenant_admin
     assert c.delete(f"/api/v1/playbooks/{PB}").status_code == 403
     sent = [call.request for call in agents.calls]
     assert sent and all(r.headers.get("x-internal-token") == "internal-secret-123" for r in sent)

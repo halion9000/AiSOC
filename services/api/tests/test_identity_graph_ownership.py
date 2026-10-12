@@ -4,6 +4,7 @@ Found by a two-tenant flow test of the real API: tenant B created an identity-gr
 accepts any existing node, so the edge was stored (and graph walks over edges could then cross into the other tenant), while a nonexistent id was an unhandled IntegrityError (HTTP 500). Foreign and nonexistent ids now get the SAME 404, so the endpoint cannot be used to
 probe which node ids exist in other tenants. The alert-link endpoint had the same gap for both its node and its alert.
 """
+
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -50,7 +51,13 @@ class TestCreateEdge:
         out = await ig.create_edge(body=_edge(a, b), db=db, current_user=user)
         db.add.assert_called_once()
         added = db.add.call_args.args[0]
-        assert isinstance(added, IdentityEdge) and added.tenant_id == user.tenant_id and added.source_id == a and added.target_id == b and out is added
+        assert (
+            isinstance(added, IdentityEdge)
+            and added.tenant_id == user.tenant_id
+            and added.source_id == a
+            and added.target_id == b
+            and out is added
+        )
         db.commit.assert_awaited_once()
 
     async def test_a_foreign_node_is_a_404_and_nothing_is_stored(self):

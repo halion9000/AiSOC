@@ -8,6 +8,7 @@ configuration. The API is its only caller; it now sends ``Authorization: Bearer 
 There is no development mode: with no token configured every route answers 503, and CORE generates the token on every build, so a properly set
 up stack always has one. Read at call time, not import time, so the setting can change without a reload and tests can set it.
 """
+
 from __future__ import annotations
 
 import os
@@ -15,6 +16,7 @@ import secrets
 from typing import Annotated
 
 from fastapi import Header, HTTPException, status
+
 
 def _token() -> str:
     return (os.getenv("AISOC_CONNECTORS_SERVICE_TOKEN") or "").strip()

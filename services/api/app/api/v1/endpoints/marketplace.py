@@ -298,7 +298,9 @@ async def list_marketplace(
             or q in (i.get("id") or "").lower()
         ]
 
-    installed_ids = list((await db.execute(select(MarketplaceInstall.item_id).where(MarketplaceInstall.tenant_id == current_user.tenant_id))).scalars().all())
+    installed_ids = list(
+        (await db.execute(select(MarketplaceInstall.item_id).where(MarketplaceInstall.tenant_id == current_user.tenant_id))).scalars().all()
+    )
 
     return MarketplaceListResponse(
         total=len(items),

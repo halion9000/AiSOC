@@ -3,6 +3,7 @@
 A person belongs to one tenant but may be GRANTED read-only access to others. The grant belongs to the granted tenant: row-level security applies on `tenant_id`, so that tenant's own people can see who has access to their data.
 (app/services/view_as.py decides who may view what; app/api/v1/endpoints/tenants.py manages the grants.)
 """
+
 import uuid
 from datetime import datetime
 
@@ -23,7 +24,9 @@ class TenantAccessGrant(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     access: Mapped[str] = mapped_column(String(16), nullable=False, default=ACCESS_VIEW)
     granted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     granted_by_label: Mapped[str] = mapped_column(Text, nullable=False)

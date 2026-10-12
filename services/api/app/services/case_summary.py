@@ -611,16 +611,20 @@ def _row_to_summary_case(row: Any) -> SummaryCaseRow:
 
 async def _fetch_case_for_summary(db: AsyncSession, case_id: uuid.UUID, tenant_id: uuid.UUID) -> SummaryCaseRow | None:
     """The case, ONLY if it belongs to `tenant_id`. This used to load by id alone (the module had no tenant_id anywhere), so GET /cases/{id}/summary and /postmortem returned any tenant's case (title, description, tasks, notes) to any caller."""
-    row = (await db.execute(text("SELECT * FROM aisoc_cases WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=case_id, tenant_id=tenant_id))).fetchone()
+    row = (
+        await db.execute(
+            text("SELECT * FROM aisoc_cases WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=case_id, tenant_id=tenant_id)
+        )
+    ).fetchone()
     return _row_to_summary_case(row) if row else None
 
 
 async def _fetch_comments(db: AsyncSession, case_id: uuid.UUID, tenant_id: uuid.UUID) -> list[SummaryCommentRow]:
     rows = (
         await db.execute(
-            text("SELECT author, body, is_system, created_at FROM aisoc_case_comments WHERE case_id = :id AND tenant_id = :tenant_id ORDER BY created_at").bindparams(
-                id=case_id, tenant_id=tenant_id
-            )
+            text(
+                "SELECT author, body, is_system, created_at FROM aisoc_case_comments WHERE case_id = :id AND tenant_id = :tenant_id ORDER BY created_at"
+            ).bindparams(id=case_id, tenant_id=tenant_id)
         )
     ).fetchall()
     return [

@@ -10,6 +10,7 @@ First matching rule wins. Methods None means any method. A request that matches
 no rule needs a valid login but no particular permission (as before).
 Calls carrying the internal token skip this: the API already authorized the user.
 """
+
 import re
 
 _WRITE = frozenset({"POST", "PUT", "PATCH", "DELETE"})

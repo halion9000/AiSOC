@@ -1,4 +1,5 @@
 """The agents route->permission table: exact answers, and full coverage of console-facing routes."""
+
 import pytest
 
 from app.core.route_permissions import CONSOLE_FACING_PREFIXES, RULES, required_permission
@@ -48,9 +49,19 @@ def test_unmapped_paths_need_only_a_login():
 def test_every_permission_the_table_names_is_one_the_API_recognises():
     """A typo here would make the API answer 422 and the agents service fail closed for everyone."""
     import sys
+
     sys.path.insert(0, "../api")
     names = {perm for _, _, perm in RULES}
-    api_known = {"playbooks:read", "playbooks:write", "playbooks:execute", "lake:query", "settings:write", "alerts:read", "cases:read", "cases:write"}
+    api_known = {
+        "playbooks:read",
+        "playbooks:write",
+        "playbooks:execute",
+        "lake:query",
+        "settings:write",
+        "alerts:read",
+        "cases:read",
+        "cases:write",
+    }
     assert names <= api_known, f"unknown to the API: {names - api_known}"
 
 
@@ -63,7 +74,9 @@ def test_every_console_facing_route_is_covered_by_a_rule():
         for method in ops:
             if method in ("get", "post", "put", "patch", "delete") and required_permission(method, path) is None:
                 uncovered.append(f"{method.upper()} {path}")
-    assert not uncovered, "console-facing agents routes with no permission rule (add one to app/core/route_permissions.py):\n  " + "\n  ".join(uncovered)
+    assert not uncovered, (
+        "console-facing agents routes with no permission rule (add one to app/core/route_permissions.py):\n  " + "\n  ".join(uncovered)
+    )
 
 
 def test_explain_needs_alerts_read_and_nothing_near_it_is_swept_in():
@@ -73,4 +86,3 @@ def test_explain_needs_alerts_read_and_nothing_near_it_is_swept_in():
     for lookalike in ("/api/v1/explain/", "/api/v1/explainer", "/api/v1/explain/x", "/api/v1/x/explain"):
         assert required_permission("POST", lookalike) is None, lookalike
     assert "/api/v1/explain" in CONSOLE_FACING_PREFIXES, "the coverage test must enforce it from now on"
-

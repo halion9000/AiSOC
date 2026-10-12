@@ -8,6 +8,7 @@ USER CREATION. Email addresses are unique across ALL tenants (login is by email 
 for the caller's own tenant, whose users the caller can list anyway. The attempt is logged so probing can be seen. (A refusal still differs from a success, so a tenant admin can still learn something about a few addresses: removing that needs
 per-tenant uniqueness or an invitation flow.)
 """
+
 import asyncio
 import hashlib
 import logging
@@ -55,8 +56,18 @@ def world(tmp_path):
     sync = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__, LoginFailure.__table__])
     ta, tb = (Tenant(id=uuid.uuid4(), name=n, slug=n.lower() + "-" + uuid.uuid4().hex[:6]) for n in ("A", "B"))
+
     def user(tenant, email, active=True, role="admin"):
-        return User(id=uuid.uuid4(), tenant_id=tenant.id, email=email, username=email.split("@")[0], hashed_password=get_password_hash(PASSWORD), role=role, is_active=active)
+        return User(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            email=email,
+            username=email.split("@")[0],
+            hashed_password=get_password_hash(PASSWORD),
+            role=role,
+            is_active=active,
+        )
+
     alice, dormant, bob = user(ta, "alice@a.example"), user(ta, "dormant@a.example", active=False), user(tb, "bob@b.example")
     with Session(sync, expire_on_commit=False) as s:
         s.add_all([ta, tb, alice, dormant, bob])
@@ -93,14 +104,17 @@ def hash_checks(monkeypatch):
 
 
 class TestLoginDoesTheSameWorkWhoeverIsAsked:
-    @pytest.mark.parametrize("email,password", [
-        ("alice@a.example", "wrong"),  # registered, wrong password
-        ("alice@a.example", PASSWORD),  # registered, right password
-        ("nobody@nowhere.example", "wrong"),  # not registered
-        ("nobody@nowhere.example", PASSWORD),  # not registered, a password that works elsewhere
-        ("dormant@a.example", PASSWORD),  # registered but inactive, right password
-        ("dormant@a.example", "wrong"),  # registered but inactive
-    ])
+    @pytest.mark.parametrize(
+        "email,password",
+        [
+            ("alice@a.example", "wrong"),  # registered, wrong password
+            ("alice@a.example", PASSWORD),  # registered, right password
+            ("nobody@nowhere.example", "wrong"),  # not registered
+            ("nobody@nowhere.example", PASSWORD),  # not registered, a password that works elsewhere
+            ("dormant@a.example", PASSWORD),  # registered but inactive, right password
+            ("dormant@a.example", "wrong"),  # registered but inactive
+        ],
+    )
     def test_the_expensive_hash_check_runs_exactly_once_on_every_path(self, world, hash_checks, email, password):
         attempt(world, email, password)
         assert len(hash_checks) == 1
@@ -116,7 +130,16 @@ class TestLoginDoesTheSameWorkWhoeverIsAsked:
         attempt(world, "dormant@a.example")
         assert hash_checks == [security._TIMING_EQUALISER_HASH.encode()]
 
-    @pytest.mark.parametrize("email,password", [("alice@a.example", "wrong"), ("nobody@nowhere.example", "wrong"), ("dormant@a.example", PASSWORD), ("dormant@a.example", "wrong"), ("nobody@nowhere.example", PASSWORD)])
+    @pytest.mark.parametrize(
+        "email,password",
+        [
+            ("alice@a.example", "wrong"),
+            ("nobody@nowhere.example", "wrong"),
+            ("dormant@a.example", PASSWORD),
+            ("dormant@a.example", "wrong"),
+            ("nobody@nowhere.example", PASSWORD),
+        ],
+    )
     def test_every_refusal_is_the_same_response(self, world, email, password):
         r = attempt(world, email, password)
         assert (r.status_code, r.json(), r.headers.get("www-authenticate")) == (401, {"detail": GENERIC}, "Bearer")
@@ -130,12 +153,18 @@ class TestLoginDoesTheSameWorkWhoeverIsAsked:
         import inspect
 
         src = inspect.getsource(auth.login)
-        assert "verify_password_or_equalise(" in src and "verify_password(" not in src.replace("verify_password_or_equalise(", ""), "login must not skip the hash for an unknown email"
+        assert "verify_password_or_equalise(" in src and "verify_password(" not in src.replace(
+            "verify_password_or_equalise(", ""
+        ), "login must not skip the hash for an unknown email"
 
     def test_no_code_outside_the_security_module_checks_a_password_with_the_bare_function(self):
         """A new credential check that calls verify_password directly would bring the timing difference back (or skip the work for an unknown account). Use verify_password_or_equalise."""
         root = Path(__file__).resolve().parent.parent / "app"
-        offenders = [str(p.relative_to(root)) for p in root.rglob("*.py") if p.name != "security.py" and re.search(r"(?<![\w.])verify_password\(", p.read_text(encoding="utf-8", errors="replace"))]
+        offenders = [
+            str(p.relative_to(root))
+            for p in root.rglob("*.py")
+            if p.name != "security.py" and re.search(r"(?<![\w.])verify_password\(", p.read_text(encoding="utf-8", errors="replace"))
+        ]
         assert offenders == [], f"call verify_password_or_equalise instead: {offenders}"
 
 

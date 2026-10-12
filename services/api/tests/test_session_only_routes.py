@@ -4,6 +4,7 @@ An API key resolves to the user who owns it (api_key.user_id), and these routes 
 `alerts:read`, could register or revoke that user's passkeys, subscribe or unsubscribe their push notifications, and rewrite their profile preferences. Passkeys and push subscriptions belong to a human's
 devices, so they are now session-only: an API key gets HTTP 403 before anything else runs (the check is a dependency on the user parameter, so it precedes the database dependency and body validation).
 """
+
 import uuid
 
 import pytest

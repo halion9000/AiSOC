@@ -9,6 +9,7 @@ role table for every role.
 No other service calls any of these routes (checked), so the only callers are the web
 console and the agents service's read-only graph lookups (which hold alerts:read).
 """
+
 import importlib
 import re
 import uuid
@@ -35,19 +36,53 @@ def m(perm, *names):
 
 
 INTENDED = {
-    "community": {**m("rules:write", "publish_detection", "install_community_detection"), **m("playbooks:write", "submit_playbook", "install_community_playbook"), **m("settings:write", "install_community_plugin")},
-    "graph": {**m(R, "get_attack_path", "get_blast_radius", "get_mitre_coverage", "get_mitre_coverage_compat", "get_entity_neighbors"), **m(W, "upsert_alert_graph", "upsert_case_graph", "upsert_host", "upsert_user")},
-    "posture": {**m(R, "list_findings", "get_finding", "list_scans", "get_summary"), **m(W, "ingest_finding", "resolve_finding", "suppress_finding"), **m("settings:write", "cspm_scan"), **m("settings:read", "destination_preview")},
-    "assets": {**m(R, "list_assets", "list_vulnerabilities", "get_asset", "list_asset_vulnerabilities"), **m(W, "create_asset", "create_vulnerability", "update_asset"), **m(D, "delete_asset")},
-    "identity_graph": {**m(R, "get_alert_identity_links", "list_edges", "list_nodes", "get_node", "get_node_edges"), **m(W, "link_alert_to_identity", "create_edge", "create_node")},
-    "insider_threat": {**m(R, "list_indicators", "list_peer_groups", "list_profiles", "get_profile"), **m(W, "update_watchlist", "create_indicator", "acknowledge_indicator", "create_peer_group")},
+    "community": {
+        **m("rules:write", "publish_detection", "install_community_detection"),
+        **m("playbooks:write", "submit_playbook", "install_community_playbook"),
+        **m("settings:write", "install_community_plugin"),
+    },
+    "graph": {
+        **m(R, "get_attack_path", "get_blast_radius", "get_mitre_coverage", "get_mitre_coverage_compat", "get_entity_neighbors"),
+        **m(W, "upsert_alert_graph", "upsert_case_graph", "upsert_host", "upsert_user"),
+    },
+    "posture": {
+        **m(R, "list_findings", "get_finding", "list_scans", "get_summary"),
+        **m(W, "ingest_finding", "resolve_finding", "suppress_finding"),
+        **m("settings:write", "cspm_scan"),
+        **m("settings:read", "destination_preview"),
+    },
+    "assets": {
+        **m(R, "list_assets", "list_vulnerabilities", "get_asset", "list_asset_vulnerabilities"),
+        **m(W, "create_asset", "create_vulnerability", "update_asset"),
+        **m(D, "delete_asset"),
+    },
+    "identity_graph": {
+        **m(R, "get_alert_identity_links", "list_edges", "list_nodes", "get_node", "get_node_edges"),
+        **m(W, "link_alert_to_identity", "create_edge", "create_node"),
+    },
+    "insider_threat": {
+        **m(R, "list_indicators", "list_peer_groups", "list_profiles", "get_profile"),
+        **m(W, "update_watchlist", "create_indicator", "acknowledge_indicator", "create_peer_group"),
+    },
     # hunts:read reads the DEFINITIONS (hypothesis, queries, findings); list_runs stays lake:query because a run's result_sample is event
     # rows sampled from the lake.
-    "hunts": {**m("hunts:read", "list_hunts", "get_hunt"), **m("lake:query", "list_runs", "update_hunt", "create_hunt", "add_findings", "run_hunt")},  # noqa: E501
-    "saved_hunts": {**m("hunts:read", "list_saved_hunts", "get_saved_hunt"), **m("lake:query", "delete_saved_hunt", "create_saved_hunt", "run_saved_hunt")},  # noqa: E501
+    "hunts": {
+        **m("hunts:read", "list_hunts", "get_hunt"),
+        **m("lake:query", "list_runs", "update_hunt", "create_hunt", "add_findings", "run_hunt"),
+    },  # noqa: E501
+    "saved_hunts": {
+        **m("hunts:read", "list_saved_hunts", "get_saved_hunt"),
+        **m("lake:query", "delete_saved_hunt", "create_saved_hunt", "run_saved_hunt"),
+    },  # noqa: E501
     "knowledge_base": {**m(R, "list_documents", "get_document", "query_kb"), **m("settings:write", "ingest", "delete_document")},
-    "compliance": {**m("reports:read", "list_evidence", "get_evidence", "compliance_report"), **m("reports:write", "collect_evidence", "review_evidence")},
-    "feedback": {**m(R, "list_overrides_endpoint", "get_override_summary"), **m(W, "submit_alert_override", "apply_redisposition_endpoint")},
+    "compliance": {
+        **m("reports:read", "list_evidence", "get_evidence", "compliance_report"),
+        **m("reports:write", "collect_evidence", "review_evidence"),
+    },
+    "feedback": {
+        **m(R, "list_overrides_endpoint", "get_override_summary"),
+        **m(W, "submit_alert_override", "apply_redisposition_endpoint"),
+    },
     "metrics": m(R, "get_alert_trend", "get_dashboard_metrics", "get_funnel_metrics", "get_soc_metrics"),
     "phishing": {**m(R, "list_submissions", "get_submission"), **m(W, "retriage")},
     "detection_loop": {**m(R, "list_suggestions", "get_suggestion"), **m(W, "suggest_fp_fix")},
@@ -146,7 +181,9 @@ def test_deleting_an_asset_needs_the_delete_permission_not_just_write():
 
 def test_a_viewer_can_read_security_data_but_change_none_of_it():
     reads = [(mod, r, meth) for mod, r, meth, perm in ROWS if perm == R and meth == "GET"]
-    writes = [(mod, r, meth) for mod, r, meth, perm in ROWS if perm in (W, D, "settings:write", "reports:write", "rules:write", "playbooks:write")]
+    writes = [
+        (mod, r, meth) for mod, r, meth, perm in ROWS if perm in (W, D, "settings:write", "reports:write", "rules:write", "playbooks:write")
+    ]
     assert reads and writes
     viewer = _client(_user("viewer"))
     assert all(_call(viewer, meth, r) not in (401, 403) for _, r, meth in reads[:10])

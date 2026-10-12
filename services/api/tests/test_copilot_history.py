@@ -7,6 +7,7 @@ POST /copilot/chat kept history in a module-level dict keyed by the CLIENT-SUPPL
 Also fixed on the way: the tool-loop truncation warning used structlog-style keyword arguments on a STDLIB logger, which raises TypeError; the outer except caught it and a working model was reported to the
 analyst as "couldn't reach the LLM backend". These tests use a fake model that records exactly what it was sent, so they prove what history the model actually receives.
 """
+
 import uuid
 from types import SimpleNamespace
 
@@ -62,7 +63,9 @@ def harness(tmp_path, monkeypatch):
     LLM.tool_users = []
     RLS.calls = []
 
-    async def fake_rls(_session, tenant_id):  # SQLite has no RLS and no set_config(); the real thing is exercised against Postgres. Recorded so the tests can prove it is asserted.
+    async def fake_rls(
+        _session, tenant_id
+    ):  # SQLite has no RLS and no set_config(); the real thing is exercised against Postgres. Recorded so the tests can prove it is asserted.
         RLS.calls.append(tenant_id)
 
     monkeypatch.setattr(copilot_history, "set_rls_context", fake_rls)
@@ -73,12 +76,16 @@ def harness(tmp_path, monkeypatch):
     DB.sync.dispose()
 
 
-def client_as(tenant_id=None, user_id=None, role="admin") -> TestClient:  # admin: in the static role table only admin and platform_admin hold copilot:use
+def client_as(
+    tenant_id=None, user_id=None, role="admin"
+) -> TestClient:  # admin: in the static role table only admin and platform_admin hold copilot:use
     app = FastAPI()
     app.include_router(copilot.router)
     tenant_id = tenant_id or uuid.uuid4()
     user_id = user_id or uuid.uuid4()
-    app.dependency_overrides[deps.get_current_user] = lambda: deps.CurrentUser(user_id=user_id, tenant_id=tenant_id, role=role, email="a@example.test")
+    app.dependency_overrides[deps.get_current_user] = lambda: deps.CurrentUser(
+        user_id=user_id, tenant_id=tenant_id, role=role, email="a@example.test"
+    )
 
     async def real_session():
         async with DB.factory() as session:
@@ -143,7 +150,9 @@ class TestItSurvivesARestart:
         """The dict lost every conversation on restart while the UI still displayed the chat."""
         c = client_as()
         first = chat(c, "remember: the incident is INC-4471").json()
-        DB.factory = async_sessionmaker(create_async_engine(f"sqlite+aiosqlite:///{DB.path}", poolclass=NullPool), expire_on_commit=False)  # a new process: nothing carried over in memory
+        DB.factory = async_sessionmaker(
+            create_async_engine(f"sqlite+aiosqlite:///{DB.path}", poolclass=NullPool), expire_on_commit=False
+        )  # a new process: nothing carried over in memory
         c2 = client_as(tenant_id=c.tenant_id, user_id=c.user_id)
         chat(c2, "what incident were we on?", first["conversationId"])
         assert history_seen_by_model()[:2] == ["remember: the incident is INC-4471", first["reply"]["content"]]
@@ -330,13 +339,14 @@ class TestFailureModes:
         assert "couldn't reach" not in r.json()["reply"]["content"] and r.json()["reply"]["content"] == "still thinking"
         assert LLM.tool_calls == 6  # it really did loop to the limit
 
-
     def test_tools_run_as_the_authenticated_user_so_their_permissions_can_be_checked(self):
         """execute_copilot_tool used to receive only the tenant id: nothing it ran could be tied to who asked."""
         LLM.tool_loop = True
         c = client_as()
         chat(c, "keep using tools")
-        assert len(LLM.tool_users) == 6 and all(u.user_id == c.user_id and u.tenant_id == c.tenant_id and u.role == "admin" for u in LLM.tool_users)
+        assert len(LLM.tool_users) == 6 and all(
+            u.user_id == c.user_id and u.tenant_id == c.tenant_id and u.role == "admin" for u in LLM.tool_users
+        )
 
 
 class TestPermissionAndWiring:

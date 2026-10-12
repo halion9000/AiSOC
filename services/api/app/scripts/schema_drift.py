@@ -86,7 +86,13 @@ def compare(metadata: sa.MetaData, db: dict[str, dict[str, dict[str, str]]]) -> 
             ok = compatible_types(col.type)
             if ok is not None and d["data_type"] not in ok:
                 out.type_mismatches.append((name, col.name, type(col.type).__name__, d["data_type"]))
-            if not col.nullable and d["is_nullable"] == "YES" and col.default is None and col.server_default is None and not col.primary_key:
+            if (
+                not col.nullable
+                and d["is_nullable"] == "YES"
+                and col.default is None
+                and col.server_default is None
+                and not col.primary_key
+            ):
                 out.not_null_not_enforced.append((name, col.name))
     return out
 
@@ -98,9 +104,14 @@ def render(d: Drift) -> str:
     if d.missing_columns:
         out += ["", "ORM columns the database does not have:"] + [f"  {t}.{c}" for t, c in d.missing_columns]
     if d.type_mismatches:
-        out += ["", "Type mismatches (the ORM will send values the column cannot hold):"] + [f"  {t}.{c}: ORM {o}, database {db_}" for t, c, o, db_ in d.type_mismatches]
+        out += ["", "Type mismatches (the ORM will send values the column cannot hold):"] + [
+            f"  {t}.{c}: ORM {o}, database {db_}" for t, c, o, db_ in d.type_mismatches
+        ]
     if d.not_null_not_enforced:
-        out += ["", f"Information: {len(d.not_null_not_enforced)} column(s) the ORM treats as required but the database lets be NULL (legacy rows can break a response model that requires them):"]
+        out += [
+            "",
+            f"Information: {len(d.not_null_not_enforced)} column(s) the ORM treats as required but the database lets be NULL (legacy rows can break a response model that requires them):",
+        ]
         out += [f"  {t}.{c}" for t, c in d.not_null_not_enforced]
     return "\n".join(out)
 
@@ -110,7 +121,9 @@ def exit_code(d: Drift, *, strict: bool) -> int:
 
 
 async def collect(conn: Any) -> dict[str, dict[str, dict[str, str]]]:
-    rows = await conn.fetch("SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public'")
+    rows = await conn.fetch(
+        "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public'"
+    )
     db: dict[str, dict[str, dict[str, str]]] = {}
     for r in rows:
         db.setdefault(r["table_name"], {})[r["column_name"]] = {"data_type": r["data_type"], "is_nullable": r["is_nullable"]}

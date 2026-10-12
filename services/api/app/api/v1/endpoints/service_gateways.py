@@ -19,6 +19,7 @@ Permissions: reads need `alerts:read`; creating or revoking a honeytoken, `alert
 recording purple-team results, drift snapshots and tabletop activity, `rules:write`; syncing the Atomic library and RUNNING
 a simulation (`atomics/run`, `caldera/run`), `settings:write`, which is deliberately the narrow, admin-level choice.
 """
+
 import json
 import os
 import re

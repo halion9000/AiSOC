@@ -142,7 +142,9 @@ def _unavailable(exc: Exception) -> HTTPException:
 
 
 @router.get("", summary="The shared library plus this tenant's own playbooks")
-async def list_playbooks(request: Request, enabled_only: bool = False, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)) -> list[dict]:
+async def list_playbooks(
+    request: Request, enabled_only: bool = False, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)
+) -> list[dict]:
     items = [_tag(pb, "library") for pb in PlaybookStore.default().list(enabled_only=enabled_only)]
     tenant = _tenant(request, tenant_id)
     if tenant is not None:
@@ -154,7 +156,9 @@ async def list_playbooks(request: Request, enabled_only: bool = False, tenant_id
 
 
 @router.post("", summary="Create a playbook in this tenant", status_code=201)
-async def create_playbook(request: Request, playbook: Playbook, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)) -> dict:
+async def create_playbook(
+    request: Request, playbook: Playbook, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)
+) -> dict:
     tenant = _need_tenant(_tenant(request, tenant_id))
     try:
         # A fresh id is always assigned and provenance cannot be claimed: cloned_from is only ever set by /clone.
@@ -191,7 +195,9 @@ async def get_run(run_id: str, request: Request, tenant_id: str | None = Query(N
 
 
 @router.get("/{playbook_id}", summary="Get a library playbook or one of this tenant's own")
-async def get_playbook(playbook_id: str, request: Request, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)) -> dict:
+async def get_playbook(
+    playbook_id: str, request: Request, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)
+) -> dict:
     mine = await _own(repo, _tenant(request, tenant_id), playbook_id)
     if mine is not None:
         return _tag(mine, "tenant")
@@ -230,7 +236,13 @@ async def clone_playbook(
 
 
 @router.put("/{playbook_id}", summary="Update one of this tenant's own playbooks")
-async def update_playbook(playbook_id: str, data: dict[str, Any], request: Request, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)) -> dict:
+async def update_playbook(
+    playbook_id: str,
+    data: dict[str, Any],
+    request: Request,
+    tenant_id: str | None = Query(None),
+    repo: PlaybookRepo = Depends(get_playbook_repo),
+) -> dict:
     tenant = _tenant(request, tenant_id)
     if await _own(repo, tenant, playbook_id) is not None:
         try:
@@ -248,7 +260,9 @@ async def update_playbook(playbook_id: str, data: dict[str, Any], request: Reque
 
 
 @router.delete("/{playbook_id}", summary="Delete one of this tenant's own playbooks", status_code=204, response_model=None)
-async def delete_playbook(playbook_id: str, request: Request, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)) -> None:
+async def delete_playbook(
+    playbook_id: str, request: Request, tenant_id: str | None = Query(None), repo: PlaybookRepo = Depends(get_playbook_repo)
+) -> None:
     tenant = _tenant(request, tenant_id)
     if await _own(repo, tenant, playbook_id) is not None:
         try:

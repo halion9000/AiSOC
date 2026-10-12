@@ -4,6 +4,7 @@ Some tests set variables directly (os.environ.setdefault("ENVIRONMENT", "develop
 fixtures in conftest.py restore the process environment after each test, each class and each module. These tests run in definition order (in one process) and prove it for the mechanisms the real offenders use: a change made INSIDE a test, and a change made by a CLASS-scoped fixture (what
 test_b10_backend_route_coverage does). The module-scoped case needs two files and lives in test_environment_isolation_module_a.py / _b.py.
 """
+
 import os
 
 import pytest
@@ -50,7 +51,9 @@ class TestAClassScopedFixtureDoesNotLeak:
         return True
 
     def test_one_the_fixture_changes_the_environment_for_this_class(self, sets_the_environment_like_the_route_coverage_test):
-        assert os.environ["ENVIRONMENT"] == "development" and os.environ[PROBE + "_CLASS"] == "leaked", "the class's own tests do see the change they asked for"
+        assert (
+            os.environ["ENVIRONMENT"] == "development" and os.environ[PROBE + "_CLASS"] == "leaked"
+        ), "the class's own tests do see the change they asked for"
 
 
 class TestTheNextClassSeesNoneOfIt:

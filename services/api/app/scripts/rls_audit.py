@@ -79,15 +79,38 @@ class Report:
 
     @property
     def defects(self) -> list[dict[str, str]]:
-        found = [p for kind in DEFECTS for p in self.policies.get(kind, [])] + [{"table": t, "policy": "(none)", "using": "RLS enabled but no policy: invisible and unwritable for a non-owner role"} for t in self.no_policy]
+        found = [p for kind in DEFECTS for p in self.policies.get(kind, [])] + [
+            {"table": t, "policy": "(none)", "using": "RLS enabled but no policy: invisible and unwritable for a non-owner role"}
+            for t in self.no_policy
+        ]
         if self.app_role.get("can_truncate_audit_log") is True:
-            found.append({"table": "audit_log", "policy": f"({APP_ROLE} privileges)", "using": f"{APP_ROLE} can TRUNCATE the append-only audit_log (TRUNCATE ignores RLS and row triggers): apply migration 062"})
+            found.append(
+                {
+                    "table": "audit_log",
+                    "policy": f"({APP_ROLE} privileges)",
+                    "using": f"{APP_ROLE} can TRUNCATE the append-only audit_log (TRUNCATE ignores RLS and row triggers): apply migration 062",
+                }
+            )
         if self.app_role.get("default_password_accepted") is True:
-            found.append({"table": "(role)", "policy": f"({APP_ROLE} password)", "using": f"{APP_ROLE} still accepts the password published in the repository: set a real one (scripts/provision_app_role.sql)"})
+            found.append(
+                {
+                    "table": "(role)",
+                    "policy": f"({APP_ROLE} password)",
+                    "using": f"{APP_ROLE} still accepts the password published in the repository: set a real one (scripts/provision_app_role.sql)",
+                }
+            )
         return found
 
 
-def build_report(*, role: tuple[str, bool, bool], tables: list[str], tenant_tables: set[str], rls_enabled: set[str], policies: list[dict[str, Any]], app_role: dict[str, Any] | None = None) -> Report:
+def build_report(
+    *,
+    role: tuple[str, bool, bool],
+    tables: list[str],
+    tenant_tables: set[str],
+    rls_enabled: set[str],
+    policies: list[dict[str, Any]],
+    app_role: dict[str, Any] | None = None,
+) -> Report:
     r = Report(role=role[0], superuser=role[1], bypassrls=role[2], tables=len(tables), app_role=dict(app_role or {}))
     r.tenant_scoped = sorted(t for t in tables if t in tenant_tables)
     r.covered = [t for t in r.tenant_scoped if t in rls_enabled]
@@ -98,16 +121,25 @@ def build_report(*, role: tuple[str, bool, bool], tables: list[str], tenant_tabl
     r.no_policy = sorted(t for t in tables if t in rls_enabled and t not in with_policy)
     for p in policies:
         kind = classify_policy(p.get("qual") or p.get("with_check"))
-        r.policies.setdefault(kind, []).append({"table": p["tablename"], "policy": p["policyname"], "using": (p.get("qual") or p.get("with_check") or "")[:110]})
+        r.policies.setdefault(kind, []).append(
+            {"table": p["tablename"], "policy": p["policyname"], "using": (p.get("qual") or p.get("with_check") or "")[:110]}
+        )
     return r
 
 
 def render(r: Report) -> str:
     out = [f"Connected as role '{r.role}': superuser={r.superuser} bypassrls={r.bypassrls}"]
-    out.append("  RLS is BYPASSED for this role: tenant isolation rests entirely on the application's own tenant filters." if r.bypasses_rls else "  RLS is ENFORCED for this role.")
+    out.append(
+        "  RLS is BYPASSED for this role: tenant isolation rests entirely on the application's own tenant filters."
+        if r.bypasses_rls
+        else "  RLS is ENFORCED for this role."
+    )
     total = len(r.tenant_scoped)
     pct = round(100 * len(r.covered) / total) if total else 0
-    out += ["", f"{r.tables} tables; {total} are tenant-scoped (have a tenant_id column); RLS is enabled on {len(r.covered)} of them ({pct}%)."]
+    out += [
+        "",
+        f"{r.tables} tables; {total} are tenant-scoped (have a tenant_id column); RLS is enabled on {len(r.covered)} of them ({pct}%).",
+    ]
     if r.uncovered:
         out.append(f"{len(r.uncovered)} tenant-scoped tables have NO RLS (isolation there is application filters only, whatever the role):")
         out += [f"  {', '.join(r.uncovered[i:i + 4])}" for i in range(0, len(r.uncovered), 4)]
@@ -126,20 +158,59 @@ def render(r: Report) -> str:
         trunc = r.app_role.get("can_truncate_audit_log")
         out.append(f"  can TRUNCATE audit_log: {'YES (DEFECT: apply migration 062)' if trunc else 'no' if trunc is False else 'unknown'}")
         pw = r.app_role.get("default_password_accepted")
-        out.append("  accepts the published password: " + ("YES (DEFECT: set a real password)" if pw else "no" if pw is False else "not checked (use --check-default-password)" if "default_password_accepted" not in r.app_role else "could not tell"))
+        out.append(
+            "  accepts the published password: "
+            + (
+                "YES (DEFECT: set a real password)"
+                if pw
+                else "no"
+                if pw is False
+                else "not checked (use --check-default-password)"
+                if "default_password_accepted" not in r.app_role
+                else "could not tell"
+            )
+        )
     out += ["", f"{len(r.defects)} defect(s)."]
     return "\n".join(out)
 
 
 async def collect(conn: Any) -> Report:
     me = await conn.fetchrow("SELECT current_user AS name, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user")
-    tables = [x["relname"] for x in await conn.fetch("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 1")]
-    tenant_tables = {x["table_name"] for x in await conn.fetch("SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'tenant_id'")}
-    rls = {x["relname"] for x in await conn.fetch("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity")}
-    pols = [dict(x) for x in await conn.fetch("SELECT tablename, policyname, qual, with_check FROM pg_policies WHERE schemaname = 'public'")]
+    tables = [
+        x["relname"]
+        for x in await conn.fetch(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 1"
+        )
+    ]
+    tenant_tables = {
+        x["table_name"]
+        for x in await conn.fetch(
+            "SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'tenant_id'"
+        )
+    }
+    rls = {
+        x["relname"]
+        for x in await conn.fetch(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity"
+        )
+    }
+    pols = [
+        dict(x) for x in await conn.fetch("SELECT tablename, policyname, qual, with_check FROM pg_policies WHERE schemaname = 'public'")
+    ]
     exists = bool(await conn.fetchval("SELECT 1 FROM pg_roles WHERE rolname = $1", APP_ROLE))
-    can_truncate = bool(await conn.fetchval("SELECT has_table_privilege($1, 'public.audit_log', 'TRUNCATE')", APP_ROLE)) if exists and "audit_log" in tables else None
-    return build_report(role=(me["name"], me["rolsuper"], me["rolbypassrls"]), tables=tables, tenant_tables=tenant_tables, rls_enabled=rls, policies=pols, app_role={"exists": exists, "can_truncate_audit_log": can_truncate})
+    can_truncate = (
+        bool(await conn.fetchval("SELECT has_table_privilege($1, 'public.audit_log', 'TRUNCATE')", APP_ROLE))
+        if exists and "audit_log" in tables
+        else None
+    )
+    return build_report(
+        role=(me["name"], me["rolsuper"], me["rolbypassrls"]),
+        tables=tables,
+        tenant_tables=tenant_tables,
+        rls_enabled=rls,
+        policies=pols,
+        app_role={"exists": exists, "can_truncate_audit_log": can_truncate},
+    )
 
 
 def with_credentials(dsn: str, user: str, password: str) -> str:
@@ -173,7 +244,11 @@ async def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--strict", action="store_true", help="exit 1 if any policy is defective")
     ap.add_argument("--require-enforced", action="store_true", help="exit 1 if the connected role bypasses RLS")
-    ap.add_argument("--check-default-password", action="store_true", help=f"also try to log in as {APP_ROLE} with its published password (an authentication attempt)")
+    ap.add_argument(
+        "--check-default-password",
+        action="store_true",
+        help=f"also try to log in as {APP_ROLE} with its published password (an authentication attempt)",
+    )
     args = ap.parse_args(argv)
     from app.core.config import settings  # noqa: PLC0415
     from app.scripts.run_migrations import _asyncpg_dsn, _connect  # noqa: PLC0415  (the same DATABASE_URL handling as the migration runner)
@@ -187,7 +262,11 @@ async def main(argv: list[str] | None = None) -> int:
     if args.check_default_password and report.app_role.get("exists"):
         dsn, kwargs = _asyncpg_dsn(str(settings.DATABASE_URL))
         report.app_role["default_password_accepted"] = await default_password_accepted(dsn, kwargs)
-    print(json.dumps({**asdict(report), "bypasses_rls": report.bypasses_rls, "defects": report.defects}, indent=2) if args.json else render(report))
+    print(
+        json.dumps({**asdict(report), "bypasses_rls": report.bypasses_rls, "defects": report.defects}, indent=2)
+        if args.json
+        else render(report)
+    )
     return exit_code(report, strict=args.strict, require_enforced=args.require_enforced)
 
 

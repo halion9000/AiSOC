@@ -163,7 +163,10 @@ _INDEX_TOKEN_RE = re.compile(r"^[a-z0-9][a-z0-9._*-]{2,99}$")
 _MAX_INDEX_TOKENS = 10
 _FIELD_NAME_RE = re.compile(r"^[A-Za-z_@][A-Za-z0-9_.@-]{0,99}$")
 # `FROM <sources> [METADATA ...]` at the very start, ended by a newline, a pipe or the end of the query.
-_SOURCE_HEAD_RE = re.compile(r"^(?P<head>\s*FROM\s+(?P<src>[^\s|,]+(?:\s*,\s*[^\s|,]+)*)(?P<meta>\s+METADATA\s+[A-Za-z0-9_@.,\s]+?)?)[ \t]*(?=\n|\||$)", re.IGNORECASE)
+_SOURCE_HEAD_RE = re.compile(
+    r"^(?P<head>\s*FROM\s+(?P<src>[^\s|,]+(?:\s*,\s*[^\s|,]+)*)(?P<meta>\s+METADATA\s+[A-Za-z0-9_@.,\s]+?)?)[ \t]*(?=\n|\||$)",
+    re.IGNORECASE,
+)
 
 
 class QueryScopeError(ValueError):
@@ -178,11 +181,14 @@ def validate_index_pattern(value: str) -> str:
         raise QueryScopeError(f"index_pattern must name between 1 and {_MAX_INDEX_TOKENS} indices")
     for token in tokens:
         if not _INDEX_TOKEN_RE.match(token) or len(token.split("*")[0]) < 3:
-            raise QueryScopeError(f"index pattern {token[:40]!r} is not allowed: use lowercase names such as 'logs-*', with at least three literal characters before any '*'")
+            raise QueryScopeError(
+                f"index pattern {token[:40]!r} is not allowed: use lowercase names such as 'logs-*', with at least three literal characters before any '*'"
+            )
     return value
 
 
 from app.services.tenant_selection import CROSS_TENANT_PERMISSION, selectable_tenants  # noqa: E402  (the one definition of who may read other tenants)
+
 logger = logging.getLogger(__name__)
 
 
@@ -204,7 +210,9 @@ def resolve_tenant_scope(body: "NLQueryTranslateRequest", user: Any) -> TenantSc
     if not body.all_tenants and (not chosen or chosen == (own,)):
         return TenantScope("own", (own,))
     if not user.holds(CROSS_TENANT_PERMISSION):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Searching other tenants needs the {CROSS_TENANT_PERMISSION} permission.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=f"Searching other tenants needs the {CROSS_TENANT_PERMISSION} permission."
+        )
     if not (settings.NL_QUERY_TENANT_FIELD or "").strip():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -217,7 +225,9 @@ async def _require_tenants_exist(db: Any, scope: TenantScope) -> None:
     """A selected tenant that does not exist is a 404 naming it, not an empty result that looks like 'no events'."""
     if scope.kind != "selected":
         return
-    found = {str(i) for i in (await db.execute(select(Tenant.id).where(Tenant.id.in_([uuid.UUID(t) for t in scope.tenant_ids])))).scalars().all()}
+    found = {
+        str(i) for i in (await db.execute(select(Tenant.id).where(Tenant.id.in_([uuid.UUID(t) for t in scope.tenant_ids])))).scalars().all()
+    }
     missing = [t for t in scope.tenant_ids if t not in found]
     if missing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No such tenant: {', '.join(missing)}")
@@ -236,7 +246,11 @@ def _log_wider_scope(user: Any, scope: TenantScope) -> None:
     if scope.kind != "own":
         logger.info(
             "nl_query.cross_tenant user=%s role=%s home_tenant=%s scope=%s tenants=%s",
-            getattr(user, "user_id", None), getattr(user, "role", None), getattr(user, "tenant_id", None), scope.kind, ",".join(scope.tenant_ids) or "*",
+            getattr(user, "user_id", None),
+            getattr(user, "role", None),
+            getattr(user, "tenant_id", None),
+            scope.kind,
+            ",".join(scope.tenant_ids) or "*",
         )
 
 
@@ -259,7 +273,7 @@ def enforce_query_scope(esql: str, tenant_id: uuid.UUID | str, scope: TenantScop
         predicate = _tenant_predicate(field, scope.tenant_ids or (str(tenant_id),))
     except ValueError as exc:
         raise QueryScopeError("a selected tenant id is not a valid UUID") from exc
-    return f'{m.group("head")}\n| WHERE {predicate}' + esql[m.end("head"):]
+    return f'{m.group("head")}\n| WHERE {predicate}' + esql[m.end("head") :]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -289,7 +303,9 @@ class NLQueryTranslateRequest(BaseModel):
         max_length=50,
         description="Search these tenants (several allowed). Omitted: your own tenant only. Other tenants need the platform:cross_tenant_query permission.",
     )
-    all_tenants: bool = Field(False, description="Search every tenant. Needs platform:cross_tenant_query. Mutually exclusive with tenant_ids.")
+    all_tenants: bool = Field(
+        False, description="Search every tenant. Needs platform:cross_tenant_query. Mutually exclusive with tenant_ids."
+    )
 
     @model_validator(mode="after")
     def _one_way_to_choose_tenants(self) -> "NLQueryTranslateRequest":
@@ -550,7 +566,10 @@ class NLQueryTenant(BaseModel):
 
 class NLQueryTenantsResponse(BaseModel):
     own_tenant_id: uuid.UUID
-    cross_tenant_enabled: bool = Field(..., description="True when this caller may search other tenants: they hold platform:cross_tenant_query AND NL_QUERY_TENANT_FIELD is configured.")
+    cross_tenant_enabled: bool = Field(
+        ...,
+        description="True when this caller may search other tenants: they hold platform:cross_tenant_query AND NL_QUERY_TENANT_FIELD is configured.",
+    )
     tenants: list[NLQueryTenant]
 
 

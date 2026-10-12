@@ -335,7 +335,9 @@ def _require_permissions_held(current_user: Any, names: list[str]) -> None:
     for name in names:
         held = current_user.holds_wildcard() if name == "*" else current_user.holds(name)
         if not held:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"You cannot grant the permission {name!r}: you do not hold it yourself.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=f"You cannot grant the permission {name!r}: you do not hold it yourself."
+            )
 
 
 async def _resolve_permissions(db: AsyncSession, permission_ids: list[uuid.UUID]) -> list[Permission]:

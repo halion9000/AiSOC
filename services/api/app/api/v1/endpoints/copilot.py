@@ -161,7 +161,9 @@ async def copilot_chat(
     """
     conversation_id = body.conversationId or str(uuid.uuid4())
     if not copilot_history.valid_conversation_id(conversation_id):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="conversationId must be 1-100 characters from A-Z a-z 0-9 . _ : -")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="conversationId must be 1-100 characters from A-Z a-z 0-9 . _ : -"
+        )
     owner = copilot_history.owner_key(user)
     # History is looked up by (tenant, owner, conversation), never by the client-supplied id alone.
     history = await copilot_history.load_history(db, user.tenant_id, owner, conversation_id)
@@ -240,9 +242,7 @@ async def copilot_chat(
         id=str(uuid.uuid4()),
         role="assistant",
         content=content,
-        createdAt=__import__("datetime").datetime.now(
-            tz=__import__("datetime").timezone.utc
-        ).isoformat(),
+        createdAt=__import__("datetime").datetime.now(tz=__import__("datetime").timezone.utc).isoformat(),
         suggestions=None,
     )
 

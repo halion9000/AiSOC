@@ -4,6 +4,7 @@ They were a module-level dict, so every restart silently uninstalled everything,
 engine over the same database file, so "did X, then read it back" is genuinely "did X, then the process restarted". SQLite has no row-level security, so the isolation tests prove the endpoints' own tenant filters (the database policy itself
 was checked on real Postgres as the non-superuser role, by the isolation flows).
 """
+
 import asyncio
 import hashlib
 import uuid
@@ -34,7 +35,16 @@ def env(tmp_path, monkeypatch):
     engine.dispose()
     content = tmp_path / "one.yml"
     content.write_bytes(CONTENT)
-    index = {"items": [ITEM, {"id": "det-2", "type": "detection", "name": "Detection Two", "path": "detections/two.yml"}, {"id": "pb-1", "type": "playbook", "path": "playbooks/p.yml"}, {"id": "det-1", "type": "plugin", "name": "Same id, other type", "path": "plugins/x"}], "stats": {}, "mitre_coverage": {}}
+    index = {
+        "items": [
+            ITEM,
+            {"id": "det-2", "type": "detection", "name": "Detection Two", "path": "detections/two.yml"},
+            {"id": "pb-1", "type": "playbook", "path": "playbooks/p.yml"},
+            {"id": "det-1", "type": "plugin", "name": "Same id, other type", "path": "plugins/x"},
+        ],
+        "stats": {},
+        "mitre_coverage": {},
+    }
     monkeypatch.setattr(mp, "_load_index", lambda: index)
     monkeypatch.setattr(mp, "_resolve_item_path", lambda item: content)
     return SimpleNamespace(db_path=db_path, content=content)
@@ -79,7 +89,12 @@ def installed(env, u):
 
 
 def catalogue_installed_ids(env, u):
-    return run(env, lambda s: mp.list_marketplace(current_user=u, db=s, type_filter=None, mitre=None, severity=None, category=None, source=None, sdk=None, search=None)).installed_ids
+    return run(
+        env,
+        lambda s: mp.list_marketplace(
+            current_user=u, db=s, type_filter=None, mitre=None, severity=None, category=None, source=None, sdk=None, search=None
+        ),
+    ).installed_ids
 
 
 def rows(env):
@@ -96,7 +111,9 @@ class TestInstallsSurviveARestart:
         u = person()
         first = install(env, u)
         record = installed(env, u)["items"]  # a brand-new engine: the "restarted" process
-        assert [(r["id"], r["type"], r["name"], r["version"], r["path"], r["installed_by"], r["tenant_id"]) for r in record] == [("det-1", "detection", "Detection One", "2.1.0", "detections/one.yml", "admin@example.com", str(u.tenant_id))]
+        assert [(r["id"], r["type"], r["name"], r["version"], r["path"], r["installed_by"], r["tenant_id"]) for r in record] == [
+            ("det-1", "detection", "Detection One", "2.1.0", "detections/one.yml", "admin@example.com", str(u.tenant_id))
+        ]
         assert record[0]["content_sha256"] == first.content_sha256 == hashlib.sha256(CONTENT).hexdigest()
         assert instant(record[0]["installed_at"]) == instant(first.installed_at)
 
@@ -165,7 +182,12 @@ class TestReinstalling:
             def __getattr__(self, name):
                 return getattr(self.s, name)
 
-        r = run(env, lambda s: mp.install_marketplace_item(mp.InstallRequest(type="detection", id="det-1"), current_user=SimpleNamespace(**{**vars(u)}), db=BlindOnce(s)))
+        r = run(
+            env,
+            lambda s: mp.install_marketplace_item(
+                mp.InstallRequest(type="detection", id="det-1"), current_user=SimpleNamespace(**{**vars(u)}), db=BlindOnce(s)
+            ),
+        )
         assert r.already_installed is True and len(rows(env)) == 1
 
     def test_a_conflict_that_leaves_no_row_behind_is_raised_not_swallowed(self, env):
@@ -238,7 +260,9 @@ class TestEachTenantSeesAndChangesOnlyItsOwn:
 
             event.listen(s.bind.sync_engine, "before_cursor_execute", spy)
             await mp.list_installed(current_user=a, db=s)
-            await mp.list_marketplace(current_user=a, db=s, type_filter=None, mitre=None, severity=None, category=None, source=None, sdk=None, search=None)
+            await mp.list_marketplace(
+                current_user=a, db=s, type_filter=None, mitre=None, severity=None, category=None, source=None, sdk=None, search=None
+            )
             await mp.install_marketplace_item(mp.InstallRequest(type="detection", id="det-1"), current_user=a, db=s)
             await mp.uninstall_marketplace_item(type="detection", id="det-1", current_user=a, db=s)
 
@@ -264,15 +288,25 @@ class TestTheItemTypeIsPartOfTheKey:
 
     def test_the_list_is_sorted_by_type_then_id(self, env):
         u = person()
-        install(env, u, type="playbook", id="pb-1"), install(env, u, type="plugin", id="det-1"), install(env, u, type="detection", id="det-1")
-        assert [(r["type"], r["id"]) for r in installed(env, u)["items"]] == [("detection", "det-1"), ("playbook", "pb-1"), ("plugin", "det-1")]
+        (
+            install(env, u, type="playbook", id="pb-1"),
+            install(env, u, type="plugin", id="det-1"),
+            install(env, u, type="detection", id="det-1"),
+        )
+        assert [(r["type"], r["id"]) for r in installed(env, u)["items"]] == [
+            ("detection", "det-1"),
+            ("playbook", "pb-1"),
+            ("plugin", "det-1"),
+        ]
 
     def test_the_sorting_is_asked_of_the_database_because_without_it_postgres_returns_rows_in_any_order(self, env):
         """SQLite happens to return rows in primary-key order, so the result alone cannot show whether the query sorts; the SQL does."""
         statements: list[str] = []
 
         async def go(s):
-            event.listen(s.bind.sync_engine, "before_cursor_execute", lambda conn, cursor, statement, *a, **kw: statements.append(statement))
+            event.listen(
+                s.bind.sync_engine, "before_cursor_execute", lambda conn, cursor, statement, *a, **kw: statements.append(statement)
+            )
             await mp.list_installed(current_user=person(), db=s)
 
         run(env, go)

@@ -158,7 +158,12 @@ async def get_airgap_status() -> AirgapStatus:
     )
 
 
-@router.post("/airgap/bundle", response_model=BundleJob, status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_permission("settings:write"))])
+@router.post(
+    "/airgap/bundle",
+    response_model=BundleJob,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("settings:write"))],
+)
 async def create_airgap_bundle() -> BundleJob:
     """Trigger creation of an offline update bundle for air-gapped deployments."""
     return BundleJob(

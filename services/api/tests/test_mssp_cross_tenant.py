@@ -11,6 +11,7 @@ Two fixes, both tested here:
   2. the resolver only honours overrides / pack assignments that come from the
      child's REAL parent, which also neutralises rows already sitting in a database
 """
+
 import asyncio
 import uuid
 from types import SimpleNamespace
@@ -26,7 +27,19 @@ from app.models.mssp import MSSPDelegation, MSSPRuleOverride, MSSPRulePack, MSSP
 from app.models.tenant import Tenant
 from app.services.mssp_rule_resolver import count_effective_rules, resolve_effective_rules
 
-TABLES = [m.__table__ for m in (Tenant, DetectionRule, MSSPRuleOverride, MSSPRulePack, MSSPRulePackAssignment, MSSPRulePackRule, MSSPTenantNote, MSSPDelegation)]
+TABLES = [
+    m.__table__
+    for m in (
+        Tenant,
+        DetectionRule,
+        MSSPRuleOverride,
+        MSSPRulePack,
+        MSSPRulePackAssignment,
+        MSSPRulePackRule,
+        MSSPTenantNote,
+        MSSPDelegation,
+    )
+]
 
 
 def run(coro_fn):
@@ -37,6 +50,7 @@ def run(coro_fn):
         async with engine.begin() as c:
             await c.run_sync(lambda conn: Base.metadata.create_all(conn, tables=TABLES))
         async with async_sessionmaker(engine, expire_on_commit=False)() as s:
+
             def tenant(name, parent=None):
                 t = Tenant(id=uuid.uuid4(), name=name, slug=f"{name}-{uuid.uuid4().hex[:6]}", parent_tenant_id=parent)
                 s.add(t)
@@ -50,8 +64,16 @@ def run(coro_fn):
                 attacker=tenant("attacker"),
                 victim=tenant("victim"),  # an ordinary tenant with no MSSP parent
             )
-            world.rule = DetectionRule(id=uuid.uuid4(), name="Impossible travel", rule_language="sigma", rule_body="x", category="identity",
-                                       tenant_id=None, is_builtin=True, status="active")
+            world.rule = DetectionRule(
+                id=uuid.uuid4(),
+                name="Impossible travel",
+                rule_language="sigma",
+                rule_body="x",
+                category="identity",
+                tenant_id=None,
+                is_builtin=True,
+                status="active",
+            )
             s.add(world.rule)
             await s.commit()
             try:
@@ -122,8 +144,16 @@ def test_a_customize_override_cannot_lower_a_victims_severity_either():
 def test_a_pack_from_a_tenant_that_is_not_the_parent_is_not_applied():
     async def go(s, w):
         pack = MSSPRulePack(id=uuid.uuid4(), parent_tenant_id=w.attacker.id, name="evil pack")
-        own_rule = DetectionRule(id=uuid.uuid4(), name="attacker rule", rule_language="sigma", rule_body="x", category="x",
-                                 tenant_id=w.attacker.id, is_builtin=False, status="active")
+        own_rule = DetectionRule(
+            id=uuid.uuid4(),
+            name="attacker rule",
+            rule_language="sigma",
+            rule_body="x",
+            category="x",
+            tenant_id=w.attacker.id,
+            is_builtin=False,
+            status="active",
+        )
         s.add_all([pack, own_rule])
         await s.flush()
         s.add(MSSPRulePackRule(pack_id=pack.id, rule_id=own_rule.id))
@@ -144,9 +174,21 @@ def test_handlers_refuse_a_child_that_is_not_the_callers():
         me = _caller(w.attacker)
         refused = {}
         for name, call in {
-            "override": lambda: mssp.create_rule_override(SimpleNamespace(child_tenant_id=w.victim.id, rule_id=w.rule.id, action="exclude", note=None,
-                                                                          severity_override=None, parameter_overrides=None), db=s, current_user=me),
-            "delegation": lambda: mssp.create_delegation(SimpleNamespace(child_tenant_id=w.victim.id, granted_role="soc_analyst", expires_at=None), db=s, current_user=me),
+            "override": lambda: mssp.create_rule_override(
+                SimpleNamespace(
+                    child_tenant_id=w.victim.id,
+                    rule_id=w.rule.id,
+                    action="exclude",
+                    note=None,
+                    severity_override=None,
+                    parameter_overrides=None,
+                ),
+                db=s,
+                current_user=me,
+            ),
+            "delegation": lambda: mssp.create_delegation(
+                SimpleNamespace(child_tenant_id=w.victim.id, granted_role="soc_analyst", expires_at=None), db=s, current_user=me
+            ),
             "note": lambda: mssp.create_note(SimpleNamespace(child_id=w.victim.id, body="x"), db=s, current_user=me),
         }.items():
             try:
@@ -162,10 +204,17 @@ def test_handlers_refuse_a_child_that_is_not_the_callers():
 def test_a_parent_can_still_write_for_its_own_child():
     async def go(s, w):
         me = _caller(w.parent)
-        await mssp.create_rule_override(SimpleNamespace(child_tenant_id=w.child.id, rule_id=w.rule.id, action="exclude", note=None,
-                                                        severity_override=None, parameter_overrides=None), db=s, current_user=me)
+        await mssp.create_rule_override(
+            SimpleNamespace(
+                child_tenant_id=w.child.id, rule_id=w.rule.id, action="exclude", note=None, severity_override=None, parameter_overrides=None
+            ),
+            db=s,
+            current_user=me,
+        )
         await mssp.create_note(SimpleNamespace(child_id=w.child.id, body="hello"), db=s, current_user=me)
-        await mssp.create_delegation(SimpleNamespace(child_tenant_id=w.child.id, granted_role="soc_analyst", expires_at=None), db=s, current_user=me)
+        await mssp.create_delegation(
+            SimpleNamespace(child_tenant_id=w.child.id, granted_role="soc_analyst", expires_at=None), db=s, current_user=me
+        )
         return w.rule.id in _ids(await resolve_effective_rules(s, w.child.id))
 
     assert run(go) is False  # the override it just created applies to its own child
@@ -175,7 +224,9 @@ def test_a_parent_can_still_write_for_its_own_child():
 def test_a_delegation_cannot_grant_a_wildcard_or_made_up_role(role):
     async def go(s, w):
         try:
-            await mssp.create_delegation(SimpleNamespace(child_tenant_id=w.child.id, granted_role=role, expires_at=None), db=s, current_user=_caller(w.parent))
+            await mssp.create_delegation(
+                SimpleNamespace(child_tenant_id=w.child.id, granted_role=role, expires_at=None), db=s, current_user=_caller(w.parent)
+            )
             return None
         except HTTPException as e:
             return e.status_code
@@ -186,6 +237,8 @@ def test_a_delegation_cannot_grant_a_wildcard_or_made_up_role(role):
 @pytest.mark.parametrize("role", ["tenant_admin", "soc_lead", "soc_analyst", "threat_hunter", "viewer"])
 def test_ordinary_roles_remain_delegable(role):
     async def go(s, w):
-        return await mssp.create_delegation(SimpleNamespace(child_tenant_id=w.child.id, granted_role=role, expires_at=None), db=s, current_user=_caller(w.parent))
+        return await mssp.create_delegation(
+            SimpleNamespace(child_tenant_id=w.child.id, granted_role=role, expires_at=None), db=s, current_user=_caller(w.parent)
+        )
 
     assert run(go).granted_role == role

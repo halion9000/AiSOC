@@ -200,11 +200,15 @@ async def _fetch_case(db: AsyncSession, tid: uuid.UUID, case_id: str) -> CaseTyp
         wanted = uuid.UUID(str(case_id))
     except ValueError:
         return None
-    row = (await db.execute(text(f"SELECT {_CASE_COLUMNS} FROM aisoc_cases WHERE id = :id AND tenant_id = :tid"), {"id": wanted, "tid": tid})).first()
+    row = (
+        await db.execute(text(f"SELECT {_CASE_COLUMNS} FROM aisoc_cases WHERE id = :id AND tenant_id = :tid"), {"id": wanted, "tid": tid})
+    ).first()
     return _aisoc_case_to_type(row) if row else None
 
 
-async def _list_cases(db: AsyncSession, tid: uuid.UUID, *, page: int, page_size: int, status: str | None, priority: str | None, search: str | None):
+async def _list_cases(
+    db: AsyncSession, tid: uuid.UUID, *, page: int, page_size: int, status: str | None, priority: str | None, search: str | None
+):
     """(rows as CaseType, total). Only fixed SQL fragments are assembled; every user-supplied value is a bound parameter."""
     page, page_size = max(1, page), min(max(1, page_size), _MAX_PAGE_SIZE)
     where, params = ["tenant_id = :tid"], {"tid": tid}
@@ -219,12 +223,21 @@ async def _list_cases(db: AsyncSession, tid: uuid.UUID, *, page: int, page_size:
         params["search"] = f"%{_escape_like(search)}%"
     clause = " AND ".join(where)
     total = (await db.execute(text(f"SELECT count(*) FROM aisoc_cases WHERE {clause}"), params)).scalar_one()
-    rows = (await db.execute(text(f"SELECT {_CASE_COLUMNS} FROM aisoc_cases WHERE {clause} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"), {**params, "limit": page_size, "offset": (page - 1) * page_size})).fetchall()
+    rows = (
+        await db.execute(
+            text(f"SELECT {_CASE_COLUMNS} FROM aisoc_cases WHERE {clause} ORDER BY created_at DESC LIMIT :limit OFFSET :offset"),
+            {**params, "limit": page_size, "offset": (page - 1) * page_size},
+        )
+    ).fetchall()
     return [_aisoc_case_to_type(r) for r in rows], total, page, page_size
 
 
 async def _count_open_cases(db: AsyncSession, tid: uuid.UUID) -> int:
-    return (await db.execute(text("SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND status NOT IN ('resolved', 'closed')"), {"tid": tid})).scalar_one()
+    return (
+        await db.execute(
+            text("SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND status NOT IN ('resolved', 'closed')"), {"tid": tid}
+        )
+    ).scalar_one()
 
 
 def _orm_to_rule(row: DetectionRule) -> DetectionRuleType:
@@ -358,7 +371,9 @@ class Query:
         tid = _tenant_id(info)
         if tid is None:
             return CasePage(items=[], total=0, page=1, page_size=page_size, pages=1)
-        items, total, page, page_size = await _list_cases(db, tid, page=page, page_size=page_size, status=status, priority=priority, search=search)
+        items, total, page, page_size = await _list_cases(
+            db, tid, page=page, page_size=page_size, status=status, priority=priority, search=search
+        )
         return CasePage(items=items, total=total, page=page, page_size=page_size, pages=max(1, math.ceil(total / page_size)))
 
     # ── Detection Rules ────────────────────────────────────────────────────────

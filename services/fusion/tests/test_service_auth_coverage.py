@@ -3,6 +3,7 @@
 Nothing authenticated callers, and several routes take a caller-supplied tenant_id, so anything able to reach the service
 could read any tenant's entity-risk queue, submit analyst feedback, trigger a retrain or run correlation.
 """
+
 from __future__ import annotations
 
 import re
@@ -28,8 +29,12 @@ def _client(monkeypatch, *, token, environment):
 
 
 def _routes():
-    return sorted((m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops
-                  if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p) and (m.upper(), p) not in PUBLIC)
+    return sorted(
+        (m.upper(), p)
+        for p, ops in app.openapi()["paths"].items()
+        for m in ops
+        if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p) and (m.upper(), p) not in PUBLIC
+    )
 
 
 def _call(c, method, path, headers=None):
@@ -56,7 +61,9 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
     assert _past(_call(_client(monkeypatch, token=TOKEN, environment="production"), method, path, GOOD))
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None])
+@pytest.mark.parametrize(
+    "environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None]
+)
 @pytest.mark.parametrize("method,path", _routes())
 def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(monkeypatch, environment, method, path):
     c = _client(monkeypatch, token=None, environment=environment)
@@ -67,7 +74,10 @@ def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(
 
 @pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", ""])
 def test_only_the_exact_token_is_accepted(monkeypatch, header):
-    assert _client(monkeypatch, token=TOKEN, environment="production").post("/process", json={}, headers={"Authorization": header}).status_code == 401
+    assert (
+        _client(monkeypatch, token=TOKEN, environment="production").post("/process", json={}, headers={"Authorization": header}).status_code
+        == 401
+    )
 
 
 def test_a_configured_token_is_enforced_in_development_too(monkeypatch):

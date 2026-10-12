@@ -7,6 +7,7 @@ log line, so nothing ever said so:
   3. the body was {"events": [...]}; ingest answers 400 unless connector_id and connector_type are present.
 It must also send the ingest service's bearer token, which the service now requires.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -57,7 +57,9 @@ class SweepResult:
     errors: dict[str, str] = field(default_factory=dict)  # exception class per failed class
 
 
-async def _batched_delete(session: AsyncSession, *, count_stmt: Any, ids_stmt: Any, delete_for: Callable[[Any], Any], batch: int, max_batches: int, dry_run: bool) -> int:
+async def _batched_delete(
+    session: AsyncSession, *, count_stmt: Any, ids_stmt: Any, delete_for: Callable[[Any], Any], batch: int, max_batches: int, dry_run: bool
+) -> int:
     """Count (dry run) or delete in batches. `ids_stmt` selects the keys of matching rows; `delete_for(subquery)` builds the DELETE for them."""
     if dry_run:
         return int((await session.execute(count_stmt)).scalar_one())
@@ -81,7 +83,9 @@ async def sweep_conversations(session: AsyncSession, *, now: datetime, days: int
         count_stmt=select(func.count()).select_from(CopilotConversation).where(old),
         ids_stmt=select(*pk).where(old),
         delete_for=lambda sub: delete(CopilotConversation).where(tuple_(*pk).in_(sub)),
-        batch=batch, max_batches=max_batches, dry_run=dry_run,
+        batch=batch,
+        max_batches=max_batches,
+        dry_run=dry_run,
     )
 
 
@@ -93,11 +97,15 @@ async def sweep_suggestions(session: AsyncSession, *, now: datetime, days: int, 
         count_stmt=select(func.count()).select_from(DetectionSuggestion).where(old),
         ids_stmt=select(DetectionSuggestion.id).where(old),
         delete_for=lambda sub: delete(DetectionSuggestion).where(DetectionSuggestion.id.in_(sub)),
-        batch=batch, max_batches=max_batches, dry_run=dry_run,
+        batch=batch,
+        max_batches=max_batches,
+        dry_run=dry_run,
     )
 
 
-async def sweep_response_actions(session: AsyncSession, *, now: datetime, default_days: int, batch: int, max_batches: int, dry_run: bool) -> int:
+async def sweep_response_actions(
+    session: AsyncSession, *, now: datetime, default_days: int, batch: int, max_batches: int, dry_run: bool
+) -> int:
     """Per tenant, because each tenant has its own window. Every delete names the tenant AND restricts to finished statuses: never RLS, never age alone."""
     windows = {t: d for t, d in (await session.execute(select(RetentionPolicyRow.tenant_id, RetentionPolicyRow.audit_days))).all()}
     finished = response_actions.c.status.in_(TERMINAL_ACTION_STATUSES)
@@ -113,12 +121,20 @@ async def sweep_response_actions(session: AsyncSession, *, now: datetime, defaul
             count_stmt=select(func.count()).select_from(response_actions).where(match),
             ids_stmt=select(response_actions.c.id).where(match),
             delete_for=lambda sub: delete(response_actions).where(response_actions.c.id.in_(sub)),
-            batch=batch, max_batches=max_batches, dry_run=dry_run,
+            batch=batch,
+            max_batches=max_batches,
+            dry_run=dry_run,
         )
     return total
 
 
-async def sweep_once(session_factory: Callable[[], AsyncSession] = AsyncSessionLocal, *, now: datetime | None = None, settings: Any = default_settings, dry_run: bool | None = None) -> SweepResult:
+async def sweep_once(
+    session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
+    *,
+    now: datetime | None = None,
+    settings: Any = default_settings,
+    dry_run: bool | None = None,
+) -> SweepResult:
     """One pass over every class. A class that fails is recorded and the rest still run."""
     now = now or datetime.now(UTC)
     dry = settings.RETENTION_DRY_RUN if dry_run is None else dry_run
@@ -126,9 +142,15 @@ async def sweep_once(session_factory: Callable[[], AsyncSession] = AsyncSessionL
     max_batches = max(1, int(settings.RETENTION_MAX_BATCHES_PER_SWEEP))
     result = SweepResult(dry_run=dry)
     jobs = {
-        "copilot_conversations": lambda s: sweep_conversations(s, now=now, days=settings.RETENTION_COPILOT_CONVERSATIONS_DAYS, batch=batch, max_batches=max_batches, dry_run=dry),
-        "detection_suggestions": lambda s: sweep_suggestions(s, now=now, days=settings.RETENTION_DETECTION_SUGGESTIONS_DAYS, batch=batch, max_batches=max_batches, dry_run=dry),
-        "response_actions": lambda s: sweep_response_actions(s, now=now, default_days=settings.RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS, batch=batch, max_batches=max_batches, dry_run=dry),
+        "copilot_conversations": lambda s: sweep_conversations(
+            s, now=now, days=settings.RETENTION_COPILOT_CONVERSATIONS_DAYS, batch=batch, max_batches=max_batches, dry_run=dry
+        ),
+        "detection_suggestions": lambda s: sweep_suggestions(
+            s, now=now, days=settings.RETENTION_DETECTION_SUGGESTIONS_DAYS, batch=batch, max_batches=max_batches, dry_run=dry
+        ),
+        "response_actions": lambda s: sweep_response_actions(
+            s, now=now, default_days=settings.RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS, batch=batch, max_batches=max_batches, dry_run=dry
+        ),
     }
     for name, job in jobs.items():
         try:
@@ -141,7 +163,12 @@ async def sweep_once(session_factory: Callable[[], AsyncSession] = AsyncSessionL
     return result
 
 
-async def run_retention_sweeper(*, sleep: Callable[[float], Any] = asyncio.sleep, settings: Any = default_settings, session_factory: Callable[[], AsyncSession] = AsyncSessionLocal) -> None:
+async def run_retention_sweeper(
+    *,
+    sleep: Callable[[float], Any] = asyncio.sleep,
+    settings: Any = default_settings,
+    session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
+) -> None:
     """The long-running loop (started under the scheduler lock from the API lifespan). The first sweep waits RETENTION_INITIAL_DELAY_SECONDS; a failure never ends the loop; cancellation does."""
     await sleep(max(0, settings.RETENTION_INITIAL_DELAY_SECONDS))
     while True:

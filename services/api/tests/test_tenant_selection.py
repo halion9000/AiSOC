@@ -1,6 +1,7 @@
 """One rule for "may this caller read that tenant", shared by every endpoint that lets a caller name one.
 
 Own tenant: always. Any other tenant: only with the platform permission platform:cross_tenant_query (platform_admin, or an API key carrying that exact scope). fusion and osquery_fim used to check the role NAME, /nl-query checked the permission: an API key was allowed in one place and refused in another."""
+
 import ast
 import uuid
 from pathlib import Path

@@ -71,6 +71,7 @@ class CopilotConversation(BaseModel):
 
 _CONVERSATIONS: dict[str, dict[str, Any]] = {}
 
+
 class CopilotUnavailable(Exception):
     """The language model could not produce an answer. The message is safe to show the analyst."""
 

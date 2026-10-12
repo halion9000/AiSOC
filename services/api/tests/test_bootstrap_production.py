@@ -4,6 +4,7 @@ The end-to-end run (fresh Postgres -> bootstrap -> login/key checks) needs a
 real database and is exercised manually; these tests cover the logic and the
 invariants that keep production safe, and they run anywhere.
 """
+
 import re
 from pathlib import Path
 
@@ -55,7 +56,9 @@ def test_every_orm_table_is_created_by_a_sql_migration():
 
     created = set()
     for f in MIGRATIONS.glob("*.sql"):
-        created |= {m.lower() for m in re.findall(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?\"?(\w+)\"?", f.read_text(encoding="utf-8"), re.I)}
+        created |= {
+            m.lower() for m in re.findall(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?\"?(\w+)\"?", f.read_text(encoding="utf-8"), re.I)
+        }
     missing = sorted(t for t in Base.metadata.tables if t.lower() not in created)
     assert not missing, f"ORM tables with no SQL migration (would not exist in production): {missing}"
 

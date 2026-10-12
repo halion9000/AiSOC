@@ -14,6 +14,7 @@ address only.
 
 Counts live in the database (`login_failures`, migration 069), so they hold across workers and restarts. An error here is not swallowed: a store that cannot be read must not silently turn the lock off.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -65,7 +66,14 @@ async def _remaining(db: Any, column: Any, value: str, limit: int, now: datetime
     """None when under the limit; otherwise how long until the count drops below it (the oldest of the latest `limit` failures leaving the window)."""
     cutoff = now - window()
     rows = (
-        (await db.execute(select(LoginFailure.created_at).where(column == value, LoginFailure.created_at > cutoff).order_by(LoginFailure.created_at.desc()).limit(limit)))
+        (
+            await db.execute(
+                select(LoginFailure.created_at)
+                .where(column == value, LoginFailure.created_at > cutoff)
+                .order_by(LoginFailure.created_at.desc())
+                .limit(limit)
+            )
+        )
         .scalars()
         .all()
     )
@@ -95,7 +103,11 @@ async def record_failure(db: Any, email: str, client_ip: str | None, *, now: dat
     if await _remaining(db, LoginFailure.email_key, key, settings.LOGIN_MAX_FAILURES_PER_ACCOUNT, now) is not None:
         logger.warning(
             "sign-in locked after repeated failures",
-            extra={"email_sha256": hashlib.sha256(key.encode()).hexdigest()[:16], "client_ip": client_ip, "failures_limit": settings.LOGIN_MAX_FAILURES_PER_ACCOUNT},
+            extra={
+                "email_sha256": hashlib.sha256(key.encode()).hexdigest()[:16],
+                "client_ip": client_ip,
+                "failures_limit": settings.LOGIN_MAX_FAILURES_PER_ACCOUNT,
+            },
         )
 
 

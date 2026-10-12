@@ -4,6 +4,7 @@ Four modules (the investigation ledger, the hunt store, the Splunk evidence load
 transaction-local setting is discarded as soon as the statement ends. The context was never in effect, and since every standard policy also admits "no context", RLS silently admitted everything; only each query's own
 `WHERE tenant_id = ...` protected those paths. These tests check ORDER (begin, set_config, then the queries, all in one transaction), the setting NAME, and (statically) that no future query in these modules runs unscoped.
 """
+
 import ast
 import pathlib
 import uuid
@@ -173,7 +174,17 @@ class TestEveryCallSiteIsScopedInOrder:
         assert_scoped(conn.events, TENANT)
 
     async def test_ledger_persist_auto_triage(self, conn):
-        await ledger.persist_auto_triage(run_id=uuid.uuid4(), alert_id="a1", tenant_ref=str(TENANT), alert_summary="s", raw_alert={}, tier="t1", verdict="benign", confidence=0.9, rationale="r")
+        await ledger.persist_auto_triage(
+            run_id=uuid.uuid4(),
+            alert_id="a1",
+            tenant_ref=str(TENANT),
+            alert_summary="s",
+            raw_alert={},
+            tier="t1",
+            verdict="benign",
+            confidence=0.9,
+            rationale="r",
+        )
         assert_scoped(conn.events, TENANT)
 
     async def test_hunt_list_recent_runs(self, conn):
@@ -224,11 +235,18 @@ class TestNoQueryInThesModulesRunsUnscoped:
 
         def visit(node, scoped):
             if isinstance(node, (ast.AsyncWith, ast.With)):
-                here = scoped or any(isinstance(i.context_expr, ast.Call) and getattr(i.context_expr.func, "id", "") == "tenant_scope" for i in node.items)
+                here = scoped or any(
+                    isinstance(i.context_expr, ast.Call) and getattr(i.context_expr.func, "id", "") == "tenant_scope" for i in node.items
+                )
                 for child in node.body:
                     visit(child, here)
                 return
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("execute", "fetch", "fetchrow", "fetchval") and getattr(node.func.value, "id", "") == "conn":
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("execute", "fetch", "fetchrow", "fetchval")
+                and getattr(node.func.value, "id", "") == "conn"
+            ):
                 found.append((node, scoped))
             for child in ast.iter_child_nodes(node):
                 visit(child, scoped)
@@ -261,7 +279,9 @@ class TestNoQueryInThesModulesRunsUnscoped:
             if node is target:
                 return scoped
             if isinstance(node, (ast.AsyncWith, ast.With)):
-                scoped = scoped or any(isinstance(i.context_expr, ast.Call) and getattr(i.context_expr.func, "id", "") == "tenant_scope" for i in node.items)
+                scoped = scoped or any(
+                    isinstance(i.context_expr, ast.Call) and getattr(i.context_expr.func, "id", "") == "tenant_scope" for i in node.items
+                )
             for child in ast.iter_child_nodes(node):
                 r = inside(child, target, scoped)
                 if r is not None:

@@ -4,6 +4,7 @@ The migration runner used the API's own DATABASE_URL, and the API runs it at sta
 CREATE TABLE IF NOT EXISTS aisoc_schema_migrations), so the API could not run as that role. MIGRATION_DATABASE_URL (empty by default = use DATABASE_URL, so nothing changes unless set) lets migrations use the database owner while
 requests are served by the restricted role. The audit tool must NOT follow it: it reports on the role the services run as.
 """
+
 import asyncio
 import importlib
 import logging
@@ -26,7 +27,9 @@ def urls(monkeypatch):
     alone and fail in the full suite."""
 
     def set_urls(service=SERVICE, migration=""):
-        live = importlib.import_module("app.core.config").settings  # looked up NOW, from sys.modules: what a lazy `from app.core.config import settings` will see
+        live = importlib.import_module(
+            "app.core.config"
+        ).settings  # looked up NOW, from sys.modules: what a lazy `from app.core.config import settings` will see
         for obj in {id(o): o for o in (rm.settings, live)}.values():
             monkeypatch.setattr(obj, "DATABASE_URL", service)
             monkeypatch.setattr(obj, "MIGRATION_DATABASE_URL", migration)
@@ -160,5 +163,8 @@ class TestTheSetting:
     def test_the_api_runs_migrations_only_through_the_runners_main(self):
         """Both startup call sites go through run_migrations.main(), so one setting governs both."""
         src = (Path(__file__).resolve().parent.parent / "app" / "main.py").read_text(encoding="utf-8")
-        assert src.count("from app.scripts.run_migrations import main as run_sql_migrations") == 2 and src.count("await run_sql_migrations()") == 2
+        assert (
+            src.count("from app.scripts.run_migrations import main as run_sql_migrations") == 2
+            and src.count("await run_sql_migrations()") == 2
+        )
         assert "run_migrations import _connect" not in src

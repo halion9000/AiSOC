@@ -71,7 +71,12 @@ async def _get_pool() -> Any | None:
         return _POOL
     except Exception as exc:
         await close_quietly(pool)  # it used to leak: one open connection per failed call
-        report_unavailable(logger, "memory.institutional.db_unavailable", str(exc), "institutional memory is NOT persisted or shared: this process uses an in-memory fallback")
+        report_unavailable(
+            logger,
+            "memory.institutional.db_unavailable",
+            str(exc),
+            "institutional memory is NOT persisted or shared: this process uses an in-memory fallback",
+        )
         return None
 
 

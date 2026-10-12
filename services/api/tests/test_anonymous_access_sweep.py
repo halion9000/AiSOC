@@ -11,6 +11,7 @@ schema with NO credentials, in production mode, and fails for any route that is
 not on PUBLIC below. To make a new route public you must add it here, with a
 reason, where a reviewer will see it.
 """
+
 import asyncio
 import re
 
@@ -56,10 +57,7 @@ PUBLIC = {
 
 def _all_routes() -> list[tuple[str, str]]:
     return sorted(
-        (m.upper(), p)
-        for p, ops in app.openapi()["paths"].items()
-        for m in ops
-        if m in ("get", "post", "put", "patch", "delete")
+        (m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops if m in ("get", "post", "put", "patch", "delete")
     )
 
 
@@ -104,11 +102,7 @@ def test_the_sweep_sees_the_whole_api():
 
 def test_only_the_documented_public_routes_answer_without_credentials(production):
     results = asyncio.run(_sweep())
-    exposed = sorted(
-        f"{m:6} {p}  -> {status}"
-        for (m, p), status in results.items()
-        if status not in (401, 403) and (m, p) not in PUBLIC
-    )
+    exposed = sorted(f"{m:6} {p}  -> {status}" for (m, p), status in results.items() if status not in (401, 403) and (m, p) not in PUBLIC)
     assert not exposed, (
         f"{len(exposed)} route(s) answered an ANONYMOUS request in production. Add a login/permission "
         "dependency, or (only if it is truly public) add it to PUBLIC with a reason:\n  " + "\n  ".join(exposed)

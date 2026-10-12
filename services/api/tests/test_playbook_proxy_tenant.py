@@ -3,6 +3,7 @@
 Playbooks are a shared read-only library plus each tenant's own (the agents service owns them). The API calls it with the INTERNAL token, which carries no tenant, so the tenant has to be named explicitly
 on every call, or the agents service has no way to scope the request. Also: a 4xx from the agents service (e.g. "library playbooks are read-only, clone it") is passed through to the caller; 5xx stays generic.
 """
+
 import json
 import uuid
 
@@ -67,7 +68,7 @@ class TestEveryHandlerNamesTheAuthenticatedTenant:
 
     async def test_create(self, seen):
         await pb.create_playbook(FakeRequest({"name": "x", "tenant_id": str(OTHER)}), user())
-        (_m, _p, kw), = seen
+        ((_m, _p, kw),) = seen
         assert kw["params"] == {"tenant_id": str(TENANT)}  # a tenant smuggled into the BODY is not what is named
 
     async def test_runs(self, seen):
@@ -84,7 +85,9 @@ class TestEveryHandlerNamesTheAuthenticatedTenant:
 
     async def test_update(self, seen):
         await pb.update_playbook("pb-1", FakeRequest({"name": "n"}), user())
-        assert seen[0][:2] == ("PUT", "/pb-1") and seen[0][2]["params"] == {"tenant_id": str(TENANT)} and seen[0][2]["json"] == {"name": "n"}
+        assert (
+            seen[0][:2] == ("PUT", "/pb-1") and seen[0][2]["params"] == {"tenant_id": str(TENANT)} and seen[0][2]["json"] == {"name": "n"}
+        )
 
     async def test_delete(self, seen):
         await pb.delete_playbook("pb-1", user())
@@ -96,7 +99,11 @@ class TestEveryHandlerNamesTheAuthenticatedTenant:
 
     async def test_clone(self, seen):
         await pb.clone_playbook("pb-1", FakeRequest({"name": "Mine"}), user())
-        assert seen[0][:2] == ("POST", "/pb-1/clone") and seen[0][2]["params"] == {"tenant_id": str(TENANT)} and seen[0][2]["json"] == {"name": "Mine"}
+        assert (
+            seen[0][:2] == ("POST", "/pb-1/clone")
+            and seen[0][2]["params"] == {"tenant_id": str(TENANT)}
+            and seen[0][2]["json"] == {"name": "Mine"}
+        )
 
     @pytest.mark.parametrize("body", [ValueError("no body"), ["not", "a", "dict"], None])
     async def test_clone_tolerates_a_missing_or_odd_body(self, seen, body):
@@ -139,20 +146,33 @@ class TestWhatTheCallerIsTold:
 
     @respx.mock
     async def test_a_4xx_explanation_is_passed_through(self):
-        respx.put(url__regex=r".*/api/v1/playbooks/lib-1.*").mock(return_value=httpx.Response(403, json={"detail": "Shared library playbooks are read-only. Clone it into your tenant to customise it."}))
+        respx.put(url__regex=r".*/api/v1/playbooks/lib-1.*").mock(
+            return_value=httpx.Response(
+                403, json={"detail": "Shared library playbooks are read-only. Clone it into your tenant to customise it."}
+            )
+        )
         with pytest.raises(HTTPException) as err:
             await pb._proxy("PUT", "/lib-1", json={"name": "x"})
         assert err.value.status_code == 403 and "Clone it" in err.value.detail
 
     @respx.mock
     async def test_a_validation_error_list_is_passed_through(self):
-        respx.post(url__regex=r".*/api/v1/playbooks.*").mock(return_value=httpx.Response(422, json={"detail": [{"loc": ["steps"], "msg": "bad"}]}))
+        respx.post(url__regex=r".*/api/v1/playbooks.*").mock(
+            return_value=httpx.Response(422, json={"detail": [{"loc": ["steps"], "msg": "bad"}]})
+        )
         with pytest.raises(HTTPException) as err:
             await pb._proxy("POST", "", json={})
         assert err.value.status_code == 422 and err.value.detail == [{"loc": ["steps"], "msg": "bad"}]
 
     @respx.mock
-    @pytest.mark.parametrize("response", [httpx.Response(404, text="<html>not json</html>"), httpx.Response(400, json={}), httpx.Response(400, json=["a list, not an object"])])
+    @pytest.mark.parametrize(
+        "response",
+        [
+            httpx.Response(404, text="<html>not json</html>"),
+            httpx.Response(400, json={}),
+            httpx.Response(400, json=["a list, not an object"]),
+        ],
+    )
     async def test_an_unreadable_4xx_falls_back_to_the_generic_message(self, response):
         respx.get(url__regex=r".*/api/v1/playbooks.*").mock(return_value=response)
         with pytest.raises(HTTPException) as err:
@@ -162,7 +182,9 @@ class TestWhatTheCallerIsTold:
     @respx.mock
     @pytest.mark.parametrize("status_code", [500, 502, 503])
     async def test_a_5xx_never_leaks_what_the_upstream_said(self, status_code):
-        respx.get(url__regex=r".*/api/v1/playbooks.*").mock(return_value=httpx.Response(status_code, json={"detail": "Traceback: password=hunter2 at /app/secret.py"}))
+        respx.get(url__regex=r".*/api/v1/playbooks.*").mock(
+            return_value=httpx.Response(status_code, json={"detail": "Traceback: password=hunter2 at /app/secret.py"})
+        )
         with pytest.raises(HTTPException) as err:
             await pb._proxy("GET", "/x")
         assert err.value.status_code == status_code and err.value.detail == "Upstream service error"

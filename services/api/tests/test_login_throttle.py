@@ -6,6 +6,7 @@ address, or from one client address, in the window refuse further attempts (429,
 The lock must NOT bring the email enumeration back (fixed in the previous change): a made-up address locks exactly like a real one, and every locked case gets the same answer. A real SQLite database and the real router; time is moved by
 inserting failures with older timestamps. The same properties were also checked over HTTP against real Postgres, as the superuser and as the non-superuser role (see the commit message).
 """
+
 import asyncio
 import json
 import logging
@@ -55,8 +56,12 @@ def world(tmp_path):
     sync = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__, LoginFailure.__table__])
     t = Tenant(id=uuid.uuid4(), name="T", slug="t-" + uuid.uuid4().hex[:6])
+
     def user(email, active=True):
-        return User(id=uuid.uuid4(), tenant_id=t.id, email=email, username=email.split("@")[0], hashed_password=HASH, role="admin", is_active=active)
+        return User(
+            id=uuid.uuid4(), tenant_id=t.id, email=email, username=email.split("@")[0], hashed_password=HASH, role="admin", is_active=active
+        )
+
     with Session(sync, expire_on_commit=False) as s:
         s.add_all([t, user("alice@a.example"), user("bob@a.example"), user("dormant@a.example", active=False)])
         s.commit()
@@ -215,7 +220,11 @@ class TestTheLockEnds:
         assert any(getattr(m, "ge", None) == 1 for m in meta), meta
 
     def test_the_defaults(self):
-        assert (settings.LOGIN_MAX_FAILURES_PER_ACCOUNT, settings.LOGIN_MAX_FAILURES_PER_IP, settings.LOGIN_FAILURE_WINDOW_MINUTES) == (5, 20, 15)
+        assert (settings.LOGIN_MAX_FAILURES_PER_ACCOUNT, settings.LOGIN_MAX_FAILURES_PER_IP, settings.LOGIN_FAILURE_WINDOW_MINUTES) == (
+            5,
+            20,
+            15,
+        )
 
 
 class TestItDoesNotBringTheEnumerationBack:
@@ -234,7 +243,14 @@ class TestItDoesNotBringTheEnumerationBack:
             for _ in range(5):
                 attempt(world, email)
             r = attempt(world, email, PASSWORD)
-            seen.append((r.status_code, r.json()["detail"], r.headers["Retry-After"][:1] if int(r.headers["Retry-After"]) > 99 else r.headers["Retry-After"], tuple(sorted(r.json()))))
+            seen.append(
+                (
+                    r.status_code,
+                    r.json()["detail"],
+                    r.headers["Retry-After"][:1] if int(r.headers["Retry-After"]) > 99 else r.headers["Retry-After"],
+                    tuple(sorted(r.json())),
+                )
+            )
         assert len({s[:2] + s[3:] for s in seen}) == 1, seen
         minutes = {int(re.search(r"(\d+) minute", s[1]).group(1)) for s in seen}
         assert minutes == {15}
@@ -374,7 +390,9 @@ class TestTheOperatorsTool:
         monkeypatch.setattr(login_throttle, "limits", lambda: (2, 2))
         seed(world, "a@x.example", ip="203.0.113.7", n=2)
         out = self.run(world, "list")
-        assert [a["address"] for a in out["locked_addresses"]] == ["a@x.example"] and [c["client_ip"] for c in out["locked_clients"]] == ["203.0.113.7"]
+        assert [a["address"] for a in out["locked_addresses"]] == ["a@x.example"] and [c["client_ip"] for c in out["locked_clients"]] == [
+            "203.0.113.7"
+        ]
 
     def test_limits_reports_the_settings_in_force(self, monkeypatch):
         monkeypatch.setattr(settings, "LOGIN_MAX_FAILURES_PER_ACCOUNT", 7)
@@ -426,5 +444,7 @@ class TestTheTableAndTheModelAgree:
         sql = " ".join((Path(__file__).resolve().parent.parent / "migrations" / "069_login_failures.sql").read_text().split())
         for column in LoginFailure.__table__.columns:
             assert column.name in sql, column.name
-        assert "CREATE TABLE IF NOT EXISTS login_failures" in sql and "ROW LEVEL SECURITY" not in sql.replace("no row-level security", "").replace("row-level security", "")
+        assert "CREATE TABLE IF NOT EXISTS login_failures" in sql and "ROW LEVEL SECURITY" not in sql.replace(
+            "no row-level security", ""
+        ).replace("row-level security", "")
         assert "(email_key, created_at DESC)" in sql and "(client_ip, created_at DESC)" in sql

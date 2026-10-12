@@ -3,6 +3,7 @@
 Only 38 of 79 tenant-scoped tables had RLS because nothing stopped a new tenant table being added without it. This guard reads the migration files (it was checked against a real migrated database: the same 79 tenant-scoped tables
 and the identical 5 uncovered ones) and fails when a new one appears without RLS, naming what to do. It also fails when a documented gap has since been closed, so the list of exceptions cannot go stale.
 """
+
 import re
 from pathlib import Path
 
@@ -36,8 +37,13 @@ def parse_migrations():
         for m in re.finditer(r"CREATE TABLE(?: IF NOT EXISTS)?\s+(?:public\.)?(\w+)\s*\((.*?)\n\)\s*;", text, re.S | re.I):
             col = re.search(r"^\s*tenant_id\s+(\w+)([^,\n]*)", m.group(2), re.M | re.I)
             if col:
-                scoped[m.group(1)] = {"type": col.group(1).upper(), "nullable": "NOT NULL" not in col.group(2).upper() and "PRIMARY KEY" not in col.group(2).upper()}
-        for m in re.finditer(r"ALTER TABLE(?: IF EXISTS)?\s+(?:public\.)?(\w+)\s+ADD COLUMN(?: IF NOT EXISTS)?\s+tenant_id\s+(\w+)([^,;\n]*)", text, re.I):
+                scoped[m.group(1)] = {
+                    "type": col.group(1).upper(),
+                    "nullable": "NOT NULL" not in col.group(2).upper() and "PRIMARY KEY" not in col.group(2).upper(),
+                }
+        for m in re.finditer(
+            r"ALTER TABLE(?: IF EXISTS)?\s+(?:public\.)?(\w+)\s+ADD COLUMN(?: IF NOT EXISTS)?\s+tenant_id\s+(\w+)([^,;\n]*)", text, re.I
+        ):
             scoped.setdefault(m.group(1), {"type": m.group(2).upper(), "nullable": "NOT NULL" not in m.group(3).upper()})
         for m in re.finditer(r"ALTER TABLE(?: IF EXISTS)?\s+(?:public\.)?(\w+)\s+(?:ENABLE|FORCE)\s+ROW LEVEL SECURITY", text, re.I):
             enabled.add(m.group(1))
@@ -94,10 +100,14 @@ class TestMigration063:
         assert sorted(t for t in STANDARD_LIST + SHARED_LIST if SCOPED[t]["type"] != "UUID") == []
 
     def test_a_not_null_tenant_id_gets_the_standard_policy(self):
-        assert sorted(t for t in STANDARD_LIST if SCOPED[t]["nullable"]) == [], "a NULLABLE tenant_id in the standard list would make its NULL rows vanish for tenant-scoped sessions"
+        assert (
+            sorted(t for t in STANDARD_LIST if SCOPED[t]["nullable"]) == []
+        ), "a NULLABLE tenant_id in the standard list would make its NULL rows vanish for tenant-scoped sessions"
 
     def test_a_nullable_tenant_id_gets_the_shared_rows_variant(self):
-        assert sorted(t for t in SHARED_LIST if not SCOPED[t]["nullable"]) == [], "a NOT NULL tenant_id does not need the shared variant (it would be pointless but harmless): keep the lists exact"
+        assert (
+            sorted(t for t in SHARED_LIST if not SCOPED[t]["nullable"]) == []
+        ), "a NOT NULL tenant_id does not need the shared variant (it would be pointless but harmless): keep the lists exact"
 
     def test_the_two_policies_are_classified_as_standard_by_the_audit_tool(self):
         block = MIG063

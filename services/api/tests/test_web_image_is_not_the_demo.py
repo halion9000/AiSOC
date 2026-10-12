@@ -7,6 +7,7 @@ credentials themselves. The stack only escaped because docker-compose.yml overro
 All five defaults are now empty, compose blanks all five too, and the hosted demo (which DOES want them) passes its values explicitly as build args, which this test
 also pins so that blanking the defaults cannot quietly break it.
 """
+
 import re
 from pathlib import Path
 
@@ -56,4 +57,6 @@ def test_the_hosted_demo_still_passes_its_values_explicitly():
     """The hosted demo needs these ON; with the defaults now blank it must be the build that asks for them."""
     for workflow in (".github/workflows/release.yml", ".github/workflows/publish-images.yml"):
         text = (ROOT / workflow).read_text(encoding="utf-8")
-        assert "NEXT_PUBLIC_DEMO_MODE=true" in text, f"{workflow} no longer passes the demo flag explicitly: the hosted demo build would silently lose it"
+        assert (
+            "NEXT_PUBLIC_DEMO_MODE=true" in text
+        ), f"{workflow} no longer passes the demo flag explicitly: the hosted demo build would silently lose it"

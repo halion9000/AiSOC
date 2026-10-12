@@ -1,4 +1,5 @@
 """Background graph/fusion calls use the agents service's own key when no user token is given."""
+
 from app.tools import fusion, graph
 
 
@@ -30,7 +31,9 @@ def test_fusion_never_receives_an_api_credential(monkeypatch):
     monkeypatch.delenv("AISOC_FUSION_SERVICE_TOKEN", raising=False)
     assert fusion._headers("a-users-api-jwt") == {}, "neither the caller's token nor AGENTS_API_TOKEN may be sent to fusion"
     monkeypatch.setenv("AISOC_FUSION_SERVICE_TOKEN", "fusion-token")
-    assert "a-users-api-jwt" not in str(fusion._headers("a-users-api-jwt")) and "aisoc_service_key" not in str(fusion._headers("a-users-api-jwt"))
+    assert "a-users-api-jwt" not in str(fusion._headers("a-users-api-jwt")) and "aisoc_service_key" not in str(
+        fusion._headers("a-users-api-jwt")
+    )
 
 
 def test_fusion_no_token_configured_sends_nothing(monkeypatch):

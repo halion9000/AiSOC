@@ -3,6 +3,7 @@
 The caller's index_pattern was spliced verbatim into the generated `FROM ...` line of an ES|QL query that /execute runs with the SERVER's Elasticsearch credentials, and the vendored grammar check accepts every hostile variant (verified by running it): `FROM *`, `FROM .security-*,.kibana*`, and injected pipeline commands whose `//` also comments out the
 translator's own LIMIT. A single Elasticsearch shared by tenants made that a cross-tenant read. When an LLM key is configured the LLM writes the query (steered by the question), so the request field alone is not enough: the FINAL query's source clause is checked too, and an opt-in tenant predicate (NL_QUERY_TENANT_FIELD) can be added for shared deployments.
 """
+
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -15,7 +16,7 @@ from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import nl_query as nq
 
 TENANT = uuid.uuid4()
-GOOD_TAIL = '\n| WHERE @timestamp > NOW() - 24h\n| STATS n = COUNT(*) BY user.name\n| LIMIT 500'
+GOOD_TAIL = "\n| WHERE @timestamp > NOW() - 24h\n| STATS n = COUNT(*) BY user.name\n| LIMIT 500"
 
 
 def user():
@@ -23,13 +24,50 @@ def user():
 
 
 class TestIndexPattern:
-    @pytest.mark.parametrize("ok", ["logs-*", "logs-*,aisoc-events-*", "aisoc-events-2026.10.*", "logs-prod", "winlogbeat-8.12-*", "a1b-*", ",".join(f"idx-{i}-*" for i in range(10))])
+    @pytest.mark.parametrize(
+        "ok",
+        [
+            "logs-*",
+            "logs-*,aisoc-events-*",
+            "aisoc-events-2026.10.*",
+            "logs-prod",
+            "winlogbeat-8.12-*",
+            "a1b-*",
+            ",".join(f"idx-{i}-*" for i in range(10)),
+        ],
+    )
     def test_names_of_indices_are_accepted(self, ok):
         assert nq.validate_index_pattern(ok) == ok
 
     @pytest.mark.parametrize(
         "bad",
-        ["*", "**", ".security-*", ".kibana*", "_all", "-logs-*", "+logs", "lo*", "a*", "logs-* | EVAL x = 1", "logs-*\n| KEEP user.password", "logs-* ", " logs-*", "logs-*\t", "logs-*;DROP", 'logs-"x"', "logs-`x`", "logs-*//", "logs-*,", ",logs-*", "", "LOGS-*", "logs-ü*", "x" * 101, ",".join(f"idx-{i}-*" for i in range(11))],
+        [
+            "*",
+            "**",
+            ".security-*",
+            ".kibana*",
+            "_all",
+            "-logs-*",
+            "+logs",
+            "lo*",
+            "a*",
+            "logs-* | EVAL x = 1",
+            "logs-*\n| KEEP user.password",
+            "logs-* ",
+            " logs-*",
+            "logs-*\t",
+            "logs-*;DROP",
+            'logs-"x"',
+            "logs-`x`",
+            "logs-*//",
+            "logs-*,",
+            ",logs-*",
+            "",
+            "LOGS-*",
+            "logs-ü*",
+            "x" * 101,
+            ",".join(f"idx-{i}-*" for i in range(11)),
+        ],
         ids=lambda v: repr(v)[:30],
     )
     def test_anything_else_is_refused(self, bad):
@@ -53,7 +91,16 @@ class TestFinalQueryScope:
     def no_tenant_field(self, monkeypatch):
         monkeypatch.setattr(nq.settings, "NL_QUERY_TENANT_FIELD", "", raising=False)
 
-    @pytest.mark.parametrize("q", ["FROM logs-*,aisoc-events-*" + GOOD_TAIL, "from logs-* | LIMIT 5", "FROM logs-* METADATA _index" + GOOD_TAIL, "FROM logs-*, aisoc-events-*" + GOOD_TAIL, "  FROM logs-prod" + GOOD_TAIL])
+    @pytest.mark.parametrize(
+        "q",
+        [
+            "FROM logs-*,aisoc-events-*" + GOOD_TAIL,
+            "from logs-* | LIMIT 5",
+            "FROM logs-* METADATA _index" + GOOD_TAIL,
+            "FROM logs-*, aisoc-events-*" + GOOD_TAIL,
+            "  FROM logs-prod" + GOOD_TAIL,
+        ],
+    )
     def test_a_query_over_allowed_indices_is_unchanged_without_a_tenant_field(self, q):
         assert nq.enforce_query_scope(q, TENANT) == q
 
@@ -105,7 +152,7 @@ class TestTenantPredicate:
         with pytest.raises(nq.QueryScopeError):
             nq.enforce_query_scope("FROM *" + GOOD_TAIL, TENANT)
 
-    @pytest.mark.parametrize("field", ['x; DROP', 'a"b', "a b", "1abc", "tenant.id\n| EVAL", "", "x" * 101][:-1], ids=repr)
+    @pytest.mark.parametrize("field", ["x; DROP", 'a"b', "a b", "1abc", "tenant.id\n| EVAL", "", "x" * 101][:-1], ids=repr)
     def test_a_configured_field_name_that_is_not_a_field_name_is_refused(self, monkeypatch, field):
         monkeypatch.setattr(nq.settings, "NL_QUERY_TENANT_FIELD", field, raising=False)
         if field.strip() == "":

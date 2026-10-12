@@ -9,6 +9,7 @@ metadata addresses that are not link-local (fd00:ec2::254, 100.100.100.200). A h
 ESCAPE HATCHES: CONNECTORS_EGRESS_ALLOW_HOSTS (comma-separated hostnames or IPs that are always allowed) and CONNECTORS_EGRESS_ALLOW_LOOPBACK=1 (local development, where the platform's own services are on localhost). The host of INGEST_SERVICE_URL, this service's own peer, is always allowed. CONNECTORS_EGRESS_GUARD=0 turns the guard off.
 LIMIT: resolve-then-connect leaves a DNS-rebinding window (a name that resolves differently at connect time). This narrows the SSRF surface a great deal; it is not a network egress firewall, and a network policy that denies the metadata address from this service remains the stronger control.
 """
+
 from __future__ import annotations
 
 import asyncio

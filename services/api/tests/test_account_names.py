@@ -4,6 +4,7 @@ Login was by email, unique platform-wide, but nothing verifies that an address i
 (no '@', so a string with one is always an email), unique across the platform and compared case-insensitively; email becomes optional contact information. Existing clients keep working (the JSON key `email` is still accepted at sign-in, and creating a user without
 a name derives one), and existing people can still sign in with their email while LOGIN_ALLOW_EMAIL is on. A real SQLite database and the real router, with the unique index created as production has it; migration 071 and its backfill were checked on real Postgres.
 """
+
 import asyncio
 import random
 import re
@@ -52,9 +53,23 @@ def world(tmp_path):
     ta, tb = (Tenant(id=uuid.uuid4(), name=n, slug=n.lower() + "-" + uuid.uuid4().hex[:6]) for n in ("A", "B"))
 
     def user(tenant, name, email=None, active=True):
-        return User(id=uuid.uuid4(), tenant_id=tenant.id, account_name=name, email=email, username=name, hashed_password=HASH, role="admin", is_active=active)
+        return User(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            account_name=name,
+            email=email,
+            username=name,
+            hashed_password=HASH,
+            role="admin",
+            is_active=active,
+        )
 
-    users = {"alice": user(ta, "alice", "alice@a.example"), "nomail": user(ta, "nomail"), "dormant": user(ta, "dormant", "dormant@a.example", active=False), "bob": user(tb, "bob", "bob@b.example")}
+    users = {
+        "alice": user(ta, "alice", "alice@a.example"),
+        "nomail": user(ta, "nomail"),
+        "dormant": user(ta, "dormant", "dormant@a.example", active=False),
+        "bob": user(tb, "bob", "bob@b.example"),
+    }
     with Session(sync, expire_on_commit=False) as s:
         s.add_all([ta, tb, *users.values()])
         s.commit()
@@ -89,11 +104,39 @@ def names(world):
 
 
 class TestTheRules:
-    @pytest.mark.parametrize("name", ["abc", "a.b", "a_b", "a-b", "a1b", "hal.liveoak", "user-2", "x" * 32, "0ab", "ab9", "a..b", "a--b", "a.-_b"])
+    @pytest.mark.parametrize(
+        "name", ["abc", "a.b", "a_b", "a-b", "a1b", "hal.liveoak", "user-2", "x" * 32, "0ab", "ab9", "a..b", "a--b", "a.-_b"]
+    )
     def test_valid_names(self, name):
         assert an.is_valid_account_name(name) and an.validate_account_name(name) == name
 
-    @pytest.mark.parametrize("name", ["", "a", "ab", "x" * 33, "ab@cd", "a b c", "-abc", "abc-", ".abc", "abc.", "_abc", "abc_", "Abc", "ABC", "caf\u00e9", "a/b", "a\\b", "ab\n", "\ttab", "name!", "emoji\U0001f600ok", "a\u200bbc"])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "",
+            "a",
+            "ab",
+            "x" * 33,
+            "ab@cd",
+            "a b c",
+            "-abc",
+            "abc-",
+            ".abc",
+            "abc.",
+            "_abc",
+            "abc_",
+            "Abc",
+            "ABC",
+            "caf\u00e9",
+            "a/b",
+            "a\\b",
+            "ab\n",
+            "\ttab",
+            "name!",
+            "emoji\U0001f600ok",
+            "a\u200bbc",
+        ],
+    )
     def test_invalid_names(self, name):
         assert not an.is_valid_account_name(name)
 
@@ -109,13 +152,29 @@ class TestTheRules:
     def test_the_length_limits_are_what_the_database_enforces(self):
         assert (an.MIN_LENGTH, an.MAX_LENGTH) == (3, 32) and an.is_valid_account_name("x" * 32) and not an.is_valid_account_name("x" * 33)
 
-    @pytest.mark.parametrize("identifier,is_email", [("a@b.com", True), ("alice", False), ("@", True), ("hal.liveoak", False), ("a@b", True), ("", False)])
+    @pytest.mark.parametrize(
+        "identifier,is_email", [("a@b.com", True), ("alice", False), ("@", True), ("hal.liveoak", False), ("a@b", True), ("", False)]
+    )
     def test_an_at_sign_marks_an_email_and_a_name_can_never_have_one(self, identifier, is_email):
         assert an.looks_like_email(identifier) is is_email
         if is_email:
             assert not an.is_valid_account_name(identifier)
 
-    @pytest.mark.parametrize("source,want", [("Alice.Smith@Example.com", "alice.smith"), ("John Smith", "john-smith"), ("  Zed  ", "zed"), ("a@b.com", "user"), ("__", "user"), ("", "user"), ("!!!", "user"), ("x.y+tag@z.com", "x.y-tag"), ("Caf\u00e9 Owner", "caf-owner"), ("under_score", "under_score")])
+    @pytest.mark.parametrize(
+        "source,want",
+        [
+            ("Alice.Smith@Example.com", "alice.smith"),
+            ("John Smith", "john-smith"),
+            ("  Zed  ", "zed"),
+            ("a@b.com", "user"),
+            ("__", "user"),
+            ("", "user"),
+            ("!!!", "user"),
+            ("x.y+tag@z.com", "x.y-tag"),
+            ("Caf\u00e9 Owner", "caf-owner"),
+            ("under_score", "under_score"),
+        ],
+    )
     def test_suggestions(self, source, want):
         assert an.suggest_account_name(source) == want
 
@@ -221,7 +280,10 @@ class TestSigningIn:
         assert sign_in(world, "").status_code == 422
 
     def test_a_wrong_password_and_an_inactive_and_an_unknown_name_are_the_same_401(self, world):
-        seen = {(sign_in(world, n, p).status_code, sign_in(world, n, p).json()["detail"]) for n, p in (("alice", "wrong"), ("dormant", PASSWORD), ("nobody", PASSWORD))}
+        seen = {
+            (sign_in(world, n, p).status_code, sign_in(world, n, p).json()["detail"])
+            for n, p in (("alice", "wrong"), ("dormant", PASSWORD), ("nobody", PASSWORD))
+        }
         assert seen == {(401, "Incorrect account name or password")}
 
     def test_the_token_carries_the_account_name_and_a_label_for_who(self, world):
@@ -234,7 +296,9 @@ class TestSigningIn:
 
     def test_the_refresh_token_carries_them_too(self, world):
         tokens = sign_in(world, "nomail").json()
-        claims = decode_token(world.client.post("/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).json()["access_token"])
+        claims = decode_token(
+            world.client.post("/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).json()["access_token"]
+        )
         assert claims["account_name"] == "nomail" and claims["email"] == "nomail"
 
     def test_me_reports_the_account_name_and_no_email(self, world):
@@ -272,7 +336,18 @@ class TestThePrincipalLabel:
     def test_an_api_key_acting_as_a_person_with_no_email_is_labelled_the_same_way(self, world):
         raw = "aisoc_" + uuid.uuid4().hex
         with Session(world.sync) as s:
-            s.add(ApiKey(id=uuid.uuid4(), tenant_id=world.ta.id, user_id=world.users["nomail"].id, name="ci", key_prefix=raw[:12], hashed_key=hash_api_key(raw), scopes=["*"], is_active=True))
+            s.add(
+                ApiKey(
+                    id=uuid.uuid4(),
+                    tenant_id=world.ta.id,
+                    user_id=world.users["nomail"].id,
+                    name="ci",
+                    key_prefix=raw[:12],
+                    hashed_key=hash_api_key(raw),
+                    scopes=["*"],
+                    is_active=True,
+                )
+            )
             s.commit()
         creds = SimpleNamespace(credentials=raw)
         assert run(world, lambda s: deps.get_current_user(creds, s)).email == "nomail"
@@ -320,7 +395,9 @@ class TestCreatingAUser:
     def test_an_optional_email_is_still_accepted_and_stored_lower_cased(self, world):
         out = self.create(world, account_name="carol", email="Carol@A.Example")
         assert out.email == "carol@a.example"
-        assert sign_in(world, "carol@a.example", "Str0ng-Passw0rd!").status_code == 401, "an email is contact information: it does not sign anyone in by default"  # noqa: E501
+        assert (
+            sign_in(world, "carol@a.example", "Str0ng-Passw0rd!").status_code == 401
+        ), "an email is contact information: it does not sign anyone in by default"  # noqa: E501
         assert sign_in(world, "carol", "Str0ng-Passw0rd!").status_code == 200
 
     @pytest.mark.parametrize("bad", ["ab", "has space", "x" * 40, "a@b.com", "-lead", "UNI\u00c7"])
@@ -406,7 +483,9 @@ class TestCreatingAUser:
 class TestTheModel:
     def test_a_user_created_without_a_name_gets_one_made_from_the_username(self, world):
         with Session(world.sync) as s:
-            s.add(User(id=uuid.uuid4(), tenant_id=world.ta.id, username="Zed Quill", email="zq@a.example", hashed_password=HASH, role="admin"))
+            s.add(
+                User(id=uuid.uuid4(), tenant_id=world.ta.id, username="Zed Quill", email="zq@a.example", hashed_password=HASH, role="admin")
+            )
             s.commit()
         assert "zed-quill" in names(world)
 
@@ -443,7 +522,12 @@ class TestEveryCreationPathSetsAName:
             for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
                 if re.search(r"(?<![\w.])User\(\s*$", line) or re.search(r"(?<![\w.])User\(id=|(?<![\w.])User\(tenant_id=", line):
                     found.append(str(p.relative_to(APP)))
-        assert sorted(set(found)) == ["api/v1/endpoints/tenants.py", "scripts/bootstrap_production.py", "scripts/seed_demo.py", "services/tenant_provision/provisioner.py"]
+        assert sorted(set(found)) == [
+            "api/v1/endpoints/tenants.py",
+            "scripts/bootstrap_production.py",
+            "scripts/seed_demo.py",
+            "services/tenant_provision/provisioner.py",
+        ]
 
     def test_bootstrap_takes_a_validated_optional_name(self):
         src = (APP / "scripts/bootstrap_production.py").read_text(encoding="utf-8")
@@ -471,7 +555,9 @@ class TestTheMigration:
         assert "WHERE account_name IS NULL ORDER BY created_at, id" in self.SQL
 
     def test_it_never_rewrites_or_deletes_anything_else(self):
-        assert "DELETE FROM users" not in self.SQL and "UPDATE users SET email" not in self.SQL and "UPDATE users SET username" not in self.SQL
+        assert (
+            "DELETE FROM users" not in self.SQL and "UPDATE users SET email" not in self.SQL and "UPDATE users SET username" not in self.SQL
+        )
 
 
 class TestEmailSignInIsOffByDefault:
@@ -520,6 +606,14 @@ def test_no_test_patches_the_email_sign_in_setting_through_its_own_copy_of_the_s
     from pathlib import Path
 
     pattern = 'setattr(settings, "LOGIN_ALLOW_EMAIL"'
-    offenders = [f"{path.name}:{n}" for path in sorted(Path(__file__).parent.glob("test_*.py")) if path.name != Path(__file__).name for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if pattern in line]  # noqa: E501
+    offenders = [
+        f"{path.name}:{n}"
+        for path in sorted(Path(__file__).parent.glob("test_*.py"))
+        if path.name != Path(__file__).name
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if pattern in line
+    ]  # noqa: E501
     assert offenders == [], offenders
-    assert pattern in (Path(__file__).parent / "test_account_names.py").read_text(encoding="utf-8"), "the guard's own pattern is still the real one"  # noqa: E501
+    assert pattern in (Path(__file__).parent / "test_account_names.py").read_text(
+        encoding="utf-8"
+    ), "the guard's own pattern is still the real one"  # noqa: E501

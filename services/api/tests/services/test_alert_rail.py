@@ -351,12 +351,28 @@ class TestBuildMiniTimeline:
 
     def _case_row(self, **overrides: Any) -> SimpleNamespace:
         now = datetime.now(UTC)
-        base = {"id": uuid.uuid4(), "title": "Suspected account takeover", "status": "new", "created_by": "dana@example.com", "opened_at": now - timedelta(hours=1), "triaged_at": None, "resolved_at": None, "closed_at": None}
+        base = {
+            "id": uuid.uuid4(),
+            "title": "Suspected account takeover",
+            "status": "new",
+            "created_by": "dana@example.com",
+            "opened_at": now - timedelta(hours=1),
+            "triaged_at": None,
+            "resolved_at": None,
+            "closed_at": None,
+        }
         base.update(overrides)
         return SimpleNamespace(**base)
 
     def _comment_row(self, case_id: uuid.UUID, **overrides: Any) -> SimpleNamespace:
-        base = {"id": uuid.uuid4(), "case_id": case_id, "author": "dana@example.com", "body": "Looks like a real positive, escalating", "is_system": False, "created_at": datetime.now(UTC)}
+        base = {
+            "id": uuid.uuid4(),
+            "case_id": case_id,
+            "author": "dana@example.com",
+            "body": "Looks like a real positive, escalating",
+            "is_system": False,
+            "created_at": datetime.now(UTC),
+        }
         base.update(overrides)
         return SimpleNamespace(**base)
 
@@ -388,7 +404,11 @@ class TestBuildMiniTimeline:
         case = self._case_row(title="Phish at finance", created_by="sam@example.com", status="investigating")
         events = await build_mini_timeline(_mock_db_returning([case], [], []), _alert())
         (opened,) = [e for e in events if e.kind == "case_opened"]
-        assert opened.summary == "Case opened: Phish at finance" and opened.agent == "sam@example.com" and opened.payload == {"case_id": str(case.id), "status": "investigating"}
+        assert (
+            opened.summary == "Case opened: Phish at finance"
+            and opened.agent == "sam@example.com"
+            and opened.payload == {"case_id": str(case.id), "status": "investigating"}
+        )
 
     @pytest.mark.asyncio
     async def test_a_case_with_no_recorded_creator_is_attributed_to_the_system(self) -> None:
@@ -398,11 +418,16 @@ class TestBuildMiniTimeline:
     @pytest.mark.asyncio
     async def test_each_milestone_that_happened_is_a_status_change_and_the_others_are_not(self) -> None:
         now = datetime.now(UTC)
-        case = self._case_row(opened_at=now - timedelta(hours=5), triaged_at=now - timedelta(hours=4), resolved_at=now - timedelta(hours=1), closed_at=None)
+        case = self._case_row(
+            opened_at=now - timedelta(hours=5), triaged_at=now - timedelta(hours=4), resolved_at=now - timedelta(hours=1), closed_at=None
+        )
         events = await build_mini_timeline(_mock_db_returning([case], [], []), _alert())
         changes = {e.id: e for e in events if e.kind == "status_change"}
         assert set(changes) == {f"case-{case.id}-triaged", f"case-{case.id}-resolved"}
-        assert changes[f"case-{case.id}-resolved"].summary == "Case resolved: Suspected account takeover" and changes[f"case-{case.id}-resolved"].payload["status"] == "resolved"
+        assert (
+            changes[f"case-{case.id}-resolved"].summary == "Case resolved: Suspected account takeover"
+            and changes[f"case-{case.id}-resolved"].payload["status"] == "resolved"
+        )
         assert changes[f"case-{case.id}-triaged"].agent == "system"
 
     @pytest.mark.asyncio
@@ -414,7 +439,11 @@ class TestBuildMiniTimeline:
     @pytest.mark.asyncio
     async def test_comments_are_attributed_to_system_or_the_author(self) -> None:
         case = self._case_row()
-        rows = [self._comment_row(case.id, is_system=True, author="bot"), self._comment_row(case.id, author="eve@example.com"), self._comment_row(case.id, author=None)]
+        rows = [
+            self._comment_row(case.id, is_system=True, author="bot"),
+            self._comment_row(case.id, author="eve@example.com"),
+            self._comment_row(case.id, author=None),
+        ]
         events = await build_mini_timeline(_mock_db_returning([case], rows, []), _alert())
         assert sorted(e.agent for e in events if e.kind == "case_comment") == ["eve@example.com", "system", "system"]
 

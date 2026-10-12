@@ -3,6 +3,7 @@
 B1: oidc.py and saml.py must return 501 when unconfigured, never mint stub tokens.
 B2: get_current_user must return 401 on malformed UUID sub claims, not 500.
 """
+
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -135,9 +136,7 @@ async def test_get_current_user_returns_401_on_malformed_uuid():
 
     # Pass a real HTTPAuthorizationCredentials so credentials.credentials
     # returns a string (not a MagicMock), avoiding the hash_api_key crash.
-    creds = HTTPAuthorizationCredentials(
-        scheme="Bearer", credentials="fake.jwt.token"
-    )
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="fake.jwt.token")
     mock_db = AsyncMock()
 
     with patch("app.api.v1.deps.decode_token") as mock_decode:
@@ -151,10 +150,7 @@ async def test_get_current_user_returns_401_on_malformed_uuid():
             await get_current_user(creds, mock_db)
 
         assert exc_info.value.status_code == 401
-        assert (
-            "malformed" in exc_info.value.detail.lower()
-            or "invalid" in exc_info.value.detail.lower()
-        )
+        assert "malformed" in exc_info.value.detail.lower() or "invalid" in exc_info.value.detail.lower()
 
 
 @pytest.mark.asyncio
@@ -162,9 +158,7 @@ async def test_get_current_user_returns_401_on_empty_sub():
     """get_current_user must return 401 when sub claim is empty string."""
     from app.api.v1.deps import get_current_user
 
-    creds = HTTPAuthorizationCredentials(
-        scheme="Bearer", credentials="fake.jwt.token"
-    )
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="fake.jwt.token")
     mock_db = AsyncMock()
 
     with patch("app.api.v1.deps.decode_token") as mock_decode:

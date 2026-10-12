@@ -6,6 +6,7 @@ The web console reaches this service through rewrites that bypass the API, so th
 tenant_id, user_id and role) and records it in request.state.caller; handlers take the tenant from there.
 These tests drive the REAL middleware and handlers, with the API faked via respx.
 """
+
 import uuid
 from types import SimpleNamespace
 
@@ -122,7 +123,12 @@ class TestTheMiddlewareLearnsWhoIsCalling:
     def test_caller_for_classifies_internal_and_user(self):
         assert service_auth.caller_for({"x-internal-token": INTERNAL}) == {"kind": "internal"}
         service_auth._remember_identity("Bearer x", httpx.Response(200, json={"tenant_id": TENANT_A}), 1e18)
-        assert service_auth.caller_for({"authorization": "Bearer x"}) == {"kind": "user", "tenant_id": TENANT_A, "user_id": None, "role": None}
+        assert service_auth.caller_for({"authorization": "Bearer x"}) == {
+            "kind": "user",
+            "tenant_id": TENANT_A,
+            "user_id": None,
+            "role": None,
+        }
 
     @respx.mock
     def test_identity_is_cached_with_the_verified_decision_so_the_api_is_not_asked_every_time(self):
@@ -166,7 +172,9 @@ class TestInvestigate:
         assert launched == [TENANT_A]
 
     def test_the_apis_own_proxy_is_trusted_to_name_the_tenant(self, launched):
-        client().post("/api/v1/cases/c1/investigate", json={"alert_summary": "x", "tenant_id": "tenant-from-the-api"}, headers=INTERNAL_HEADERS)
+        client().post(
+            "/api/v1/cases/c1/investigate", json={"alert_summary": "x", "tenant_id": "tenant-from-the-api"}, headers=INTERNAL_HEADERS
+        )
         assert launched == ["tenant-from-the-api"]
 
     def test_in_development_nothing_is_enforced_and_the_body_is_used(self, launched, monkeypatch):
@@ -184,7 +192,9 @@ class TestInvestigate:
     @respx.mock
     def test_the_legacy_alert_adapter_also_forwards_the_caller(self, monkeypatch):
         api_says(tenant=TENANT_A)
-        respx.get(f"{API}/api/v1/alerts/a-1").mock(return_value=httpx.Response(200, json={"id": "a-1", "caseId": "c-9", "title": "t", "tenantId": TENANT_A}))
+        respx.get(f"{API}/api/v1/alerts/a-1").mock(
+            return_value=httpx.Response(200, json={"id": "a-1", "caseId": "c-9", "title": "t", "tenantId": TENANT_A})
+        )
         got = {}
 
         async def fake_launch(*, case_id, body, background_tasks, request):
@@ -257,7 +267,9 @@ class TestAgentsRouter:
             seen.append(str(state.tenant_id))
 
         monkeypatch.setattr(router_mod, "_run_investigation", fake_run)
-        r = client().post("/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER)
+        r = client().post(
+            "/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER
+        )
         assert r.status_code == 200, r.text
         assert seen == [TENANT_A]
 
@@ -270,7 +282,9 @@ class TestAgentsRouter:
             seen.append(1)
 
         monkeypatch.setattr(router_mod, "_run_investigation", fake_run)
-        r = client().post("/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER)
+        r = client().post(
+            "/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER
+        )
         assert r.status_code == 403 and seen == []
 
 
@@ -287,7 +301,9 @@ class TestWebSocket:
         monkeypatch.setattr(inv, "_investigate_stream", fake_stream)
         from app.main import app
 
-        with TestClient(app).websocket_connect(f"/api/v1/investigations/r1/stream?case_id=c1&alert_summary=x&tenant_id={VICTIM}", headers=BEARER) as ws:
+        with TestClient(app).websocket_connect(
+            f"/api/v1/investigations/r1/stream?case_id=c1&alert_summary=x&tenant_id={VICTIM}", headers=BEARER
+        ) as ws:
             ws.receive_text()
         assert seen == [TENANT_A]
 
@@ -318,7 +334,15 @@ class TestInvestigationRunsAreVisibleOnlyToTheirTenant:
     @pytest.fixture(autouse=True)
     def runs(self):
         def make(rid, tenant):
-            run = {"run_id": rid, "case_id": "c", "status": "completed", "report_md": f"# report for {tenant}", "report_html": f"<p>report for {tenant}</p>", "audit_log": [], "alert_id": "a"}
+            run = {
+                "run_id": rid,
+                "case_id": "c",
+                "status": "completed",
+                "report_md": f"# report for {tenant}",
+                "report_html": f"<p>report for {tenant}</p>",
+                "audit_log": [],
+                "alert_id": "a",
+            }
             if tenant is not None:
                 run["tenant_id"] = tenant
             return run
@@ -434,7 +458,12 @@ class TestRunsRecordTheirOwner:
 
         monkeypatch.setattr(router_mod, "run_full_investigation", fake_full)
         c = client()
-        ids = [c.post("/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER).json()["run_id"] for _ in range(2)]
+        ids = [
+            c.post(
+                "/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER
+            ).json()["run_id"]
+            for _ in range(2)
+        ]
         for rid, status in zip(ids, ("completed", "failed"), strict=True):
             assert router_mod._runs[rid]["status"] == status and router_mod._runs[rid]["tenant_id"] == TENANT_A
             assert c.get(f"/api/v1/investigations/{rid}", headers=BEARER).status_code == 200  # the owner can still read it
@@ -453,7 +482,9 @@ class TestTheGapsMutationFound:
 
         monkeypatch.setattr(router_mod, "_run_investigation", never_completes)
         c = client()
-        run_id = c.post("/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER).json()["run_id"]
+        run_id = c.post(
+            "/api/v1/investigations", json={"incident_id": str(uuid.uuid4()), "tenant_id": VICTIM, "alert_summary": "x"}, headers=BEARER
+        ).json()["run_id"]
         assert router_mod._runs[run_id]["status"] == "running" and router_mod._runs[run_id]["tenant_id"] == TENANT_A
         assert c.get(f"/api/v1/investigations/{run_id}", headers=BEARER).status_code == 200
 

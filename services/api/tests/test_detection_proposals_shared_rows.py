@@ -4,6 +4,7 @@ _load_proposal admits `tenant_id IS NULL` rows for every caller, and the endpoin
 and it was rejected FOR EVERYONE. Nothing creates a tenantless proposal today (no migration seeds one, every creator stamps a tenant), so this is hardening for the day one is seeded: writes to it are now a 403 "Shared proposals are read-only.", reading it still works, another tenant's proposal is still a plain 404.
 The promote edit branch also refuses a shared base rule (PATCH /detection/rules edits only the caller's own rules; promotion must not be a way around that). The database cannot hold a tenantless RULE (detection_rules.tenant_id is NOT NULL), so that guard is defence in depth.
 """
+
 import ast
 import uuid
 from datetime import UTC, datetime
@@ -26,9 +27,33 @@ def user(tenant=None):
 
 
 def proposal(tenant="mine", **over):
-    base = dict(id=uuid.uuid4(), tenant_id=TID if tenant == "mine" else tenant, base_rule_id=None, promoted_rule_id=None, name="p", description=None, rule_language="sigma", rule_body="title: x", category="c", severity="medium", confidence=50,
-                mitre_tactics=[], mitre_techniques=[], tags=[], status="proposed", eval_result={}, review_comments=[], proposed_by_id=None, decided_by_id=None, decision_comment=None, decided_at=None, source=None, github_pr_url=None,
-                created_at=datetime.now(UTC), updated_at=datetime.now(UTC))
+    base = dict(
+        id=uuid.uuid4(),
+        tenant_id=TID if tenant == "mine" else tenant,
+        base_rule_id=None,
+        promoted_rule_id=None,
+        name="p",
+        description=None,
+        rule_language="sigma",
+        rule_body="title: x",
+        category="c",
+        severity="medium",
+        confidence=50,
+        mitre_tactics=[],
+        mitre_techniques=[],
+        tags=[],
+        status="proposed",
+        eval_result={},
+        review_comments=[],
+        proposed_by_id=None,
+        decided_by_id=None,
+        decision_comment=None,
+        decided_at=None,
+        source=None,
+        github_pr_url=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
     base.update(over)
     return DetectionRuleProposal(**base)
 
@@ -124,7 +149,9 @@ class TestEveryWriterRefusesASharedProposal:
     async def test_the_callers_own_proposal_is_still_decided(self):
         mine = proposal()
         db = FakeDB(mine)
-        out = await dp.decide_proposal(proposal_id=mine.id, request=dp.DecisionRequest(decision="reject", comment="no"), current_user=user(), db=db)
+        out = await dp.decide_proposal(
+            proposal_id=mine.id, request=dp.DecisionRequest(decision="reject", comment="no"), current_user=user(), db=db
+        )
         assert out.status == "rejected" and mine.decided_by_id is not None
         db.commit.assert_awaited()
 
@@ -174,7 +201,9 @@ class TestTheWiring:
                         out[n.name] = {k.arg: ast.unparse(k.value) for k in c.keywords}
         return out
 
-    @pytest.mark.parametrize("fn", ["comment_on_proposal", "evaluate_rule", "backtest_proposal", "attach_eval_result", "decide_proposal", "promote_proposal"])
+    @pytest.mark.parametrize(
+        "fn", ["comment_on_proposal", "evaluate_rule", "backtest_proposal", "attach_eval_result", "decide_proposal", "promote_proposal"]
+    )
     def test_each_writer_asks_for_write_access(self, fn):
         assert self.calls()[fn] == {"write": "True"}
 
@@ -182,4 +211,12 @@ class TestTheWiring:
         assert self.calls()["get_proposal"] == {}
 
     def test_there_are_exactly_these_callers(self):
-        assert set(self.calls()) == {"get_proposal", "comment_on_proposal", "evaluate_rule", "backtest_proposal", "attach_eval_result", "decide_proposal", "promote_proposal"}
+        assert set(self.calls()) == {
+            "get_proposal",
+            "comment_on_proposal",
+            "evaluate_rule",
+            "backtest_proposal",
+            "attach_eval_result",
+            "decide_proposal",
+            "promote_proposal",
+        }

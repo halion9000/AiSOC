@@ -3,6 +3,7 @@
 Promoting a waitlist entry in the admin UI sent `seed_demo: true`, the API's request model also defaulted to True, and so did the provisioner: a real customer's brand-new tenant was loaded with the demo
 dataset (roughly 3,000 lines of invented incidents) and their first login showed fabricated alerts and cases. All three defaults are now off; an operator can still opt in explicitly.
 """
+
 import inspect
 import uuid
 from typing import Any

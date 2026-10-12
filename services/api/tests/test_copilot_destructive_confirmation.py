@@ -3,6 +3,7 @@
 The Copilot's delete_alert used to delete on the model's say-so (after a permission check). Alert text is attacker-influenced and sits in the model's context, so injected text could get alerts deleted. Now the tool only REQUESTS: it describes what would be deleted, a signed, expiring confirmation (bound to tenant, user, action and
 arguments) goes to the UI and is removed from what the model sees, and only the analyst's own call to POST /copilot/actions/confirm, which is not a model tool, performs it, re-checking alerts:delete at that moment.
 """
+
 import base64
 import json
 import time
@@ -26,7 +27,13 @@ def make_user(role="admin", tenant=None, uid=None):
 
 def reader(tenant=None):
     """An API key that may use the Copilot and read alerts but may NOT delete them: exactly the principal the confirmation exists for."""
-    u = CurrentUser(user_id=uuid.uuid4(), tenant_id=tenant or TENANT, role="analyst", email="key@example.test", scopes=["copilot:use", "alerts:read", "cases:read"])
+    u = CurrentUser(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant or TENANT,
+        role="analyst",
+        email="key@example.test",
+        scopes=["copilot:use", "alerts:read", "cases:read"],
+    )
     u.require_permission("copilot:use")
     with pytest.raises(HTTPException):
         u.require_permission("alerts:delete")
@@ -102,7 +109,9 @@ class TestTheToken:
         body, sig = token.split(".")
         payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
         payload["args"]["alert_id"] = "someone-elses"
-        forged = base64.urlsafe_b64encode(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).rstrip(b"=").decode() + "." + sig
+        forged = (
+            base64.urlsafe_b64encode(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).rstrip(b"=").decode() + "." + sig
+        )
         with pytest.raises(ct.ConfirmationError) as exc:
             ct.verify_confirmation(forged, tenant_id=str(TENANT), user_id="u1")
         assert exc.value.reason == "signature"
@@ -144,7 +153,11 @@ class TestTheToken:
         import hashlib
         import hmac
 
-        payload = json.dumps({"a": "delete_alert", "args": {"alert_id": "a"}, "t": str(TENANT), "u": "u1", "exp": int(time.time()) + 100, "n": "x"}, sort_keys=True, separators=(",", ":")).encode()
+        payload = json.dumps(
+            {"a": "delete_alert", "args": {"alert_id": "a"}, "t": str(TENANT), "u": "u1", "exp": int(time.time()) + 100, "n": "x"},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
         b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()  # noqa: E731
         for key in (ct.settings.SECRET_KEY.encode(), hashlib.sha256(ct.settings.SECRET_KEY.encode()).digest()):
             forged = b64(payload) + "." + b64(hmac.new(key, payload, hashlib.sha256).digest())
@@ -168,7 +181,11 @@ class TestTheToolOnlyRequests:
         s = session(an_alert("Suspicious login"))
         out = await ct.delete_alert(tenant_id=str(TENANT), alert_id=str(uuid.uuid4()))
         assert not s.deleted and s.commit.await_count == 0
-        assert out[ct._CONFIRM_KEY]["action"] == "delete_alert" and "Suspicious login" in out[ct._CONFIRM_KEY]["summary"] and "cannot be undone" in out[ct._CONFIRM_KEY]["summary"]
+        assert (
+            out[ct._CONFIRM_KEY]["action"] == "delete_alert"
+            and "Suspicious login" in out[ct._CONFIRM_KEY]["summary"]
+            and "cannot be undone" in out[ct._CONFIRM_KEY]["summary"]
+        )
 
     async def test_an_alert_that_is_not_in_the_tenant_is_just_an_error(self, session):
         s = session(None)
@@ -192,7 +209,9 @@ class TestTheToolOnlyRequests:
 
     async def test_perform_reports_an_already_deleted_alert(self, session):
         session(rowcount=0)
-        assert (await ct.perform_delete_alert(tenant_id=str(TENANT), alert_id=str(uuid.uuid4())))["error"] == "alert not found or already deleted"
+        assert (await ct.perform_delete_alert(tenant_id=str(TENANT), alert_id=str(uuid.uuid4())))[
+            "error"
+        ] == "alert not found or already deleted"
 
     def test_the_model_cannot_reach_the_real_deletion(self):
         assert ct.perform_delete_alert not in ct._COPILOT_TOOL_DISPATCH.values()
@@ -244,9 +263,18 @@ class TestTheExecutor:
 
     def test_split_pending_removes_the_token_from_what_the_model_sees(self):
         token, exp = ct.issue_confirmation(tenant_id=str(TENANT), user_id="u", action="delete_alert", args={"alert_id": "a"})
-        result = {"alert_id": "a", "status": "awaiting_user_confirmation", ct.PENDING_KEY: {"action": "delete_alert", "summary": "s", "token": token, "expiresAt": exp}}
+        result = {
+            "alert_id": "a",
+            "status": "awaiting_user_confirmation",
+            ct.PENDING_KEY: {"action": "delete_alert", "summary": "s", "token": token, "expiresAt": exp},
+        }
         visible, pending = ct.split_pending(result)
-        assert pending["token"] == token and token not in json.dumps(visible) and ct.PENDING_KEY not in visible and visible["status"] == "awaiting_user_confirmation"
+        assert (
+            pending["token"] == token
+            and token not in json.dumps(visible)
+            and ct.PENDING_KEY not in visible
+            and visible["status"] == "awaiting_user_confirmation"
+        )
 
     @pytest.mark.parametrize("plain", [{"a": 1}, [1, 2], "text", None])
     def test_split_pending_passes_anything_else_through(self, plain):
@@ -316,7 +344,9 @@ class TestTheConfirmEndpoint:
         return fn
 
     def token_for(self, user, aid="alert-1", **kw):
-        return ct.issue_confirmation(tenant_id=str(user.tenant_id), user_id=str(user.user_id), action="delete_alert", args={"alert_id": aid}, **kw)[0]
+        return ct.issue_confirmation(
+            tenant_id=str(user.tenant_id), user_id=str(user.user_id), action="delete_alert", args={"alert_id": aid}, **kw
+        )[0]
 
     async def test_a_valid_confirmation_performs_the_deletion_as_that_user_in_that_tenant(self, performer):
         u = make_user()

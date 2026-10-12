@@ -3,6 +3,7 @@
 get_attack_path asks the (tenant-scoped) knowledge graph first and falls back to a relational reconstruction when the graph is OFFLINE *or returns no nodes*. A case id from another tenant produces exactly "no nodes" in a tenant-scoped graph query, so the fallback ran even with the graph online, and it looked the case up by id alone:
 any caller with alerts:read got another tenant's case title, severity, MITRE techniques and alert ids. Shown on real Postgres by the two-tenant flows (tenant B received HTTP 200 with tenant A's case nodes); fixed by passing the caller's tenant into the fallback.
 """
+
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -33,7 +34,13 @@ class FakeDB:
 
 
 def case_row(**over):
-    base = dict(id=uuid.uuid4(), title="the title", severity="high", mitre_techniques=["T1059", {"id": "T1566"}], alert_ids=[uuid.uuid4(), uuid.uuid4()])
+    base = dict(
+        id=uuid.uuid4(),
+        title="the title",
+        severity="high",
+        mitre_techniques=["T1059", {"id": "T1566"}],
+        alert_ids=[uuid.uuid4(), uuid.uuid4()],
+    )
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -94,12 +101,26 @@ class TestTheEndpoint:
 
     async def test_a_graph_with_nodes_never_touches_the_relational_fallback(self, monkeypatch):
         db = FakeDB(case_row())
-        data = {"case_id": "c", "nodes": [{"id": "case:c", "label": "Case", "properties": {}}], "edges": [], "node_count": 1, "edge_count": 0}
+        data = {
+            "case_id": "c",
+            "nodes": [{"id": "case:c", "label": "Case", "properties": {}}],
+            "edges": [],
+            "node_count": 1,
+            "edge_count": 0,
+        }
         await self.call(monkeypatch, graph=AsyncMock(return_value=data), db=db, offline=False)
         assert db.executed == []
 
     async def test_the_graph_service_is_asked_with_the_callers_tenant(self, monkeypatch):
-        g = AsyncMock(return_value={"case_id": "c", "nodes": [{"id": "x", "label": "Case", "properties": {}}], "edges": [], "node_count": 1, "edge_count": 0})
+        g = AsyncMock(
+            return_value={
+                "case_id": "c",
+                "nodes": [{"id": "x", "label": "Case", "properties": {}}],
+                "edges": [],
+                "node_count": 1,
+                "edge_count": 0,
+            }
+        )
         await self.call(monkeypatch, graph=g, db=FakeDB(), offline=False)
         assert g.await_args.kwargs["tenant_id"] == str(MINE)
 

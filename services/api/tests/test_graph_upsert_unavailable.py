@@ -131,5 +131,5 @@ def test_every_graph_write_in_the_endpoints_module_goes_through_the_wrapper():
     source = inspect.getsource(graph)
     calls = re.findall(r"graph_service\.(upsert_\w+)\(", source)
     assert len(calls) == 4, "an upsert route was added or removed: check it is wrapped, then update this number"
-    wrapped = re.findall(r"_or_503\(graph_service\.(upsert_\w+)\(", source)
+    wrapped = re.findall(r"_or_503\(\s*graph_service\.(upsert_\w+)\(", source)  # \s*: the formatter may wrap the call onto the next line
     assert sorted(calls) == sorted(wrapped), f"not wrapped in _or_503: {sorted(set(calls) - set(wrapped))}"

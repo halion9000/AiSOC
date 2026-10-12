@@ -122,7 +122,9 @@ async def list_findings(
     return list(result.scalars().all())
 
 
-@router.post("/findings", response_model=FindingOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/findings", response_model=FindingOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))]
+)
 async def ingest_finding(
     body: FindingCreate,
     db: AsyncSession = Depends(get_db),

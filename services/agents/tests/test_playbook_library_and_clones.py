@@ -4,6 +4,7 @@ Before: every create/update/delete went to ONE global index.json (visible to eve
 tenant or delete it), and GET /runs listed every tenant's runs. These tests drive the real middleware and router with the API faked (respx), a controlled library, and an in-memory repository that mirrors
 the Postgres one (which is verified separately against real Postgres).
 """
+
 import uuid
 from types import SimpleNamespace
 
@@ -30,14 +31,24 @@ BASE = "/api/v1/playbooks"
 
 
 def make_playbook(pid, name, enabled=True, steps=2) -> Playbook:
-    return Playbook(id=pid, name=name, description=f"{name} desc", tags=["edr"], enabled=enabled, steps=[PlaybookStep(name=f"step {i}", type="notify") for i in range(steps)])
+    return Playbook(
+        id=pid,
+        name=name,
+        description=f"{name} desc",
+        tags=["edr"],
+        enabled=enabled,
+        steps=[PlaybookStep(name=f"step {i}", type="notify") for i in range(steps)],
+    )
 
 
 class FakeLibrary:
     """Stands in for PlaybookStore.default(): the shipped, read-only library."""
 
     def __init__(self):
-        self.items = {"lib-isolate": make_playbook("lib-isolate", "Isolate host"), "lib-phish": make_playbook("lib-phish", "Phishing triage", enabled=False)}
+        self.items = {
+            "lib-isolate": make_playbook("lib-isolate", "Isolate host"),
+            "lib-phish": make_playbook("lib-phish", "Phishing triage", enabled=False),
+        }
         self.before = {k: v.model_dump() for k, v in self.items.items()}
 
     def list(self, *, enabled_only=False):
@@ -233,7 +244,9 @@ class TestCloning:
 
     @respx.mock
     def test_a_clone_can_be_named(self, harness):
-        assert as_tenant(TENANT_A).post(f"{BASE}/lib-isolate/clone", json={"name": "  Payroll isolate  "}).json()["name"] == "Payroll isolate"
+        assert (
+            as_tenant(TENANT_A).post(f"{BASE}/lib-isolate/clone", json={"name": "  Payroll isolate  "}).json()["name"] == "Payroll isolate"
+        )
 
     @respx.mock
     def test_a_clone_appears_for_its_owner_only(self, harness):
@@ -302,7 +315,10 @@ class TestCreatingAndEditingOwnPlaybooks:
     def test_update_changes_editable_fields_and_cannot_rewrite_identity_or_provenance(self, harness):
         c = as_tenant(TENANT_A)
         pid = c.post(f"{BASE}/lib-isolate/clone").json()["id"]
-        r = c.put(f"{BASE}/{pid}", json={"name": "Renamed", "enabled": True, "id": "evil", "cloned_from": "evil", "scope": "library", "editable": False})
+        r = c.put(
+            f"{BASE}/{pid}",
+            json={"name": "Renamed", "enabled": True, "id": "evil", "cloned_from": "evil", "scope": "library", "editable": False},
+        )
         body = r.json()
         assert r.status_code == 200 and body["name"] == "Renamed" and body["enabled"] is True
         assert body["id"] == pid and body["cloned_from"] == "lib-isolate" and body["scope"] == "tenant" and body["editable"] is True
@@ -428,7 +444,10 @@ class TestRunsAreScopedToTheirTenant:
         assert pb_api._run_owner[run] == TENANT_A and c.get(f"{BASE}/runs/{run}").status_code == 200
 
     def test_the_apis_own_proxy_can_scope_by_naming_a_tenant_or_see_all(self, harness):
-        pb_api._runs["ra"], pb_api._runs["rb"] = PlaybookRun(harness.library.items["lib-isolate"], {}), PlaybookRun(harness.library.items["lib-isolate"], {})
+        pb_api._runs["ra"], pb_api._runs["rb"] = (
+            PlaybookRun(harness.library.items["lib-isolate"], {}),
+            PlaybookRun(harness.library.items["lib-isolate"], {}),
+        )
         pb_api._run_owner["ra"], pb_api._run_owner["rb"] = TENANT_A, TENANT_B
         c = client()
         assert len(c.get(f"{BASE}/runs", headers=INTERNAL_HEADERS).json()) == 2
@@ -452,7 +471,10 @@ class TestTheApisOwnProxyAndDevelopment:
 
     def test_without_a_tenant_nothing_can_be_saved(self, harness):
         c = client()
-        for r in (c.post(BASE, json={"name": "x"}, headers=INTERNAL_HEADERS), c.post(f"{BASE}/lib-isolate/clone", headers=INTERNAL_HEADERS)):
+        for r in (
+            c.post(BASE, json={"name": "x"}, headers=INTERNAL_HEADERS),
+            c.post(f"{BASE}/lib-isolate/clone", headers=INTERNAL_HEADERS),
+        ):
             assert r.status_code == 400 and "tenant is required" in r.json()["detail"]
         assert harness.repo.rows == {}
 
@@ -471,13 +493,16 @@ class TestTheApisOwnProxyAndDevelopment:
 
 class TestPermissions:
     @respx.mock
-    @pytest.mark.parametrize("method,path,perm,body", [
-        ("post", f"{BASE}/lib-isolate/clone", "playbooks:write", None),
-        ("post", BASE, "playbooks:write", {"name": "x"}),
-        ("post", f"{BASE}/lib-isolate/run", "playbooks:execute", {}),
-        ("get", BASE, "playbooks:read", None),
-        ("get", f"{BASE}/runs", "playbooks:read", None),
-    ])
+    @pytest.mark.parametrize(
+        "method,path,perm,body",
+        [
+            ("post", f"{BASE}/lib-isolate/clone", "playbooks:write", None),
+            ("post", BASE, "playbooks:write", {"name": "x"}),
+            ("post", f"{BASE}/lib-isolate/run", "playbooks:execute", {}),
+            ("get", BASE, "playbooks:read", None),
+            ("get", f"{BASE}/runs", "playbooks:read", None),
+        ],
+    )
     def test_each_route_asks_the_api_for_the_right_permission_and_is_refused_without_it(self, harness, method, path, perm, body):
         api_says(tenant=TENANT_A, denied={perm})
         c = client()
@@ -488,7 +513,11 @@ class TestPermissions:
     def test_the_clone_route_has_a_permission_rule(self):
         from app.core.route_permissions import RULES
 
-        needed = [perm for pattern, methods, perm in RULES if pattern.match("/api/v1/playbooks/abc/clone") and (methods is None or "POST" in methods)]
+        needed = [
+            perm
+            for pattern, methods, perm in RULES
+            if pattern.match("/api/v1/playbooks/abc/clone") and (methods is None or "POST" in methods)
+        ]
         assert needed and needed[0] == "playbooks:write"
 
 

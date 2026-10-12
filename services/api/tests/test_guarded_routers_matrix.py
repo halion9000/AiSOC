@@ -9,6 +9,7 @@ any of them is checked automatically. Expectations come from the real role table
   reports      GET -> reports:read, everything else -> reports:write
   marketplace  install / uninstall -> settings:write (browsing stays open to any login)
 """
+
 import re
 import uuid
 

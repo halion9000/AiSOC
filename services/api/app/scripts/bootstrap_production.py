@@ -26,6 +26,7 @@ The last line of output is machine-readable:
     AISOC_BOOTSTRAP_RESULT {"ok": true, ...}
 The raw API key appears there once and is never stored by AiSOC (only its hash).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -129,9 +130,7 @@ async def _verify_orm_tables(session) -> None:
 
     from app.db.database import Base  # noqa: PLC0415
 
-    rows = await session.execute(
-        text("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()")
-    )
+    rows = await session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"))
     present = {r[0] for r in rows}
     missing = sorted(set(Base.metadata.tables) - present)
     if missing:
@@ -152,10 +151,14 @@ async def _ensure_key(session, name: str, scopes: list[str], owner_id, rotate: b
     from app.models.tenant import ApiKey  # noqa: PLC0415
 
     active = (
-        await session.execute(
-            select(ApiKey).where(ApiKey.name == name, ApiKey.tenant_id == DEFAULT_TENANT_ID, ApiKey.is_active.is_(True))
+        (
+            await session.execute(
+                select(ApiKey).where(ApiKey.name == name, ApiKey.tenant_id == DEFAULT_TENANT_ID, ApiKey.is_active.is_(True))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if active and not rotate:
         # An existing key keeps its SECRET but is brought to exactly the scopes wanted now. Without this, a scope added here (or removed:
         # least privilege) would
@@ -166,7 +169,9 @@ async def _ensure_key(session, name: str, scopes: list[str], owner_id, rotate: b
         changed = [key for key in active if sorted(set(key.scopes or [])) != wanted]
         for key in changed:
             added, removed = sorted(set(wanted) - set(key.scopes or [])), sorted(set(key.scopes or []) - set(wanted))
-            logging.getLogger(__name__).warning("API key %r scopes updated in place (same secret): added %s, removed %s", name, added or "none", removed or "none")  # noqa: E501
+            logging.getLogger(__name__).warning(
+                "API key %r scopes updated in place (same secret): added %s, removed %s", name, added or "none", removed or "none"
+            )  # noqa: E501
             key.scopes = list(scopes)
         return None, ("scopes-updated" if changed else "kept-existing")
     for old in active:
@@ -201,7 +206,9 @@ def plan_seeded_admin_update(seeded) -> tuple[bool, dict | None]:
     return newly_disabled, {"is_active": False, "hashed_password": SEEDED_ADMIN_DISABLED_HASH, "role": SEEDED_ADMIN_DISABLED_ROLE}
 
 
-async def run(email: str, password: str | None, rotate_core_key: bool, rotate_agents_key: bool = False, admin_name: str | None = None) -> dict:
+async def run(
+    email: str, password: str | None, rotate_core_key: bool, rotate_agents_key: bool = False, admin_name: str | None = None
+) -> dict:
     from datetime import UTC, datetime  # noqa: PLC0415
 
     from sqlalchemy import select, update  # noqa: PLC0415
@@ -231,9 +238,7 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
         admin = await find_user_by_email(session, email)
         if admin is None:
             if not password:
-                raise BootstrapError(
-                    "AISOC_BOOTSTRAP_ADMIN_PASSWORD is required to create the admin account (it does not exist yet)."
-                )
+                raise BootstrapError("AISOC_BOOTSTRAP_ADMIN_PASSWORD is required to create the admin account (it does not exist yet).")
             if admin_name:
                 try:
                     chosen_name = validate_account_name(admin_name)
@@ -278,7 +283,10 @@ async def run(email: str, password: str | None, rotate_core_key: bool, rotate_ag
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--admin-email", required=True)
-    parser.add_argument("--admin-name", help="the account name the admin signs in with (3-32 lower-case letters, digits, . _ -); made from the email if omitted")
+    parser.add_argument(
+        "--admin-name",
+        help="the account name the admin signs in with (3-32 lower-case letters, digits, . _ -); made from the email if omitted",
+    )
     parser.add_argument("--rotate-core-key", action="store_true")
     parser.add_argument("--rotate-agents-key", action="store_true")
     args = parser.parse_args(argv)

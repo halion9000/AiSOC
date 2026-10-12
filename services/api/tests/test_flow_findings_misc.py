@@ -1,11 +1,12 @@
 """Defects found by running the real API against real Postgres with multi-step, two-tenant flows (see app/scripts/tenant_flows.py). Each of these crashed on every call and had no test.
 
- * CurrentUser had no `id`; fourteen call sites in eight modules read it, so reports, remediation, mssp, posture, insider threat, replay, sla and audit endpoints raised AttributeError (HTTP 500).
- * `:param::type` is not a bind parameter to SQLAlchemy's text(): the `::` after the name defeats its parser, so compliance evidence, knowledge-base ingest and phishing submit raised ArgumentError on every call.
- * IdentityNode.is_active was mapped String(10) while the annotation and the database column are boolean, so every node insert failed.
- * GET /assets/vulnerabilities was declared AFTER GET /assets/{asset_id}, which captured "vulnerabilities" as an id and answered 422: the endpoint was unreachable.
- * The playbooks proxy let a 2xx response with a non-JSON body escape as an unhandled JSONDecodeError.
+* CurrentUser had no `id`; fourteen call sites in eight modules read it, so reports, remediation, mssp, posture, insider threat, replay, sla and audit endpoints raised AttributeError (HTTP 500).
+* `:param::type` is not a bind parameter to SQLAlchemy's text(): the `::` after the name defeats its parser, so compliance evidence, knowledge-base ingest and phishing submit raised ArgumentError on every call.
+* IdentityNode.is_active was mapped String(10) while the annotation and the database column are boolean, so every node insert failed.
+* GET /assets/vulnerabilities was declared AFTER GET /assets/{asset_id}, which captured "vulnerabilities" as an id and answered 422: the endpoint was unreachable.
+* The playbooks proxy let a 2xx response with a non-JSON body escape as an unhandled JSONDecodeError.
 """
+
 import re
 import uuid
 from pathlib import Path
@@ -42,7 +43,11 @@ class TestCurrentUserId:
 
     def test_the_sites_that_read_it_are_still_there(self):
         """If these are ever cleaned up to user_id the alias can go; until then it is what keeps them from crashing."""
-        hits = [p.name for p in (APP / "api" / "v1" / "endpoints").glob("*.py") if re.search(r"\bcurrent_user\.id\b", p.read_text(encoding="utf-8", errors="replace"))]
+        hits = [
+            p.name
+            for p in (APP / "api" / "v1" / "endpoints").glob("*.py")
+            if re.search(r"\bcurrent_user\.id\b", p.read_text(encoding="utf-8", errors="replace"))
+        ]
         assert {"reports.py", "remediation.py", "mssp.py"} <= set(hits)
 
 
@@ -63,11 +68,14 @@ class TestBindParametersAndCasts:
                     offenders.append(f"{p.relative_to(APP)}:{n}: {line.strip()[:90]}")
         assert offenders == [], "use CAST(:name AS type), not :name::type, inside text():\n" + "\n".join(offenders)
 
-    @pytest.mark.parametrize("module,needles", [
-        ("knowledge_base.py", ["CAST(:tags AS text[])", "CAST(:kinds AS text[])"]),
-        ("compliance.py", ["CAST(:payload AS jsonb)"]),
-        ("phishing.py", ["CAST(:urls AS text[])", "CAST(:iocs AS jsonb)"]),
-    ])
+    @pytest.mark.parametrize(
+        "module,needles",
+        [
+            ("knowledge_base.py", ["CAST(:tags AS text[])", "CAST(:kinds AS text[])"]),
+            ("compliance.py", ["CAST(:payload AS jsonb)"]),
+            ("phishing.py", ["CAST(:urls AS text[])", "CAST(:iocs AS jsonb)"]),
+        ],
+    )
     def test_the_fixed_statements_use_cast(self, module, needles):
         src = (APP / "api" / "v1" / "endpoints" / module).read_text(encoding="utf-8")
         for needle in needles:
@@ -233,7 +241,12 @@ class TestPlaybookRequestBodies:
         user = SimpleNamespace(tenant_id=uuid.uuid4())
         return pb, calls, request, user
 
-    CALLS = [("create_playbook", {}), ("update_playbook", {"playbook_id": "pb-1"}), ("run_playbook", {"playbook_id": "pb-1"}), ("clone_playbook", {"playbook_id": "pb-1"})]
+    CALLS = [
+        ("create_playbook", {}),
+        ("update_playbook", {"playbook_id": "pb-1"}),
+        ("run_playbook", {"playbook_id": "pb-1"}),
+        ("clone_playbook", {"playbook_id": "pb-1"}),
+    ]
 
     @pytest.mark.parametrize("name,kw", CALLS)
     async def test_a_valid_object_is_passed_through_unchanged(self, handlers, name, kw):

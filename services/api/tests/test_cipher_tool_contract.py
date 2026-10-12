@@ -17,6 +17,7 @@ ever looked at what was actually sent:
 CIPHER_CALLS below is what CORE sends. If this API changes a route Cipher depends on, this fails HERE, not as a confusing error the first time an
 analyst agent tries the tool. If CORE changes a request, update this table together with hud/src/aisoc-requests.test.ts.
 """
+
 from __future__ import annotations
 
 import re
@@ -61,7 +62,14 @@ CIPHER_CALLS = [
     ("aisoc_detection_drift", "GET", "/detection/drift", [], None, False),
     ("aisoc_detection_confidence", "GET", "/detection/confidence", [], None, False),
     ("aisoc_tuning_summary", "GET", "/detection/tuning/summary", [], None, False),
-    ("aisoc_tuning_workbench", "GET", "/detection/tuning", ["severity", "suggestion", "search", "enabled_only", "include_dismissed", "page", "page_size"], None, False),  # noqa: E501
+    (
+        "aisoc_tuning_workbench",
+        "GET",
+        "/detection/tuning",
+        ["severity", "suggestion", "search", "enabled_only", "include_dismissed", "page", "page_size"],
+        None,
+        False,
+    ),  # noqa: E501
     ("aisoc_list_rules", "GET", "/rules", ["category", "rule_language", "include_builtin", "include_packs"], None, False),
     ("aisoc_get_rule", "GET", "/rules/{rule_id}", [], None, False),
     ("aisoc_list_detection_proposals", "GET", "/detection-proposals", ["status", "limit"], None, False),
@@ -93,7 +101,14 @@ CIPHER_CALLS = [
     ("aisoc_list_vulnerabilities", "GET", "/assets/vulnerabilities", ["severity", "is_exploited", "limit", "offset"], None, False),
     ("aisoc_get_asset_vulnerabilities", "GET", "/assets/{asset_id}/vulnerabilities", [], None, False),
     ("aisoc_posture_summary", "GET", "/posture/summary", ["cloud_provider"], None, False),
-    ("aisoc_list_posture_findings", "GET", "/posture/findings", ["cloud_provider", "severity", "status", "rule_id", "limit", "offset"], None, False),  # noqa: E501
+    (
+        "aisoc_list_posture_findings",
+        "GET",
+        "/posture/findings",
+        ["cloud_provider", "severity", "status", "rule_id", "limit", "offset"],
+        None,
+        False,
+    ),  # noqa: E501
     ("aisoc_get_posture_finding", "GET", "/posture/findings/{finding_id}", [], None, False),
     ("aisoc_list_posture_scans", "GET", "/posture/scans", ["limit", "offset"], None, False),
     ("aisoc_list_identity_nodes", "GET", "/identity-graph/nodes", ["node_type", "source_system", "limit", "offset"], None, False),
@@ -174,7 +189,9 @@ def test_core_s_key_holds_the_permission_the_route_needs(name):
         try:
             CORE_KEY.require_permission(permission)
         except HTTPException as exc:
-            raise AssertionError(f"{name} ({method} {path}) needs {permission}, which CORE's key ({CORE_KEY_SCOPES}) lacks: {exc.detail}") from exc
+            raise AssertionError(
+                f"{name} ({method} {path}) needs {permission}, which CORE's key ({CORE_KEY_SCOPES}) lacks: {exc.detail}"
+            ) from exc
 
 
 @pytest.mark.parametrize("name", CALL_IDS)
@@ -182,7 +199,9 @@ def test_every_query_parameter_sent_is_one_the_route_reads(name):
     """FastAPI silently ignores an unknown query parameter, so a wrong name is a filter that quietly does nothing."""
     _tool, method, path, query, *_ = _case(name)
     accepted = {p["name"] for p in _operation(method, path).get("parameters", []) if p["in"] == "query"}
-    assert set(query) <= accepted, f"{name} sends {sorted(set(query) - accepted)}, which {method} {path} ignores (it reads {sorted(accepted)})"
+    assert (
+        set(query) <= accepted
+    ), f"{name} sends {sorted(set(query) - accepted)}, which {method} {path} ignores (it reads {sorted(accepted)})"
 
 
 @pytest.mark.parametrize("name", CALL_IDS)
@@ -190,16 +209,22 @@ def test_the_body_is_what_the_route_expects(name):
     _tool, method, path, _query, body, ignored = _case(name)
     request_body = _operation(method, path).get("requestBody")
     if request_body is None:
-        assert body is None or ignored, f"{name} sends a body ({body}) but {method} {path} takes none; mark it ignored only if that is intended"
+        assert (
+            body is None or ignored
+        ), f"{name} sends a body ({body}) but {method} {path} takes none; mark it ignored only if that is intended"
         return
     assert not ignored, f"{name} is marked as sending an ignored body, but {method} {path} now declares one: map the fields"
     schema = _resolve(request_body["content"]["application/json"]["schema"])
     if request_body.get("required"):
-        assert body is not None, f"{name} sends no body, but {method} {path} requires a JSON body (an empty object is valid): a 422 on every call"
+        assert (
+            body is not None
+        ), f"{name} sends no body, but {method} {path} requires a JSON body (an empty object is valid): a 422 on every call"
     if body is None:
         return
     fields = set(schema.get("properties", {}))
-    assert set(body) <= fields, f"{name} sends {sorted(set(body) - fields)}, which {method} {path} does not read (it reads {sorted(fields)})"
+    assert (
+        set(body) <= fields
+    ), f"{name} sends {sorted(set(body) - fields)}, which {method} {path} does not read (it reads {sorted(fields)})"
     missing = set(schema.get("required", [])) - set(body)
     assert not missing, f"{name} omits {sorted(missing)}, which {method} {path} requires: a 422 on every call"
 
@@ -226,7 +251,9 @@ def test_a_tool_that_only_reads_never_needs_a_permission_that_writes(name):
     arbitrary queries): CORE's key is least privilege on purpose."""
     _tool, method, path, *_ = _case(name)
     for permission in required_permissions(_route(method, path)):
-        assert not permission.endswith((":write", ":delete", ":execute")) and permission != "lake:query", f"{name} ({method} {path}) needs {permission}"  # noqa: E501
+        assert (
+            not permission.endswith((":write", ":delete", ":execute")) and permission != "lake:query"
+        ), f"{name} ({method} {path}) needs {permission}"  # noqa: E501
 
 
 @pytest.mark.parametrize("name", [c[0] for c in READ_ONLY_TOOLS])
@@ -243,7 +270,10 @@ def test_a_tool_that_reads_one_item_cannot_be_confused_with_a_literal_sibling_ro
     """/detection-proposals/baselines and /detection-proposals/{proposal_id} both fit the wildcard; each tool must resolve to its own route."""  # noqa: E501
     assert _route("GET", "/detection-proposals/baselines").path.endswith("/baselines")
     assert _route("GET", "/detection-proposals/{proposal_id}").path.endswith("{proposal_id}")
-    assert _operation("GET", "/detection-proposals/baselines")["operationId"] != _operation("GET", "/detection-proposals/{proposal_id}")["operationId"]  # noqa: E501
+    assert (
+        _operation("GET", "/detection-proposals/baselines")["operationId"]
+        != _operation("GET", "/detection-proposals/{proposal_id}")["operationId"]
+    )  # noqa: E501
 
 
 # ------------------------------------------------------------------------------------------------------------------------
@@ -260,10 +290,18 @@ CORE_CHECKOUT_CONTRACT = Path(__file__).resolve().parents[3].parent / "Jarvis" /
 
 
 def test_this_table_lists_exactly_the_read_tools_core_declares_with_the_same_path_and_query_names():
-    mine = {name: (method, path, query) for name, method, path, query, _body, _ignored in CIPHER_CALLS if name in {r["tool"] for r in CONTRACT}}  # noqa: E501
-    assert set(mine) == {r["tool"] for r in CONTRACT}, f"CORE declares tools this table lacks: {sorted({r['tool'] for r in CONTRACT} - set(mine))}"  # noqa: E501
+    mine = {
+        name: (method, path, query) for name, method, path, query, _body, _ignored in CIPHER_CALLS if name in {r["tool"] for r in CONTRACT}
+    }  # noqa: E501
+    assert set(mine) == {
+        r["tool"] for r in CONTRACT
+    }, f"CORE declares tools this table lacks: {sorted({r['tool'] for r in CONTRACT} - set(mine))}"  # noqa: E501
     for row in CONTRACT:
-        assert mine[row["tool"]] == (row["method"], row["path"], row["query"]), f"{row['tool']}: CORE sends {row['method']} {row['path']} {row['query']}, this table says {mine[row['tool']]}"  # noqa: E501
+        assert mine[row["tool"]] == (
+            row["method"],
+            row["path"],
+            row["query"],
+        ), f"{row['tool']}: CORE sends {row['method']} {row['path']} {row['query']}, this table says {mine[row['tool']]}"  # noqa: E501
 
 
 def test_every_tool_in_the_contract_is_a_get():
@@ -280,7 +318,9 @@ def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_
     compare."""
     if not CORE_CHECKOUT_CONTRACT.exists():
         pytest.skip("no CORE checkout next to this repository")
-    assert json.loads(CORE_CHECKOUT_CONTRACT.read_text(encoding="utf-8")) == CONTRACT, "tests/fixtures/core_read_tools.json is out of date: copy hud/contracts/aisoc-read-tools.json from the CORE repo and update CIPHER_CALLS"  # noqa: E501
+    assert (
+        json.loads(CORE_CHECKOUT_CONTRACT.read_text(encoding="utf-8")) == CONTRACT
+    ), "tests/fixtures/core_read_tools.json is out of date: copy hud/contracts/aisoc-read-tools.json from the CORE repo and update CIPHER_CALLS"  # noqa: E501
 
 
 def _query_parameters(row) -> dict:
@@ -299,7 +339,9 @@ def test_the_values_a_tool_allows_are_exactly_the_values_the_api_accepts(row):
     for name in row["query"]:
         api_enum = _resolve(params[name]["schema"]).get("enum")
         if api_enum is not None:
-            assert name in row["enums"], f"{row['tool']}.{name} is free text in the tool, but the API accepts only {sorted(api_enum)}: declare them in the tool's table"  # noqa: E501
+            assert (
+                name in row["enums"]
+            ), f"{row['tool']}.{name} is free text in the tool, but the API accepts only {sorted(api_enum)}: declare them in the tool's table"  # noqa: E501
 
 
 @pytest.mark.parametrize("row", [r for r in CONTRACT if r["numbers"]], ids=[r["tool"] for r in CONTRACT if r["numbers"]])
@@ -311,13 +353,19 @@ def test_a_tools_numeric_clamp_never_sends_more_or_less_than_the_api_accepts(row
         schema = _resolve(params[name]["schema"])
         assert schema.get("type") == "integer", f"{row['tool']}.{name} is a number in the tool but {schema.get('type')} in the API"
         if "maximum" in schema:
-            assert bounds["max"] <= schema["maximum"], f"{row['tool']}.{name}: the tool sends up to {bounds['max']}, the API accepts at most {schema['maximum']}"  # noqa: E501
-        assert bounds["min"] >= schema.get("minimum", 0), f"{row['tool']}.{name}: the tool sends as low as {bounds['min']}, the API accepts at least {schema.get('minimum', 0)}"  # noqa: E501
+            assert (
+                bounds["max"] <= schema["maximum"]
+            ), f"{row['tool']}.{name}: the tool sends up to {bounds['max']}, the API accepts at most {schema['maximum']}"  # noqa: E501
+        assert bounds["min"] >= schema.get(
+            "minimum", 0
+        ), f"{row['tool']}.{name}: the tool sends as low as {bounds['min']}, the API accepts at least {schema.get('minimum', 0)}"  # noqa: E501
 
 
 def test_the_paged_workbench_can_be_paged_and_the_sizes_match():
     row = next(r for r in CONTRACT if r["tool"] == "aisoc_tuning_workbench")
-    assert {"page", "page_size"} <= set(row["query"]), "the workbench is paged: without these Cipher sees only the first page and cannot know"  # noqa: E501
+    assert {"page", "page_size"} <= set(
+        row["query"]
+    ), "the workbench is paged: without these Cipher sees only the first page and cannot know"  # noqa: E501
     schema = _resolve(_query_parameters(row)["page_size"]["schema"])
     assert schema["maximum"] == row["numbers"]["page_size"]["max"] == 100
 
@@ -337,7 +385,22 @@ def test_a_hunting_tool_needs_exactly_hunts_read_and_nothing_that_queries_teleme
 def test_no_tool_in_the_table_can_reach_a_run_a_result_or_a_query():
     """Run results are event rows from the lake; running is a write. No Cipher tool, hand-written or declared, may name such a route."""
     for name, method, path, *_ in CIPHER_CALLS:
-        for forbidden in ("/runs", "/run", "/execute", "/nl-query", "/lake", "/translate", "/backtest", "/enrichment", "/feeds", "/misp", "/taxii", "/insider-threat", "/compliance", "/effective-permissions"):  # noqa: E501
+        for forbidden in (
+            "/runs",
+            "/run",
+            "/execute",
+            "/nl-query",
+            "/lake",
+            "/translate",
+            "/backtest",
+            "/enrichment",
+            "/feeds",
+            "/misp",
+            "/taxii",
+            "/insider-threat",
+            "/compliance",
+            "/effective-permissions",
+        ):  # noqa: E501
             assert forbidden not in path, f"{name} ({method} {path}) reaches a route containing {forbidden}"
 
 
@@ -346,7 +409,9 @@ def test_the_hunt_list_limit_and_offset_the_tool_sends_are_within_what_the_api_a
     assert params["limit"]["maximum"] >= 200 and params["limit"]["minimum"] <= 1
     # The API now caps offset at 1,000,000 (an unbounded offset overflowed Postgres: see test_integer_query_params_are_bounded.py). The tool
     # allows offsets up to 100,000, so the cap must stay at or above that; if it is ever lowered below, the tool's bound must follow.
-    assert params["offset"]["minimum"] == 0 and params["offset"].get("maximum", float("inf")) >= 100_000, "the tool allows offsets up to 100000; the API's maximum must not be lower"  # noqa: E501
+    assert (
+        params["offset"]["minimum"] == 0 and params["offset"].get("maximum", float("inf")) >= 100_000
+    ), "the tool allows offsets up to 100000; the API's maximum must not be lower"  # noqa: E501
 
 
 INTEL_TOOLS = ["aisoc_list_iocs", "aisoc_get_ioc", "aisoc_list_threat_actors", "aisoc_list_stix_indicators", "aisoc_list_stix_bundles"]
@@ -378,12 +443,22 @@ def test_no_tool_reaches_the_enrichment_or_feed_routes_either():
     reachable = {(m, p) for _n, m, p, *_ in CIPHER_CALLS}
     assert ("GET", "/enrichment/lookup") not in reachable and ("POST", "/enrichment/bulk") not in reachable
     assert all("/feeds" not in p for _n, _m, p, *_ in CIPHER_CALLS)
-    assert "config" in SPEC["components"]["schemas"]["FeedOut"]["properties"], "FeedOut no longer has a free-form `config`: re-read why feeds are out of reach"  # noqa: E501
+    assert (
+        "config" in SPEC["components"]["schemas"]["FeedOut"]["properties"]
+    ), "FeedOut no longer has a free-form `config`: re-read why feeds are out of reach"  # noqa: E501
 
 
 ESTATE_TOOLS = [
-    "aisoc_list_assets", "aisoc_get_asset", "aisoc_list_vulnerabilities", "aisoc_get_asset_vulnerabilities", "aisoc_posture_summary",
-    "aisoc_list_posture_findings", "aisoc_get_posture_finding", "aisoc_list_posture_scans", "aisoc_list_identity_nodes", "aisoc_get_identity_node",  # noqa: E501
+    "aisoc_list_assets",
+    "aisoc_get_asset",
+    "aisoc_list_vulnerabilities",
+    "aisoc_get_asset_vulnerabilities",
+    "aisoc_posture_summary",
+    "aisoc_list_posture_findings",
+    "aisoc_get_posture_finding",
+    "aisoc_list_posture_scans",
+    "aisoc_list_identity_nodes",
+    "aisoc_get_identity_node",  # noqa: E501
 ]
 
 
@@ -401,11 +476,15 @@ def test_the_estate_routes_are_gets_with_no_side_effects_in_their_handlers():
     what was checked when these were chosen, and it fails if a handler grows one."""
     import inspect
 
-    marker = re.compile(r"commit\(|\.add\(|httpx|requests\.|aiohttp|\.delete\(|flush\(|urlopen|socket|_run_scan|trigger|enqueue|send_|notify|\.post\(", re.I)  # noqa: E501
+    marker = re.compile(
+        r"commit\(|\.add\(|httpx|requests\.|aiohttp|\.delete\(|flush\(|urlopen|socket|_run_scan|trigger|enqueue|send_|notify|\.post\(", re.I
+    )  # noqa: E501
     for name in ESTATE_TOOLS:
         _tool, method, path, *_ = _case(name)
         source = inspect.getsource(_route(method, path).endpoint)
-        assert not marker.search(source), f"{name}: the handler for {method} {path} now looks like it does something besides read: {marker.search(source).group(0)}"  # noqa: E501
+        assert not marker.search(
+            source
+        ), f"{name}: the handler for {method} {path} now looks like it does something besides read: {marker.search(source).group(0)}"  # noqa: E501
 
 
 def test_the_sensitive_areas_have_no_tool_and_say_why_in_the_table():
@@ -415,4 +494,3 @@ def test_the_sensitive_areas_have_no_tool_and_say_why_in_the_table():
         assert not path.startswith(("/insider-threat", "/compliance", "/identity/")), path
     source = Path(__file__).read_text(encoding="utf-8")
     assert "HR-sensitive" in source and "writes a record" in source
-

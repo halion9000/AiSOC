@@ -15,6 +15,7 @@ In production every request (HTTP and WebSocket) must be one of:
 Health and metrics paths stay open for Docker's healthchecks. If the API cannot
 be reached the request fails CLOSED (503). Development is unchanged: no checks.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -67,7 +68,11 @@ def _remember_identity(authorization: str, resp: httpx.Response, expires: float)
     except ValueError:
         body = {}
     body = body if isinstance(body, dict) else {}
-    identity = {k: str(v) for k, v in (("tenant_id", body.get("tenant_id")), ("user_id", body.get("user_id") or body.get("id")), ("role", body.get("role"))) if v}
+    identity = {
+        k: str(v)
+        for k, v in (("tenant_id", body.get("tenant_id")), ("user_id", body.get("user_id") or body.get("id")), ("role", body.get("role")))
+        if v
+    }
     if len(_identities) >= _CACHE_MAX:
         _identities.clear()
     _identities[_credential_key(authorization)] = (expires, identity)

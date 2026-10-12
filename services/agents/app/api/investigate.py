@@ -233,7 +233,9 @@ async def launch_investigation(
     request: Request,
 ):
     """Launch a Pillar-1 autonomous investigation for a case."""
-    body.tenant_id = resolve_tenant(body.tenant_id, authenticated_tenant(request))  # the authenticated caller's tenant, never the body's claim
+    body.tenant_id = resolve_tenant(
+        body.tenant_id, authenticated_tenant(request)
+    )  # the authenticated caller's tenant, never the body's claim
     run_id = str(uuid4())
     _runs[run_id] = {
         "run_id": run_id,
@@ -410,6 +412,7 @@ class _LegacyInvestigateRequest(BaseModel):
 
 class _AgentInvestigationResponse(BaseModel):
     """Shape expected by the frontend's AgentInvestigation interface."""
+
     id: str
     alertId: str
     status: str

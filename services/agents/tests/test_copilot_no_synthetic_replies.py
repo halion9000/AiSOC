@@ -4,6 +4,7 @@ app/api/copilot.py used to fall back to one of five hard-coded paragraphs, cycli
 time appears short (< 2 hours)"), whenever OPENAI_API_KEY was unset OR the model call failed for any reason. They were returned as the normal assistant reply and stored in the
 conversation, so an analyst could read invented findings as the copilot's analysis of their case. Now the endpoints answer HTTP 503 with the reason and store nothing for the turn.
 """
+
 import json
 
 import pytest
@@ -94,7 +95,10 @@ def test_a_failed_turn_keeps_the_earlier_conversation_and_leaves_no_dangling_que
     assert client.post(CHAT, json={"message": "Second question", "conversationId": conv_id}).status_code == 503
 
     messages = client.get(f"/api/v1/copilot/conversations/{conv_id}").json()["messages"]
-    assert [m["content"] for m in messages] == ["First question", "First real answer"]  # the failed question is not left behind to be duplicated on retry
+    assert [m["content"] for m in messages] == [
+        "First question",
+        "First real answer",
+    ]  # the failed question is not left behind to be duplicated on retry
 
 
 def test_a_working_model_gives_exactly_its_own_words_and_stores_the_turn(client, monkeypatch):

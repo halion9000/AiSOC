@@ -43,7 +43,9 @@ class SavedSearchOut(BaseModel):
 
 
 def _out(row: SavedHuntSearch) -> SavedSearchOut:
-    return SavedSearchOut(id=str(row.id), name=row.name, query=row.query, language=row.language, createdAt=row.created_at.isoformat(), pinned=bool(row.pinned))
+    return SavedSearchOut(
+        id=str(row.id), name=row.name, query=row.query, language=row.language, createdAt=row.created_at.isoformat(), pinned=bool(row.pinned)
+    )
 
 
 def _coerce_uuid(value: str) -> uuid.UUID | None:
@@ -56,11 +58,24 @@ def _coerce_uuid(value: str) -> uuid.UUID | None:
 @router.get("", dependencies=[Depends(require_permission("hunts:read"))])
 async def list_saved_searches(user: AuthUser, db: TenantDBSession) -> dict[str, list[SavedSearchOut]]:
     """The caller's tenant's saved searches, newest first."""
-    rows = (await db.execute(select(SavedHuntSearch).where(SavedHuntSearch.tenant_id == user.tenant_id).order_by(SavedHuntSearch.created_at.desc()).limit(MAX_PER_TENANT))).scalars().all()
+    rows = (
+        (
+            await db.execute(
+                select(SavedHuntSearch)
+                .where(SavedHuntSearch.tenant_id == user.tenant_id)
+                .order_by(SavedHuntSearch.created_at.desc())
+                .limit(MAX_PER_TENANT)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return {"searches": [_out(r) for r in rows]}
 
 
-@router.post("", response_model=SavedSearchOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("lake:query"))])
+@router.post(
+    "", response_model=SavedSearchOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("lake:query"))]
+)
 async def save_search(data: SavedSearchCreate, user: AuthUser, db: TenantDBSession) -> SavedSearchOut:
     """Save a search for the caller's tenant."""
     name, query = data.name.strip(), data.query.strip()
@@ -68,11 +83,26 @@ async def save_search(data: SavedSearchCreate, user: AuthUser, db: TenantDBSessi
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="name and query must not be blank")
     if data.language not in LANGUAGES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"language must be one of {', '.join(LANGUAGES)}")
-    existing = (await db.execute(select(func.count()).select_from(SavedHuntSearch).where(SavedHuntSearch.tenant_id == user.tenant_id))).scalar_one()
+    existing = (
+        await db.execute(select(func.count()).select_from(SavedHuntSearch).where(SavedHuntSearch.tenant_id == user.tenant_id))
+    ).scalar_one()
     if existing >= MAX_PER_TENANT:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"This tenant already has {MAX_PER_TENANT} saved searches; delete some before saving more")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This tenant already has {MAX_PER_TENANT} saved searches; delete some before saving more",
+        )
     now = datetime.now(UTC)
-    row = SavedHuntSearch(id=uuid.uuid4(), tenant_id=user.tenant_id, created_by=user.user_id, name=name, query=query, language=data.language, pinned=False, created_at=now, updated_at=now)
+    row = SavedHuntSearch(
+        id=uuid.uuid4(),
+        tenant_id=user.tenant_id,
+        created_by=user.user_id,
+        name=name,
+        query=query,
+        language=data.language,
+        pinned=False,
+        created_at=now,
+        updated_at=now,
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)
@@ -80,7 +110,9 @@ async def save_search(data: SavedSearchCreate, user: AuthUser, db: TenantDBSessi
     return _out(row)
 
 
-@router.delete("/{search_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("lake:query"))])
+@router.delete(
+    "/{search_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("lake:query"))]
+)
 async def delete_saved_search(search_id: str, user: AuthUser, db: TenantDBSession) -> None:
     """Delete one of the caller's tenant's saved searches. Another tenant's id is a 404, exactly like an id that does not exist."""
     sid = _coerce_uuid(search_id)

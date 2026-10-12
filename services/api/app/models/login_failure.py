@@ -3,6 +3,7 @@
 The address is kept as typed, lower-cased and trimmed, whether or not an account exists for it: the lock must treat a real address and a made-up one the same, or it would tell an attacker which are real.
 No tenant column: a sign-in happens before anyone's tenant is known.
 """
+
 import uuid
 from datetime import datetime
 

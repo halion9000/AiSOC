@@ -721,7 +721,11 @@ def test_create_and_attach_share_one_ownership_check() -> None:
     import app.api.v1.endpoints.cases as cases_mod
 
     tree = ast.parse(Path(cases_mod.__file__).read_text(encoding="utf-8"))
-    calls = {n.name: {ast.unparse(c.func) for c in ast.walk(n) if isinstance(c, ast.Call)} for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name in ("create_case", "add_alerts")}
+    calls = {
+        n.name: {ast.unparse(c.func) for c in ast.walk(n) if isinstance(c, ast.Call)}
+        for n in ast.walk(tree)
+        if isinstance(n, ast.AsyncFunctionDef) and n.name in ("create_case", "add_alerts")
+    }
     assert "_require_owned_alerts" in calls["create_case"] and "_require_owned_alerts" in calls["add_alerts"]
 
 
@@ -856,7 +860,11 @@ def test_both_writers_call_the_link_helper() -> None:
     import app.api.v1.endpoints.cases as cases_mod
 
     tree = ast.parse(Path(cases_mod.__file__).read_text(encoding="utf-8"))
-    calls = {n.name: {ast.unparse(c.func) for c in ast.walk(n) if isinstance(c, ast.Call)} for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name in ("create_case", "add_alerts")}
+    calls = {
+        n.name: {ast.unparse(c.func) for c in ast.walk(n) if isinstance(c, ast.Call)}
+        for n in ast.walk(tree)
+        if isinstance(n, ast.AsyncFunctionDef) and n.name in ("create_case", "add_alerts")
+    }
     assert "_link_alerts_to_case" in calls["create_case"] and "_link_alerts_to_case" in calls["add_alerts"]
 
 

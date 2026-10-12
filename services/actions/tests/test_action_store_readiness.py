@@ -3,6 +3,7 @@
 Without this, a deploy that started the new image before the migration ran (or without DATABASE_URL) would be reported healthy, then fail every response action at request time with a bare 500, during
 whatever incident prompted them. Instead /readyz stays 503 so the deploy visibly fails its healthcheck, and a watcher marks the service ready the moment the store answers (no restart needed).
 """
+
 import asyncio
 import time
 
@@ -65,7 +66,9 @@ class TestCheckActionStore:
     def test_configured_but_the_table_is_missing_names_the_problem(self, database):
         ready, reason = asyncio.run(store_readiness.check_action_store())
         assert ready is False
-        assert "OperationalError" in reason and "response_actions" in reason  # says WHICH table, so the operator knows migration 055 is missing
+        assert (
+            "OperationalError" in reason and "response_actions" in reason
+        )  # says WHICH table, so the operator knows migration 055 is missing
 
     def test_an_unreachable_database_is_not_ready(self, monkeypatch, tmp_path):
         monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/no/such/dir/x.db")

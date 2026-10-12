@@ -7,6 +7,7 @@ three of them, and three TAXII collections that had no endpoints behind them. Th
 Then they were per-tenant but still in process memory, so every API restart silently discarded published threat intelligence. Each published object is now stored as the JSON document that was published (table stix_objects,
 migrations/053_stix_objects.sql). These tests run against a real file-backed SQLite database; every call gets its own session on a brand-new engine, so "published, then read back" is genuinely "published, then the process restarted".
 """
+
 import asyncio
 import uuid
 from types import SimpleNamespace
@@ -133,8 +134,16 @@ def test_what_was_published_survives_a_restart(db_path):
 def test_every_published_field_round_trips(db_path):
     u = user()
     created = publish_indicator(
-        db_path, u, name="Full", description="A real description", indicator_types=["malicious-activity"], pattern_type="stix",
-        valid_from="2026-10-01T00:00:00+00:00", valid_until="2026-12-31T00:00:00+00:00", confidence=77, labels=["c2", "apt"],
+        db_path,
+        u,
+        name="Full",
+        description="A real description",
+        indicator_types=["malicious-activity"],
+        pattern_type="stix",
+        valid_from="2026-10-01T00:00:00+00:00",
+        valid_until="2026-12-31T00:00:00+00:00",
+        confidence=77,
+        labels=["c2", "apt"],
     )
     (back,) = list_indicators(db_path, u).items
     assert back.model_dump() == created.model_dump(exclude={"misp"})

@@ -299,7 +299,11 @@ async def list_executions(
     response_model=ExecutionOut,
     tags=["Executions"],
 )
-async def report_detection(execution_id: uuid.UUID, body: ReportDetectionRequest, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TestExecution:
+async def report_detection(
+    execution_id: uuid.UUID,
+    body: ReportDetectionRequest,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> TestExecution:
     async with _async_session() as session:
         result = await session.execute(select(TestExecution).where(TestExecution.id == execution_id, TestExecution.tenant_id == tenant_id))
         ex = result.scalar_one_or_none()
@@ -452,9 +456,14 @@ async def list_tabletops(
     response_model=TabletopOut,
     tags=["Tabletop"],
 )
-async def get_tabletop(session_id: uuid.UUID, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TabletopSession:
+async def get_tabletop(
+    session_id: uuid.UUID,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> TabletopSession:
     async with _async_session() as session:
-        result = await session.execute(select(TabletopSession).where(TabletopSession.id == session_id, TabletopSession.tenant_id == tenant_id))
+        result = await session.execute(
+            select(TabletopSession).where(TabletopSession.id == session_id, TabletopSession.tenant_id == tenant_id)
+        )
         ts = result.scalar_one_or_none()
         if ts is None:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -466,9 +475,15 @@ async def get_tabletop(session_id: uuid.UUID, tenant_id: uuid.UUID = Query(..., 
     response_model=TabletopOut,
     tags=["Tabletop"],
 )
-async def add_finding(session_id: uuid.UUID, body: TabletopAddFindingRequest, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TabletopSession:
+async def add_finding(
+    session_id: uuid.UUID,
+    body: TabletopAddFindingRequest,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> TabletopSession:
     async with _async_session() as session:
-        result = await session.execute(select(TabletopSession).where(TabletopSession.id == session_id, TabletopSession.tenant_id == tenant_id))
+        result = await session.execute(
+            select(TabletopSession).where(TabletopSession.id == session_id, TabletopSession.tenant_id == tenant_id)
+        )
         ts = result.scalar_one_or_none()
         if ts is None:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -494,9 +509,14 @@ async def add_finding(session_id: uuid.UUID, body: TabletopAddFindingRequest, te
     response_model=TabletopOut,
     tags=["Tabletop"],
 )
-async def complete_tabletop(session_id: uuid.UUID, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TabletopSession:
+async def complete_tabletop(
+    session_id: uuid.UUID,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> TabletopSession:
     async with _async_session() as session:
-        result = await session.execute(select(TabletopSession).where(TabletopSession.id == session_id, TabletopSession.tenant_id == tenant_id))
+        result = await session.execute(
+            select(TabletopSession).where(TabletopSession.id == session_id, TabletopSession.tenant_id == tenant_id)
+        )
         ts = result.scalar_one_or_none()
         if ts is None:
             raise HTTPException(status_code=404, detail="Session not found")

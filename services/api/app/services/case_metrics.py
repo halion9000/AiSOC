@@ -37,10 +37,14 @@ def _in(statuses: tuple[str, ...]) -> str:
 
 async def count_with_status(db: Any, tenant_id: uuid.UUID, statuses: tuple[str, ...]) -> int:
     """Cases (right now) in any of `statuses`."""
-    return int(await db.scalar(text(f"SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND {_in(statuses)}"), {"tid": tenant_id}) or 0)
+    return int(
+        await db.scalar(text(f"SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND {_in(statuses)}"), {"tid": tenant_id}) or 0
+    )
 
 
-async def count_created(db: Any, tenant_id: uuid.UUID, start: datetime, end: datetime | None = None, *, statuses: tuple[str, ...] | None = None) -> int:
+async def count_created(
+    db: Any, tenant_id: uuid.UUID, start: datetime, end: datetime | None = None, *, statuses: tuple[str, ...] | None = None
+) -> int:
     """Cases created in [start, end) (open-ended when `end` is None), optionally only those now in `statuses`."""
     where, params = ["tenant_id = :tid", "created_at >= :start"], {"tid": tenant_id, "start": start}
     if end is not None:
@@ -53,17 +57,35 @@ async def count_created(db: Any, tenant_id: uuid.UUID, start: datetime, end: dat
 
 async def count_finished_since(db: Any, tenant_id: uuid.UUID, since: datetime) -> int:
     """Cases first resolved or closed at or after `since`."""
-    return int(await db.scalar(text(f"SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND {FINISHED_AT} >= :since"), {"tid": tenant_id, "since": since}) or 0)
+    return int(
+        await db.scalar(
+            text(f"SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND {FINISHED_AT} >= :since"), {"tid": tenant_id, "since": since}
+        )
+        or 0
+    )
 
 
 async def created_timestamps(db: Any, tenant_id: uuid.UUID, start: datetime, end: datetime) -> list[datetime]:
-    rows = (await db.execute(text("SELECT created_at FROM aisoc_cases WHERE tenant_id = :tid AND created_at >= :start AND created_at < :end"), {"tid": tenant_id, "start": start, "end": end})).all()
+    rows = (
+        await db.execute(
+            text("SELECT created_at FROM aisoc_cases WHERE tenant_id = :tid AND created_at >= :start AND created_at < :end"),
+            {"tid": tenant_id, "start": start, "end": end},
+        )
+    ).all()
     return [r[0] for r in rows]
 
 
 async def count_open_before(db: Any, tenant_id: uuid.UUID, at: datetime) -> int:
     """Cases created before `at` and not finished (by their CURRENT status: the table keeps no status history)."""
-    return int(await db.scalar(text(f"SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND created_at < :at AND status NOT IN ({', '.join(repr(s) for s in FINISHED)})"), {"tid": tenant_id, "at": at}) or 0)
+    return int(
+        await db.scalar(
+            text(
+                f"SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tid AND created_at < :at AND status NOT IN ({', '.join(repr(s) for s in FINISHED)})"
+            ),
+            {"tid": tenant_id, "at": at},
+        )
+        or 0
+    )
 
 
 async def digest_rows(db: Any, tenant_id: uuid.UUID, created_since: datetime) -> list[Any]:

@@ -71,4 +71,6 @@ class ChronicleProvider(_BaseProvider):
             "event_warehouse.chronicle.run_hunt_not_yet_live hunt_id=%s",
             hunt.id,
         )
-        raise HuntNotConfigured("chronicle: provider scaffolded but live UDM execution not yet shipped — see module docstring for what's actually needed")
+        raise HuntNotConfigured(
+            "chronicle: provider scaffolded but live UDM execution not yet shipped — see module docstring for what's actually needed"
+        )

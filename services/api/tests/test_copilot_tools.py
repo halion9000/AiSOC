@@ -1,10 +1,11 @@
 """The Copilot's tools run as the asking user, with the permission of the matching REST endpoint; case search reads aisoc_cases; cases cannot be deleted from the Copilot.
 
- * execute_copilot_tool received only (name, args, tenant_id). The endpoint checks `copilot:use` and nothing else, the tool docstrings said "Requires alerts:write" / "cases:write", and nothing enforced either, so any user (or API key) holding copilot:use could have the
-   model delete alerts. The loop runs whatever the model asks for, up to six tool calls per message, with no confirmation, and tool results (alert titles from monitored systems) flow back into the model's context.
- * search_cases read the old `cases` table, which nothing writes, so the Copilot always said "no cases found".
- * delete_case ran `DELETE FROM cases` on that same table and so always answered "not found". Pointing it at aisoc_cases would have switched on a destructive tool that never worked, while the cases REST API has no delete: it now refuses, truthfully.
+* execute_copilot_tool received only (name, args, tenant_id). The endpoint checks `copilot:use` and nothing else, the tool docstrings said "Requires alerts:write" / "cases:write", and nothing enforced either, so any user (or API key) holding copilot:use could have the
+  model delete alerts. The loop runs whatever the model asks for, up to six tool calls per message, with no confirmation, and tool results (alert titles from monitored systems) flow back into the model's context.
+* search_cases read the old `cases` table, which nothing writes, so the Copilot always said "no cases found".
+* delete_case ran `DELETE FROM cases` on that same table and so always answered "not found". Pointing it at aisoc_cases would have switched on a destructive tool that never worked, while the cases REST API has no delete: it now refuses, truthfully.
 """
+
 import re
 import uuid
 from unittest.mock import AsyncMock, MagicMock
@@ -40,7 +41,9 @@ def ran(monkeypatch):
 
 @pytest.mark.asyncio
 class TestThePermissionGate:
-    @pytest.mark.parametrize("role", ["viewer", "soc_analyst", "threat_hunter", "soc_lead", "tenant_admin", "api_service", "admin", "platform_admin"])
+    @pytest.mark.parametrize(
+        "role", ["viewer", "soc_analyst", "threat_hunter", "soc_lead", "tenant_admin", "api_service", "admin", "platform_admin"]
+    )
     @pytest.mark.parametrize("tool", sorted(ct.TOOL_PERMISSIONS))
     async def test_a_tool_runs_exactly_when_the_role_holds_its_permission(self, ran, role, tool):
         res = await ct.execute_copilot_tool(tool, {}, str(TID), user=user(role))
@@ -54,7 +57,10 @@ class TestThePermissionGate:
 
     async def test_a_read_only_role_cannot_delete_anything(self, ran):
         for tool in ("delete_alert", "delete_case"):
-            assert "permission denied" in (await ct.execute_copilot_tool(tool, {"alert_id": "x", "case_id": "x"}, str(TID), user=user("viewer")))["error"]
+            assert (
+                "permission denied"
+                in (await ct.execute_copilot_tool(tool, {"alert_id": "x", "case_id": "x"}, str(TID), user=user("viewer")))["error"]
+            )
         assert ran == []
 
     async def test_an_api_key_is_limited_to_its_scopes(self, ran):
@@ -82,7 +88,9 @@ class TestThePermissionGate:
         assert ran == [("search_alerts", {"tenant_id": str(TID), "query": "x", "limit": 3})]
 
     async def test_an_unknown_tool_is_an_error(self, ran):
-        assert await ct.execute_copilot_tool("drop_everything", {}, str(TID), user=user("admin")) == {"error": "unknown tool: drop_everything"}
+        assert await ct.execute_copilot_tool("drop_everything", {}, str(TID), user=user("admin")) == {
+            "error": "unknown tool: drop_everything"
+        }
 
     async def test_a_tool_with_no_declared_permission_is_not_run(self, ran, monkeypatch):
         async def sneaky(**kw):
@@ -171,7 +179,9 @@ class TestSearchCases:
 
     async def test_it_selects_columns_aisoc_cases_has(self, session):
         await ct.search_cases(tenant_id=str(TID))
-        assert re.search(r"SELECT id, case_number, title, status, severity, created_at FROM aisoc_cases", " ".join(str(session.executed[0]).split()))
+        assert re.search(
+            r"SELECT id, case_number, title, status, severity, created_at FROM aisoc_cases", " ".join(str(session.executed[0]).split())
+        )
 
     async def test_the_pattern_is_escaped_and_bound(self, session):
         await ct.search_cases(tenant_id=str(TID), query="50%_off")
@@ -190,7 +200,12 @@ class TestSearchCases:
 
         rid, ts = uuid.uuid4(), datetime(2026, 1, 2, tzinfo=UTC)
         session.rows = [SimpleNamespace(id=rid, case_number=None, title="t", status="new", severity="high", created_at=ts)]
-        assert await ct.search_cases(tenant_id=str(TID)) == {"count": 1, "cases": [{"id": str(rid), "case_number": None, "title": "t", "status": "new", "severity": "high", "created_at": ts.isoformat()}]}
+        assert await ct.search_cases(tenant_id=str(TID)) == {
+            "count": 1,
+            "cases": [
+                {"id": str(rid), "case_number": None, "title": "t", "status": "new", "severity": "high", "created_at": ts.isoformat()}
+            ],
+        }
 
     async def test_a_bad_tenant_id_is_an_error_and_nothing_runs(self, session):
         assert await ct.search_cases(tenant_id="nope") == {"error": "invalid tenant_id"} and session.executed == []
@@ -201,7 +216,10 @@ class TestSearchAlertsEscaping:
     async def test_the_pattern_is_escaped_for_both_columns(self, session):
         await ct.search_alerts(tenant_id=str(TID), query="100%")
         params = session.executed[0].compile().params
-        assert [v for k, v in params.items() if k.startswith("title") or k.startswith("description")] == ["%100\\%%", "%100\\%%"] and "ESCAPE" in str(session.executed[0])
+        assert [v for k, v in params.items() if k.startswith("title") or k.startswith("description")] == [
+            "%100\\%%",
+            "%100\\%%",
+        ] and "ESCAPE" in str(session.executed[0])
 
 
 @pytest.mark.asyncio
@@ -226,7 +244,14 @@ class TestDeleteCaseIsRefused:
         from pathlib import Path
 
         tree = ast.parse(Path(ct.__file__).read_text(encoding="utf-8"))
-        docstrings = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0], "value", None), ast.Constant)}
+        docstrings = {
+            id(n.body[0].value)
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and n.body
+            and isinstance(n.body[0], ast.Expr)
+            and isinstance(getattr(n.body[0], "value", None), ast.Constant)
+        }
         literals = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings]
         assert any("aisoc_cases" in s for s in literals), "the case search must name its table"
         assert not [s for s in literals if re.search(r"(FROM|JOIN|INTO|UPDATE)\s+cases\b", s)]

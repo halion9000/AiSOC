@@ -7,6 +7,7 @@ receive the SAME value or production breaks silently:
   api REALTIME_INTERNAL_TOKEN == realtime INTERNAL_TOKEN (realtime accepts anyone if empty)
   api AISOC_REALTIME_JWT_SECRET == realtime AISOC_REALTIME_JWT_SECRET (ticket signing)
 """
+
 import re
 from pathlib import Path
 
@@ -44,14 +45,23 @@ def test_environment_is_one_switch_for_all_three():
 
 def test_production_secrets_are_never_hardcoded_literals():
     api = _env("api")
-    for key in ("SECRET_KEY", "JWT_SECRET", "METRICS_TOKEN", "REALTIME_INTERNAL_TOKEN", "AISOC_REALTIME_JWT_SECRET", "AISOC_CREDENTIAL_KEY"):
+    for key in (
+        "SECRET_KEY",
+        "JWT_SECRET",
+        "METRICS_TOKEN",
+        "REALTIME_INTERNAL_TOKEN",
+        "AISOC_REALTIME_JWT_SECRET",
+        "AISOC_CREDENTIAL_KEY",
+    ):
         _source_var(api[key])
 
 
 def test_osquery_internal_token_is_shared_by_the_api_and_the_service():
     """The API calls the osquery service with this token; the service enforces it. They must read the SAME variable."""
     api, osq = _env("api"), _env("osquery-tls")
-    assert _source_var(api["AISOC_OSQUERY_TLS_API_TOKEN"]) == _source_var(osq["AISOC_OSQUERY_TLS_API_TOKEN"]) == "AISOC_OSQUERY_TLS_API_TOKEN"
+    assert (
+        _source_var(api["AISOC_OSQUERY_TLS_API_TOKEN"]) == _source_var(osq["AISOC_OSQUERY_TLS_API_TOKEN"]) == "AISOC_OSQUERY_TLS_API_TOKEN"
+    )
 
 
 def _dockerfile_port(service_dir: str) -> int:
@@ -66,12 +76,16 @@ def test_osquery_ports_match_what_the_container_really_listens_on():
     """Compose forwarded host 8091 to container 8007 while the Dockerfile started the service on 9001: the
     mapping reached nothing, so agents could not enroll through it and the API could not reach it."""
     services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
-    assert "command" not in services["osquery-tls"] and "entrypoint" not in services["osquery-tls"], "an override would make the Dockerfile port irrelevant"
+    assert (
+        "command" not in services["osquery-tls"] and "entrypoint" not in services["osquery-tls"]
+    ), "an override would make the Dockerfile port irrelevant"
     real = _dockerfile_port("osquery-tls")
     mapped = [int(str(p).rsplit(":", 1)[1]) for p in services["osquery-tls"]["ports"]]
     assert mapped == [real], f"compose forwards to container port(s) {mapped}, the service listens on {real}"
     assert _env("api")["OSQUERY_TLS_URL"] == f"http://osquery-tls:{real}"
-    assert str(services["osquery-tls"]["ports"][0]).startswith("127.0.0.1:8091:"), "the host port agents are documented to use (8091) must not change"
+    assert str(services["osquery-tls"]["ports"][0]).startswith(
+        "127.0.0.1:8091:"
+    ), "the host port agents are documented to use (8091) must not change"
 
 
 def test_the_enroll_secret_is_read_from_env_not_hardcoded():
@@ -82,13 +96,21 @@ def test_actions_service_token_is_shared_by_the_service_and_its_callers():
     """The actions service has always demanded this token, but compose never gave it one, and the Slack bot read a
     DIFFERENT variable (AISOC_SLACK_ACTIONS_TOKEN) that nothing set on the other side, so the two could never match."""
     actions, slack = _env("actions"), _env("slack-bot")
-    assert _source_var(actions["AISOC_ACTIONS_SERVICE_TOKEN"]) == _source_var(slack["AISOC_ACTIONS_SERVICE_TOKEN"]) == "AISOC_ACTIONS_SERVICE_TOKEN"
+    assert (
+        _source_var(actions["AISOC_ACTIONS_SERVICE_TOKEN"])
+        == _source_var(slack["AISOC_ACTIONS_SERVICE_TOKEN"])
+        == "AISOC_ACTIONS_SERVICE_TOKEN"
+    )
 
 
 def test_connectors_token_is_shared_by_the_api_and_the_service():
     """The API sends this token; the connectors service enforces it. They must read the SAME variable."""
     api, conn = _env("api"), _env("connectors")
-    assert _source_var(api["AISOC_CONNECTORS_SERVICE_TOKEN"]) == _source_var(conn["AISOC_CONNECTORS_SERVICE_TOKEN"]) == "AISOC_CONNECTORS_SERVICE_TOKEN"
+    assert (
+        _source_var(api["AISOC_CONNECTORS_SERVICE_TOKEN"])
+        == _source_var(conn["AISOC_CONNECTORS_SERVICE_TOKEN"])
+        == "AISOC_CONNECTORS_SERVICE_TOKEN"
+    )
 
 
 def test_the_api_reaches_connectors_on_the_port_the_container_really_listens_on():
@@ -107,7 +129,11 @@ def test_the_api_reaches_connectors_on_the_port_the_container_really_listens_on(
 
 def test_threatintel_token_is_shared_by_the_service_and_the_agents_that_call_it():
     ti, agents = _env("threatintel"), _env("agents")
-    assert _source_var(ti["AISOC_THREATINTEL_SERVICE_TOKEN"]) == _source_var(agents["AISOC_THREATINTEL_SERVICE_TOKEN"]) == "AISOC_THREATINTEL_SERVICE_TOKEN"
+    assert (
+        _source_var(ti["AISOC_THREATINTEL_SERVICE_TOKEN"])
+        == _source_var(agents["AISOC_THREATINTEL_SERVICE_TOKEN"])
+        == "AISOC_THREATINTEL_SERVICE_TOKEN"
+    )
     assert _source_var(ti["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "the service must follow the stack-wide AISOC_ENVIRONMENT"
 
 
@@ -127,7 +153,9 @@ def test_everything_agrees_on_the_port_realtime_really_listens_on():
     realtime_env = _env("realtime")
     assert "PORT" in realtime_env, "realtime's port must be explicit in compose, not inferred from a default or a Dockerfile"
     port = int(realtime_env["PORT"])
-    assert [int(str(p).split("#")[0].strip().rsplit(":", 1)[1]) for p in services["realtime"]["ports"]] == [port], "host mapping must target the real port"
+    assert [int(str(p).split("#")[0].strip().rsplit(":", 1)[1]) for p in services["realtime"]["ports"]] == [
+        port
+    ], "host mapping must target the real port"
     assert f"127.0.0.1:{port}/" in " ".join(services["realtime"]["healthcheck"]["test"]), "the healthcheck must probe the real port"
     assert _env("api")["REALTIME_BASE_URL"] == f"http://realtime:{port}", "the API's push gateway and approvals must reach realtime"
     assert _env("agents")["REALTIME_URL"] == f"http://realtime:{port}", "agent events (investigate, triage, playbooks) must reach realtime"
@@ -136,7 +164,11 @@ def test_everything_agrees_on_the_port_realtime_really_listens_on():
 def test_realtime_internal_token_is_one_secret_shared_by_the_service_and_both_callers():
     """realtime enforces it, agents send it on /internal/*, and the API's push gateway sends it on /v1/push/*."""
     realtime, agents, api = _env("realtime"), _env("agents"), _env("api")
-    assert {_source_var(realtime["INTERNAL_TOKEN"]), _source_var(agents["INTERNAL_TOKEN"]), _source_var(api["REALTIME_INTERNAL_TOKEN"])} == {"REALTIME_INTERNAL_TOKEN"}
+    assert {
+        _source_var(realtime["INTERNAL_TOKEN"]),
+        _source_var(agents["INTERNAL_TOKEN"]),
+        _source_var(api["REALTIME_INTERNAL_TOKEN"]),
+    } == {"REALTIME_INTERNAL_TOKEN"}
     assert _source_var(realtime["ENVIRONMENT"]) == "AISOC_ENVIRONMENT", "the service must follow the stack-wide AISOC_ENVIRONMENT"
 
 
@@ -152,4 +184,3 @@ def test_no_service_can_default_to_development_and_no_per_service_switch_exists(
         keys = set(_env(name)) if services[name].get("environment") else set()
         stray = {k for k in keys if re.fullmatch(r"AISOC_[A-Z_]+_ENVIRONMENT", k) or k == "AISOC_DEV_MODE"}
         assert not stray, f"{name} has a per-service environment switch again: {sorted(stray)}"
-

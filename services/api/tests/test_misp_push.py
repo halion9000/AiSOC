@@ -813,7 +813,9 @@ def stub_app() -> FastAPI:
     app.dependency_overrides[get_db] = lambda: app.state.stub_db
     # An explicit signed-in admin. These tests used to get a user only because SOME OTHER test had left the process in development mode (which maps an anonymous request
     # to a demo user); run on their own (or in a different order) 17 of them returned 401. They must not depend on ambient state.
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="admin", email="ops@example.com")
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="admin", email="ops@example.com"
+    )
     return app
 
 
@@ -837,7 +839,9 @@ class TestCreateIndicatorEndpoint:
         assert resp.status_code == 201
         assert resp.json()["misp"] is None
         stub = client.app.state.stub_db
-        assert [(o.kind, o.stix_id) for o in stub.added] == [("indicator", resp.json()["id"])]  # the publish really was handed to storage...
+        assert [(o.kind, o.stix_id) for o in stub.added] == [
+            ("indicator", resp.json()["id"])
+        ]  # the publish really was handed to storage...
         assert stub.commits == 1  # ...and committed
 
     def test_explicit_push_unconfigured_returns_error_payload(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

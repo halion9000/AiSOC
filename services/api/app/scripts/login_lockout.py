@@ -10,6 +10,7 @@ address can lock that person out for up to the window, so an operator with datab
 
 `list` shows each address and client address that is locked now, with how long is left. `clear` deletes the recorded failures (so the count restarts); it does not unlock an account that is disabled, and it changes no password.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,7 +25,15 @@ class LoginLockoutError(RuntimeError):
     pass
 
 
-async def run(action: str, *, email: str | None = None, ip: str | None = None, all_failures: bool = False, session_factory: Any = None, now: datetime | None = None) -> dict:
+async def run(
+    action: str,
+    *,
+    email: str | None = None,
+    ip: str | None = None,
+    all_failures: bool = False,
+    session_factory: Any = None,
+    now: datetime | None = None,
+) -> dict:
     from sqlalchemy import delete, select  # noqa: PLC0415
 
     from app.models.login_failure import LoginFailure  # noqa: PLC0415
@@ -35,10 +44,24 @@ async def run(action: str, *, email: str | None = None, ip: str | None = None, a
     now = now or datetime.now(UTC)
     async with session_factory() as session:
         if action == "list":
-            rows = (await session.execute(select(LoginFailure.email_key, LoginFailure.client_ip, LoginFailure.created_at).where(LoginFailure.created_at > now - window()).order_by(LoginFailure.created_at.desc()))).all()
-            out: dict[str, Any] = {"ok": True, "window_minutes": round(window().total_seconds() / 60), "locked_addresses": [], "locked_clients": []}
+            rows = (
+                await session.execute(
+                    select(LoginFailure.email_key, LoginFailure.client_ip, LoginFailure.created_at)
+                    .where(LoginFailure.created_at > now - window())
+                    .order_by(LoginFailure.created_at.desc())
+                )
+            ).all()
+            out: dict[str, Any] = {
+                "ok": True,
+                "window_minutes": round(window().total_seconds() / 60),
+                "locked_addresses": [],
+                "locked_clients": [],
+            }
             per_address, per_client = limits()
-            for kind, index, limit, field in (("locked_addresses", 0, per_address, "address"), ("locked_clients", 1, per_client, "client_ip")):
+            for kind, index, limit, field in (
+                ("locked_addresses", 0, per_address, "address"),
+                ("locked_clients", 1, per_client, "client_ip"),
+            ):
                 groups: dict[str, list[datetime]] = {}
                 for row in rows:
                     key = row[index]
@@ -74,7 +97,14 @@ def main(argv: list[str] | None = None) -> int:
     clear.add_argument("--all", dest="all_failures", action="store_true")
     args = parser.parse_args(argv)
     try:
-        result = asyncio.run(run(args.action, email=getattr(args, "email", None), ip=getattr(args, "ip", None), all_failures=getattr(args, "all_failures", False)))
+        result = asyncio.run(
+            run(
+                args.action,
+                email=getattr(args, "email", None),
+                ip=getattr(args, "ip", None),
+                all_failures=getattr(args, "all_failures", False),
+            )
+        )
     except LoginLockoutError as e:
         print(json.dumps({"ok": False, "error": str(e)}))
         return 2

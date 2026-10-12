@@ -3,6 +3,7 @@
 The catalogue itself is a static index plus files on disk, the same for every tenant; an install is only the tenant's "enabled" marker. One row per (tenant, item type, item id), so installing the same item twice is one row.
 Row-level security applies (migration 068), and the endpoints filter by tenant explicitly as well.
 """
+
 import uuid
 from datetime import datetime
 

@@ -4,6 +4,7 @@ Logging out used to only clear the browser's copy of the tokens (and there was n
 copied one, or a stolen laptop, kept working access after the user "signed out". Tokens now carry a unique jti; POST /auth/logout records it in a denylist for exactly the token's remaining
 life; get_current_user and /auth/refresh refuse a recorded token. If the denylist is down, logout says the session was NOT ended (503), while ordinary requests keep working (fail open).
 """
+
 import uuid
 from datetime import timedelta
 
@@ -35,10 +36,33 @@ def world(tmp_path):
     sync = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(sync, tables=[Tenant.__table__, User.__table__, ApiKey.__table__, LoginFailure.__table__])
     tenant = Tenant(id=uuid.uuid4(), name="T", slug="t-" + uuid.uuid4().hex[:6])
-    alice = User(id=uuid.uuid4(), tenant_id=tenant.id, email="alice@example.com", username="alice", hashed_password=get_password_hash(PASSWORD), role="admin")
-    bob = User(id=uuid.uuid4(), tenant_id=tenant.id, email="bob@example.com", username="bob", hashed_password=get_password_hash(PASSWORD), role="admin")
+    alice = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        email="alice@example.com",
+        username="alice",
+        hashed_password=get_password_hash(PASSWORD),
+        role="admin",
+    )
+    bob = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        email="bob@example.com",
+        username="bob",
+        hashed_password=get_password_hash(PASSWORD),
+        role="admin",
+    )
     raw_key = "aisoc_" + uuid.uuid4().hex
-    key = ApiKey(id=uuid.uuid4(), tenant_id=tenant.id, user_id=alice.id, name="ci", key_prefix=raw_key[:12], hashed_key=hash_api_key(raw_key), scopes=["*"], is_active=True)
+    key = ApiKey(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        user_id=alice.id,
+        name="ci",
+        key_prefix=raw_key[:12],
+        hashed_key=hash_api_key(raw_key),
+        scopes=["*"],
+        is_active=True,
+    )
     with Session(sync, expire_on_commit=False) as s:  # plain values stay readable after the session closes
         s.add_all([tenant, alice, bob, key])
         s.commit()
@@ -123,12 +147,22 @@ class TestLogout:
         assert ttl > settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60 - 60  # (it is the remaining lifetime, not a fixed number)
 
     def test_logging_out_requires_being_signed_in(self, world, monkeypatch):
-        monkeypatch.setattr(deps, "is_dev_mode", lambda: False)  # in development mode an anonymous request is deliberately mapped to a demo user
+        monkeypatch.setattr(
+            deps, "is_dev_mode", lambda: False
+        )  # in development mode an anonymous request is deliberately mapped to a demo user
         assert world.client.post("/auth/logout").status_code == 401
         assert world.client.post("/auth/logout", headers=bearer("not.a.token")).status_code == 401
 
     def test_a_token_issued_before_revocation_existed_is_not_claimed_to_be_revoked(self, world):
-        legacy = jwt.encode({**token_data(world.alice), "type": "access", "exp": __import__("datetime").datetime.now(__import__("datetime").UTC) + timedelta(minutes=5)}, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+        legacy = jwt.encode(
+            {
+                **token_data(world.alice),
+                "type": "access",
+                "exp": __import__("datetime").datetime.now(__import__("datetime").UTC) + timedelta(minutes=5),
+            },
+            settings.SECRET_KEY,
+            algorithm=settings.ALGORITHM,
+        )
         out = world.client.post("/auth/logout", headers=bearer(legacy))
         assert out.status_code == 200
         assert out.json()["revoked"] is False and "expire" in out.json()["detail"]
@@ -139,7 +173,9 @@ class TestLogout:
         assert out.status_code == 200
         assert out.json()["revoked"] is False and "API key" in out.json()["detail"]
         assert revocation_store.data == {}
-        assert world.client.get("/auth/me", headers=bearer(world.api_key)).status_code == 200  # the key still works: logout did not touch it
+        assert (
+            world.client.get("/auth/me", headers=bearer(world.api_key)).status_code == 200
+        )  # the key still works: logout did not touch it
 
 
 class TestWhenTheDenylistIsDown:

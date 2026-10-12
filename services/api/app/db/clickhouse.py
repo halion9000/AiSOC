@@ -64,7 +64,6 @@ def _is_connection_failure(exc: BaseException) -> bool:
     return type(exc).__name__ in _CONNECTION_FAILURE_NAMES or isinstance(exc, OSError)
 
 
-
 # ---------------------------------------------------------------------- public
 
 

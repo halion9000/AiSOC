@@ -40,7 +40,9 @@ async def check_db_role(engine: Any) -> DbRole | None:
         return None
     try:
         async with engine.connect() as conn:
-            row = (await conn.execute(text("SELECT current_user AS name, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"))).one()
+            row = (
+                await conn.execute(text("SELECT current_user AS name, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"))
+            ).one()
     except Exception as exc:  # noqa: BLE001
         logger.debug("db.role_check_failed", error=type(exc).__name__)
         return None

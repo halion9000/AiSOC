@@ -39,7 +39,9 @@ def owner_key(user: Any) -> str:
 
 
 def _to_messages(stored: list[dict[str, Any]]) -> list[BaseMessage]:
-    return [HumanMessage(content=m["content"]) if m.get("role") == "human" else AIMessage(content=m.get("content", "")) for m in stored or []]
+    return [
+        HumanMessage(content=m["content"]) if m.get("role") == "human" else AIMessage(content=m.get("content", "")) for m in stored or []
+    ]
 
 
 async def load_history(db: AsyncSession, tenant_id: uuid.UUID, owner: str, conversation_id: str) -> list[BaseMessage]:
@@ -57,7 +59,11 @@ async def append_turn(db: AsyncSession, tenant_id: uuid.UUID, owner: str, conver
     created = False
     if row is None:
         now = datetime.now(UTC)
-        db.add(CopilotConversation(tenant_id=tenant_id, owner_key=owner, conversation_id=conversation_id, messages=[], created_at=now, updated_at=now))
+        db.add(
+            CopilotConversation(
+                tenant_id=tenant_id, owner_key=owner, conversation_id=conversation_id, messages=[], created_at=now, updated_at=now
+            )
+        )
         try:
             await db.flush()
         except IntegrityError:  # another request created it between our read and our insert: take its lock instead
@@ -86,4 +92,10 @@ async def _prune(db: AsyncSession, tenant_id: uuid.UUID, owner: str) -> None:
     )
     ids = [r for (r,) in (await db.execute(stale)).all()]
     if ids:
-        await db.execute(delete(CopilotConversation).where(CopilotConversation.tenant_id == tenant_id, CopilotConversation.owner_key == owner, CopilotConversation.conversation_id.in_(ids)))
+        await db.execute(
+            delete(CopilotConversation).where(
+                CopilotConversation.tenant_id == tenant_id,
+                CopilotConversation.owner_key == owner,
+                CopilotConversation.conversation_id.in_(ids),
+            )
+        )

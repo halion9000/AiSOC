@@ -128,20 +128,33 @@ async def update_playbook(playbook_id: str, request: Request, user: AuthUser):
     return await _proxy("PUT", f"/{safe_id}", json=body, params={"tenant_id": str(user.tenant_id)})
 
 
-@router.delete("/{playbook_id}", summary="Delete a playbook", status_code=204, response_model=None, dependencies=[Depends(require_permission("playbooks:write"))])
+@router.delete(
+    "/{playbook_id}",
+    summary="Delete a playbook",
+    status_code=204,
+    response_model=None,
+    dependencies=[Depends(require_permission("playbooks:write"))],
+)
 async def delete_playbook(playbook_id: str, user: AuthUser):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     await _proxy("DELETE", f"/{safe_id}", params={"tenant_id": str(user.tenant_id)})
 
 
-@router.post("/{playbook_id}/run", summary="Execute a playbook", status_code=202, dependencies=[Depends(require_permission("playbooks:execute"))])
+@router.post(
+    "/{playbook_id}/run", summary="Execute a playbook", status_code=202, dependencies=[Depends(require_permission("playbooks:execute"))]
+)
 async def run_playbook(playbook_id: str, request: Request, user: AuthUser):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     body = await _json_body(request)
     return await _proxy("POST", f"/{safe_id}/run", json=body, params={"tenant_id": str(user.tenant_id)})
 
 
-@router.post("/{playbook_id}/clone", summary="Clone a shared library (or own) playbook into your tenant to customise it", status_code=201, dependencies=[Depends(require_permission("playbooks:write"))])
+@router.post(
+    "/{playbook_id}/clone",
+    summary="Clone a shared library (or own) playbook into your tenant to customise it",
+    status_code=201,
+    dependencies=[Depends(require_permission("playbooks:write"))],
+)
 async def clone_playbook(playbook_id: str, request: Request, user: AuthUser):
     safe_id = _validate_path_id(playbook_id, "playbook_id")
     try:

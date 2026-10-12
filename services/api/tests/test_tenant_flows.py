@@ -4,6 +4,7 @@ It exists because RLS only protects a NON-superuser connection and the default d
 alerts, and attaching alerts to a case never checked ownership. A read-only sweep and a row-count comparison could not see either. The flows themselves need a live database (they were run against real Postgres as the superuser and as the
 non-superuser, and shown to fail on the original unfixed code); these tests pin everything that does not.
 """
+
 import inspect
 import json
 import re
@@ -15,24 +16,36 @@ from app.scripts import tenant_flows as tf
 SPEC = {
     "components": {
         "schemas": {
-            "Req": {"type": "object", "required": ["title", "mail", "when", "ref", "level", "count", "flag", "tags", "inner"], "properties": {
-                "title": {"type": "string", "minLength": 20, "maxLength": 25},
-                "mail": {"type": "string", "format": "email"},
-                "when": {"type": "string", "format": "date-time"},
-                "ref": {"type": "string", "format": "uuid"},
-                "level": {"enum": ["low", "high"]},
-                "count": {"type": "integer", "minimum": 5},
-                "flag": {"type": "boolean"},
-                "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                "inner": {"$ref": "#/components/schemas/Inner"},
-                "optional": {"type": "string"},
-            }},
-            "Inner": {"allOf": [{"type": "object", "required": ["a"], "properties": {"a": {"type": "integer"}}}, {"type": "object", "required": ["b"], "properties": {"b": {"anyOf": [{"type": "null"}, {"type": "boolean"}]}}}]},
+            "Req": {
+                "type": "object",
+                "required": ["title", "mail", "when", "ref", "level", "count", "flag", "tags", "inner"],
+                "properties": {
+                    "title": {"type": "string", "minLength": 20, "maxLength": 25},
+                    "mail": {"type": "string", "format": "email"},
+                    "when": {"type": "string", "format": "date-time"},
+                    "ref": {"type": "string", "format": "uuid"},
+                    "level": {"enum": ["low", "high"]},
+                    "count": {"type": "integer", "minimum": 5},
+                    "flag": {"type": "boolean"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    "inner": {"$ref": "#/components/schemas/Inner"},
+                    "optional": {"type": "string"},
+                },
+            },
+            "Inner": {
+                "allOf": [
+                    {"type": "object", "required": ["a"], "properties": {"a": {"type": "integer"}}},
+                    {"type": "object", "required": ["b"], "properties": {"b": {"anyOf": [{"type": "null"}, {"type": "boolean"}]}}},
+                ]
+            },
         }
     },
     "paths": {
         "/api/v1/things": {"post": {"requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Req"}}}}}},
-        "/api/v1/things/{thing_id}/notes": {"post": {"requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Req"}}}}}, "get": {}},
+        "/api/v1/things/{thing_id}/notes": {
+            "post": {"requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Req"}}}}},
+            "get": {},
+        },
     },
 }
 
@@ -62,7 +75,9 @@ class TestThePayloadGenerator:
         assert a != b
 
     def test_a_cycle_does_not_recurse_for_ever(self):
-        spec = {"components": {"schemas": {"N": {"type": "object", "required": ["n"], "properties": {"n": {"$ref": "#/components/schemas/N"}}}}}}
+        spec = {
+            "components": {"schemas": {"N": {"type": "object", "required": ["n"], "properties": {"n": {"$ref": "#/components/schemas/N"}}}}}
+        }
         assert tf.gen(spec, {"$ref": "#/components/schemas/N"}, "s") is not None
 
 
@@ -101,7 +116,9 @@ class TestCompare:
 
     def test_leaks_found_in_only_one_run_are_reported_per_endpoint(self):
         sweep = lambda leaks: ["SWEEP", "x", "B", 200, not leaks, f"LEAKS: {leaks}" if leaks else ""]  # noqa: E731
-        d = tf.compare_runs([sweep([["/api/v1/shifts", "f_shift", 200], ["/api/v1/audit", "f_case", 200]])], [sweep([["/api/v1/audit", "f_case", 200]])])
+        d = tf.compare_runs(
+            [sweep([["/api/v1/shifts", "f_shift", 200], ["/api/v1/audit", "f_case", 200]])], [sweep([["/api/v1/audit", "f_case", 200]])]
+        )
         assert d["leaks_only_in_first"] == ["/api/v1/shifts"] and d["leaks_only_in_second"] == []
 
     def test_the_sweep_row_is_not_double_counted_as_an_outcome_difference(self):
@@ -144,7 +161,9 @@ class TestTheFlowDefinitionsMatchTheRealApi:
         flows = tf.build_flows()
         for flow, seeds in tf.FLOW_SEEDS.items():
             assert flow in flows, f"seed for a flow that does not exist: {flow}"
-            assert all(isinstance(k, str) and isinstance(v() if callable(v) else v, str) and (v() if callable(v) else v) for k, v in seeds.items())
+            assert all(
+                isinstance(k, str) and isinstance(v() if callable(v) else v, str) and (v() if callable(v) else v) for k, v in seeds.items()
+            )
 
     def test_every_token_in_a_body_or_query_names_something_an_earlier_step_captured(self):
         """`{name}` in `over` / `params` is replaced by what an earlier step captured; a name nothing captured would make the step skip silently."""
@@ -209,12 +228,16 @@ class TestSafetyRefusals:
         assert code == 2 and "CREATE data" in err and called == []
 
     def test_it_refuses_in_production_even_with_the_flag(self, monkeypatch, capsys):
-        code, err, called = self.run(monkeypatch, capsys, ["run", "--label", "x", "--yes-write-test-data"], {"TENANT_FLOWS_PASSWORD": "p"}, environment="production")
+        code, err, called = self.run(
+            monkeypatch, capsys, ["run", "--label", "x", "--yes-write-test-data"], {"TENANT_FLOWS_PASSWORD": "p"}, environment="production"
+        )
         assert code == 2 and "production" in err and called == []
 
     @pytest.mark.parametrize("env_value", ["Production", " production ", "PRODUCTION"])
     def test_the_production_check_ignores_case_and_whitespace(self, monkeypatch, capsys, env_value):
-        code, _, called = self.run(monkeypatch, capsys, ["run", "--label", "x", "--yes-write-test-data"], {"TENANT_FLOWS_PASSWORD": "p"}, environment=env_value)
+        code, _, called = self.run(
+            monkeypatch, capsys, ["run", "--label", "x", "--yes-write-test-data"], {"TENANT_FLOWS_PASSWORD": "p"}, environment=env_value
+        )
         assert code == 2 and called == []
 
     def test_it_refuses_without_the_password(self, monkeypatch, capsys):
@@ -251,7 +274,9 @@ class TestSafetyRefusals:
         monkeypatch.setattr(tf, "run_flows", fake)
         out = tmp_path / "r.json"
         assert tf.main(["run", "--label", "ok", "--out", str(out), "--yes-write-test-data"]) == 0
-        assert seen == {"emails": ("admin-a", "admin-b"), "password": "p"} and json.loads(out.read_text()) == [["f", "s", "A", 200, True, ""]], "the default identifiers are account names"  # noqa: E501
+        assert seen == {"emails": ("admin-a", "admin-b"), "password": "p"} and json.loads(out.read_text()) == [
+            ["f", "s", "A", 200, True, ""]
+        ], "the default identifiers are account names"  # noqa: E501
         assert "[ok] 1 steps; as expected: 1" in capsys.readouterr().out
 
     def test_a_failing_step_makes_it_exit_1(self, monkeypatch, tmp_path):
@@ -307,7 +332,17 @@ class TestTheControl:
     def test_the_owner_finding_it_is_a_pass(self):
         assert _tf.control_found(_resp(200, '{"items": ["abc-123"]}'), "abc-123")
 
-    @pytest.mark.parametrize("resp", [_resp(200, "[]"), _resp(200, '{"items": ["other"]}'), _resp(404, "abc-123"), _resp(403, "abc-123"), _resp(500, "abc-123"), _resp(200, "")])
+    @pytest.mark.parametrize(
+        "resp",
+        [
+            _resp(200, "[]"),
+            _resp(200, '{"items": ["other"]}'),
+            _resp(404, "abc-123"),
+            _resp(403, "abc-123"),
+            _resp(500, "abc-123"),
+            _resp(200, ""),
+        ],
+    )
     def test_anything_else_means_the_exclusion_proves_nothing(self, resp):
         assert not _tf.control_found(resp, "abc-123")
 
@@ -391,7 +426,11 @@ class TestTemplatingInBodiesAndQueries:
     CTX = {"a": "1", "b": "two"}
 
     def test_an_exact_token_is_replaced_in_a_body_a_nested_body_and_a_list(self):
-        assert tf._fill({"x": "{a}", "n": {"y": "{b}"}, "l": ["{a}", "keep"]}, self.CTX) == {"x": "1", "n": {"y": "two"}, "l": ["1", "keep"]}
+        assert tf._fill({"x": "{a}", "n": {"y": "{b}"}, "l": ["{a}", "keep"]}, self.CTX) == {
+            "x": "1",
+            "n": {"y": "two"},
+            "l": ["1", "keep"],
+        }
 
     @pytest.mark.parametrize("text", ["prefix {a}", "{a} suffix", "{a}{b}", "{ a }", "{a-b}", "id: x\nwhen:\n  value: {a}", "", "{}"])
     def test_text_that_merely_contains_braces_is_left_alone(self, text):
@@ -417,7 +456,12 @@ class TestTemplatingInBodiesAndQueries:
         import inspect
 
         src = inspect.getsource(tf.run_flows)
-        assert "_fill(st.over, ctx)" in src and "_fill(st.params, ctx)" in src and "over = dict(st_over)" in src and 'kw["params"] = st_params' in src
+        assert (
+            "_fill(st.over, ctx)" in src
+            and "_fill(st.params, ctx)" in src
+            and "over = dict(st_over)" in src
+            and 'kw["params"] = st_params' in src
+        )
 
 
 class TestCanaries:
@@ -434,22 +478,31 @@ class TestCanaries:
     def test_leaks_in_reports_each_watched_value_found_with_the_path_and_status(self):
         watch = {**self.FRESH, **self.CANARIES}
         body = f'{{"tenants": [{{"id": "{self.A}"}}], "case": "11111111-1111-1111-1111-111111111111"}}'
-        assert sorted(tf.leaks_in(body, "/api/v1/x", 200, watch)) == sorted([["/api/v1/x", "A's tenant id", 200], ["/api/v1/x", "fresh case", 200]])  # noqa: E501
+        assert sorted(tf.leaks_in(body, "/api/v1/x", 200, watch)) == sorted(
+            [["/api/v1/x", "A's tenant id", 200], ["/api/v1/x", "fresh case", 200]]
+        )  # noqa: E501
 
     def test_leaks_in_finds_nothing_in_a_clean_response_and_ignores_an_empty_watched_value(self):
-        assert tf.leaks_in('{"tenants": [{"id": "bbbbbbbb-0000-0000-0000-000000000002"}]}', "/api/v1/x", 200, {**self.FRESH, **self.CANARIES}) == []  # noqa: E501
+        assert (
+            tf.leaks_in('{"tenants": [{"id": "bbbbbbbb-0000-0000-0000-000000000002"}]}', "/api/v1/x", 200, {**self.FRESH, **self.CANARIES})
+            == []
+        )  # noqa: E501
         assert tf.leaks_in("anything at all", "/api/v1/x", 200, {"": "an empty value would match every response"}) == []
         assert tf.leaks_in("", "/api/v1/x", 404, self.CANARIES) == []
 
     def test_leaks_in_finds_a_prospects_email_inside_a_larger_text(self):
-        assert tf.leaks_in("name,email\nPat,canary-prospect@example.test\n", "/api/v1/waitlist/entries", 200, self.CANARIES) == [["/api/v1/waitlist/entries", "a prospect from the PUBLIC waitlist", 200]]  # noqa: E501
+        assert tf.leaks_in("name,email\nPat,canary-prospect@example.test\n", "/api/v1/waitlist/entries", 200, self.CANARIES) == [
+            ["/api/v1/waitlist/entries", "a prospect from the PUBLIC waitlist", 200]
+        ]  # noqa: E501
 
     def test_the_audit_endpoints_do_not_watch_for_As_tenant_id_because_they_record_Bs_own_requests(self):
         assert tf.RECORDS_B_OWN_REQUESTS == {"/api/v1/audit", "/api/v1/audit/export"}
         for path in tf.RECORDS_B_OWN_REQUESTS:
             watched = tf.watched_on(path, self.FRESH, self.CANARIES, self.A)
             assert self.A not in watched
-            assert "11111111-1111-1111-1111-111111111111" in watched and "canary-prospect@example.test" in watched, "everything else is still watched there"  # noqa: E501
+            assert (
+                "11111111-1111-1111-1111-111111111111" in watched and "canary-prospect@example.test" in watched
+            ), "everything else is still watched there"  # noqa: E501
 
     def test_every_other_endpoint_watches_for_all_of_it(self):
         for path in ("/api/v1/admin/tenants", "/api/v1/waitlist/entries", "/api/v1/cases", "/api/v1/audit/summary", "/api/v1/auditx"):
@@ -463,13 +516,16 @@ class TestCanaries:
     def test_the_wiring_the_canaries_are_separate_from_the_fresh_ids_cleanup_deletes(self):
         src = inspect.getsource(tf.run_flows)
         assert 'canaries: dict[str, str] = {TENANT_IDS["A"]: "A\'s tenant id"}' in src
-        assert "watched_on(p, fresh_ids, canaries, TENANT_IDS[\"A\"])" in src
-        assert src.count("fresh_ids[") == 1, "canaries must not be written into fresh_ids: cleanup tries to delete each of those through its create path"  # noqa: E501
+        assert 'watched_on(p, fresh_ids, canaries, TENANT_IDS["A"])' in src
+        assert (
+            src.count("fresh_ids[") == 1
+        ), "canaries must not be written into fresh_ids: cleanup tries to delete each of those through its create path"  # noqa: E501
 
     def test_the_waitlist_canary_is_planted_only_on_a_scratch_database_never_on_a_deployed_environment(self):
         src = inspect.getsource(tf.run_flows)
-        assert "if sweep and base_url is None:" in src and src.index("if sweep and base_url is None:") < src.index('"/api/v1/waitlist/signup"')  # noqa: E501
+        assert "if sweep and base_url is None:" in src and src.index("if sweep and base_url is None:") < src.index(
+            '"/api/v1/waitlist/signup"'
+        )  # noqa: E501
 
     def test_the_sweep_row_says_how_many_canaries_were_planted(self):
         assert "and {len(canaries)} canaries were planted" in inspect.getsource(tf.run_flows)
-

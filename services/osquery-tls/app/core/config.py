@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     # Where normalised osquery rows are forwarded to.
     # The compose service is `ingest-worker` (there is no host called `ingest`), and compose sets AISOC_INGEST_BASE_URL, which this
     # class (prefix AISOC_OSQUERY_TLS_) never read: both names are accepted now, and the default is the real host.
-    ingest_url: str = Field(default="http://ingest-worker:8080", validation_alias=AliasChoices("AISOC_OSQUERY_TLS_INGEST_URL", "AISOC_INGEST_BASE_URL"))
+    ingest_url: str = Field(
+        default="http://ingest-worker:8080", validation_alias=AliasChoices("AISOC_OSQUERY_TLS_INGEST_URL", "AISOC_INGEST_BASE_URL")
+    )
 
     # --- Enrollment auth ------------------------------------------------
     # The enroll secret that osqueryd must present. In production this should

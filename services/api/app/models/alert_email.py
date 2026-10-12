@@ -2,6 +2,7 @@
 
 Nothing here belongs to a tenant: one platform-wide settings row, and a log of which alerts have been emailed. The JSON column is a plain JSON type on SQLite so the unit tests can use a real database.
 """
+
 import uuid
 from datetime import datetime
 

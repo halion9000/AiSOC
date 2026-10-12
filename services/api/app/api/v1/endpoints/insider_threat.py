@@ -169,7 +169,12 @@ async def list_indicators(
     return list(result.scalars().all())
 
 
-@router.post("/indicators", response_model=IndicatorOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/indicators",
+    response_model=IndicatorOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("alerts:write"))],
+)
 async def create_indicator(
     body: IndicatorCreate,
     db: AsyncSession = Depends(get_db),
@@ -188,7 +193,9 @@ async def create_indicator(
     return indicator
 
 
-@router.post("/indicators/{indicator_id}/acknowledge", response_model=IndicatorOut, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/indicators/{indicator_id}/acknowledge", response_model=IndicatorOut, dependencies=[Depends(require_permission("alerts:write"))]
+)
 async def acknowledge_indicator(
     indicator_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -220,7 +227,12 @@ async def list_peer_groups(
     return list(result.scalars().all())
 
 
-@router.post("/peer-groups", response_model=PeerGroupOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/peer-groups",
+    response_model=PeerGroupOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("alerts:write"))],
+)
 async def create_peer_group(
     body: PeerGroupCreate,
     db: AsyncSession = Depends(get_db),

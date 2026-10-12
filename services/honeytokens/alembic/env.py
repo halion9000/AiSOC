@@ -24,9 +24,7 @@ target_metadata = Base.metadata
 
 # The same variables, in the same order, as app/core/config.py, so the app and its migrations always agree on the database.
 DATABASE_URL = (
-    os.environ.get("HONEYTOKEN_DATABASE_URL")
-    or os.environ.get("DATABASE_URL")
-    or "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc"
+    os.environ.get("HONEYTOKEN_DATABASE_URL") or os.environ.get("DATABASE_URL") or "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc"
 )
 
 

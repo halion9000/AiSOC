@@ -4,6 +4,7 @@ They counted the old `cases` table (the ORM `Case` model), which nothing writes,
 weekly digest showed no cases. Checked on real Postgres with nine cases of known status and deadline, every consumer then reported exactly the predicted numbers: dashboard open 3 / in progress 2 / resolved this week 4, SOC opened 9 / closed 4, insights 3.0 hours saved, digest opened 9 /
 closed 4 / SLA breaches 2, tenant B all zeros. Running the real dashboard handler also caught a bug in the first version of this change (a module import named case_metrics collided with a local variable of the same name there, an UnboundLocalError neither pyflakes nor the old tests could see).
 """
+
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -75,7 +76,11 @@ class TestTheHelpers:
         await cm.count_created(db, TID, NOW - timedelta(days=7), NOW)
         await cm.count_created(db, TID, NOW - timedelta(days=7))
         (sql1, p1), (sql2, p2) = db.case_sql
-        assert "created_at >= :start" in sql1 and "created_at < :end" in sql1 and p1 == {"tid": TID, "start": NOW - timedelta(days=7), "end": NOW}
+        assert (
+            "created_at >= :start" in sql1
+            and "created_at < :end" in sql1
+            and p1 == {"tid": TID, "start": NOW - timedelta(days=7), "end": NOW}
+        )
         assert "created_at < :end" not in sql2 and "end" not in p2
 
     async def test_count_created_can_be_limited_to_statuses(self):
@@ -109,14 +114,23 @@ class TestTheHelpers:
         assert await cm.digest_rows(db, TID, NOW) == [row]
         sql, params = db.case_sql[0]
         assert "COALESCE(resolved_at, closed_at) AS closed_at" in sql and "AS sla_breached" in sql and "created_at >= :since" in sql
-        assert (params["tid"], params["since"]) == (TID, NOW) and isinstance(params["now"], datetime) and params["now"].tzinfo is not None and set(params) == {"tid", "since", "now"}
+        assert (
+            (params["tid"], params["since"]) == (TID, NOW)
+            and isinstance(params["now"], datetime)
+            and params["now"].tzinfo is not None
+            and set(params) == {"tid", "since", "now"}
+        )
 
     async def test_a_null_count_is_zero(self):
         class NullDB(RecordingDB):
             async def scalar(self, *a, **k):
                 return None
 
-        assert await cm.count_with_status(NullDB(), TID, cm.OPEN) == 0 and await cm.count_created(NullDB(), TID, NOW) == 0 and await cm.count_finished_since(NullDB(), TID, NOW) == 0
+        assert (
+            await cm.count_with_status(NullDB(), TID, cm.OPEN) == 0
+            and await cm.count_created(NullDB(), TID, NOW) == 0
+            and await cm.count_finished_since(NullDB(), TID, NOW) == 0
+        )
 
 
 class TestTheSlaRuleEvaluated:
@@ -133,27 +147,44 @@ class TestTheSlaRuleEvaluated:
         con.execute("INSERT INTO aisoc_cases VALUES (?, ?, ?)", (due, resolved, closed))
         return bool(con.execute(f"SELECT {cm.SLA_BREACHED} FROM aisoc_cases", {"now": now or self.NOW_}).fetchone()[0])
 
-    @pytest.mark.parametrize("due,resolved,closed,expected,why", [
-        (None, None, None, False, "no deadline never breaches"),
-        (None, "2026-10-09 06:00:00", None, False, "no deadline, even if finished"),
-        ("2026-10-10 12:00:00", None, None, False, "open, deadline still ahead"),
-        ("2026-10-08 12:00:00", None, None, True, "open and past its deadline"),
-        ("2026-10-10 12:00:00", "2026-10-09 06:00:00", None, False, "resolved before the deadline"),
-        ("2026-10-08 12:00:00", "2026-10-09 06:00:00", None, True, "resolved AFTER the deadline"),
-        ("2026-10-08 12:00:00", "2026-10-07 12:00:00", None, False, "resolved before a deadline that has since passed"),
-        ("2026-10-08 12:00:00", None, "2026-10-09 06:00:00", True, "closed (never resolved) after the deadline"),
-        ("2026-10-08 12:00:00", None, "2026-10-07 12:00:00", False, "closed before the deadline"),
-        ("2026-10-08 12:00:00", "2026-10-07 12:00:00", "2026-10-09 06:00:00", False, "judged at the FIRST finish (resolve), not the later close"),
-        ("2026-10-08 12:00:00", "2026-10-09 06:00:00", "2026-10-07 12:00:00", True, "resolved late; an earlier closed_at would be odd data but resolve decides"),
-        ("2026-10-08 12:00:00", "2026-10-08 12:00:00", None, False, "resolved exactly at the deadline is not a breach"),
-    ])
+    @pytest.mark.parametrize(
+        "due,resolved,closed,expected,why",
+        [
+            (None, None, None, False, "no deadline never breaches"),
+            (None, "2026-10-09 06:00:00", None, False, "no deadline, even if finished"),
+            ("2026-10-10 12:00:00", None, None, False, "open, deadline still ahead"),
+            ("2026-10-08 12:00:00", None, None, True, "open and past its deadline"),
+            ("2026-10-10 12:00:00", "2026-10-09 06:00:00", None, False, "resolved before the deadline"),
+            ("2026-10-08 12:00:00", "2026-10-09 06:00:00", None, True, "resolved AFTER the deadline"),
+            ("2026-10-08 12:00:00", "2026-10-07 12:00:00", None, False, "resolved before a deadline that has since passed"),
+            ("2026-10-08 12:00:00", None, "2026-10-09 06:00:00", True, "closed (never resolved) after the deadline"),
+            ("2026-10-08 12:00:00", None, "2026-10-07 12:00:00", False, "closed before the deadline"),
+            (
+                "2026-10-08 12:00:00",
+                "2026-10-07 12:00:00",
+                "2026-10-09 06:00:00",
+                False,
+                "judged at the FIRST finish (resolve), not the later close",
+            ),
+            (
+                "2026-10-08 12:00:00",
+                "2026-10-09 06:00:00",
+                "2026-10-07 12:00:00",
+                True,
+                "resolved late; an earlier closed_at would be odd data but resolve decides",
+            ),
+            ("2026-10-08 12:00:00", "2026-10-08 12:00:00", None, False, "resolved exactly at the deadline is not a breach"),
+        ],
+    )
     def test_truth_table(self, due, resolved, closed, expected, why):
         assert self.evaluate(due, resolved, closed) is expected, why
 
     def test_an_open_case_flips_to_breached_as_time_passes(self):
         assert self.evaluate("2026-10-09 18:00:00", None, None, now="2026-10-09 12:00:00") is False
         assert self.evaluate("2026-10-09 18:00:00", None, None, now="2026-10-09 18:00:01") is True
-        assert self.evaluate("2026-10-09 18:00:00", None, None, now="2026-10-09 18:00:00") is False  # exactly at the deadline is not yet a breach
+        assert (
+            self.evaluate("2026-10-09 18:00:00", None, None, now="2026-10-09 18:00:00") is False
+        )  # exactly at the deadline is not yet a breach
 
     def test_the_expression_names_no_function_the_database_could_disagree_about(self):
         assert "NOW()" not in cm.SLA_BREACHED and ":now" in cm.SLA_BREACHED
@@ -167,7 +198,11 @@ class TestTheVocabulary:
         return set(re.findall(r"'([a-z_]+)'", m.group(1)))
 
     def test_the_groups_do_not_overlap(self):
-        assert not (set(cm.OPEN) & set(cm.IN_PROGRESS)) and not (set(cm.OPEN) & set(cm.FINISHED)) and not (set(cm.IN_PROGRESS) & set(cm.FINISHED))
+        assert (
+            not (set(cm.OPEN) & set(cm.IN_PROGRESS))
+            and not (set(cm.OPEN) & set(cm.FINISHED))
+            and not (set(cm.IN_PROGRESS) & set(cm.FINISHED))
+        )
 
     def test_together_they_are_exactly_the_statuses_the_table_allows(self):
         assert set(cm.OPEN) | set(cm.IN_PROGRESS) | set(cm.FINISHED) == self.migrated_statuses()
@@ -185,7 +220,12 @@ def user():
 class TestTheRealHandlersAreWiredToIt:
     """Runs the actual endpoint functions (the old suite never called get_dashboard_metrics, which is how a name collision in it went unseen)."""
 
-    ANSWERS = [("status IN ('new')", 3), ("status IN ('triaged', 'investigating', 'contained')", 2), ("COALESCE(resolved_at, closed_at) >= :since", 4), ("created_at >= :start", 9)]
+    ANSWERS = [
+        ("status IN ('new')", 3),
+        ("status IN ('triaged', 'investigating', 'contained')", 2),
+        ("COALESCE(resolved_at, closed_at) >= :since", 4),
+        ("created_at >= :start", 9),
+    ]
 
     async def test_the_dashboard_reports_open_in_progress_and_resolved_this_week(self):
         from app.api.v1.endpoints import metrics
@@ -212,13 +252,18 @@ class TestTheRealHandlersAreWiredToIt:
         db = RecordingDB([("status IN ('resolved', 'closed')", 4), ("created_at >= :start", 9)])
         out = await get_soc_insights(user=user(), db=db, window="24h")
         assert {t.key: t.value for t in out.tiles}["analyst_hours_saved"] == round(4 * 45 / 60.0, 2)
-        assert any("status IN ('resolved', 'closed')" in sql for sql, _ in db.case_sql) and all(params.get("tid") == TID for _, params in db.case_sql)
+        assert any("status IN ('resolved', 'closed')" in sql for sql, _ in db.case_sql) and all(
+            params.get("tid") == TID for _, params in db.case_sql
+        )
 
     async def test_the_digest_builds_its_case_section_from_aisoc_cases(self):
         from app.services import executive_digest as ed
 
         past = NOW - timedelta(days=1)
-        rows = [SimpleNamespace(status="new", created_at=past, closed_at=None, sla_breached=True), SimpleNamespace(status="resolved", created_at=past, closed_at=past, sla_breached=False)]
+        rows = [
+            SimpleNamespace(status="new", created_at=past, closed_at=None, sla_breached=True),
+            SimpleNamespace(status="resolved", created_at=past, closed_at=past, sla_breached=False),
+        ]
         got = await ed._fetch_cases(RecordingDB(rows=rows), TID, NOW - timedelta(days=7), NOW)
         assert [(r.status, r.closed_at is not None, r.sla_breached) for r in got] == [("new", False, True), ("resolved", True, False)]
 
@@ -229,7 +274,16 @@ class TestTheRealHandlersAreWiredToIt:
         assert await ed._count_open_cases(db, TID, NOW) == 6 and "status NOT IN ('resolved', 'closed')" in db.case_sql[0][0]
 
 
-@pytest.mark.parametrize("path", ["api/v1/endpoints/metrics.py", "api/v1/endpoints/insights.py", "services/executive_digest.py", "workers/hunt_scheduler.py", "api/v1/endpoints/attack_chain.py"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "api/v1/endpoints/metrics.py",
+        "api/v1/endpoints/insights.py",
+        "services/executive_digest.py",
+        "workers/hunt_scheduler.py",
+        "api/v1/endpoints/attack_chain.py",
+    ],
+)
 def test_no_consumer_imports_the_legacy_case_model_any_more(path):
     src = (APP / path).read_text(encoding="utf-8")
     assert "app.models.case" not in src and not re.search(r"\bselect\(Case\b|Case\.tenant_id|Case\.status", src)

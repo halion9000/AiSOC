@@ -94,7 +94,10 @@ def _acting_context(request: Request) -> tuple[uuid.UUID, dict] | None:
     tenant = getattr(state, "acting_tenant_id", None)
     if tenant is None:
         return None
-    return tenant, {"acting_from_tenant_id": str(getattr(state, "acting_home_tenant_id", "") or ""), "access": getattr(state, "acting_access", None)}
+    return tenant, {
+        "acting_from_tenant_id": str(getattr(state, "acting_home_tenant_id", "") or ""),
+        "access": getattr(state, "acting_access", None),
+    }
 
 
 def _truncate(value: str | None, limit: int) -> str | None:

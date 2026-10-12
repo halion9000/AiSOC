@@ -1,5 +1,6 @@
 """The API's copy of cost telemetry had the same runtime DDL (see the agents test of the same name for the full story): as aisoc_app it leaked a pool per call and silently stopped recording run costs, which a READ-ONLY differential
 of the API under both roles could not show. Also: the eval subprocess no longer inherits the database connection."""
+
 from pathlib import Path
 
 import sys
@@ -123,6 +124,7 @@ class TestReportUnavailable:
         et.report_unavailable(spy, "b", "e", "c")
         et.report_unavailable(spy, "a", "e", "c")
         assert spy.levels("a") == ["warning", "debug"] and spy.levels("b") == ["warning"]
+
 
 MODULES = [("app.core.cost_telemetry", "aisoc_run_costs", "cost_telemetry.db_unavailable", "aisoc_run_costs_tenant_run")]
 

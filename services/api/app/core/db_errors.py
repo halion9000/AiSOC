@@ -44,7 +44,12 @@ def _driver_error(exc: Exception) -> Any:
 
 def sqlstate_of(exc: Exception) -> str | None:
     d = _driver_error(exc)
-    return getattr(d, "sqlstate", None) or getattr(d, "pgcode", None) or getattr(getattr(exc, "orig", None), "sqlstate", None) or getattr(getattr(exc, "orig", None), "pgcode", None)
+    return (
+        getattr(d, "sqlstate", None)
+        or getattr(d, "pgcode", None)
+        or getattr(getattr(exc, "orig", None), "sqlstate", None)
+        or getattr(getattr(exc, "orig", None), "pgcode", None)
+    )
 
 
 def classify(exc: Exception) -> tuple[int, str] | None:
@@ -64,11 +69,20 @@ async def constraint_violation_handler(request: Request, exc: Exception) -> JSON
     if verdict is None:
         raise exc  # not the client's doing: behave exactly as if no handler were registered (a 500, logged with its traceback)
     status, detail = verdict
-    logger.info("db.constraint_violation", path=request.url.path, method=request.method, sqlstate=sqlstate_of(exc), constraint=getattr(_driver_error(exc), "constraint_name", None), status=status)
+    logger.info(
+        "db.constraint_violation",
+        path=request.url.path,
+        method=request.method,
+        sqlstate=sqlstate_of(exc),
+        constraint=getattr(_driver_error(exc), "constraint_name", None),
+        status=status,
+    )
     return JSONResponse(status_code=status, content={"detail": detail})
 
 
 def register_db_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(IntegrityError, constraint_violation_handler)
     app.add_exception_handler(DataError, constraint_violation_handler)
-    app.add_exception_handler(DBAPIError, constraint_violation_handler)  # most specific class wins, so the two above still apply to their own
+    app.add_exception_handler(
+        DBAPIError, constraint_violation_handler
+    )  # most specific class wins, so the two above still apply to their own

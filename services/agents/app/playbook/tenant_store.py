@@ -42,7 +42,9 @@ class PlaybookRepo(Protocol):
 def _to_playbook(row: asyncpg.Record) -> Playbook:
     definition = row["definition"]
     definition = json.loads(definition) if isinstance(definition, str) else dict(definition)
-    return Playbook.model_validate({**definition, "id": row["id"], "name": row["name"], "enabled": row["enabled"], "cloned_from": row["cloned_from"]})
+    return Playbook.model_validate(
+        {**definition, "id": row["id"], "name": row["name"], "enabled": row["enabled"], "cloned_from": row["cloned_from"]}
+    )
 
 
 class PostgresPlaybookRepo:
@@ -64,7 +66,9 @@ class PostgresPlaybookRepo:
             await self._scope(conn, tenant_id)
             rows = await conn.fetch(
                 "SELECT id, name, enabled, cloned_from, definition FROM tenant_playbooks WHERE tenant_id = $1 AND ($2::boolean IS FALSE OR enabled) ORDER BY created_at DESC LIMIT $3",
-                tenant_id, enabled_only, MAX_PER_TENANT,
+                tenant_id,
+                enabled_only,
+                MAX_PER_TENANT,
             )
         return [_to_playbook(r) for r in rows]
 
@@ -72,7 +76,11 @@ class PostgresPlaybookRepo:
         pool = await self._pool()
         async with pool.acquire() as conn, conn.transaction():
             await self._scope(conn, tenant_id)
-            row = await conn.fetchrow("SELECT id, name, enabled, cloned_from, definition FROM tenant_playbooks WHERE tenant_id = $1 AND id = $2", tenant_id, playbook_id)
+            row = await conn.fetchrow(
+                "SELECT id, name, enabled, cloned_from, definition FROM tenant_playbooks WHERE tenant_id = $1 AND id = $2",
+                tenant_id,
+                playbook_id,
+            )
         return None if row is None else _to_playbook(row)
 
     async def create(self, tenant_id: UUID, playbook: Playbook, *, created_by: UUID | None = None) -> Playbook:
@@ -88,7 +96,13 @@ class PostgresPlaybookRepo:
                 raise PlaybookLimitReached(f"This tenant already has {MAX_PER_TENANT} custom playbooks; delete some before adding more")
             await conn.execute(
                 "INSERT INTO tenant_playbooks (tenant_id, id, name, enabled, cloned_from, created_by, definition) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
-                tenant_id, stored.id, stored.name, stored.enabled, stored.cloned_from, created_by, json.dumps(stored.model_dump(mode="json")),
+                tenant_id,
+                stored.id,
+                stored.name,
+                stored.enabled,
+                stored.cloned_from,
+                created_by,
+                json.dumps(stored.model_dump(mode="json")),
             )
         return stored
 
@@ -97,16 +111,30 @@ class PostgresPlaybookRepo:
         async with pool.acquire() as conn, conn.transaction():
             await self._scope(conn, tenant_id)
             row = await conn.fetchrow(
-                "SELECT id, name, enabled, cloned_from, definition FROM tenant_playbooks WHERE tenant_id = $1 AND id = $2 FOR UPDATE", tenant_id, playbook_id
+                "SELECT id, name, enabled, cloned_from, definition FROM tenant_playbooks WHERE tenant_id = $1 AND id = $2 FOR UPDATE",
+                tenant_id,
+                playbook_id,
             )
             if row is None:
                 return None
             current = _to_playbook(row)
             changes = {k: v for k, v in data.items() if k not in IMMUTABLE_FIELDS}
-            merged = Playbook.model_validate({**current.model_dump(mode="json"), **changes, "id": current.id, "cloned_from": current.cloned_from, "updated_at": datetime.now(UTC).isoformat()})
+            merged = Playbook.model_validate(
+                {
+                    **current.model_dump(mode="json"),
+                    **changes,
+                    "id": current.id,
+                    "cloned_from": current.cloned_from,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            )
             await conn.execute(
                 "UPDATE tenant_playbooks SET name = $3, enabled = $4, definition = $5::jsonb, updated_at = now() WHERE tenant_id = $1 AND id = $2",
-                tenant_id, playbook_id, merged.name, merged.enabled, json.dumps(merged.model_dump(mode="json")),
+                tenant_id,
+                playbook_id,
+                merged.name,
+                merged.enabled,
+                json.dumps(merged.model_dump(mode="json")),
             )
         return merged
 

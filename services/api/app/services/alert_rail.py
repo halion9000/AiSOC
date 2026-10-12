@@ -378,13 +378,33 @@ async def _case_events_for_alert(db: AsyncSession, alert: Alert, limit: int) -> 
     events: list[MiniTimelineEvent] = []
     for c in cases:
         payload = {"case_id": str(c.id), "status": c.status}
-        events.append(MiniTimelineEvent(id=f"case-{c.id}-opened", ts=c.opened_at, kind="case_opened", agent=c.created_by or "system", summary=f"Case opened: {c.title}", payload=payload))
+        events.append(
+            MiniTimelineEvent(
+                id=f"case-{c.id}-opened",
+                ts=c.opened_at,
+                kind="case_opened",
+                agent=c.created_by or "system",
+                summary=f"Case opened: {c.title}",
+                payload=payload,
+            )
+        )
         for label, ts in (("triaged", c.triaged_at), ("resolved", c.resolved_at), ("closed", c.closed_at)):
             if ts is not None:
-                events.append(MiniTimelineEvent(id=f"case-{c.id}-{label}", ts=ts, kind="status_change", agent="system", summary=f"Case {label}: {c.title}", payload={"case_id": str(c.id), "status": label}))
+                events.append(
+                    MiniTimelineEvent(
+                        id=f"case-{c.id}-{label}",
+                        ts=ts,
+                        kind="status_change",
+                        agent="system",
+                        summary=f"Case {label}: {c.title}",
+                        payload={"case_id": str(c.id), "status": label},
+                    )
+                )
     comments = (
         await db.execute(
-            text("SELECT id, case_id, author, body, is_system, created_at FROM aisoc_case_comments WHERE tenant_id = :tid AND case_id = ANY(:cids) ORDER BY created_at DESC LIMIT :n"),
+            text(
+                "SELECT id, case_id, author, body, is_system, created_at FROM aisoc_case_comments WHERE tenant_id = :tid AND case_id = ANY(:cids) ORDER BY created_at DESC LIMIT :n"
+            ),
             {"tid": alert.tenant_id, "cids": [c.id for c in cases], "n": limit},
         )
     ).fetchall()

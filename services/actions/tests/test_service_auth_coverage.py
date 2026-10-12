@@ -6,6 +6,7 @@ yet it carried no authentication. Neither did GET /actions/{id}, whose record ho
 requester. The service already had the right mechanism (require_service_auth, W4.3); it was simply not applied
 to those routes. This sweep makes "forgot to apply it" impossible to ship.
 """
+
 from __future__ import annotations
 
 import re
@@ -89,10 +90,15 @@ def test_unconfigured_fails_closed_and_the_old_dev_flag_opens_nothing(monkeypatc
     client = _configure(monkeypatch, token=None, legacy_dev_flag=legacy_dev_flag)
     for headers in (None, GOOD):
         r = _call(client, method, path, headers)
-        assert r.status_code == 503, f"{method} {path} answered {r.status_code} with no token configured (AISOC_DEV_MODE={legacy_dev_flag!r})"
+        assert (
+            r.status_code == 503
+        ), f"{method} {path} answered {r.status_code} with no token configured (AISOC_DEV_MODE={legacy_dev_flag!r})"
 
 
-@pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"bearer {TOKEN}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", "", f"Bearer  {TOKEN}"])
+@pytest.mark.parametrize(
+    "header",
+    [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"bearer {TOKEN}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", "", f"Bearer  {TOKEN}"],
+)
 def test_only_the_exact_token_is_accepted(monkeypatch, header):
     client = _configure(monkeypatch, token=TOKEN)
     assert client.post("/api/v1/live-actions/dispatch", json={}, headers={"Authorization": header}).status_code == 401, header
@@ -115,7 +121,13 @@ def test_a_refused_dispatch_never_runs_an_executor(monkeypatch):
 
         async def execute(self, request):
             ran.append(request.target)
-            return LiveActionResult(request_id=request.request_id, status=LiveActionStatus.SUCCEEDED, capability=self.capability, vendor_id=self.vendor_id, summary="ran")
+            return LiveActionResult(
+                request_id=request.request_id,
+                status=LiveActionStatus.SUCCEEDED,
+                capability=self.capability,
+                vendor_id=self.vendor_id,
+                summary="ran",
+            )
 
     reset_for_tests()
     register_executor(_Spy(), source="builtin")

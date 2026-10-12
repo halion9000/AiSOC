@@ -3,6 +3,7 @@
 The case that went wrong: ueba, honeytokens and purple-team all use revision id "0001" in one database. With the shared default version table
 only the first service's migration ran in full. Set AISOC_TEST_PG_URL to a DISPOSABLE postgresql+asyncpg:// database to run this for real.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,13 @@ SERVICES = Path(__file__).resolve().parents[2]
 EXPECTED = {
     "ueba": {"ueba_anomalies", "ueba_entity_baselines", "ueba_peer_groups", "alembic_version_ueba"},
     "honeytokens": {"honeytokens", "honeytoken_triggers", "alembic_version_honeytokens"},
-    "purple-team": {"purple_team_atomic_tests", "purple_team_executions", "purple_team_tabletop_sessions", "purple_team_detection_drift_snapshots", "alembic_version_purple_team"},
+    "purple-team": {
+        "purple_team_atomic_tests",
+        "purple_team_executions",
+        "purple_team_tabletop_sessions",
+        "purple_team_detection_drift_snapshots",
+        "alembic_version_purple_team",
+    },
 }
 pytestmark = pytest.mark.skipif(not PG_URL, reason="set AISOC_TEST_PG_URL to a DISPOSABLE postgresql+asyncpg:// database")
 

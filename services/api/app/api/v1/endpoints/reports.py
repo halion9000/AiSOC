@@ -98,7 +98,12 @@ async def list_templates(
     return list(result.scalars().all())
 
 
-@router.post("/templates", response_model=TemplateOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("reports:write"))])
+@router.post(
+    "/templates",
+    response_model=TemplateOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("reports:write"))],
+)
 async def create_template(
     body: TemplateCreate,
     db: AsyncSession = Depends(get_db),
@@ -127,7 +132,12 @@ async def get_template(
     return tmpl
 
 
-@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("reports:write"))])
+@router.delete(
+    "/templates/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_permission("reports:write"))],
+)
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -164,7 +174,12 @@ async def list_artefacts(
     return list(result.scalars().all())
 
 
-@router.post("/generate", response_model=ArtefactOut, status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_permission("reports:write"))])
+@router.post(
+    "/generate",
+    response_model=ArtefactOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_permission("reports:write"))],
+)
 async def generate_report(
     body: GenerateRequest,
     db: AsyncSession = Depends(get_db),

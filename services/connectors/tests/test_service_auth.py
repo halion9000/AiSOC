@@ -5,6 +5,7 @@ outbound calls (query a SIEM, push a case to a ticketing tool, fetch a cloud res
 configuration and decrypted credentials that the CALLER supplies in the request. Anything able to reach it could
 make it call out with arbitrary configuration. The API is its only caller and now sends the token.
 """
+
 from __future__ import annotations
 
 import re
@@ -52,8 +53,12 @@ def _past_the_guard(resp) -> bool:
 def test_the_sweep_sees_the_routes():
     routes = _routes()
     assert len(routes) >= 8, routes
-    for expected in (("POST", "/api/v1/connectors/{connector_id}/query"), ("POST", "/api/v1/connectors/{connector_id}/test"),
-                     ("POST", "/api/v1/connectors/{connector_id}/push_case"), ("POST", "/api/v1/connectors/{connector_id}/resource_config")):
+    for expected in (
+        ("POST", "/api/v1/connectors/{connector_id}/query"),
+        ("POST", "/api/v1/connectors/{connector_id}/test"),
+        ("POST", "/api/v1/connectors/{connector_id}/push_case"),
+        ("POST", "/api/v1/connectors/{connector_id}/resource_config"),
+    ):
         assert expected in routes
 
 
@@ -70,7 +75,9 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
     assert _past_the_guard(_call(client, method, path, GOOD)), f"{method} {path} refused the correct token"
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None])
+@pytest.mark.parametrize(
+    "environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None]
+)
 @pytest.mark.parametrize("method,path", _routes())
 def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(monkeypatch, environment, method, path):
     client = _configure(monkeypatch, token=None, environment=environment)
@@ -86,7 +93,20 @@ def test_a_configured_token_is_enforced_in_every_environment(monkeypatch, enviro
     assert client.get("/api/v1/connectors", headers=GOOD).status_code == 200
 
 
-@pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", "", f"Token {TOKEN}", f"Bearer  {TOKEN} extra"])
+@pytest.mark.parametrize(
+    "header",
+    [
+        f"Bearer {TOKEN}x",
+        f"Bearer {TOKEN[:-1]}",
+        f"Basic {TOKEN}",
+        TOKEN,
+        "Bearer ",
+        "Bearer",
+        "",
+        f"Token {TOKEN}",
+        f"Bearer  {TOKEN} extra",
+    ],
+)
 def test_only_the_exact_token_is_accepted(monkeypatch, header):
     client = _configure(monkeypatch, token=TOKEN, environment="production")
     assert client.get("/api/v1/connectors", headers={"Authorization": header}).status_code == 401, header

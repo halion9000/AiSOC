@@ -3,6 +3,7 @@
 Background: the audit found that RLS is bypassed entirely in the default deployment (every service connects as the bootstrap superuser), covers only 38 of 79 tenant-scoped tables, and that eight tables had policies that
 read a setting nothing sets or that raise an error when no tenant context is set (fixed by migrations 060 and 061). The tool exists so an operator can see the same picture for their OWN database.
 """
+
 import asyncio
 import json
 import re
@@ -18,7 +19,9 @@ STANDARD = "((tenant_id = current_tenant_id()) OR (current_tenant_id() IS NULL))
 HUNT_HYPOTHESES = "((tenant_id = current_tenant_id()) OR (tenant_id IS NULL) OR (current_tenant_id() IS NULL))"
 EASM_RAISES = "(tenant_id = (current_setting('app.current_tenant_id'::text))::uuid)"
 COMPLIANCE_STRICT = "(tenant_id = (current_setting('app.current_tenant_id'::text, true))::uuid)"
-SHIFTS_COALESCE = "(tenant_id = COALESCE((current_setting('app.current_tenant_id'::text, true))::uuid, '00000000-0000-0000-0000-000000000000'::uuid))"
+SHIFTS_COALESCE = (
+    "(tenant_id = COALESCE((current_setting('app.current_tenant_id'::text, true))::uuid, '00000000-0000-0000-0000-000000000000'::uuid))"
+)
 SLA_007 = "(tenant_id = (current_setting('app.tenant_id'::text, true))::uuid)"
 RETENTION_049 = "(tenant_id = (current_setting('app.current_tenant'::text, true))::uuid)"
 STRICT_FN = "(tenant_id = current_tenant_id())"
@@ -75,7 +78,9 @@ class TestReport:
 
     def test_a_table_with_rls_that_is_not_tenant_scoped_does_not_inflate_coverage(self):
         """Coverage is "of the tenant-scoped tables, how many have RLS": a global table that happens to have RLS enabled must not count toward it."""
-        r = report(rls_enabled={"a", "b", "c", "plain"}, policies=policies(("a", STANDARD), ("b", STANDARD), ("c", STANDARD), ("plain", STANDARD)))
+        r = report(
+            rls_enabled={"a", "b", "c", "plain"}, policies=policies(("a", STANDARD), ("b", STANDARD), ("c", STANDARD), ("plain", STANDARD))
+        )
         assert r.covered == ["a", "b", "c"] and "plain" not in r.tenant_scoped and "(60%)" in ra.render(r)
 
     def test_an_uncovered_table_is_listed_but_a_deliberately_excluded_one_is_separate(self):
@@ -114,17 +119,28 @@ class TestRendering:
 
     def test_it_states_the_coverage_percentage_and_lists_the_gaps(self):
         text = ra.render(report())
-        assert "RLS is enabled on 3 of them (60%)" in text and "1 tenant-scoped tables have NO RLS" in text and "d" in text and "(deliberately excluded: users)" in text
+        assert (
+            "RLS is enabled on 3 of them (60%)" in text
+            and "1 tenant-scoped tables have NO RLS" in text
+            and "d" in text
+            and "(deliberately excluded: users)" in text
+        )
 
     def test_defects_are_labelled_and_counted(self):
         text = ra.render(report(policies=policies(("a", STANDARD), ("b", EASM_RAISES), ("c", SLA_007))))
-        assert "DEFECT raises_without_context: b.b_p" in text and "DEFECT wrong_setting: c.c_p" in text and text.rstrip().endswith("2 defect(s).")
+        assert (
+            "DEFECT raises_without_context: b.b_p" in text
+            and "DEFECT wrong_setting: c.c_p" in text
+            and text.rstrip().endswith("2 defect(s).")
+        )
 
     def test_no_defects_says_so(self):
         assert ra.render(report()).rstrip().endswith("0 defect(s).")
 
     def test_an_empty_schema_does_not_divide_by_zero(self):
-        assert "0 are tenant-scoped" in ra.render(ra.build_report(role=("x", False, False), tables=[], tenant_tables=set(), rls_enabled=set(), policies=[]))
+        assert "0 are tenant-scoped" in ra.render(
+            ra.build_report(role=("x", False, False), tables=[], tenant_tables=set(), rls_enabled=set(), policies=[])
+        )
 
 
 class TestExitCodes:
@@ -141,7 +157,9 @@ class TestExitCodes:
         ],
     )
     def test_matrix(self, strict, require, defective, bypassed, expected):
-        r = report(role=("r", bypassed, False), policies=policies(("a", EASM_RAISES if defective else STANDARD), ("b", STANDARD), ("c", STANDARD)))
+        r = report(
+            role=("r", bypassed, False), policies=policies(("a", EASM_RAISES if defective else STANDARD), ("b", STANDARD), ("c", STANDARD))
+        )
         assert ra.exit_code(r, strict=strict, require_enforced=require) == expected
 
 
@@ -181,11 +199,15 @@ class TestCollectAndMain:
     def test_collect_reads_only_the_catalog_and_never_writes(self):
         conn = FakeConn()
         asyncio.run(ra.collect(conn))
-        assert len(conn.sql) == 6  # role, tables, tenant columns, rls, policies, does aisoc_app exist (no audit_log table here, so the TRUNCATE question is not asked)
+        assert (
+            len(conn.sql) == 6
+        )  # role, tables, tenant columns, rls, policies, does aisoc_app exist (no audit_log table here, so the TRUNCATE question is not asked)
         for sql in conn.sql:
             s = " ".join(sql.split()).upper()
             assert s.startswith("SELECT") and not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b", s)
-            assert not any(t in sql.lower() for t in ("from alerts", "from aisoc_cases", "from users"))  # no tenant data is read, only the catalog
+            assert not any(
+                t in sql.lower() for t in ("from alerts", "from aisoc_cases", "from users")
+            )  # no tenant data is read, only the catalog
 
     def test_collect_builds_the_report(self):
         r = asyncio.run(ra.collect(FakeConn()))
@@ -279,7 +301,10 @@ class TestCredentialSubstitution:
         assert out == "postgresql://aisoc_app:changeme@db.internal:5433/aisoc?sslmode=require" and "s3cret" not in out
 
     def test_special_characters_are_percent_encoded(self):
-        assert ra.with_credentials("postgresql://u:p@h/db", "aisoc_app", "a@b/c:d#e?f").split("@")[0] == "postgresql://aisoc_app:a%40b%2Fc%3Ad%23e%3Ff"
+        assert (
+            ra.with_credentials("postgresql://u:p@h/db", "aisoc_app", "a@b/c:d#e?f").split("@")[0]
+            == "postgresql://aisoc_app:a%40b%2Fc%3Ad%23e%3Ff"
+        )
 
     def test_a_dsn_without_credentials_gets_them(self):
         assert ra.with_credentials("postgresql://h:5432/db", "x", "y") == "postgresql://x:y@h:5432/db"
@@ -334,10 +359,15 @@ class TestTheDefaultPasswordProbe:
     def test_an_accepted_published_password_is_a_defect_and_fails_strict(self):
         r = report()
         r.app_role = {"exists": True, "can_truncate_audit_log": False, "default_password_accepted": True}
-        assert any("published in the repository" in d["using"] for d in r.defects) and ra.exit_code(r, strict=True, require_enforced=False) == 1
+        assert (
+            any("published in the repository" in d["using"] for d in r.defects)
+            and ra.exit_code(r, strict=True, require_enforced=False) == 1
+        )
         assert "accepts the published password: YES (DEFECT: set a real password)" in ra.render(r)
 
-    @pytest.mark.parametrize("value,wording", [(False, "accepts the published password: no"), (None, "accepts the published password: could not tell")])
+    @pytest.mark.parametrize(
+        "value,wording", [(False, "accepts the published password: no"), (None, "accepts the published password: could not tell")]
+    )
     def test_refused_or_unknown_is_not_a_defect(self, value, wording):
         r = report()
         r.app_role = {"exists": True, "can_truncate_audit_log": False, "default_password_accepted": value}

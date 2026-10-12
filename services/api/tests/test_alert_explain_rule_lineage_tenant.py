@@ -3,6 +3,7 @@
 The explanation looks up "the rule that produced this alert". Its first, highest-confidence branch takes an id from the alert's own raw_event or tags (a `rule:<uuid>` tag), and loaded the rule BY ID ALONE. Those fields are set by whoever submits the alert, so tenant B could name tenant A's rule id and the explanation of B's own alert returned A's rule name,
 description, severity and language (shown on real Postgres through the two-tenant flows; the owner's own alert naming its own rule is the control that proves the explanation does show a matched rule). The other branches in the service were already tenant-scoped.
 """
+
 import ast
 import uuid
 from pathlib import Path
@@ -44,7 +45,12 @@ class TestTheExplicitRuleLookup:
         db = FakeDB(None)
         await ae._resolve_rule_lineage(db, alert(rid))
         sql, params = db.executed[0]
-        assert "detection_rules.id = " in sql and "detection_rules.tenant_id = " in sql and "detection_rules.tenant_id IS NULL" in sql and " OR " in sql
+        assert (
+            "detection_rules.id = " in sql
+            and "detection_rules.tenant_id = " in sql
+            and "detection_rules.tenant_id IS NULL" in sql
+            and " OR " in sql
+        )
         assert rid in params.values() and MINE in params.values()
 
     async def test_another_tenants_rule_is_not_returned_as_the_match(self):

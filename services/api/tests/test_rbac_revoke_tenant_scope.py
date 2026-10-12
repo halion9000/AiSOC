@@ -3,6 +3,7 @@
 revoke_role deleted the assignment by the two ids alone (user_roles has no tenant column), so any tenant admin with users:write could strip any role from any user of ANY tenant. Shown on real Postgres by the two-tenant flows: tenant B removed tenant A's role assignment (HTTP 204) and A's roles then read as empty. assign_role and get_user_roles already scoped by tenant; revoke had been forgotten.
 It now requires the role AND the user to belong to the caller's tenant, like assign_role. A role or user that is not the caller's is the same 404 as one that does not exist, and nothing is deleted.
 """
+
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 

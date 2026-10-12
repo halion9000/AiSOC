@@ -192,7 +192,9 @@ async def update_asset(
     return asset
 
 
-@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("alerts:delete"))])
+@router.delete(
+    "/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("alerts:delete"))]
+)
 async def delete_asset(
     asset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -210,7 +212,12 @@ async def delete_asset(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/vulnerabilities", response_model=VulnerabilityOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/vulnerabilities",
+    response_model=VulnerabilityOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("alerts:write"))],
+)
 async def create_vulnerability(
     body: VulnerabilityCreate,
     db: AsyncSession = Depends(get_db),

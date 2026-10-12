@@ -4,6 +4,7 @@ The console's IOC lookup never worked: the service was unreachable from the web 
 it listens on 8082 (the console assumed 8083), GET /lookup?ioc= hit a POST-only endpoint,
 and the bulk body {iocs: []} is not the service's {items: []}. And it was unauthenticated.
 """
+
 import json
 import uuid
 
@@ -27,12 +28,22 @@ SHA256 = "a" * 64
 
 # What the Go service really returns (internal/enricher/types.go EnrichmentResult)
 RESULT = {
-    "ioc_type": "ip", "value": "8.8.8.8", "risk_score": 82.5, "confidence": 91, "malicious_votes": 12, "harmless_votes": 60,
-    "total_engines": 90, "tags": ["scanner", "tor"], "reputation": -5, "threat_category": "malware-c2",
+    "ioc_type": "ip",
+    "value": "8.8.8.8",
+    "risk_score": 82.5,
+    "confidence": 91,
+    "malicious_votes": 12,
+    "harmless_votes": 60,
+    "total_engines": 90,
+    "tags": ["scanner", "tor"],
+    "reputation": -5,
+    "threat_category": "malware-c2",
     "classification": {"mitre_techniques": ["T1071"], "mitre_tactics": ["command-and-control"]},
     "geo_location": {"country": "Germany", "asn": 24940, "as_org": "Hetzner"},
     "sources": [{"name": "virustotal", "cached": False}, {"name": "abuseipdb", "cached": True}],
-    "first_seen": "2026-01-01T00:00:00Z", "last_seen": "2026-10-01T00:00:00Z", "enriched_at": "2026-10-06T00:00:00Z",
+    "first_seen": "2026-01-01T00:00:00Z",
+    "last_seen": "2026-10-01T00:00:00Z",
+    "enriched_at": "2026-10-06T00:00:00Z",
 }
 
 
@@ -56,25 +67,34 @@ def _client(role="viewer", scopes=None, anonymous=False, tenant=TENANT) -> TestC
     app.dependency_overrides[deps.get_db] = fake_db
     if not anonymous:
         app.dependency_overrides[deps.get_current_user] = lambda: CurrentUser(
-            user_id=uuid.uuid4(), tenant_id=tenant, role=role, email="t@example.com", scopes=scopes)
+            user_id=uuid.uuid4(), tenant_id=tenant, role=role, email="t@example.com", scopes=scopes
+        )
     return TestClient(app, raise_server_exceptions=False)
 
 
 # ---------------------------------------------------------------- classification ----
-@pytest.mark.parametrize("raw,expected", [
-    ("8.8.8.8", ("ip", "8.8.8.8")), ("  1.2.3.4  ", ("ip", "1.2.3.4")), ("2001:db8::1", ("ip", "2001:db8::1")),
-    ("example.com", ("domain", "example.com")), ("Sub.Example.CO.UK", ("domain", "sub.example.co.uk")),
-    ("https://evil.example/path?x=1", ("url", "https://evil.example/path?x=1")),
-    ("alice@example.com", ("email", "alice@example.com")),
-    ("d41d8cd98f00b204e9800998ecf8427e", ("hash", "d41d8cd98f00b204e9800998ecf8427e")),
-    ("DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", ("hash", "da39a3ee5e6b4b0d3255bfef95601890afd80709")),
-    (SHA256, ("hash", SHA256)),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("8.8.8.8", ("ip", "8.8.8.8")),
+        ("  1.2.3.4  ", ("ip", "1.2.3.4")),
+        ("2001:db8::1", ("ip", "2001:db8::1")),
+        ("example.com", ("domain", "example.com")),
+        ("Sub.Example.CO.UK", ("domain", "sub.example.co.uk")),
+        ("https://evil.example/path?x=1", ("url", "https://evil.example/path?x=1")),
+        ("alice@example.com", ("email", "alice@example.com")),
+        ("d41d8cd98f00b204e9800998ecf8427e", ("hash", "d41d8cd98f00b204e9800998ecf8427e")),
+        ("DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", ("hash", "da39a3ee5e6b4b0d3255bfef95601890afd80709")),
+        (SHA256, ("hash", SHA256)),
+    ],
+)
 def test_classify_recognises_each_indicator_type(raw, expected):
     assert enrichment.classify_ioc(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["", "   ", "example", "not an ioc", "a" * 33, "g" * 32, "999.1.1.1", "foo@bar", "x" * 3000, "-bad-.com", "has space.com"])
+@pytest.mark.parametrize(
+    "raw", ["", "   ", "example", "not an ioc", "a" * 33, "g" * 32, "999.1.1.1", "foo@bar", "x" * 3000, "-bad-.com", "has space.com"]
+)
 def test_classify_refuses_what_it_cannot_identify(raw):
     assert enrichment.classify_ioc(raw) is None
 
@@ -97,7 +117,9 @@ def test_lookup_sends_the_service_exactly_what_its_handler_accepts():
 @respx.mock
 def test_the_callers_credentials_are_never_forwarded_to_the_enrichment_service():
     route = respx.post(f"{BASE}/enrich").mock(return_value=httpx.Response(200, json=RESULT))
-    _client().get("/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}, headers={"Authorization": "Bearer secret-user-token", "Cookie": "s=1"})
+    _client().get(
+        "/api/v1/enrichment/lookup", params={"ioc": "8.8.8.8"}, headers={"Authorization": "Bearer secret-user-token", "Cookie": "s=1"}
+    )
     assert "authorization" not in route.calls[0].request.headers
     assert "cookie" not in route.calls[0].request.headers
 
@@ -114,10 +136,21 @@ def test_lookup_maps_the_result_to_the_consoles_indicator_shape():
     assert d["raw"]["malicious_votes"] == 12, "the provider's own data is kept for power users"
 
 
-@pytest.mark.parametrize("score,severity,malicious", [
-    (0, "info", False), (19.9, "info", False), (20, "low", False), (39.9, "low", False), (40, "medium", False),
-    (59.9, "medium", False), (60, "high", True), (79.9, "high", True), (80, "critical", True), (100, "critical", True),
-])
+@pytest.mark.parametrize(
+    "score,severity,malicious",
+    [
+        (0, "info", False),
+        (19.9, "info", False),
+        (20, "low", False),
+        (39.9, "low", False),
+        (40, "medium", False),
+        (59.9, "medium", False),
+        (60, "high", True),
+        (79.9, "high", True),
+        (80, "critical", True),
+        (100, "critical", True),
+    ],
+)
 def test_severity_bands_and_the_malicious_line(score, severity, malicious):
     out = enrichment.to_indicator({**RESULT, "risk_score": score})
     assert (out.severity, out.malicious) == (severity, malicious)
@@ -135,7 +168,15 @@ def test_a_sparse_result_does_not_crash_or_invent_fields():
 
 # ---------------------------------------------------------------- honest failures ----
 @respx.mock
-@pytest.mark.parametrize("failure", [httpx.ConnectError("down"), httpx.Response(500, json={"error": "boom"}), httpx.Response(200, text="not json"), httpx.Response(200, json=["a list"])])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ConnectError("down"),
+        httpx.Response(500, json={"error": "boom"}),
+        httpx.Response(200, text="not json"),
+        httpx.Response(200, json=["a list"]),
+    ],
+)
 def test_upstream_trouble_is_a_502_never_made_up_data(failure):
     if isinstance(failure, Exception):
         respx.post(f"{BASE}/enrich").mock(side_effect=failure)
@@ -168,8 +209,9 @@ def test_bulk_translates_iocs_into_the_services_items_and_skips_junk():
     route = respx.post(f"{BASE}/enrich/bulk").mock(return_value=httpx.Response(200, json={"results": [RESULT], "total": 1, "errors": 0}))
     r = _client().post("/api/v1/enrichment/bulk", json={"iocs": ["8.8.8.8", "not an ioc", SHA256.upper()]})
     assert r.status_code == 200, r.text
-    assert json.loads(route.calls[0].request.content) == {"items": [
-        {"ioc_type": "ip", "value": "8.8.8.8", "force": False}, {"ioc_type": "hash", "value": SHA256, "force": False}]}
+    assert json.loads(route.calls[0].request.content) == {
+        "items": [{"ioc_type": "ip", "value": "8.8.8.8", "force": False}, {"ioc_type": "hash", "value": SHA256, "force": False}]
+    }
     body = r.json()
     assert len(body["results"]) == 1 and body["results"][0]["id"] == "ip:8.8.8.8"
     assert body["errors"] == [{"ioc": "not an ioc", "error": "Not a recognisable IP, domain, URL, hash or email"}]

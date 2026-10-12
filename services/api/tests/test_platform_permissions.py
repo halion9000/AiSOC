@@ -3,6 +3,7 @@
 Some permissions act on the whole platform rather than on the caller's own tenant: managing the shared plugin registry (plugins:admin), onboarding tenants (mssp:onboard) and searching across tenants (platform:cross_tenant_query). They used to be covered by the "*" wildcard that the `admin` role (the role tenant owners and the
 bootstrap administrator carry) holds, so any tenant's administrator could change what every tenant shares. Now "*" and "<resource>:*" never cover them: a principal holds one only if it is named exactly, in a role list (only platform_admin lists them), in an API key's scopes, or in a database role.
 The original primary administrator is a platform_admin by default (bootstrap_production, migration 067); more can be granted, by someone who holds the power, and a key or role can only carry what its creator holds."""
+
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -59,8 +60,16 @@ class TestMatching:
         assert permission_in(["plugins:admin"], "plugins:admin") and permission_in(("a:b", "mssp:onboard"), "mssp:onboard")
 
     def test_everything_else_matches_as_before(self):
-        assert permission_in(["*"], "alerts:read") and permission_in(["alerts:*"], "alerts:delete") and permission_in(["alerts:read"], "alerts:read")
-        assert not permission_in(["alerts:read"], "alerts:write") and not permission_in([], "alerts:read") and not permission_in(["cases:*"], "alerts:read")
+        assert (
+            permission_in(["*"], "alerts:read")
+            and permission_in(["alerts:*"], "alerts:delete")
+            and permission_in(["alerts:read"], "alerts:read")
+        )
+        assert (
+            not permission_in(["alerts:read"], "alerts:write")
+            and not permission_in([], "alerts:read")
+            and not permission_in(["cases:*"], "alerts:read")
+        )
 
     def test_it_accepts_any_iterable(self):
         assert permission_in(iter(["alerts:read"]), "alerts:read") and permission_in({"plugins:admin"}, "plugins:admin")
@@ -155,7 +164,9 @@ class TestDatabaseRolesCannotLaunderPower:
         monkeypatch.setattr(rbac, "_resolve_permissions", AsyncMock(return_value=[perm("alerts:read"), perm("plugins:admin")]))
         db = FakeDB(None)
         with pytest.raises(HTTPException) as exc:
-            await rbac.create_role(body=rbac.RoleIn(name="sneaky", permission_ids=[uuid.uuid4()]), current_user=principal("tenant_admin"), db=db)
+            await rbac.create_role(
+                body=rbac.RoleIn(name="sneaky", permission_ids=[uuid.uuid4()]), current_user=principal("tenant_admin"), db=db
+            )
         assert exc.value.status_code == 403 and "plugins:admin" in exc.value.detail
         db.add.assert_not_called()  # nothing was created: the check runs BEFORE the role is
         db.commit.assert_not_awaited()
@@ -166,7 +177,9 @@ class TestDatabaseRolesCannotLaunderPower:
         monkeypatch.setattr(rbac, "RoleOut", lambda **kw: kw)
         db = FakeDB(None)
         db.refresh = AsyncMock(side_effect=lambda r: setattr(r, "id", uuid.uuid4()))
-        out = await rbac.create_role(body=rbac.RoleIn(name="fine", permission_ids=[uuid.uuid4()]), current_user=principal("tenant_admin"), db=db)
+        out = await rbac.create_role(
+            body=rbac.RoleIn(name="fine", permission_ids=[uuid.uuid4()]), current_user=principal("tenant_admin"), db=db
+        )
         assert out["name"] == "fine"
 
     async def test_a_platform_admin_can_attach_a_platform_permission(self, monkeypatch):
@@ -175,7 +188,9 @@ class TestDatabaseRolesCannotLaunderPower:
         monkeypatch.setattr(rbac, "RoleOut", lambda **kw: kw)
         db = FakeDB(None)
         db.refresh = AsyncMock(side_effect=lambda r: setattr(r, "id", uuid.uuid4()))
-        await rbac.create_role(body=rbac.RoleIn(name="operators", permission_ids=[uuid.uuid4()]), current_user=principal("platform_admin"), db=db)
+        await rbac.create_role(
+            body=rbac.RoleIn(name="operators", permission_ids=[uuid.uuid4()]), current_user=principal("platform_admin"), db=db
+        )
         assert len(db.added) >= 1
 
     async def test_a_creator_cannot_assign_a_role_that_holds_what_they_lack(self, monkeypatch):
@@ -185,7 +200,9 @@ class TestDatabaseRolesCannotLaunderPower:
         uid = uuid.uuid4()
         db = FakeDB(object())
         with pytest.raises(HTTPException) as exc:
-            await rbac.assign_role(user_id=uid, body=rbac.UserRoleAssignment(user_id=uid, role_id=role.id), current_user=principal("tenant_admin"), db=db)
+            await rbac.assign_role(
+                user_id=uid, body=rbac.UserRoleAssignment(user_id=uid, role_id=role.id), current_user=principal("tenant_admin"), db=db
+            )
         assert exc.value.status_code == 403
         db.add.assert_not_called()
 
@@ -197,7 +214,12 @@ class TestDatabaseRolesCannotLaunderPower:
         monkeypatch.setattr(rbac, "_load_role_permissions", AsyncMock(return_value=[perm("plugins:admin")]))
         db = FakeDB()
         with pytest.raises(HTTPException) as exc:
-            await rbac.update_role(role_id=role.id, body=rbac.RoleUpdate(name="renamed", permission_ids=[uuid.uuid4()]), current_user=principal("tenant_admin"), db=db)
+            await rbac.update_role(
+                role_id=role.id,
+                body=rbac.RoleUpdate(name="renamed", permission_ids=[uuid.uuid4()]),
+                current_user=principal("tenant_admin"),
+                db=db,
+            )
         assert exc.value.status_code == 403
         assert role.name == "ops" and not [s for s in db.statements if s.startswith("DELETE")]  # nothing was changed or deleted first
         db.commit.assert_not_awaited()
@@ -218,5 +240,7 @@ class TestTheDefaultHolder:
     def test_a_newly_provisioned_tenants_first_admin_is_not_a_platform_admin(self):
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / "app" / "services" / "tenant_provision" / "provisioner.py").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parent.parent / "app" / "services" / "tenant_provision" / "provisioner.py").read_text(
+            encoding="utf-8"
+        )
         assert 'role="tenant_admin"' in src and "platform_admin" not in src

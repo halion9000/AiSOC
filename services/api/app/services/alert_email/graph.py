@@ -7,6 +7,7 @@ The client secret never appears in a message, a log line or an exception: every 
 
 This could not be tested against a real Microsoft tenant here: it is tested against a mock Graph (httpx's MockTransport and a local stand-in server), so the first real send should be done with the platform setting's "send a test email".
 """
+
 from __future__ import annotations
 
 import time
@@ -118,11 +119,20 @@ class GraphMailer:
         response = await self._request(
             "POST",
             f"{self.authority}/{quote(self.tenant_id, safe='')}/oauth2/v2.0/token",
-            data={"client_id": self.client_id, "client_secret": self.client_secret, "scope": GRAPH_SCOPE, "grant_type": "client_credentials"},
+            data={
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "scope": GRAPH_SCOPE,
+                "grant_type": "client_credentials",
+            },
         )
         if response.status_code != 200:
             transient = response.status_code in _TRANSIENT_STATUSES
-            raise MailError(f"Microsoft refused the token request: {_graph_error(response, self._secrets)}", permanent=not transient, retry_after=_retry_after(response))
+            raise MailError(
+                f"Microsoft refused the token request: {_graph_error(response, self._secrets)}",
+                permanent=not transient,
+                retry_after=_retry_after(response),
+            )
         try:
             body = response.json()
             token, lifetime = str(body["access_token"]), float(body.get("expires_in", 3600))
@@ -139,7 +149,11 @@ class GraphMailer:
         if not to:
             raise MailError("no recipients", permanent=True)
         payload = {
-            "message": {"subject": subject, "body": {"contentType": "Text", "content": text}, "toRecipients": [{"emailAddress": {"address": a}} for a in to]},
+            "message": {
+                "subject": subject,
+                "body": {"contentType": "Text", "content": text},
+                "toRecipients": [{"emailAddress": {"address": a}} for a in to],
+            },
             "saveToSentItems": False,
         }
         url = f"{self.base_url}/users/{quote(self.sender, safe='@')}/sendMail"
@@ -151,5 +165,9 @@ class GraphMailer:
             if response.status_code == 401 and attempt == 1:
                 continue  # a cached token can have been revoked: one retry with a fresh one
             transient = response.status_code in _TRANSIENT_STATUSES
-            raise MailError(f"Microsoft Graph refused the message: {_graph_error(response, self._secrets)}", permanent=not transient, retry_after=_retry_after(response))
+            raise MailError(
+                f"Microsoft Graph refused the message: {_graph_error(response, self._secrets)}",
+                permanent=not transient,
+                retry_after=_retry_after(response),
+            )
         raise MailError("unreachable", permanent=True)  # pragma: no cover

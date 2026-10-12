@@ -1,6 +1,7 @@
 """The isolation flows against a DEPLOYED API over HTTP (`tenant_flows run-url`).
 
 It writes test data into real environments, so every guard runs before any request; the setup is checked (two different tenants, two plain tenant admins who can do what the flows do) before anything is written; rate limiting (429) is waited out instead of reported as a leak; and the flows use the REAL ids of the two tenants instead of the ones in the scratch database."""
+
 import json
 
 import pytest
@@ -130,6 +131,7 @@ class TestFetchSpec:
 
 def script_for(ids=("tid-a", "tid-b"), can_select=(False, False), missing=((), ()), viewable=("own", "own")):
     """A deployment with two users A and B, routed by the bearer token each request carries."""
+
     class Routed:
         def __init__(self):
             self.requests = []
@@ -140,11 +142,15 @@ def script_for(ids=("tid-a", "tid-b"), can_select=(False, False), missing=((), (
             i = 0 if who == "A" else 1
             if path == "/api/v1/tenants/me/identity":
                 return R(200, {"id": ids[i]})
-            if path == "/api/v1/tenants/viewable":  # "own": only its own tenant; None: a deployment without view-as (404); a list of ids; or a raw response body
+            if (
+                path == "/api/v1/tenants/viewable"
+            ):  # "own": only its own tenant; None: a deployment without view-as (404); a list of ids; or a raw response body
                 v = viewable[i]
                 if v is None:
                     return R(404)
-                return R(200, {"tenants": [{"id": t} for t in ([ids[i]] if v == "own" else v)]}) if isinstance(v, (list, str)) else R(200, v)
+                return (
+                    R(200, {"tenants": [{"id": t} for t in ([ids[i]] if v == "own" else v)]}) if isinstance(v, (list, str)) else R(200, v)
+                )
             if path == "/api/v1/tenants/selectable":
                 return R(200, {"can_select_other_tenants": can_select[i]}) if can_select[i] is not None else R(404)
             if path == "/api/v1/auth/authorize":
@@ -172,7 +178,10 @@ class TestPreflight:
             await tf.preflight(script_for(can_select=flags), TOK)
         assert f"user {who} may look at other tenants" in str(exc.value) and "plain tenant admins" in str(exc.value)
 
-    @pytest.mark.parametrize("who,viewable", [("A", (["tid-a", "tid-child"], "own")), ("B", ("own", ["tid-b", "tid-a"])), ("A", (["tid-a", "tid-b", "tid-c"], "own"))])
+    @pytest.mark.parametrize(
+        "who,viewable",
+        [("A", (["tid-a", "tid-child"], "own")), ("B", ("own", ["tid-b", "tid-a"])), ("A", (["tid-a", "tid-b", "tid-c"], "own"))],
+    )
     async def test_a_user_who_may_view_other_tenants_is_refused_and_named(self, who, viewable):
         """If A managed B (or had platform power), 'B cannot be viewed by A' would fail for a legitimate reason."""
         with pytest.raises(tf.PreflightError) as exc:
@@ -255,8 +264,15 @@ class TestPortability:
         slug = re.compile(r"(?<![\w-])tenant-[ab](?!\w)")
         assert not slug.search(inspect.getsource(tf))
         # the guard still catches real uses, and only those
-        assert slug.search("slug == 'tenant-a'") and slug.search('"tenant-b"') and slug.search("name = tenant-a-x") and slug.search("tenant-a")
-        assert not slug.search("/api/v1/platform/all-tenant-access/x") and not slug.search("tenant-access") and not slug.search("my-tenant-a") and not slug.search("tenant-ab")
+        assert (
+            slug.search("slug == 'tenant-a'") and slug.search('"tenant-b"') and slug.search("name = tenant-a-x") and slug.search("tenant-a")
+        )
+        assert (
+            not slug.search("/api/v1/platform/all-tenant-access/x")
+            and not slug.search("tenant-access")
+            and not slug.search("my-tenant-a")
+            and not slug.search("tenant-ab")
+        )
 
     def test_run_flows_sends_every_request_through_the_retrying_sender(self):
         import inspect
@@ -303,7 +319,18 @@ class TestRunUrlCommand:
     def test_the_happy_path_calls_the_runner_with_everything_and_writes_the_results(self, harness):
         code, cap, calls = harness.go(self.ok(extra=["--out", str(harness.out)]))
         assert code == 0 and len(calls) == 1
-        assert calls[0] == {"emails": ("a@x.com", "b@x.com"), "password": "pw", "base_url": "https://staging.example.com", "password_b": "pw", "spec": None, "timeout": 30.0, "concurrency": 3, "sweep": True, "skip_flows": tf.DESTRUCTIVE_FLOWS, "cleanup": True}
+        assert calls[0] == {
+            "emails": ("a@x.com", "b@x.com"),
+            "password": "pw",
+            "base_url": "https://staging.example.com",
+            "password_b": "pw",
+            "spec": None,
+            "timeout": 30.0,
+            "concurrency": 3,
+            "sweep": True,
+            "skip_flows": tf.DESTRUCTIVE_FLOWS,
+            "cleanup": True,
+        }
         assert json.loads(harness.out.read_text()) == harness.rows and "[t] 1 steps; as expected: 1" in cap.out
         assert "They will CREATE test data in both tenants" in cap.err
 
@@ -323,7 +350,9 @@ class TestRunUrlCommand:
         code, _, calls = harness.go(argv)
         assert code == 0 and len(calls) == 1
 
-    @pytest.mark.parametrize("url", ["staging.example.com", "ftp://staging.example.com", "https://", "//staging.example.com", "file:///etc/passwd"])
+    @pytest.mark.parametrize(
+        "url", ["staging.example.com", "ftp://staging.example.com", "https://", "//staging.example.com", "file:///etc/passwd"]
+    )
     def test_it_refuses_something_that_is_not_an_http_url_with_a_host(self, harness, url):
         argv = [*URL, "--base-url", url, "--confirm-host", "staging.example.com", "--yes-write-test-data"]
         code, cap, calls = harness.go(argv)
@@ -363,7 +392,12 @@ class TestRunUrlCommand:
         spec = tmp_path / "spec.json"
         spec.write_text(json.dumps({"paths": {"/api/v1/x": {}}}))
         _, _, calls = harness.go(self.ok(extra=["--spec-file", str(spec), "--timeout", "7.5", "--concurrency", "2", "--no-sweep"]))
-        assert calls[0]["spec"] == {"paths": {"/api/v1/x": {}}} and calls[0]["timeout"] == 7.5 and calls[0]["concurrency"] == 2 and calls[0]["sweep"] is False
+        assert (
+            calls[0]["spec"] == {"paths": {"/api/v1/x": {}}}
+            and calls[0]["timeout"] == 7.5
+            and calls[0]["concurrency"] == 2
+            and calls[0]["sweep"] is False
+        )
 
     def test_a_failed_preflight_exits_2_and_says_nothing_was_written(self, harness, monkeypatch):
         async def boom(*a, **k):
@@ -381,6 +415,7 @@ class TestRunUrlCommand:
     def test_a_setup_error_and_a_finding_have_different_exit_codes(self, harness, monkeypatch):
         """2 means 'fix the setup', 1 means 'the flows found a problem': a typo'd password must never look like an isolation failure."""
         assert 1 != 2
+
         async def bad_login(*a, **k):
             raise tf.PreflightError("login failed for tenant A (a@x.com): HTTP 401. Check the account name and the password.")
 
@@ -464,7 +499,11 @@ class TestTheRealRunnerLogsIn:
         assert server["logins"] == [("a@x.com", "pw-a"), ("b@x.com", "pw-b")]
 
     async def test_an_account_name_is_sent_as_an_account_name_and_an_address_as_an_email(self, server):
-        for identifiers, keys in ((("admin-a", "admin-b"), ["account_name", "account_name"]), (("a@x.com", "b@x.com"), ["email", "email"]), (("admin-a", "b@x.com"), ["account_name", "email"])):  # noqa: E501
+        for identifiers, keys in (
+            (("admin-a", "admin-b"), ["account_name", "account_name"]),
+            (("a@x.com", "b@x.com"), ["email", "email"]),
+            (("admin-a", "b@x.com"), ["account_name", "email"]),
+        ):  # noqa: E501
             server["keys"].clear()
             with pytest.raises(tf.PreflightError):  # stops at the preflight (the fake answers 500): after both logins
                 await tf.run_flows(identifiers, "pw-a", base_url="http://x.example", spec={"paths": {}}, password_b="pw-b")
@@ -514,7 +553,10 @@ class TestARunCanBeRepeatedAndTouchesNothingItDidNotCreate:
         monkeypatch.setitem(tf.RUN, "tag", "a1b2c3")
         tagged = tf.gen(spec, string, "/api/v1/things.post.name")
         assert plain != tagged and tagged.endswith("a1b2c3") and tagged.startswith("flow-") and len(tagged) <= 40
-        assert tf.gen(spec, {"type": "string", "format": "uuid"}, "s") != (monkeypatch.setitem(tf.RUN, "tag", ""), tf.gen(spec, {"type": "string", "format": "uuid"}, "s"))[1]
+        assert (
+            tf.gen(spec, {"type": "string", "format": "uuid"}, "s")
+            != (monkeypatch.setitem(tf.RUN, "tag", ""), tf.gen(spec, {"type": "string", "format": "uuid"}, "s"))[1]
+        )
 
     def test_two_fields_of_one_body_do_not_collapse_into_the_same_value(self, monkeypatch):
         monkeypatch.setitem(tf.RUN, "tag", "a1b2c3")
@@ -559,7 +601,9 @@ class TestARunCanBeRepeatedAndTouchesNothingItDidNotCreate:
 
     def test_the_inbox_flow_never_picks_a_token_off_a_list(self):
         steps = tf.build_flows()["inbox_tokens"]
-        assert not [s for s in steps if s.capture and "fingerprint" in s.capture[1]], "a list's first entry may be a token the flow did not create"
+        assert not [
+            s for s in steps if s.capture and "fingerprint" in s.capture[1]
+        ], "a list's first entry may be a token the flow did not create"
         for s in steps:
             if s.capture:
                 assert s.method == "post" and s.capture[1] == "token" and len(s.capture) == 3 and s.capture[2] is tf._token_fingerprint
@@ -570,7 +614,9 @@ class TestARunCanBeRepeatedAndTouchesNothingItDidNotCreate:
         # only a SUCCESSFUL delete revokes a token: "B cannot revoke A's token" is a delete that must fail with a 404
         revoked = {name for s in steps if s.method == "delete" and 204 in s.expect for name in created if s.tpl.endswith("{" + name + "}")}
         # a rotation retires the token it rotated; the one it produced, and the one A minted, must be revoked by the flow
-        rotated_from = {s.tpl.split("/")[-2].strip("{}") for s in steps if s.tpl.endswith("/rotate") and 200 in s.expect}  # only a SUCCESSFUL rotation retires a token ("B cannot rotate A's token" expects 404)
+        rotated_from = {
+            s.tpl.split("/")[-2].strip("{}") for s in steps if s.tpl.endswith("/rotate") and 200 in s.expect
+        }  # only a SUCCESSFUL rotation retires a token ("B cannot rotate A's token" expects 404)
         assert created - rotated_from == revoked
 
     def test_every_flow_that_replaces_existing_configuration_is_in_the_destructive_set(self):
@@ -620,7 +666,10 @@ class TestRunFlowsAgainstADeployment:
         def build():
             seen["tag_at_build"].append(tf.RUN["tag"])
             seen["ids_at_build"].append(dict(tf.TENANT_IDS))
-            return {"keep": [tf.S("A reads keep", "A", "get", "/api/v1/keep", expect=(200,))], "business_context_rules": [tf.S("A replaces", "A", "get", "/api/v1/skipme", expect=(200,))]}
+            return {
+                "keep": [tf.S("A reads keep", "A", "get", "/api/v1/keep", expect=(200,))],
+                "business_context_rules": [tf.S("A replaces", "A", "get", "/api/v1/skipme", expect=(200,))],
+            }
 
         monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
         monkeypatch.setattr(tf, "build_flows", build)
@@ -687,7 +736,21 @@ class TestIncludeDestructiveFlag:
             return [["f", "s", "A", 200, True, ""]]
 
         monkeypatch.setattr(tf, "run_flows", fake)
-        return lambda *extra: (tf.main([*URL, "--base-url", "https://staging.example.com", "--confirm-host", "staging.example.com", "--yes-write-test-data", *extra]), capsys.readouterr().err, calls)
+        return lambda *extra: (
+            tf.main(
+                [
+                    *URL,
+                    "--base-url",
+                    "https://staging.example.com",
+                    "--confirm-host",
+                    "staging.example.com",
+                    "--yes-write-test-data",
+                    *extra,
+                ]
+            ),
+            capsys.readouterr().err,
+            calls,
+        )
 
     def test_by_default_the_replace_style_flows_are_skipped_and_the_operator_is_told(self, cli):
         code, err, calls = cli()
@@ -871,7 +934,9 @@ class TestCleanupAfterTheSweep:
 
         monkeypatch.setattr(tf, "_send", flaky)
         rows = await self.run(sweep=False)
-        assert [r for r in rows if r[0] == "CLEANUP"] == [["CLEANUP", "A deletes the fresh object 'f_widget'", "A", "EXC", False, "RuntimeError"]]
+        assert [r for r in rows if r[0] == "CLEANUP"] == [
+            ["CLEANUP", "A deletes the fresh object 'f_widget'", "A", "EXC", False, "RuntimeError"]
+        ]
 
     def test_the_cli_can_switch_it_off(self, monkeypatch, capsys):
         monkeypatch.setenv("TENANT_FLOWS_PASSWORD", "pw")

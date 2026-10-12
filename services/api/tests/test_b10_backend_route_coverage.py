@@ -28,8 +28,8 @@ import pytest
 # Paths — REPO_ROOT is the monorepo root; SERVICES_ROOT is services/
 # ---------------------------------------------------------------------------
 _THIS_FILE = Path(__file__).resolve()
-REPO_ROOT = _THIS_FILE.parents[3]       # services/api/tests/X.py → repo root
-SERVICES_ROOT = _THIS_FILE.parents[1]   # services/api/tests/X.py → services/
+REPO_ROOT = _THIS_FILE.parents[3]  # services/api/tests/X.py → repo root
+SERVICES_ROOT = _THIS_FILE.parents[1]  # services/api/tests/X.py → services/
 WEB_SRC = REPO_ROOT / "apps" / "web" / "src"
 NEXT_CONFIG = REPO_ROOT / "apps" / "web" / "next.config.js"
 
@@ -37,6 +37,7 @@ NEXT_CONFIG = REPO_ROOT / "apps" / "web" / "next.config.js"
 # ---------------------------------------------------------------------------
 # Load backend routes PER SERVICE
 # ---------------------------------------------------------------------------
+
 
 def _load_api_routes() -> set[str]:
     """Return all route paths from the api FastAPI app.
@@ -48,6 +49,7 @@ def _load_api_routes() -> set[str]:
     """
     os.environ.setdefault("ENVIRONMENT", "development")
     from app.main import app as api_app  # noqa: E402
+
     schema = api_app.openapi()
     return set(schema.get("paths", {}).keys())
 
@@ -96,10 +98,7 @@ def _load_agents_routes() -> set[str]:
         timeout=30,
     )
     if result.returncode != 0:
-        pytest.fail(
-            f"Failed to load agents OpenAPI routes in subprocess:\n"
-            f"{result.stderr.strip()}"
-        )
+        pytest.fail(f"Failed to load agents OpenAPI routes in subprocess:\n" f"{result.stderr.strip()}")
     # Parse only the marked line; ignore any other stdout noise
     for line in result.stdout.splitlines():
         if line.startswith(marker):
@@ -108,15 +107,13 @@ def _load_agents_routes() -> set[str]:
                 return set(paths)
             except json.JSONDecodeError as exc:
                 pytest.fail(f"Invalid JSON from agents subprocess: {exc}\n{line}")
-    pytest.fail(
-        f"No marked JSON line found in agents subprocess output:\n"
-        f"{result.stdout[:500]}"
-    )
+    pytest.fail(f"No marked JSON line found in agents subprocess output:\n" f"{result.stdout[:500]}")
 
 
 # ---------------------------------------------------------------------------
 # Parse next.config.js rewrites IN ORDER
 # ---------------------------------------------------------------------------
+
 
 def _parse_rewrites() -> list[tuple[str, str]]:
     """Extract (source_pattern, dest_host_var) from next.config.js in order.
@@ -145,7 +142,7 @@ def _parse_rewrites() -> list[tuple[str, str]]:
         dest_var = m.group(2)
         # Convert Next.js :param and :path* patterns to regex wildcards
         regex = re.sub(r":(\w+)\*", r".*", source)  # :path* → .*
-        regex = re.sub(r":(\w+)", r"[^/]+", regex)   # :id → [^/]+
+        regex = re.sub(r":(\w+)", r"[^/]+", regex)  # :id → [^/]+
         regex = f"^{regex}$"
         rewrites.append((regex, dest_var))
     return rewrites
@@ -160,9 +157,7 @@ def _parse_rewrites() -> list[tuple[str, str]]:
 # written `${API}/api/v1/...` or `'/api/v1/x?limit=5'` was invisible to this gate: the honeytokens and purple-team pages called routes
 # nothing served, and "Explain this alert" 404'd, and the gate passed. ${...} interpolations are kept as path segments; the path ends
 # at a "?" (query string), a quote, a backtick, whitespace, ")" or ",".
-_FRONTEND_API_RE = re.compile(
-    r"""(?:(?<=['"`])|(?<=\}))(/api/v1/(?:[A-Za-z0-9/_.\-]|\$\{[^}]*\})+)"""
-)
+_FRONTEND_API_RE = re.compile(r"""(?:(?<=['"`])|(?<=\}))(/api/v1/(?:[A-Za-z0-9/_.\-]|\$\{[^}]*\})+)""")
 
 
 def _is_test_source(fpath) -> bool:
@@ -219,6 +214,7 @@ def _scan_frontend_paths(extra_sources: list[str] | None = None) -> set[str]:
 # ---------------------------------------------------------------------------
 # Route matching helpers
 # ---------------------------------------------------------------------------
+
 
 def _normalize(path: str) -> str:
     return path.rstrip("/").lower()
@@ -331,12 +327,13 @@ _EXCEPTIONS: dict[str, str] = {
     "/api/v1/copilot/chat/stream": "unused client (copilotApi.streamChat); no service serves it",
     "/api/v1/agents/investigate/stream": "unused client (agentsApi.streamInvestigation); no service serves it",
     # Saved hunt by ID — conditional router not loaded in dev-mode OpenAPI
-    }
+}
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestBackendRouteCoverage:
     """B10 v2: Next.js-aware route coverage with per-service resolution."""
@@ -398,9 +395,7 @@ class TestBackendRouteCoverage:
         if unmatched:
             msg = (
                 "Frontend /api/v1/ paths with no backend route in the "
-                "resolved service:\n"
-                + "\n".join(f"  - {p}" for p in unmatched)
-                + "\n\nAdd the endpoint, fix the rewrite, or add to "
+                "resolved service:\n" + "\n".join(f"  - {p}" for p in unmatched) + "\n\nAdd the endpoint, fix the rewrite, or add to "
                 "_EXCEPTIONS with a real reason."
             )
             pytest.fail(msg)
@@ -512,10 +507,7 @@ class TestBackendRouteCoverage:
             if not _route_matches(path, routes):
                 if "totally-made-up-route-xyz" in path:
                     found_unmatched = True
-        assert found_unmatched, (
-            "Gate did NOT catch /api/v1/totally-made-up-route-xyz — "
-            "the check is broken"
-        )
+        assert found_unmatched, "Gate did NOT catch /api/v1/totally-made-up-route-xyz — " "the check is broken"
 
     def test_mutation_old_indicators_endpoint_fails(
         self,
@@ -536,10 +528,7 @@ class TestBackendRouteCoverage:
             if not _route_matches(path, routes):
                 if "threat-intel/indicators" in path:
                     found_unmatched = True
-        assert found_unmatched, (
-            "Gate did NOT catch /api/v1/threat-intel/indicators — "
-            "the check is broken"
-        )
+        assert found_unmatched, "Gate did NOT catch /api/v1/threat-intel/indicators — " "the check is broken"
 
     def test_mutation_template_literal_ghost_route_fails(
         self,
@@ -549,7 +538,7 @@ class TestBackendRouteCoverage:
     ) -> None:
         """A template-literal call like `/api/v1/ghost-things/${id}/nothing`
         must be caught."""
-        fake = {'`/api/v1/ghost-things/${id}/nothing`'}
+        fake = {"`/api/v1/ghost-things/${id}/nothing`"}
         paths = _scan_frontend_paths(extra_sources=list(fake))
         service_map = {"API_HOST": api_routes, "AGENTS_HOST": agents_routes}
         found_unmatched = False
@@ -561,10 +550,7 @@ class TestBackendRouteCoverage:
             if not _route_matches(path, routes):
                 if "ghost-things" in path:
                     found_unmatched = True
-        assert found_unmatched, (
-            "Gate did NOT catch /api/v1/ghost-things/${{id}}/nothing — "
-            "template-literal scanning is broken"
-        )
+        assert found_unmatched, "Gate did NOT catch /api/v1/ghost-things/${{id}}/nothing — " "template-literal scanning is broken"
 
 
 def test_test_files_are_not_scanned_but_shipped_files_are(tmp_path, monkeypatch):
@@ -584,11 +570,13 @@ def test_test_files_are_not_scanned_but_shipped_files_are(tmp_path, monkeypatch)
 
 
 def test_a_query_string_suffix_is_not_part_of_the_path_but_a_path_parameter_is():
-    found = _scan_frontend_paths(extra_sources=[
-        "request(`/api/v1/ghost-list${qs}`)",
-        "request(`/api/v1/ghost-things/${id}/nothing`)",
-        "request(`/api/v1/ghost-things/${id}`)",
-    ])
+    found = _scan_frontend_paths(
+        extra_sources=[
+            "request(`/api/v1/ghost-list${qs}`)",
+            "request(`/api/v1/ghost-things/${id}/nothing`)",
+            "request(`/api/v1/ghost-things/${id}`)",
+        ]
+    )
     assert "/api/v1/ghost-list" in found and "/api/v1/ghost-list${qs}" not in found
     assert "/api/v1/ghost-things/${id}/nothing" in found and "/api/v1/ghost-things/${id}" in found
 
@@ -603,6 +591,7 @@ def test_a_console_call_to_an_unserved_path_with_a_query_suffix_is_still_caught(
 # ---------------------------------------------------------------------------
 # The scanner itself, and the exceptions that must expire
 # ---------------------------------------------------------------------------
+
 
 class TestFrontendScanner:
     """The extraction used to miss every call written `${HOST}/api/v1/...`; these pin what it must see."""
@@ -675,4 +664,3 @@ class TestExpiringExceptions:
     def test_explain_is_routed_to_the_agents_service(self, rewrites: list[tuple[str, str]] | None = None) -> None:
         """The console's 'Explain this alert' POSTs /api/v1/explain, which only the agents service serves."""
         assert _resolve_service_for_path("/api/v1/explain", _parse_rewrites()) == "AGENTS_HOST"
-

@@ -6,6 +6,7 @@ ensure_*, assert_*, check_*, ...), a role comparison, or has_permission. This is
 a heuristic safety net, not proof of correctness: it exists so that a NEW route
 cannot quietly ship with a login check only.
 """
+
 import ast
 import glob
 import os
@@ -36,14 +37,25 @@ def unguarded_routes() -> list[str]:
                         prefix = kw.value.value
         for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
             for dec in fn.decorator_list:
-                if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) and dec.func.attr in METHODS and getattr(dec.func.value, "id", "") == "router"):
+                if not (
+                    isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Attribute)
+                    and dec.func.attr in METHODS
+                    and getattr(dec.func.value, "id", "") == "router"
+                ):
                     continue
                 route = dec.args[0].value if dec.args and isinstance(dec.args[0], ast.Constant) else ""
                 header = ast.get_source_segment(src, fn) or ""
                 header = header.partition(":\n")[0]
-                decorator = ast.get_source_segment(src, dec) or ""   # dependencies=[Depends(require_permission(...))] lives here
-                declared = bool(re.search(r'require_permission\(\s*["\']', header)) or bool(re.search(r'require_permission\(\s*["\']', decorator))
-                body = fn.body[1:] if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(getattr(fn.body[0], "value", None), ast.Constant) else fn.body
+                decorator = ast.get_source_segment(src, dec) or ""  # dependencies=[Depends(require_permission(...))] lives here
+                declared = bool(re.search(r'require_permission\(\s*["\']', header)) or bool(
+                    re.search(r'require_permission\(\s*["\']', decorator)
+                )
+                body = (
+                    fn.body[1:]
+                    if fn.body and isinstance(fn.body[0], ast.Expr) and isinstance(getattr(fn.body[0], "value", None), ast.Constant)
+                    else fn.body
+                )
                 inline = bool(GUARD.search("\n".join(ast.unparse(b) for b in body)))
                 if not declared and not inline:
                     out.append(f"{dec.func.attr.upper()} {prefix}{route} [{os.path.basename(path)}::{fn.name}]")

@@ -23,7 +23,9 @@ class CommunityCatalogItem(Base):
     kind: Mapped[str] = mapped_column(String(20), primary_key=True)  # "plugin" | "detection" | "playbook"
     item_id: Mapped[str] = mapped_column(String(200), primary_key=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # "pending" | "approved" | "rejected"
-    submitter_tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True)
+    submitter_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True
+    )
     data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

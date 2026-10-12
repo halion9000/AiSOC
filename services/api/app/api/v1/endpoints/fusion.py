@@ -146,7 +146,6 @@ async def ml_status() -> dict[str, Any]:
 _DEFAULT_THRESHOLD = 100.0
 
 
-
 def _effective_tenant(tenant_id: UUID | None, user: "AuthUser") -> str:
     """The tenant this request is for. The fusion service trusts the tenant_id it is sent, so the check lives here.
 

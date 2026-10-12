@@ -4,6 +4,7 @@ The agents service requires authentication in production; the API has already
 authenticated the user, so its proxies vouch with x-internal-token. In
 development (no token configured) nothing is sent.
 """
+
 import asyncio
 import uuid
 from types import SimpleNamespace

@@ -86,8 +86,7 @@ def _build_bolt_app(api_client: AisocApiClient, actions_client: AisocActionsClie
     # acceptable: the service refuses to start rather than run unverified.
     if not settings.signature_verification_enabled:
         raise RuntimeError(
-            "SLACK_SIGNING_SECRET is required: without it /slack/events would accept unsigned requests. "
-            "Set it before starting the bot."
+            "SLACK_SIGNING_SECRET is required: without it /slack/events would accept unsigned requests. " "Set it before starting the bot."
         )
 
     # ``token`` defaults to a placeholder when missing so Bolt doesn't reject the constructor; outbound API calls

@@ -1,9 +1,11 @@
 """The actions service says, once, when its database role bypasses row-level security (see the API's test of the same name)."""
+
 from types import SimpleNamespace
 
 import pytest
 
 from app import db_role
+
 
 class Spy:
     def __init__(self):

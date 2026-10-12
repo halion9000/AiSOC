@@ -7,6 +7,7 @@ Defects fixed here (these routes had no tests):
   4. `question` was unbounded (straight into a paid model prompt), and the docs claimed calls are written to the investigation ledger when only a log line is written.
 The routes themselves hold no state and no tenant data (the entity comes from the caller's own screen); the caller's tenant and user now appear in the log line for audit.
 """
+
 import importlib.util
 import json
 from types import SimpleNamespace
@@ -17,7 +18,9 @@ from fastapi.testclient import TestClient
 
 from app.api import contextual
 
-pytestmark = pytest.mark.skipif(importlib.util.find_spec("langchain_openai") is None, reason="langchain_openai is not installed in this environment")
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("langchain_openai") is None, reason="langchain_openai is not installed in this environment"
+)
 
 BASE = "/api/v1/contextual"
 BODY = {"page": "alerts", "action": "explain", "entity_id": "a-1", "entity": {"title": "Encoded PowerShell"}}
@@ -260,7 +263,9 @@ class TestInputIsBounded:
 class TestTheCallerIsInTheAuditLog:
     def test_an_authenticated_callers_tenant_and_user_are_logged(self, monkeypatch, log):
         with_model(monkeypatch)
-        make_client({"kind": "user", "tenant_id": "tenant-a", "user_id": "user-7"}).post(f"{BASE}/action", json={**BODY, "case_id": "case-9"})
+        make_client({"kind": "user", "tenant_id": "tenant-a", "user_id": "user-7"}).post(
+            f"{BASE}/action", json={**BODY, "case_id": "case-9"}
+        )
         rec = log.find("contextual.action.done")
         assert rec["tenant_id"] == "tenant-a" and rec["user_id"] == "user-7" and rec["case_id"] == "case-9"
 
@@ -280,7 +285,11 @@ class TestTheCatalogueIsConsistent:
     """The module promises its catalogue is kept in sync with the UI and the prompts."""
 
     def test_every_catalogued_action_has_a_prompt_and_every_prompt_is_catalogued(self):
-        listed = {(page, item["key"] if "key" in item else item["action"]) for page, items in contextual._ACTION_CATALOGUE.items() for item in items}
+        listed = {
+            (page, item["key"] if "key" in item else item["action"])
+            for page, items in contextual._ACTION_CATALOGUE.items()
+            for item in items
+        }
         assert listed == set(contextual._SYSTEM_PROMPTS)
 
     def test_the_catalogue_endpoint_serves_it(self):
@@ -308,7 +317,21 @@ class TestEachRouteIsWiredToItsHandler:
     def test_the_action_route_returns_the_documented_response_shape(self, monkeypatch):
         with_model(monkeypatch)
         body = make_client().post(f"{BASE}/action", json=BODY).json()
-        assert {"id", "page", "action", "entity_id", "title", "content", "confidence", "suggestions", "citations", "model", "elapsed_ms", "fallback", "created_at"} <= set(body)
+        assert {
+            "id",
+            "page",
+            "action",
+            "entity_id",
+            "title",
+            "content",
+            "confidence",
+            "suggestions",
+            "citations",
+            "model",
+            "elapsed_ms",
+            "fallback",
+            "created_at",
+        } <= set(body)
 
 
 class TestNothingIsStored:

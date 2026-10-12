@@ -4,6 +4,7 @@ Why these exist (all verified on a real Postgres): every service connects as the
 `GRANT ALL`, the TRUNCATE privilege, which ignores RLS and row triggers and so could erase the append-only audit_log. Docker is not available where this is tested, so the SQL behaviour was verified against real Postgres by hand and
 these tests pin the SHAPE: what the script may and may not contain, and, by emulating compose's merge, what configuration each service would actually receive.
 """
+
 import re
 from pathlib import Path
 
@@ -45,10 +46,18 @@ class TestTheProvisioningScript:
 
     def test_the_password_is_only_ever_interpolated_into_the_validation_and_the_alter_role(self):
         uses = [line.strip() for line in SQL_CODE.splitlines() if ":'app_pw'" in line]
-        assert len(uses) == 2 and any("ALTER ROLE aisoc_app" in u and "PASSWORD :'app_pw'" in u for u in uses) and any("length(:'app_pw')" in u for u in uses)
+        assert (
+            len(uses) == 2
+            and any("ALTER ROLE aisoc_app" in u and "PASSWORD :'app_pw'" in u for u in uses)
+            and any("length(:'app_pw')" in u for u in uses)
+        )
 
     def test_it_never_echoes_or_selects_the_password(self):
-        assert not re.search(r"\\echo|\\qecho|\\set\s+ECHO|SELECT[^;\n]*:'?app_pw", SQL_CODE.replace("length(:'app_pw') >= 16 AND :'app_pw' NOT IN", ""), re.I)
+        assert not re.search(
+            r"\\echo|\\qecho|\\set\s+ECHO|SELECT[^;\n]*:'?app_pw",
+            SQL_CODE.replace("length(:'app_pw') >= 16 AND :'app_pw' NOT IN", ""),
+            re.I,
+        )
 
     def test_it_refuses_a_missing_short_or_published_password(self):
         assert r"\if :{?app_pw}" in SQL_CODE and "is not set" in SQL_CODE
@@ -62,7 +71,10 @@ class TestTheProvisioningScript:
         alter = re.search(r"ALTER ROLE aisoc_app WITH ([^;]*);", SQL_CODE).group(1)
         for attribute in ("LOGIN", "NOSUPERUSER", "NOBYPASSRLS", "NOCREATEDB", "NOCREATEROLE", "NOREPLICATION"):
             assert attribute in alter.split(), attribute
-        assert not re.search(r"(?<!NO)(SUPERUSER|BYPASSRLS|CREATEROLE|CREATEDB|REPLICATION)\b", re.sub(r"NO(SUPERUSER|BYPASSRLS|CREATEROLE|CREATEDB|REPLICATION)", "", alter))
+        assert not re.search(
+            r"(?<!NO)(SUPERUSER|BYPASSRLS|CREATEROLE|CREATEDB|REPLICATION)\b",
+            re.sub(r"NO(SUPERUSER|BYPASSRLS|CREATEROLE|CREATEDB|REPLICATION)", "", alter),
+        )
 
     def test_it_creates_the_role_only_if_missing(self):
         assert "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aisoc_app')" in SQL_CODE and r"\gexec" in SQL_CODE
@@ -101,16 +113,24 @@ class TestMigration062:
 
     def test_the_migration_that_granted_all_is_still_there_and_is_not_edited(self):
         """062 corrects 002 instead of rewriting history (002 is already applied everywhere)."""
-        assert "GRANT ALL ON ALL TABLES IN SCHEMA public TO aisoc_app" in (ROOT / "services/api/migrations/002_rls.sql").read_text(encoding="utf-8")
+        assert "GRANT ALL ON ALL TABLES IN SCHEMA public TO aisoc_app" in (ROOT / "services/api/migrations/002_rls.sql").read_text(
+            encoding="utf-8"
+        )
 
 
 class TestTheOverlay:
     services = merged()
 
     def test_only_actions_and_agents_are_switched_to_the_app_role(self):
-        users = {name: re.search(r"://([^:]+):", svc["environment"]["DATABASE_URL"]).group(1) for name, svc in self.services.items() if "DATABASE_URL" in svc.get("environment", {})}
+        users = {
+            name: re.search(r"://([^:]+):", svc["environment"]["DATABASE_URL"]).group(1)
+            for name, svc in self.services.items()
+            if "DATABASE_URL" in svc.get("environment", {})
+        }
         assert users["actions"] == "aisoc_app" and users["agents"] == "aisoc_app"
-        assert {n: u for n, u in users.items() if n not in ("actions", "agents")} == {n: "aisoc" for n in users if n not in ("actions", "agents")}
+        assert {n: u for n, u in users.items() if n not in ("actions", "agents")} == {
+            n: "aisoc" for n in users if n not in ("actions", "agents")
+        }
 
     def test_the_api_is_deliberately_not_switched_and_says_why(self):
         assert "api" not in OVERLAY["services"] and "migration" in OVERLAY_TEXT.split("`api` is deliberately NOT switched")[1]
@@ -130,7 +150,11 @@ class TestTheOverlay:
         base = BASE["services"]["actions"]["environment"]["DATABASE_URL"]
         for name in ("actions", "agents"):
             url = self.services[name]["environment"]["DATABASE_URL"]
-            assert url.startswith("postgresql+asyncpg://aisoc_app:") and url.endswith("@postgres:5432/aisoc") and base.endswith("@postgres:5432/aisoc")
+            assert (
+                url.startswith("postgresql+asyncpg://aisoc_app:")
+                and url.endswith("@postgres:5432/aisoc")
+                and base.endswith("@postgres:5432/aisoc")
+            )
 
     @pytest.mark.parametrize("name", ["actions", "agents"])
     def test_they_wait_for_the_role_setup_and_keep_their_other_dependencies(self, name):
@@ -143,7 +167,12 @@ class TestTheOverlay:
         assert job["restart"] == "no" and job["depends_on"]["postgres"]["condition"] == "service_healthy"
         assert job["command"][:3] == ["psql", "-v", "ON_ERROR_STOP=1"] and job["command"][-1] == "/provision_app_role.sql"
         env = job["environment"]
-        assert env["PGUSER"] == "aisoc" and env["PGHOST"] == "postgres" and env["PGDATABASE"] == "aisoc" and env["PGPASSWORD"].startswith("${POSTGRES_PASSWORD")
+        assert (
+            env["PGUSER"] == "aisoc"
+            and env["PGHOST"] == "postgres"
+            and env["PGDATABASE"] == "aisoc"
+            and env["PGPASSWORD"].startswith("${POSTGRES_PASSWORD")
+        )
 
     def test_the_script_it_mounts_exists(self):
         mount = self.services["db-roles"]["volumes"][0]

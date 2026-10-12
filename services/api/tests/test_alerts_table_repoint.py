@@ -5,6 +5,7 @@ Two of the old queries had NO tenant filter (the case timeline's alert lookup an
 matches nothing, the suggestion endpoint creates its proposal, and the preview samples each tenant's own alerts.
 It also guards the mistake that broke the identity timeline route while this was being written: a helper function inserted between a route decorator and its handler silently binds the route to the helper.
 """
+
 import ast
 import re
 import uuid
@@ -64,7 +65,14 @@ class FakeDB:
 
 def literals(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body and isinstance(n.body[0], ast.Expr) and isinstance(getattr(n.body[0], "value", None), ast.Constant)}
+    docs = {
+        id(n.body[0].value)
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and n.body
+        and isinstance(n.body[0], ast.Expr)
+        and isinstance(getattr(n.body[0], "value", None), ast.Constant)
+    }
     return [norm(n.value) for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs]
 
 
@@ -74,7 +82,12 @@ class TestNoRouteIsBoundToAHelper:
     def test_no_operation_in_the_whole_app_is_bound_to_a_private_function(self):
         from app.main import app
 
-        ops = [(p, m, op.get("operationId", "")) for p, item in app.openapi()["paths"].items() for m, op in item.items() if m in ("get", "post", "put", "patch", "delete")]
+        ops = [
+            (p, m, op.get("operationId", ""))
+            for p, item in app.openapi()["paths"].items()
+            for m, op in item.items()
+            if m in ("get", "post", "put", "patch", "delete")
+        ]
         assert len(ops) > 300
         assert [o for o in ops if o[2].startswith("_")] == []
 
@@ -90,7 +103,14 @@ class TestNoRouteIsBoundToAHelper:
         offenders = []
         for p in sorted(EP.glob("*.py")):
             for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.startswith("_") and any(isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and ast.unparse(d.func.value).endswith("router") for d in n.decorator_list):
+                if (
+                    isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and n.name.startswith("_")
+                    and any(
+                        isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and ast.unparse(d.func.value).endswith("router")
+                        for d in n.decorator_list
+                    )
+                ):
                     offenders.append(f"{p.name}:{n.name}")
         assert offenders == []
 
@@ -111,7 +131,16 @@ class TestDetectionLoopSuggest:
         return seen
 
     def alert(self, **over):
-        base = dict(rule_id=None, tenant_id=TID, title="Odd PowerShell", severity="high", mitre_techniques=["T1059.001"], raw_event={"proc": "powershell.exe"}, entities={}, iocs=[])
+        base = dict(
+            rule_id=None,
+            tenant_id=TID,
+            title="Odd PowerShell",
+            severity="high",
+            mitre_techniques=["T1059.001"],
+            raw_event={"proc": "powershell.exe"},
+            entities={},
+            iocs=[],
+        )
         base.update(over)
         return SimpleNamespace(**base)
 
@@ -129,7 +158,12 @@ class TestDetectionLoopSuggest:
 
     async def test_the_evidence_is_composed_from_the_alerts_own_fields(self, llm):
         await self.run(FakeDB(self.alert(), None))
-        assert llm["alert_fields"] == {"title": "Odd PowerShell", "severity": "high", "mitre_techniques": ["T1059.001"], "raw_event": {"proc": "powershell.exe"}}
+        assert llm["alert_fields"] == {
+            "title": "Odd PowerShell",
+            "severity": "high",
+            "mitre_techniques": ["T1059.001"],
+            "raw_event": {"proc": "powershell.exe"},
+        }
 
     async def test_empty_fields_are_left_out_of_the_evidence(self, llm):
         await self.run(FakeDB(self.alert(mitre_techniques=[], raw_event={}, entities=None, iocs=[], title=""), None))
@@ -187,7 +221,14 @@ class TestDetectionLoopSuggest:
 @pytest.mark.asyncio
 class TestIdentityTimeline:
     def row(self, **over):
-        base = dict(id=uuid.uuid4(), created_at=datetime(2026, 10, 9, tzinfo=UTC), severity="high", title="alice logged in oddly", evidence={"k": "v"}, mitre_techniques=["T1078"])
+        base = dict(
+            id=uuid.uuid4(),
+            created_at=datetime(2026, 10, 9, tzinfo=UTC),
+            severity="high",
+            title="alice logged in oddly",
+            evidence={"k": "v"},
+            mitre_techniques=["T1078"],
+        )
         base.update(over)
         return SimpleNamespace(**base)
 
@@ -200,7 +241,11 @@ class TestIdentityTimeline:
         db = FakeDB([self.row()], [])
         await self.build(db)
         sql, params = db.executed[0]
-        assert "FROM alerts WHERE tenant_id = :tenant_id AND created_at BETWEEN" in sql and params["tenant_id"] == TID and "aisoc_alerts" not in sql
+        assert (
+            "FROM alerts WHERE tenant_id = :tenant_id AND created_at BETWEEN" in sql
+            and params["tenant_id"] == TID
+            and "aisoc_alerts" not in sql
+        )
         assert "raw_event AS evidence" in sql and "mitre_techniques" in sql
 
     async def test_the_search_text_is_escaped_so_percent_and_underscore_are_literal(self):
@@ -213,13 +258,22 @@ class TestIdentityTimeline:
         r = self.row(mitre_techniques=[{"id": "T1021"}, "T1078"])
         out = await self.build(FakeDB([r], []))
         e = out.events[0]
-        assert (e.event_type, e.source, e.description, e.severity, e.mitre_technique, e.raw) == ("alert", "alerts", "alice logged in oddly", "high", "T1021", {"k": "v"})
+        assert (e.event_type, e.source, e.description, e.severity, e.mitre_technique, e.raw) == (
+            "alert",
+            "alerts",
+            "alice logged in oddly",
+            "high",
+            "T1021",
+            {"k": "v"},
+        )
 
     async def test_with_no_technique_it_falls_back_to_the_raw_event(self):
         out = await self.build(FakeDB([self.row(mitre_techniques=[], evidence={"mitre_attack_id": "T1110"})], []))
         assert out.events[0].mitre_technique == "T1110"
 
-    @pytest.mark.parametrize("techniques,expected", [(["T1"], "T1"), ([{"id": "T2"}], "T2"), ([None, "", {"x": 1}, "T3"], "T3"), ([], None), (None, None)])
+    @pytest.mark.parametrize(
+        "techniques,expected", [(["T1"], "T1"), ([{"id": "T2"}], "T2"), ([None, "", {"x": 1}, "T3"], "T3"), ([], None), (None, None)]
+    )
     def test_first_technique(self, techniques, expected):
         from app.api.v1.endpoints.identity_timeline import _first_technique
 
@@ -234,17 +288,44 @@ class TestBusinessContextPreview:
         db = FakeDB([])
         await bc._fetch_sample_alerts(db, TID, limit=7)
         sql, params = db.executed[0]
-        assert "FROM alerts WHERE tenant_id = :tenant_id" in sql and "aisoc_alerts" not in sql and params["tenant_id"] == str(TID) and params["limit"] == 7
-        for mapping in ("connector_type AS source", "affected_ips ->> 0 AS src_ip", "affected_hosts ->> 0 AS hostname", "affected_users ->> 0 AS username", "enrichment_data AS metadata"):
+        assert (
+            "FROM alerts WHERE tenant_id = :tenant_id" in sql
+            and "aisoc_alerts" not in sql
+            and params["tenant_id"] == str(TID)
+            and params["limit"] == 7
+        )
+        for mapping in (
+            "connector_type AS source",
+            "affected_ips ->> 0 AS src_ip",
+            "affected_hosts ->> 0 AS hostname",
+            "affected_users ->> 0 AS username",
+            "enrichment_data AS metadata",
+        ):
             assert mapping in sql
         assert "ORDER BY created_at DESC" in sql
 
     async def test_rows_are_shaped_for_the_rule_grammar(self):
         from app.api.v1.endpoints import business_context as bc
 
-        row = {"id": uuid.uuid4(), "severity": "high", "title": "t", "source": "okta", "src_ip": "10.0.0.1", "hostname": "h1", "username": "alice", "tags": ["a", "b"], "metadata": {"target": {"tag": "prod"}}}
+        row = {
+            "id": uuid.uuid4(),
+            "severity": "high",
+            "title": "t",
+            "source": "okta",
+            "src_ip": "10.0.0.1",
+            "hostname": "h1",
+            "username": "alice",
+            "tags": ["a", "b"],
+            "metadata": {"target": {"tag": "prod"}},
+        }
         out = await bc._fetch_sample_alerts(FakeDB([row]), TID)
-        assert out[0]["src_ip"] == "10.0.0.1" and out[0]["hostname"] == "h1" and out[0]["tags"] == ["a", "b"] and out[0]["alert"]["target"] == {"tag": "prod"} and out[0]["source"] == "okta"
+        assert (
+            out[0]["src_ip"] == "10.0.0.1"
+            and out[0]["hostname"] == "h1"
+            and out[0]["tags"] == ["a", "b"]
+            and out[0]["alert"]["target"] == {"tag": "prod"}
+            and out[0]["source"] == "okta"
+        )
 
     async def test_a_database_failure_is_an_empty_sample_not_an_error(self):
         from app.api.v1.endpoints import business_context as bc

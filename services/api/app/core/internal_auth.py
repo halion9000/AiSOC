@@ -7,6 +7,7 @@ internal token rather than forwarding user credentials. Compose wires the same
 secret to the API (REALTIME_INTERNAL_TOKEN) and to agents/realtime
 (INTERNAL_TOKEN). In development the token is empty and nothing is sent.
 """
+
 import os
 
 from app.core.config import settings

@@ -83,7 +83,9 @@ def _require_scopes_held(current_user: AuthUser, scopes: list[str]) -> None:
     for scope in scopes:
         held = current_user.holds_wildcard() if scope == "*" else current_user.holds(scope)
         if not held:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"You cannot grant the scope {scope!r}: you do not hold it yourself.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=f"You cannot grant the scope {scope!r}: you do not hold it yourself."
+            )
 
 
 def _validate_scopes(scopes: list[str]) -> None:

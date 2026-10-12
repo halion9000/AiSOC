@@ -4,6 +4,7 @@ Found by running the real API against real Postgres with two-tenant flows (creat
 and /reports/generate all WROTE the row and then crashed building their own response, because their `*Out` models declared timestamps as `str` and Pydantic v2 (the project pins >=2.7,<2.14) will not turn a datetime into a str. /assets and /assets/vulnerabilities also
 returned SQLAlchemy's registry `MetaData()` object where the response wanted the `metadata` column (on a declarative class `metadata` is the registry, so a field named `metadata` read it). Nothing in the suite exercised these endpoints end to end.
 """
+
 import importlib
 import typing
 from datetime import UTC, datetime
@@ -14,15 +15,54 @@ from sqlalchemy import MetaData
 
 # (module, class, field): every response-model timestamp that was declared `str` and is now `datetime`.
 FIXED = [
-    ("mssp", "ChildTenantOut", "created_at"), ("mssp", "TenantNoteOut", "created_at"), ("mssp", "DelegationOut", "created_at"), ("mssp", "RulePackOut", "created_at"), ("mssp", "RulePackOut", "updated_at"),
-    ("mssp", "PackAssignmentOut", "created_at"), ("mssp", "RuleOverrideOut", "created_at"), ("mssp", "CrossTenantIncident", "created_at"), ("mssp", "MetricsOut", "snapshot_at"), ("mssp", "ManagedTenantRow", "snapshot_at"),
-    ("threat_intel", "IOCOut", "first_seen"), ("threat_intel", "IOCOut", "last_seen"), ("threat_intel", "IOCOut", "created_at"), ("threat_intel", "ThreatActorOut", "created_at"), ("threat_intel", "FeedOut", "last_polled_at"), ("threat_intel", "FeedOut", "created_at"),
-    ("posture", "FindingOut", "first_detected_at"), ("posture", "FindingOut", "last_evaluated_at"), ("posture", "FindingOut", "resolved_at"), ("posture", "ScanRunOut", "started_at"), ("posture", "ScanRunOut", "completed_at"),
-    ("insider_threat", "RiskProfileOut", "last_evaluated_at"), ("insider_threat", "RiskProfileOut", "updated_at"), ("insider_threat", "IndicatorOut", "acknowledged_at"), ("insider_threat", "IndicatorOut", "occurred_at"), ("insider_threat", "PeerGroupOut", "created_at"),
-    ("identity_graph", "NodeOut", "created_at"), ("identity_graph", "NodeOut", "updated_at"), ("identity_graph", "EdgeOut", "valid_from"), ("identity_graph", "AlertLinkOut", "created_at"),
-    ("reports", "TemplateOut", "last_run_at"), ("reports", "TemplateOut", "created_at"), ("reports", "TemplateOut", "updated_at"), ("reports", "ArtefactOut", "created_at"), ("reports", "ArtefactOut", "delivered_at"), ("reports", "ArtefactOut", "period_start"), ("reports", "ArtefactOut", "period_end"),
-    ("remediation", "MaturityOut", "changed_at"), ("remediation", "MaturityOut", "created_at"), ("remediation", "GateLogOut", "created_at"), ("remediation", "WhitelistOut", "created_at"),
-    ("assets", "AssetOut", "created_at"), ("assets", "AssetOut", "updated_at"), ("assets", "AssetOut", "last_seen"), ("assets", "AssetOut", "first_seen"), ("assets", "VulnerabilityOut", "first_found"), ("assets", "VulnerabilityOut", "last_found"), ("assets", "VulnerabilityOut", "remediated_at"),
+    ("mssp", "ChildTenantOut", "created_at"),
+    ("mssp", "TenantNoteOut", "created_at"),
+    ("mssp", "DelegationOut", "created_at"),
+    ("mssp", "RulePackOut", "created_at"),
+    ("mssp", "RulePackOut", "updated_at"),
+    ("mssp", "PackAssignmentOut", "created_at"),
+    ("mssp", "RuleOverrideOut", "created_at"),
+    ("mssp", "CrossTenantIncident", "created_at"),
+    ("mssp", "MetricsOut", "snapshot_at"),
+    ("mssp", "ManagedTenantRow", "snapshot_at"),
+    ("threat_intel", "IOCOut", "first_seen"),
+    ("threat_intel", "IOCOut", "last_seen"),
+    ("threat_intel", "IOCOut", "created_at"),
+    ("threat_intel", "ThreatActorOut", "created_at"),
+    ("threat_intel", "FeedOut", "last_polled_at"),
+    ("threat_intel", "FeedOut", "created_at"),
+    ("posture", "FindingOut", "first_detected_at"),
+    ("posture", "FindingOut", "last_evaluated_at"),
+    ("posture", "FindingOut", "resolved_at"),
+    ("posture", "ScanRunOut", "started_at"),
+    ("posture", "ScanRunOut", "completed_at"),
+    ("insider_threat", "RiskProfileOut", "last_evaluated_at"),
+    ("insider_threat", "RiskProfileOut", "updated_at"),
+    ("insider_threat", "IndicatorOut", "acknowledged_at"),
+    ("insider_threat", "IndicatorOut", "occurred_at"),
+    ("insider_threat", "PeerGroupOut", "created_at"),
+    ("identity_graph", "NodeOut", "created_at"),
+    ("identity_graph", "NodeOut", "updated_at"),
+    ("identity_graph", "EdgeOut", "valid_from"),
+    ("identity_graph", "AlertLinkOut", "created_at"),
+    ("reports", "TemplateOut", "last_run_at"),
+    ("reports", "TemplateOut", "created_at"),
+    ("reports", "TemplateOut", "updated_at"),
+    ("reports", "ArtefactOut", "created_at"),
+    ("reports", "ArtefactOut", "delivered_at"),
+    ("reports", "ArtefactOut", "period_start"),
+    ("reports", "ArtefactOut", "period_end"),
+    ("remediation", "MaturityOut", "changed_at"),
+    ("remediation", "MaturityOut", "created_at"),
+    ("remediation", "GateLogOut", "created_at"),
+    ("remediation", "WhitelistOut", "created_at"),
+    ("assets", "AssetOut", "created_at"),
+    ("assets", "AssetOut", "updated_at"),
+    ("assets", "AssetOut", "last_seen"),
+    ("assets", "AssetOut", "first_seen"),
+    ("assets", "VulnerabilityOut", "first_found"),
+    ("assets", "VulnerabilityOut", "last_found"),
+    ("assets", "VulnerabilityOut", "remediated_at"),
 ]
 
 
@@ -39,7 +79,11 @@ def test_the_timestamp_is_declared_as_a_datetime_not_a_string(mod, cls, field):
 def sample(ann, name):
     origin = typing.get_origin(ann)
     # only unwrap Optional/Union: for dict[str, Any] or list[str] the args are the element types, not alternatives
-    t = next((a for a in typing.get_args(ann) if a is not type(None)), ann) if origin in (typing.Union, getattr(__import__("types"), "UnionType", None)) else ann
+    t = (
+        next((a for a in typing.get_args(ann) if a is not type(None)), ann)
+        if origin in (typing.Union, getattr(__import__("types"), "UnionType", None))
+        else ann
+    )
     if t is datetime:
         return datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     if t in (str,):
@@ -87,7 +131,11 @@ def test_every_fixed_model_validates_from_an_orm_like_object_with_real_datetimes
 def test_they_still_accept_ISO_strings_for_handlers_that_format_by_hand(mod, cls):
     mdl = model(mod, cls)
     fixed = set(FIXED)
-    data = {n: ("2026-01-02T03:04:05+00:00" if (mod, cls, n) in fixed else sample(f.annotation, n)) for n, f in mdl.model_fields.items() if f.is_required() or (mod, cls, n) in fixed}
+    data = {
+        n: ("2026-01-02T03:04:05+00:00" if (mod, cls, n) in fixed else sample(f.annotation, n))
+        for n, f in mdl.model_fields.items()
+        if f.is_required() or (mod, cls, n) in fixed
+    }
     data = {k: v for k, v in data.items() if k != "metadata"}
     assert mdl.model_validate({**data, "asset_metadata": {}} if cls in ("AssetOut", "VulnerabilityOut") else data)
 

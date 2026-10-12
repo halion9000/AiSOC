@@ -1,4 +1,5 @@
 """Agents service authentication (production only): internal token or API-verified bearer."""
+
 import httpx
 import pytest
 import respx
@@ -13,7 +14,7 @@ from app.core.service_auth import ServiceAuthMiddleware
 
 ME = "http://api:8000/api/v1/auth/me"
 AUTHZ = "http://api:8000/api/v1/auth/authorize"
-PLAIN = "/api/v1/copilot/ping"   # matches no permission rule: a login is enough
+PLAIN = "/api/v1/copilot/ping"  # matches no permission rule: a login is enough
 
 
 async def _ok(request):
@@ -27,9 +28,15 @@ async def _ws(websocket):
 
 
 def _client() -> TestClient:
-    inner = Starlette(routes=[Route("/api/v1/playbooks", _ok, methods=["GET", "POST", "OPTIONS"]),
-                              Route("/api/v1/playbooks/{pid}/run", _ok, methods=["POST"]), Route(PLAIN, _ok),
-                              Route("/readyz", _ok), WebSocketRoute("/api/v1/investigations/x/stream", _ws)])
+    inner = Starlette(
+        routes=[
+            Route("/api/v1/playbooks", _ok, methods=["GET", "POST", "OPTIONS"]),
+            Route("/api/v1/playbooks/{pid}/run", _ok, methods=["POST"]),
+            Route(PLAIN, _ok),
+            Route("/readyz", _ok),
+            WebSocketRoute("/api/v1/investigations/x/stream", _ws),
+        ]
+    )
     return TestClient(ServiceAuthMiddleware(inner))
 
 
@@ -130,13 +137,14 @@ def test_bad_credentials_on_a_permissioned_route_are_401_not_403():
 def test_the_cache_is_per_permission_so_one_yes_is_not_a_blanket_yes():
     def answer(request):
         import json
+
         return httpx.Response(200 if json.loads(request.content)["permission"] == "playbooks:read" else 403)
 
     respx.post(AUTHZ).mock(side_effect=answer)
     c = _client()
     h = {"Authorization": "Bearer analyst-token"}
-    assert c.get("/api/v1/playbooks", headers=h).status_code == 200            # cached as playbooks:read
-    assert c.post("/api/v1/playbooks/p1/run", headers=h).status_code == 403    # a DIFFERENT permission is asked, not served from cache
+    assert c.get("/api/v1/playbooks", headers=h).status_code == 200  # cached as playbooks:read
+    assert c.post("/api/v1/playbooks/p1/run", headers=h).status_code == 403  # a DIFFERENT permission is asked, not served from cache
     assert c.get("/api/v1/playbooks", headers=h).status_code == 200
 
 
@@ -156,6 +164,7 @@ def test_websocket_asks_for_the_permission_of_a_GET():
             ws.receive_text()
     assert exc.value.code == 4403
     import json
+
     assert json.loads(route.calls[0].request.content)["permission"] == "cases:read"
 
 
@@ -173,6 +182,7 @@ def test_websocket_with_internal_token_is_allowed():
 
 def test_real_agents_app_is_protected_in_production():
     from app.main import app
+
     c = TestClient(app)
     assert c.get("/api/v1/playbooks").status_code == 401
     assert c.get("/api/v1/hunt/saved").status_code == 401

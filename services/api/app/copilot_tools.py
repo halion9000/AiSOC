@@ -40,9 +40,7 @@ async def _get_session(tenant_id: uuid.UUID) -> AsyncSession:
     return session
 
 
-async def search_alerts(
-    *, tenant_id: str, query: str = "", limit: int = 10
-) -> dict[str, Any]:
+async def search_alerts(*, tenant_id: str, query: str = "", limit: int = 10) -> dict[str, Any]:
     """Search alerts by title/description substring match."""
     try:
         tid = uuid.UUID(tenant_id)
@@ -53,9 +51,7 @@ async def search_alerts(
         stmt = select(Alert).where(Alert.tenant_id == tid)
         if query:
             pattern = _like_pattern(query)
-            stmt = stmt.where(
-                Alert.title.ilike(pattern, escape="\\") | Alert.description.ilike(pattern, escape="\\")
-            )
+            stmt = stmt.where(Alert.title.ilike(pattern, escape="\\") | Alert.description.ilike(pattern, escape="\\"))
         stmt = stmt.order_by(Alert.created_at.desc()).limit(max(1, min(limit, 50)))
         result = await db.execute(stmt)
         alerts = result.scalars().all()
@@ -83,9 +79,7 @@ async def get_alert(*, tenant_id: str, alert_id: str) -> dict[str, Any]:
         return {"error": "invalid UUID format"}
 
     async with await _get_session(tid) as db:
-        result = await db.execute(
-            select(Alert).where(Alert.id == aid, Alert.tenant_id == tid)
-        )
+        result = await db.execute(select(Alert).where(Alert.id == aid, Alert.tenant_id == tid))
         alert = result.scalar_one_or_none()
         if alert is None:
             return {"error": "alert not found"}
@@ -120,7 +114,11 @@ async def delete_alert(*, tenant_id: str, alert_id: str) -> dict[str, Any]:
     return {
         "alert_id": str(aid),
         "alert_title": title,
-        _CONFIRM_KEY: {"action": "delete_alert", "args": {"alert_id": str(aid)}, "summary": f"Permanently delete alert \"{title}\" ({aid})? This cannot be undone."},
+        _CONFIRM_KEY: {
+            "action": "delete_alert",
+            "args": {"alert_id": str(aid)},
+            "summary": f'Permanently delete alert "{title}" ({aid})? This cannot be undone.',
+        },
     }
 
 
@@ -140,9 +138,7 @@ async def perform_delete_alert(*, tenant_id: str, alert_id: str) -> dict[str, An
         return {"deleted": True, "alert_id": alert_id}
 
 
-async def search_cases(
-    *, tenant_id: str, query: str = "", limit: int = 10
-) -> dict[str, Any]:
+async def search_cases(*, tenant_id: str, query: str = "", limit: int = 10) -> dict[str, Any]:
     """Search cases by title substring match.
 
     Cases live in aisoc_cases (what the cases API reads and writes). This used to read the old `cases` table, which nothing writes, so the Copilot always answered "no cases found"."""
@@ -187,7 +183,9 @@ async def delete_case(*, tenant_id: str, case_id: str) -> dict[str, Any]:
 
     This used to run `DELETE FROM cases`, the old table nothing writes, so it always answered "case not found or already deleted". Pointing it at aisoc_cases would have switched on a destructive tool that has never worked, for a model that reads
     attacker-influenced alert text, while the cases API itself has no delete (cases hold investigation evidence). So it refuses, truthfully, until deleting a case is a deliberate product decision with a confirmation step."""
-    return {"error": "Deleting cases is not supported. A case holds investigation evidence and the cases API has no delete; close or resolve it instead."}
+    return {
+        "error": "Deleting cases is not supported. A case holds investigation evidence and the cases API has no delete; close or resolve it instead."
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -320,10 +318,16 @@ def _unb64(text_: str) -> bytes:
     return base64.urlsafe_b64decode(text_ + "=" * (-len(text_) % 4))
 
 
-def issue_confirmation(*, tenant_id: str, user_id: str, action: str, args: dict[str, Any], now: float | None = None, ttl: int = CONFIRMATION_TTL_SECONDS) -> tuple[str, int]:
+def issue_confirmation(
+    *, tenant_id: str, user_id: str, action: str, args: dict[str, Any], now: float | None = None, ttl: int = CONFIRMATION_TTL_SECONDS
+) -> tuple[str, int]:
     """A signed confirmation token for `action(args)` by this user in this tenant, and its expiry (epoch seconds)."""
     exp = int((time.time() if now is None else now) + ttl)
-    payload = json.dumps({"a": action, "args": args, "t": str(tenant_id), "u": str(user_id), "exp": exp, "n": secrets.token_hex(8)}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    payload = json.dumps(
+        {"a": action, "args": args, "t": str(tenant_id), "u": str(user_id), "exp": exp, "n": secrets.token_hex(8)},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     sig = hmac.new(_confirmation_key(), payload, hashlib.sha256).digest()
     return _b64(payload) + "." + _b64(sig), exp
 
@@ -409,8 +413,12 @@ async def execute_copilot_tool(name: str, args: dict[str, Any], tenant_id: str, 
     if isinstance(result, dict) and _CONFIRM_KEY in result:
         # A destructive tool only REQUESTED its action: sign a confirmation for the UI and tell the model, truthfully, that nothing has happened yet.
         request = result.pop(_CONFIRM_KEY)
-        token, exp = issue_confirmation(tenant_id=str(tenant_id), user_id=str(getattr(user, "user_id", "")), action=request["action"], args=request["args"])
+        token, exp = issue_confirmation(
+            tenant_id=str(tenant_id), user_id=str(getattr(user, "user_id", "")), action=request["action"], args=request["args"]
+        )
         result["status"] = "awaiting_user_confirmation"
-        result["message"] = "NOTHING HAS BEEN DONE YET. The analyst has been shown a confirmation prompt and must approve it themselves. Tell them it is waiting for them; do not claim the action happened."
+        result["message"] = (
+            "NOTHING HAS BEEN DONE YET. The analyst has been shown a confirmation prompt and must approve it themselves. Tell them it is waiting for them; do not claim the action happened."
+        )
         result[PENDING_KEY] = {"action": request["action"], "summary": request["summary"], "token": token, "expiresAt": exp}
     return result

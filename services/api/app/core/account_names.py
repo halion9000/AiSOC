@@ -3,6 +3,7 @@
 An account name is a short, lower-case label: 3 to 32 characters, letters and digits plus `.`, `_` and `-`, starting and ending with a letter or digit, and NO `@` (so a string with an `@` is always recognisably an email). It is unique across the whole
 platform (compared case-insensitively, by the same rule as email addresses: app/core/emails.py) and is not an email address: nothing about it needs to be verified or delivered to.
 """
+
 import re
 
 ACCOUNT_NAME_PATTERN = r"^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$"  # 3-32 characters; the same shape the database enforces (migration 071)

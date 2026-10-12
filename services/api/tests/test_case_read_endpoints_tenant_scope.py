@@ -4,6 +4,7 @@ Found by the two-tenant flows (a new batch covering a case's child endpoints) an
 ROOT CAUSE: _resolve_case_id returns a UUID WITHOUT touching the database, on the written premise that "callers must still apply WHERE tenant_id... which they all do". They did not all do it: case_summary.py (which the post-mortem reuses) had no tenant_id anywhere and loaded the case by id alone;
 the investigations list forwarded only the id to the agents service; and the PDF endpoint proxied the report with the internal token and no tenant check, although the sibling JSON endpoint had one. The agents service does not scope an internal-token call, so those two depended entirely on the API.
 """
+
 import ast
 import uuid
 from pathlib import Path
@@ -51,7 +52,9 @@ class FakeDB:
 
 @pytest.mark.asyncio
 class TestTheBuildersScopeEveryQueryByTenant:
-    @pytest.mark.parametrize("builder", [case_summary.build_case_summary, case_postmortem.build_case_postmortem], ids=["summary", "postmortem"])
+    @pytest.mark.parametrize(
+        "builder", [case_summary.build_case_summary, case_postmortem.build_case_postmortem], ids=["summary", "postmortem"]
+    )
     async def test_a_case_that_is_not_the_callers_is_none_and_nothing_else_is_read(self, builder):
         cid = uuid.uuid4()
         db = FakeDB(None)
@@ -67,22 +70,38 @@ class TestTheBuildersScopeEveryQueryByTenant:
         sql, params = db.executed[0]
         assert "tenant_id = :tenant_id" in sql and params["tenant_id"] == MINE
 
-    @pytest.mark.parametrize("builder", [case_summary.build_case_summary, case_postmortem.build_case_postmortem], ids=["summary", "postmortem"])
+    @pytest.mark.parametrize(
+        "builder", [case_summary.build_case_summary, case_postmortem.build_case_postmortem], ids=["summary", "postmortem"]
+    )
     async def test_the_tenant_is_required_so_a_future_caller_cannot_forget_it(self, builder):
         with pytest.raises(TypeError):
             await builder(FakeDB(None), uuid.uuid4())
 
     def test_every_sql_literal_in_the_summary_module_names_the_tenant(self):
         src = (APP / "services" / "case_summary.py").read_text(encoding="utf-8")
-        sqls = [n.value for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Constant) and isinstance(n.value, str) and " FROM aisoc_" in n.value.upper().replace("\n", " ") + " "]
-        sqls += [n.value for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Constant) and isinstance(n.value, str) and "aisoc_case_tasks" in n.value and "FROM" in n.value and n.value not in sqls]
+        sqls = [
+            n.value
+            for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and " FROM aisoc_" in n.value.upper().replace("\n", " ") + " "
+        ]
+        sqls += [
+            n.value
+            for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.Constant)
+            and isinstance(n.value, str)
+            and "aisoc_case_tasks" in n.value
+            and "FROM" in n.value
+            and n.value not in sqls
+        ]
         assert sqls, "found no SQL: the guard has gone blind"
         assert [s for s in sqls if "tenant_id" not in s] == []
 
 
 @pytest.mark.asyncio
 class TestTheSummaryAndPostmortemEndpoints:
-    @pytest.mark.parametrize("name,builder", [("case_auto_summary", "build_case_summary"), ("case_auto_postmortem", "build_case_postmortem")])
+    @pytest.mark.parametrize(
+        "name,builder", [("case_auto_summary", "build_case_summary"), ("case_auto_postmortem", "build_case_postmortem")]
+    )
     async def test_they_pass_the_callers_tenant_to_the_builder(self, monkeypatch, name, builder):
         seen = {}
 
@@ -151,7 +170,9 @@ class TestRunOwnership:
         monkeypatch.setattr(cases_mod, "_agents_proxy", AsyncMock(return_value=resp(200, run)))
         assert await cases_mod._require_own_run("r", user()) == run
 
-    @pytest.mark.parametrize("body", [{"id": "r", "tenant_id": str(THEIRS)}, {"id": "r"}, {"id": "r", "tenant_id": None}, ["not", "a", "dict"], "text"])
+    @pytest.mark.parametrize(
+        "body", [{"id": "r", "tenant_id": str(THEIRS)}, {"id": "r"}, {"id": "r", "tenant_id": None}, ["not", "a", "dict"], "text"]
+    )
     async def test_anything_that_is_not_provably_the_callers_is_the_same_404(self, monkeypatch, body):
         monkeypatch.setattr(cases_mod, "_agents_proxy", AsyncMock(return_value=resp(200, body)))
         with pytest.raises(HTTPException) as exc:
@@ -184,14 +205,20 @@ class TestTheReportPdf:
         with pytest.raises(HTTPException) as exc:
             await cases_mod.case_investigation_pdf(case_id="c", run_id="r", user=user())
         assert exc.value.status_code == 404
-        assert proxy.await_count == 1 and "report.pdf" not in proxy.await_args.args[1], "only the ownership lookup may be made: the PDF itself must not be requested"
+        assert (
+            proxy.await_count == 1 and "report.pdf" not in proxy.await_args.args[1]
+        ), "only the ownership lookup may be made: the PDF itself must not be requested"
 
     async def test_the_callers_own_run_returns_its_pdf(self, monkeypatch):
         calls = []
 
         async def proxy(method, path, **kw):
             calls.append(path)
-            return resp(200, {"id": "r", "tenant_id": str(MINE)}) if not path.endswith("report.pdf") else resp(200, None, content=b"%PDF-1.7 mine", headers={"content-type": "application/pdf"})
+            return (
+                resp(200, {"id": "r", "tenant_id": str(MINE)})
+                if not path.endswith("report.pdf")
+                else resp(200, None, content=b"%PDF-1.7 mine", headers={"content-type": "application/pdf"})
+            )
 
         monkeypatch.setattr(cases_mod, "_agents_proxy", proxy)
         out = await cases_mod.case_investigation_pdf(case_id="c", run_id="r", user=user())

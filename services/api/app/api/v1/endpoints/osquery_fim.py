@@ -19,6 +19,7 @@ are recorded under "default". The API's tenants are UUIDs. A caller may read:
   - anything, if they are a platform admin.
 Anything else is a 403. The `tenant_id` the console sends is a request, never trusted.
 """
+
 import os
 from typing import Any
 

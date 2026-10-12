@@ -151,7 +151,12 @@ async def list_whitelist(
     return list(result.scalars().all())
 
 
-@router.post("/whitelist", response_model=WhitelistOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("remediation:write"))])
+@router.post(
+    "/whitelist",
+    response_model=WhitelistOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("remediation:write"))],
+)
 async def add_to_whitelist(
     body: WhitelistCreate,
     db: AsyncSession = Depends(get_db),
@@ -168,7 +173,12 @@ async def add_to_whitelist(
     return entry
 
 
-@router.delete("/whitelist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None, dependencies=[Depends(require_permission("remediation:write"))])
+@router.delete(
+    "/whitelist/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    dependencies=[Depends(require_permission("remediation:write"))],
+)
 async def remove_from_whitelist(
     entry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

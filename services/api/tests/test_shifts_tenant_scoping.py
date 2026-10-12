@@ -5,6 +5,7 @@ deployment, so there, for any authenticated tenant: GET /shifts listed every ten
 tenant's open alerts. Found by a two-tenant flow test of the real API: 6 of 70 steps failed as the superuser (and none as the non-superuser, which is the point of RLS). The module had no tests at all.
 These call the handlers with a fake database and assert that every statement touching a tenant table filters on, and binds, the caller's tenant.
 """
+
 from __future__ import annotations
 
 import re
@@ -38,8 +39,18 @@ def _user(tenant: uuid.UUID | None = None) -> CurrentUser:
 
 def _shift_row(**over: Any) -> Any:
     base = {
-        "id": uuid.uuid4(), "name": "Day shift", "status": "active", "lead_id": None, "lead_name": None, "lead_role": None, "analyst_count": 1,
-        "alerts_handled": 0, "escalations": 0, "handoff_notes": None, "started_at": datetime.now(UTC), "ended_at": None,
+        "id": uuid.uuid4(),
+        "name": "Day shift",
+        "status": "active",
+        "lead_id": None,
+        "lead_name": None,
+        "lead_role": None,
+        "analyst_count": 1,
+        "alerts_handled": 0,
+        "escalations": 0,
+        "handoff_notes": None,
+        "started_at": datetime.now(UTC),
+        "ended_at": None,
     }
     base.update(over)
     return SimpleNamespace(_mapping=base, **base)
@@ -163,14 +174,32 @@ class TestEveryHandlerScopesToTheCallersTenant:
 
     async def test_a_case_is_reported_with_its_assignee_or_unassigned(self) -> None:
         user = _user()
-        db = _db([], [_case_row(title="mine", assignee="dana@example.com"), _case_row(title="nobody", assignee=None), _case_row(title="blank", assignee="")])
+        db = _db(
+            [],
+            [
+                _case_row(title="mine", assignee="dana@example.com"),
+                _case_row(title="nobody", assignee=None),
+                _case_row(title="blank", assignee=""),
+            ],
+        )
         items = {i.title: i for i in await list_handoff_items(current_user=user, db=db, priority=None, limit=50)}
-        assert items["mine"].assigned_to == "dana@example.com" and items["nobody"].assigned_to == "unassigned" and items["blank"].assigned_to == "unassigned"
+        assert (
+            items["mine"].assigned_to == "dana@example.com"
+            and items["nobody"].assigned_to == "unassigned"
+            and items["blank"].assigned_to == "unassigned"
+        )
         assert all(i.type == "case" for i in items.values())
 
     async def test_cases_and_alerts_are_merged_and_sorted_by_priority_with_info_last(self) -> None:
         user = _user()
-        db = _db([_item_row(title="a-low", priority="low")], [_case_row(title="c-info", priority="info"), _case_row(title="c-critical", priority="critical"), _case_row(title="c-high", priority="high")])
+        db = _db(
+            [_item_row(title="a-low", priority="low")],
+            [
+                _case_row(title="c-info", priority="info"),
+                _case_row(title="c-critical", priority="critical"),
+                _case_row(title="c-high", priority="high"),
+            ],
+        )
         items = await list_handoff_items(current_user=user, db=db, priority=None, limit=50)
         assert [i.title for i in items] == ["c-critical", "c-high", "a-low", "c-info"]
         assert [i.type for i in items] == ["case", "case", "alert", "case"]
@@ -222,7 +251,11 @@ class TestStaticGuard:
         offenders = []
         for sql in self.statements():
             flat = re.sub(r"\s+", " ", sql).strip()
-            if re.match(r"(SELECT|UPDATE)", flat, re.I) and any(re.search(rf"\b(FROM|UPDATE) {t}\b", flat) for t in TENANT_TABLES) and "tenant_id = :tenant_id" not in flat:
+            if (
+                re.match(r"(SELECT|UPDATE)", flat, re.I)
+                and any(re.search(rf"\b(FROM|UPDATE) {t}\b", flat) for t in TENANT_TABLES)
+                and "tenant_id = :tenant_id" not in flat
+            ):
                 offenders.append(flat[:90])
         assert offenders == [], f"statements that rely on RLS alone: {offenders}"
 

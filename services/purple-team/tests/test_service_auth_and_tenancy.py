@@ -2,6 +2,7 @@
 
 Every route answered anonymous requests, including atomics/run and caldera/run, which LAUNCH adversary simulations, and the ID-keyed routes (report a detection, read/extend/complete a tabletop session) took no tenant, so any caller could alter another tenant's records by id.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,12 +43,18 @@ def _configure(monkeypatch, *, token, environment):
 
 
 def _routes():
-    return sorted((m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops
-                  if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p))
+    return sorted(
+        (m.upper(), p)
+        for p, ops in app.openapi()["paths"].items()
+        for m in ops
+        if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p)
+    )
 
 
 def _call(c, method, path, headers=None):
-    return c.request(method, re.sub(r"\{[^}]+\}", UUID, path), json={} if method in ("POST", "PUT", "PATCH") else None, headers=headers, timeout=20)
+    return c.request(
+        method, re.sub(r"\{[^}]+\}", UUID, path), json={} if method in ("POST", "PUT", "PATCH") else None, headers=headers, timeout=20
+    )
 
 
 def _past(r):
@@ -70,7 +77,9 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
     assert _past(_call(_configure(monkeypatch, token=TOKEN, environment="production"), method, path, GOOD))
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None])
+@pytest.mark.parametrize(
+    "environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None]
+)
 @pytest.mark.parametrize("method,path", _routes())
 def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(monkeypatch, environment, method, path):
     c = _configure(monkeypatch, token=None, environment=environment)
@@ -81,7 +90,12 @@ def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(
 
 @pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", ""])
 def test_only_the_exact_token_is_accepted(monkeypatch, header):
-    assert _configure(monkeypatch, token=TOKEN, environment="production").get("/api/v1/purple-team/executions", headers={"Authorization": header}).status_code == 401
+    assert (
+        _configure(monkeypatch, token=TOKEN, environment="production")
+        .get("/api/v1/purple-team/executions", headers={"Authorization": header})
+        .status_code
+        == 401
+    )
 
 
 # ------------------------------------------------------------------- tenant isolation ----
@@ -93,7 +107,8 @@ def _run_scenario(monkeypatch, scenario):
     for table in Base.metadata.tables.values():  # sqlite cannot render gen_random_uuid()/now() defaults
         for col in table.columns:
             if col.server_default is not None and re.search(r"gen_random_uuid|now\(\)", str(getattr(col.server_default, "arg", "")), re.I):
-                stripped.append((col, col.server_default)); col.server_default = None
+                stripped.append((col, col.server_default))
+                col.server_default = None
 
     async def main():
         import httpx
@@ -110,9 +125,29 @@ def _run_scenario(monkeypatch, scenario):
         ids = {"a": a, "b": b}
         async with factory() as s:
             for key, tenant in (("a", a), ("b", b)):
-                ex = TestExecution(id=uuid.uuid4(), tenant_id=tenant, source="atomic", technique_id="T1059", test_name="t", status="completed", created_at=now)
-                ts = TabletopSession(id=uuid.uuid4(), tenant_id=tenant, name=f"session {key}", scenario="ransomware", technique_ids=[], findings=[], status="active", created_at=now, updated_at=now)
-                s.add_all([ex, ts]); ids[f"ex_{key}"] = ex.id; ids[f"ts_{key}"] = ts.id
+                ex = TestExecution(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant,
+                    source="atomic",
+                    technique_id="T1059",
+                    test_name="t",
+                    status="completed",
+                    created_at=now,
+                )
+                ts = TabletopSession(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant,
+                    name=f"session {key}",
+                    scenario="ransomware",
+                    technique_ids=[],
+                    findings=[],
+                    status="active",
+                    created_at=now,
+                    updated_at=now,
+                )
+                s.add_all([ex, ts])
+                ids[f"ex_{key}"] = ex.id
+                ids[f"ts_{key}"] = ts.id
             await s.commit()
         try:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t", headers=GOOD) as client:
@@ -131,11 +166,17 @@ def _run_scenario(monkeypatch, scenario):
 def test_a_tenant_cannot_report_a_detection_on_another_tenants_execution(monkeypatch):
     async def scenario(c, factory, ids):
         url = f"/api/v1/purple-team/executions/{ids['ex_b']}/detection"
-        assert (await c.patch(url, params={"tenant_id": str(ids["a"])}, json={"execution_id": str(ids["ex_b"]), "detected": True})).status_code == 404
+        assert (
+            await c.patch(url, params={"tenant_id": str(ids["a"])}, json={"execution_id": str(ids["ex_b"]), "detected": True})
+        ).status_code == 404
         async with factory() as s:
-            assert (await s.execute(select(TestExecution).where(TestExecution.id == ids["ex_b"]))).scalar_one().detected is None, "tenant A changed B's result"
+            assert (
+                await s.execute(select(TestExecution).where(TestExecution.id == ids["ex_b"]))
+            ).scalar_one().detected is None, "tenant A changed B's result"
         assert (await c.patch(url, json={"execution_id": str(ids["ex_b"]), "detected": True})).status_code == 422, "the tenant is required"
-        assert (await c.patch(url, params={"tenant_id": str(ids["b"])}, json={"execution_id": str(ids["ex_b"]), "detected": True})).status_code == 200
+        assert (
+            await c.patch(url, params={"tenant_id": str(ids["b"])}, json={"execution_id": str(ids["ex_b"]), "detected": True})
+        ).status_code == 200
 
     _run_scenario(monkeypatch, scenario)
 
@@ -145,14 +186,18 @@ def test_a_tenant_cannot_read_extend_or_complete_another_tenants_tabletop(monkey
         base = f"/api/v1/purple-team/tabletop/{ids['ts_b']}"
         wrong = {"tenant_id": str(ids["a"])}
         assert (await c.get(base, params=wrong)).status_code == 404
-        assert (await c.post(f"{base}/findings", params=wrong, json={"finding": "planted", "severity": "high", "owner": "x"})).status_code == 404
+        assert (
+            await c.post(f"{base}/findings", params=wrong, json={"finding": "planted", "severity": "high", "owner": "x"})
+        ).status_code == 404
         assert (await c.patch(f"{base}/complete", params=wrong)).status_code == 404
         async with factory() as s:
             row = (await s.execute(select(TabletopSession).where(TabletopSession.id == ids["ts_b"]))).scalar_one()
             assert row.findings == [] and row.status == "active", "tenant A altered B's tabletop session"
         right = {"tenant_id": str(ids["b"])}
         assert (await c.get(base, params=right)).status_code == 200
-        assert (await c.post(f"{base}/findings", params=right, json={"finding": "real", "severity": "high", "owner": "x"})).status_code == 200
+        assert (
+            await c.post(f"{base}/findings", params=right, json={"finding": "real", "severity": "high", "owner": "x"})
+        ).status_code == 200
         assert (await c.patch(f"{base}/complete", params=right)).status_code == 200
 
     _run_scenario(monkeypatch, scenario)

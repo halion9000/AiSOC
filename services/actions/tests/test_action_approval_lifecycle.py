@@ -11,6 +11,7 @@ The actions service kept every action in a process-local dict. Consequences, all
   6. Submitting the same action id twice overwrote the record and executed the action twice; it now returns the existing record without executing again.
   7. Without a configured database the routes answer 503: they must not silently fall back to memory.
 """
+
 import asyncio
 import uuid
 from contextlib import asynccontextmanager
@@ -52,7 +53,9 @@ class FakeExecutor:
             await self._gate.wait()
         if self._raises is not None:
             raise self._raises
-        return SimpleNamespace(status=self._status, output={"isolated": request.target}, rollback_data={"undo": "release_host"}, error=self._error)
+        return SimpleNamespace(
+            status=self._status, output={"isolated": request.target}, rollback_data={"undo": "release_host"}, error=self._error
+        )
 
 
 @pytest.fixture
@@ -92,21 +95,46 @@ def make_app(db_path) -> FastAPI:
 
 def make_request(action_type=ActionType.ISOLATE_HOST, **over) -> ActionRequest:
     fields = dict(
-        incident_id=uuid.uuid4(), tenant_id=uuid.uuid4(), action_type=action_type, target="web-01", parameters=dict(PARAMS), requested_by="soc-bot",
-        rationale="contain the host", auto_rollback=True, rollback_after_seconds=600,
+        incident_id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        action_type=action_type,
+        target="web-01",
+        parameters=dict(PARAMS),
+        requested_by="soc-bot",
+        rationale="contain the host",
+        auto_rollback=True,
+        rollback_after_seconds=600,
     )
     fields.update(over)
     return ActionRequest(**fields)
 
 
-def seed(db_path, status=ActionStatus.AWAITING_APPROVAL, action_type=ActionType.ISOLATE_HOST, *, result=None, requested_by_user_id=None, request=None) -> str:
+def seed(
+    db_path,
+    status=ActionStatus.AWAITING_APPROVAL,
+    action_type=ActionType.ISOLATE_HOST,
+    *,
+    result=None,
+    requested_by_user_id=None,
+    request=None,
+) -> str:
     request = request or make_request(action_type)
     engine = create_engine(f"sqlite:///{db_path}")
     with Session(engine) as s:
         s.add(
             ActionRecord(
-                id=request.id, tenant_id=request.tenant_id, incident_id=request.incident_id, action_type=action_type.value, target=request.target, status=status.value, blast_radius="high",
-                gate_reason="needs approval", rationale=request.rationale, requested_by_user_id=requested_by_user_id, request=request.model_dump(mode="json"), result=result or {},
+                id=request.id,
+                tenant_id=request.tenant_id,
+                incident_id=request.incident_id,
+                action_type=action_type.value,
+                target=request.target,
+                status=status.value,
+                blast_radius="high",
+                gate_reason="needs approval",
+                rationale=request.rationale,
+                requested_by_user_id=requested_by_user_id,
+                request=request.model_dump(mode="json"),
+                result=result or {},
             )
         )
         s.commit()
@@ -151,7 +179,18 @@ class TestReject:
         assert r.status_code == 200 and r.json()["status"] == "rejected"
         assert stored(db_path, aid).status == "rejected"
 
-    @pytest.mark.parametrize("status", [ActionStatus.COMPLETED, ActionStatus.FAILED, ActionStatus.ROLLED_BACK, ActionStatus.REJECTED, ActionStatus.RUNNING, ActionStatus.APPROVED, ActionStatus.PENDING])
+    @pytest.mark.parametrize(
+        "status",
+        [
+            ActionStatus.COMPLETED,
+            ActionStatus.FAILED,
+            ActionStatus.ROLLED_BACK,
+            ActionStatus.REJECTED,
+            ActionStatus.RUNNING,
+            ActionStatus.APPROVED,
+            ActionStatus.PENDING,
+        ],
+    )
     def test_an_action_in_any_other_state_cannot_be_rejected_and_is_left_exactly_as_it_was(self, db_path, status):
         aid = seed(db_path, status=status, result={"output": {"isolated": "web-01"}, "rollback_data": {"undo": "release_host"}})
         before = stored(db_path, aid)
@@ -159,7 +198,11 @@ class TestReject:
         assert r.status_code == 400
         assert "not awaiting approval" in r.json()["detail"] and status.value in r.json()["detail"]
         after = stored(db_path, aid)
-        assert (after.status, after.result, after.updated_at) == (before.status, before.result, before.updated_at)  # a completed action is NOT rewritten to "rejected"
+        assert (after.status, after.result, after.updated_at) == (
+            before.status,
+            before.result,
+            before.updated_at,
+        )  # a completed action is NOT rewritten to "rejected"
 
     def test_rejecting_an_unknown_or_malformed_id_is_a_404(self, db_path):
         client = TestClient(make_app(db_path))
@@ -176,7 +219,9 @@ class TestApprove:
         body = r.json()
         assert body["status"] == "completed"
         assert body["output"] == {"isolated": "web-01"}
-        assert body["rollback_data"] == {"undo": "release_host"}, "the approve path used to drop rollback_data, so an approved action could not be rolled back"
+        assert body["rollback_data"] == {
+            "undo": "release_host"
+        }, "the approve path used to drop rollback_data, so an approved action could not be rolled back"
         assert executor.calls == 1
         assert stored(db_path, aid).result["rollback_data"] == {"undo": "release_host"}
 
@@ -333,7 +378,9 @@ class TestSubmitting:
         assert body["status"] == "failed" and body["error"] == "execution failed (RuntimeError)"
 
     def test_a_denied_submission_stores_nothing(self, db_path, monkeypatch):
-        monkeypatch.setattr(router_module, "authorize_action", lambda request: (_ for _ in ()).throw(router_module.ActionAuthzError("no permission")))
+        monkeypatch.setattr(
+            router_module, "authorize_action", lambda request: (_ for _ in ()).throw(router_module.ActionAuthzError("no permission"))
+        )
         r = TestClient(make_app(db_path)).post("/actions", json=submit_json(make_request()))
         assert r.status_code == 403 and count_rows(db_path) == 0
 
@@ -343,7 +390,9 @@ class TestItSurvivesARestart:
         executor = register(monkeypatch, FakeExecutor())
         request = make_request()
         TestClient(make_app(db_path)).post("/actions", json=submit_json(request))  # process A submits; it is awaiting approval
-        r = TestClient(make_app(db_path)).post(f"/actions/{request.id}/approve")  # process B (a restarted service, or another replica) approves
+        r = TestClient(make_app(db_path)).post(
+            f"/actions/{request.id}/approve"
+        )  # process B (a restarted service, or another replica) approves
         assert r.status_code == 200 and r.json()["status"] == "completed"
         assert executor.requests[0].parameters == PARAMS
 
@@ -366,9 +415,17 @@ class TestItSurvivesARestart:
 class TestTheServedRecord:
     def test_a_stored_outcome_can_never_override_the_identity_and_status_of_the_action(self, db_path):
         """The served record is the identity columns plus the outcome. If outcome keys could win, a result containing "status" or "id" would falsify what the API reports."""
-        aid = seed(db_path, result={"status": "completed", "id": "not-the-id", "target": "elsewhere", "action_type": "block_ip", "output": {"ok": True}})
+        aid = seed(
+            db_path,
+            result={"status": "completed", "id": "not-the-id", "target": "elsewhere", "action_type": "block_ip", "output": {"ok": True}},
+        )
         body = TestClient(make_app(db_path)).get(f"/actions/{aid}").json()
-        assert body["id"] == aid and body["status"] == "awaiting_approval" and body["target"] == "web-01" and body["action_type"] == "isolate_host"
+        assert (
+            body["id"] == aid
+            and body["status"] == "awaiting_approval"
+            and body["target"] == "web-01"
+            and body["action_type"] == "isolate_host"
+        )
         assert body["output"] == {"ok": True}  # while real outcome fields are still served
 
 
@@ -383,7 +440,11 @@ class TestWithoutADatabase:
         app.dependency_overrides[require_service_auth] = lambda: None  # (the real get_db is NOT overridden)
         try:
             client = TestClient(app)
-            for method, path in (("get", f"/actions/{uuid.uuid4()}"), ("post", f"/actions/{uuid.uuid4()}/approve"), ("post", f"/actions/{uuid.uuid4()}/reject")):
+            for method, path in (
+                ("get", f"/actions/{uuid.uuid4()}"),
+                ("post", f"/actions/{uuid.uuid4()}/approve"),
+                ("post", f"/actions/{uuid.uuid4()}/reject"),
+            ):
                 r = getattr(client, method)(path)
                 assert r.status_code == 503, (method, path, r.status_code)
                 assert "DATABASE_URL" in r.json()["detail"]
@@ -400,7 +461,11 @@ class TestChatOpsResponses:
 
     @pytest.fixture(autouse=True)
     def chatops(self, monkeypatch):
-        monkeypatch.setattr(router_module, "get_settings", lambda: SimpleNamespace(AISOC_CHATOPS_RESPONSE_SECRET=SECRET, AISOC_ACTIONS_REQUIRE_PRINCIPAL=False))
+        monkeypatch.setattr(
+            router_module,
+            "get_settings",
+            lambda: SimpleNamespace(AISOC_CHATOPS_RESPONSE_SECRET=SECRET, AISOC_ACTIONS_REQUIRE_PRINCIPAL=False),
+        )
         self.timeline: list[dict] = []
 
         async def fake_timeline(**kwargs):
@@ -413,7 +478,13 @@ class TestChatOpsResponses:
 
     def link(self, action_id: str, choice="acknowledge") -> str:
         return "/chatops/callback?token=" + mint_token(
-            action_id=uuid.UUID(action_id), case_id=uuid.uuid4(), tenant_id=uuid.uuid4(), choice=choice, user_ref="alice", secret=SECRET, ttl_seconds=900
+            action_id=uuid.UUID(action_id),
+            case_id=uuid.uuid4(),
+            tenant_id=uuid.uuid4(),
+            choice=choice,
+            user_ref="alice",
+            secret=SECRET,
+            ttl_seconds=900,
         )
 
     def test_the_first_response_is_recorded_and_completes_the_action(self, db_path):
@@ -504,17 +575,29 @@ class TestStuckActions:
     def test_an_operator_can_record_what_actually_happened(self, db_path, monkeypatch, outcome):
         executor = register(monkeypatch, FakeExecutor())
         aid = seed(db_path, status=ActionStatus.RUNNING)
-        r = TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": outcome, "note": "checked the EDR console: host is isolated", "resolved_by": "hal"})
+        r = TestClient(make_app(db_path)).post(
+            f"/actions/{aid}/resolve", json={"outcome": outcome, "note": "checked the EDR console: host is isolated", "resolved_by": "hal"}
+        )
         assert r.status_code == 200 and r.json()["status"] == outcome
         res = stored(db_path, aid).result["resolution"]
-        assert res["note"] == "checked the EDR console: host is isolated" and res["resolved_by"] == "hal" and res["outcome"] == outcome and res["resolved_at"]
+        assert (
+            res["note"] == "checked the EDR console: host is isolated"
+            and res["resolved_by"] == "hal"
+            and res["outcome"] == outcome
+            and res["resolved_at"]
+        )
         assert executor.calls == 0, "resolving must NEVER execute the action"
 
-    @pytest.mark.parametrize("status", [ActionStatus.AWAITING_APPROVAL, ActionStatus.COMPLETED, ActionStatus.FAILED, ActionStatus.REJECTED, ActionStatus.APPROVED])
+    @pytest.mark.parametrize(
+        "status",
+        [ActionStatus.AWAITING_APPROVAL, ActionStatus.COMPLETED, ActionStatus.FAILED, ActionStatus.REJECTED, ActionStatus.APPROVED],
+    )
     def test_only_a_running_action_can_be_resolved_and_others_are_left_untouched(self, db_path, status):
         aid = seed(db_path, status=status, result={"output": {"x": 1}})
         before = stored(db_path, aid)
-        r = TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "completed", "note": "trying to rewrite history"})
+        r = TestClient(make_app(db_path)).post(
+            f"/actions/{aid}/resolve", json={"outcome": "completed", "note": "trying to rewrite history"}
+        )
         assert r.status_code == 400 and "running" in r.json()["detail"]
         after = stored(db_path, aid)
         assert (after.status, after.result) == (before.status, before.result)
@@ -522,8 +605,12 @@ class TestStuckActions:
     def test_the_outcome_must_be_completed_or_failed(self, db_path):
         aid = seed(db_path, status=ActionStatus.RUNNING)
         for bad in ("rejected", "running", "awaiting_approval"):
-            assert TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": bad, "note": "nope nope"}).status_code == 400
-        assert TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "bogus", "note": "nope nope"}).status_code == 422
+            assert (
+                TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": bad, "note": "nope nope"}).status_code == 400
+            )
+        assert (
+            TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "bogus", "note": "nope nope"}).status_code == 422
+        )
         assert stored(db_path, aid).status == "running"
 
     def test_a_note_is_required(self, db_path):
@@ -532,7 +619,12 @@ class TestStuckActions:
         assert TestClient(make_app(db_path)).post(f"/actions/{aid}/resolve", json={"outcome": "failed", "note": "x"}).status_code == 422
 
     def test_resolving_an_unknown_action_is_a_404(self, db_path):
-        assert TestClient(make_app(db_path)).post(f"/actions/{uuid.uuid4()}/resolve", json={"outcome": "failed", "note": "no such action"}).status_code == 404
+        assert (
+            TestClient(make_app(db_path))
+            .post(f"/actions/{uuid.uuid4()}/resolve", json={"outcome": "failed", "note": "no such action"})
+            .status_code
+            == 404
+        )
 
     def test_two_operators_resolving_at_once_exactly_one_wins(self, db_path):
         aid = seed(db_path, status=ActionStatus.RUNNING)
@@ -540,7 +632,12 @@ class TestStuckActions:
         async def scenario():
             clients = [httpx.AsyncClient(transport=httpx.ASGITransport(app=make_app(db_path)), base_url="http://test") for _ in range(5)]
             try:
-                rs = await asyncio.gather(*[c.post(f"/actions/{aid}/resolve", json={"outcome": "completed" if i % 2 else "failed", "note": f"operator {i}"}) for i, c in enumerate(clients)])
+                rs = await asyncio.gather(
+                    *[
+                        c.post(f"/actions/{aid}/resolve", json={"outcome": "completed" if i % 2 else "failed", "note": f"operator {i}"})
+                        for i, c in enumerate(clients)
+                    ]
+                )
                 return sorted(r.status_code for r in rs)
             finally:
                 for c in clients:

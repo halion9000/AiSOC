@@ -90,7 +90,9 @@ async def load_request(db: AsyncSession, action_id: str | UUID) -> ActionRequest
     return None if row is None else ActionRequest.model_validate(row.request)
 
 
-async def create(db: AsyncSession, request: ActionRequest, *, status: Any, blast_radius: Any, gate_reason: str) -> tuple[dict[str, Any], bool]:
+async def create(
+    db: AsyncSession, request: ActionRequest, *, status: Any, blast_radius: Any, gate_reason: str
+) -> tuple[dict[str, Any], bool]:
     """Store a newly submitted action. Returns (record, created). Submitting the same id again returns the EXISTING record with created=False: callers must not execute it a second time."""
     principal = request.principal
     db.add(
@@ -189,7 +191,9 @@ async def mark_chatops_responded(db: AsyncSession, action_id: str | UUID) -> boo
     if uid is None:
         return None
     result = await db.execute(
-        update(ActionRecord).where(ActionRecord.id == uid, ActionRecord.chatops_responded_at.is_(None)).values(chatops_responded_at=datetime.now(UTC))
+        update(ActionRecord)
+        .where(ActionRecord.id == uid, ActionRecord.chatops_responded_at.is_(None))
+        .values(chatops_responded_at=datetime.now(UTC))
     )
     await db.commit()
     if result.rowcount == 1:
@@ -198,7 +202,12 @@ async def mark_chatops_responded(db: AsyncSession, action_id: str | UUID) -> boo
 
 
 async def list_actions(
-    db: AsyncSession, *, status: str | None = None, tenant_id: str | UUID | None = None, older_than_seconds: int | None = None, limit: int = 100
+    db: AsyncSession,
+    *,
+    status: str | None = None,
+    tenant_id: str | UUID | None = None,
+    older_than_seconds: int | None = None,
+    limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Actions, newest first. `status="running"` with `older_than_seconds` finds actions that look STUCK: claimed, but no outcome recorded (the service stopped mid-action)."""
     stmt = select(ActionRecord).order_by(ActionRecord.updated_at.desc()).limit(max(1, min(limit, 500)))
@@ -214,14 +223,21 @@ async def list_actions(
     return [to_dict(r) for r in (await db.execute(stmt)).scalars().all()]
 
 
-async def resolve(db: AsyncSession, action_id: str | UUID, *, outcome: ActionStatus, note: str, resolved_by: str | None) -> tuple[str, dict[str, Any] | None]:
+async def resolve(
+    db: AsyncSession, action_id: str | UUID, *, outcome: ActionStatus, note: str, resolved_by: str | None
+) -> tuple[str, dict[str, Any] | None]:
     """An operator records what ACTUALLY happened to an action stuck in 'running' (after checking the real system). Atomic (only from 'running'); never executes anything.
     Returns ("resolved" | "not_found" | "conflict", record)."""
     uid = _uuid(action_id)
     if uid is not None:
         row = await _row(db, uid, fresh=True)
         if row is not None and row.status == _text(ActionStatus.RUNNING):
-            result = {**(row.result or {}), "resolution": _jsonable({"outcome": _text(outcome), "note": note, "resolved_by": resolved_by, "resolved_at": datetime.now(UTC).isoformat()})}
+            result = {
+                **(row.result or {}),
+                "resolution": _jsonable(
+                    {"outcome": _text(outcome), "note": note, "resolved_by": resolved_by, "resolved_at": datetime.now(UTC).isoformat()}
+                ),
+            }
             claimed = await db.execute(
                 update(ActionRecord)
                 .where(ActionRecord.id == uid, ActionRecord.status == _text(ActionStatus.RUNNING))

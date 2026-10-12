@@ -199,9 +199,9 @@ async def _attack_path_from_relational(
     """
     row = (
         await db.execute(
-            text("SELECT id, title, severity, mitre_techniques, alert_ids FROM aisoc_cases WHERE id = CAST(:cid AS UUID) AND tenant_id = :tenant_id").bindparams(
-                cid=case_id, tenant_id=tenant_id
-            )
+            text(
+                "SELECT id, title, severity, mitre_techniques, alert_ids FROM aisoc_cases WHERE id = CAST(:cid AS UUID) AND tenant_id = :tenant_id"
+            ).bindparams(cid=case_id, tenant_id=tenant_id)
         )
     ).fetchone()
     if not row:
@@ -508,14 +508,16 @@ async def upsert_host(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str]:
     """Create or update a Host node in the knowledge graph."""
-    await _or_503(graph_service.upsert_host(
-        host_id=payload.host_id,
-        hostname=payload.hostname,
-        tenant_id=str(current_user.tenant_id),
-        ip_address=payload.ip_address,
-        os=payload.os,
-        criticality=payload.criticality,
-    ))
+    await _or_503(
+        graph_service.upsert_host(
+            host_id=payload.host_id,
+            hostname=payload.hostname,
+            tenant_id=str(current_user.tenant_id),
+            ip_address=payload.ip_address,
+            os=payload.os,
+            criticality=payload.criticality,
+        )
+    )
     return {"status": "ok", "host_id": payload.host_id}
 
 
@@ -530,14 +532,16 @@ async def upsert_user(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str]:
     """Create or update a User node in the knowledge graph."""
-    await _or_503(graph_service.upsert_user(
-        user_id=payload.user_id,
-        username=payload.username,
-        tenant_id=str(current_user.tenant_id),
-        email=payload.email,
-        department=payload.department,
-        risk_score=payload.risk_score,
-    ))
+    await _or_503(
+        graph_service.upsert_user(
+            user_id=payload.user_id,
+            username=payload.username,
+            tenant_id=str(current_user.tenant_id),
+            email=payload.email,
+            department=payload.department,
+            risk_score=payload.risk_score,
+        )
+    )
     return {"status": "ok", "user_id": payload.user_id}
 
 
@@ -555,16 +559,18 @@ async def upsert_alert_graph(
     Create or update an Alert node and link it to Host, User, IOC, and Technique nodes.
     Called automatically after alert creation to keep the graph in sync.
     """
-    await _or_503(graph_service.upsert_alert_node(
-        alert_id=payload.alert_id,
-        tenant_id=str(current_user.tenant_id),
-        title=payload.title,
-        severity=payload.severity,
-        mitre_techniques=payload.mitre_techniques,
-        host_id=payload.host_id,
-        user_id=payload.user_id,
-        ioc_values=payload.ioc_values,
-    ))
+    await _or_503(
+        graph_service.upsert_alert_node(
+            alert_id=payload.alert_id,
+            tenant_id=str(current_user.tenant_id),
+            title=payload.title,
+            severity=payload.severity,
+            mitre_techniques=payload.mitre_techniques,
+            host_id=payload.host_id,
+            user_id=payload.user_id,
+            ioc_values=payload.ioc_values,
+        )
+    )
     return {"status": "ok", "alert_id": payload.alert_id}
 
 
@@ -579,11 +585,13 @@ async def upsert_case_graph(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str]:
     """Create or update a Case node and link it to Alert nodes."""
-    await _or_503(graph_service.upsert_case_node(
-        case_id=payload.case_id,
-        tenant_id=str(current_user.tenant_id),
-        title=payload.title,
-        severity=payload.severity,
-        alert_ids=payload.alert_ids,
-    ))
+    await _or_503(
+        graph_service.upsert_case_node(
+            case_id=payload.case_id,
+            tenant_id=str(current_user.tenant_id),
+            title=payload.title,
+            severity=payload.severity,
+            alert_ids=payload.alert_ids,
+        )
+    )
     return {"status": "ok", "case_id": payload.case_id}

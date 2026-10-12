@@ -4,6 +4,7 @@ Before this, every /cases route accepted ANY authenticated caller: a read-only
 API key or a "viewer" login could create, edit and comment on cases. This file
 pins both the structure (no route without a permission) and the behavior.
 """
+
 import uuid
 
 import pytest
@@ -23,7 +24,11 @@ EXPECTED_BY_METHOD = {"GET": "cases:read", "POST": "cases:write", "PUT": "cases:
 # case, comment on it and launch an investigation from it.
 # cases:write also guards creating cases, attaching alerts, notes, observables, tasks, approvals and replays, which an integration that only
 # works on cases should not get.
-NARROWED = {("PATCH", "/cases/{case_id}"): "cases:work", ("POST", "/cases/{case_id}/comments"): "cases:work", ("POST", "/cases/{case_id}/investigate"): "cases:work"}  # noqa: E501
+NARROWED = {
+    ("PATCH", "/cases/{case_id}"): "cases:work",
+    ("POST", "/cases/{case_id}/comments"): "cases:work",
+    ("POST", "/cases/{case_id}/investigate"): "cases:work",
+}  # noqa: E501
 
 
 def _required_permissions(route: APIRoute) -> list[str]:
@@ -82,12 +87,27 @@ def _user(role="viewer", scopes=None) -> CurrentUser:
     return CurrentUser(user_id=uuid.uuid4(), tenant_id=TENANT, role=role, email="t@example.com", scopes=scopes)
 
 
-READS = [("GET", "/api/v1/cases"), ("GET", f"/api/v1/cases/{CASE}"), ("GET", f"/api/v1/cases/{CASE}/timeline"),
-         ("GET", f"/api/v1/cases/{CASE}/attack-chain"), ("GET", f"/api/v1/cases/{CASE}/comments")]
-WRITES = [("POST", "/api/v1/cases"), ("PATCH", f"/api/v1/cases/{CASE}"), ("POST", f"/api/v1/cases/{CASE}/comments"),
-          ("POST", f"/api/v1/cases/{CASE}/notes"), ("POST", f"/api/v1/cases/{CASE}/tasks"), ("POST", f"/api/v1/cases/{CASE}/investigate")]
+READS = [
+    ("GET", "/api/v1/cases"),
+    ("GET", f"/api/v1/cases/{CASE}"),
+    ("GET", f"/api/v1/cases/{CASE}/timeline"),
+    ("GET", f"/api/v1/cases/{CASE}/attack-chain"),
+    ("GET", f"/api/v1/cases/{CASE}/comments"),
+]
+WRITES = [
+    ("POST", "/api/v1/cases"),
+    ("PATCH", f"/api/v1/cases/{CASE}"),
+    ("POST", f"/api/v1/cases/{CASE}/comments"),
+    ("POST", f"/api/v1/cases/{CASE}/notes"),
+    ("POST", f"/api/v1/cases/{CASE}/tasks"),
+    ("POST", f"/api/v1/cases/{CASE}/investigate"),
+]
 
-NARROWED_CONCRETE = {("PATCH", f"/api/v1/cases/{CASE}"), ("POST", f"/api/v1/cases/{CASE}/comments"), ("POST", f"/api/v1/cases/{CASE}/investigate")}  # noqa: E501
+NARROWED_CONCRETE = {
+    ("PATCH", f"/api/v1/cases/{CASE}"),
+    ("POST", f"/api/v1/cases/{CASE}/comments"),
+    ("POST", f"/api/v1/cases/{CASE}/investigate"),
+}  # noqa: E501
 
 
 @pytest.mark.parametrize("method,path", WRITES)

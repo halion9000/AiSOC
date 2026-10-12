@@ -1,4 +1,5 @@
 """The connectors service's ingest client sends the ingest service's bearer token (the service now requires it)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,7 +22,9 @@ def _push(monkeypatch, *, token):
     async def go():
         client = IngestClient(BASE)
         try:
-            return await client.push_events(tenant_id=uuid.UUID(int=1), connector_id=uuid.UUID(int=2), connector_type="okta", events=[{"a": 1}])
+            return await client.push_events(
+                tenant_id=uuid.UUID(int=1), connector_id=uuid.UUID(int=2), connector_type="okta", events=[{"a": 1}]
+            )
         finally:
             await client.aclose()
 

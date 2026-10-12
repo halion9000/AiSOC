@@ -444,7 +444,13 @@ async def _require_owned_alerts(db: Any, tenant_id: uuid.UUID, alert_ids: list[u
     ids = [str(a) for a in alert_ids]
     if not ids:
         return
-    owned = (await db.execute(text("SELECT id FROM alerts WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id").bindparams(ids=ids, tenant_id=tenant_id))).fetchall()
+    owned = (
+        await db.execute(
+            text("SELECT id FROM alerts WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id").bindparams(
+                ids=ids, tenant_id=tenant_id
+            )
+        )
+    ).fetchall()
     if {str(r[0]) for r in owned} != set(ids):
         raise HTTPException(status_code=404, detail="One or more alerts were not found.")
 
@@ -458,12 +464,16 @@ async def _link_alerts_to_case(db: Any, tenant_id: uuid.UUID, case_id: uuid.UUID
     if not ids:
         return
     await db.execute(
-        text("UPDATE alerts SET case_id = :case_id WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id AND case_id IS NULL").bindparams(case_id=case_id, ids=ids, tenant_id=tenant_id)
+        text(
+            "UPDATE alerts SET case_id = :case_id WHERE id = ANY(CAST(:ids AS UUID[])) AND tenant_id = :tenant_id AND case_id IS NULL"
+        ).bindparams(case_id=case_id, ids=ids, tenant_id=tenant_id)
     )
 
 
 @router.post("", response_model=CaseResponse, status_code=status.HTTP_201_CREATED, summary="Create case")
-async def create_case(body: CreateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
+async def create_case(
+    body: CreateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]
+) -> CaseResponse:
     import json as _json
 
     await _require_owned_alerts(db, user.tenant_id, body.alert_ids)
@@ -551,7 +561,9 @@ async def get_case(case_id: str, db: DBSession, user: Annotated[AuthUser, Depend
 
 
 @router.patch("/{case_id}", response_model=CaseResponse, summary="Update case")
-async def update_case(case_id: str, body: UpdateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]) -> CaseResponse:  # noqa: E501
+async def update_case(
+    case_id: str, body: UpdateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]
+) -> CaseResponse:  # noqa: E501
     import json as _json
 
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
@@ -667,7 +679,9 @@ async def update_case(case_id: str, body: UpdateCaseRequest, db: DBSession, user
 
 
 @router.post("/{case_id}/alerts", response_model=CaseResponse, summary="Link alerts to a case")
-async def add_alerts(case_id: str, body: AddAlertsRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
+async def add_alerts(
+    case_id: str, body: AddAlertsRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]
+) -> CaseResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     ids_str = [str(a) for a in body.alert_ids]
     await _require_owned_alerts(db, user.tenant_id, body.alert_ids)
@@ -694,7 +708,9 @@ async def add_alerts(case_id: str, body: AddAlertsRequest, db: DBSession, user: 
 
 
 @router.post("/{case_id}/observables", response_model=CaseResponse, summary="Update observable graph")
-async def update_observables(case_id: str, body: UpdateObservablesRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CaseResponse:
+async def update_observables(
+    case_id: str, body: UpdateObservablesRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]
+) -> CaseResponse:
     import json as _json
 
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
@@ -740,7 +756,9 @@ async def update_observables(case_id: str, body: UpdateObservablesRequest, db: D
 
 
 @router.post("/{case_id}/comments", response_model=CommentResponse, status_code=201, summary="Add comment")
-async def add_comment(case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]) -> CommentResponse:  # noqa: E501
+async def add_comment(
+    case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]
+) -> CommentResponse:  # noqa: E501
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (
         await db.execute(
@@ -789,7 +807,9 @@ async def add_comment(case_id: str, body: AddCommentRequest, db: DBSession, user
 
 
 @router.get("/{case_id}/comments", response_model=list[CommentResponse], summary="List case comments")
-async def list_comments(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> list[CommentResponse]:
+async def list_comments(
+    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
+) -> list[CommentResponse]:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     rows = (
         await db.execute(
@@ -809,17 +829,23 @@ async def list_comments(case_id: str, db: DBSession, user: Annotated[AuthUser, D
 # avoids a behavior change for any existing integration that already speaks
 # `/comments`.
 @router.get("/{case_id}/notes", response_model=list[CommentResponse], summary="List case notes (alias of /comments)")
-async def list_notes(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> list[CommentResponse]:
+async def list_notes(
+    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
+) -> list[CommentResponse]:
     return await list_comments(case_id, db, user)
 
 
 @router.post("/{case_id}/notes", response_model=CommentResponse, status_code=201, summary="Add case note (alias of /comments)")
-async def add_note(case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]) -> CommentResponse:
+async def add_note(
+    case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]
+) -> CommentResponse:
     return await add_comment(case_id, body, db, user)
 
 
 @router.get("/{case_id}/evidence", response_model=EvidenceReport, summary="Export evidence chain report")
-async def evidence_report(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> EvidenceReport:
+async def evidence_report(
+    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
+) -> EvidenceReport:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     row = (
         await db.execute(
@@ -852,7 +878,9 @@ async def evidence_report(case_id: str, db: DBSession, user: Annotated[AuthUser,
 
 
 @router.get("/{case_id}/timeline", response_model=TimelineResponse, summary="Case activity timeline")
-async def case_timeline(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> TimelineResponse:
+async def case_timeline(
+    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
+) -> TimelineResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     case_row = (
         await db.execute(
@@ -918,7 +946,11 @@ async def case_timeline(case_id: str, db: DBSession, user: Annotated[AuthUser, D
         try:
             a = (
                 # `alerts` (the table alerts live in; `aisoc_alerts` was never created, so no linked alert ever appeared here), scoped to the caller's tenant like every other read in this function.
-                await db.execute(text("SELECT id, title, severity, created_at FROM alerts WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=alert_id, tenant_id=user.tenant_id))
+                await db.execute(
+                    text("SELECT id, title, severity, created_at FROM alerts WHERE id = :id AND tenant_id = :tenant_id").bindparams(
+                        id=alert_id, tenant_id=user.tenant_id
+                    )
+                )
             ).fetchone()
             if a:
                 events.append(
@@ -970,7 +1002,9 @@ async def case_timeline(case_id: str, db: DBSession, user: Annotated[AuthUser, D
 
 
 @router.get("/{case_id}/tasks", response_model=list[TaskResponse], summary="List case tasks")
-async def list_tasks(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> list[TaskResponse]:
+async def list_tasks(
+    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
+) -> list[TaskResponse]:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (
         await db.execute(
@@ -1165,7 +1199,9 @@ async def _require_own_run(run_id: str, user: Any) -> dict[str, Any]:
 
     The agents service does not scope a call made with the internal token (it trusts the API to have authorised it), so the check belongs here. A run that is not this tenant's, or that records no owner, is the same 404 the agents service gives for a missing one.
     GET /investigations/{run} had this check; GET /investigations/{run}/report.pdf did not, so any tenant could download any run's PDF report by id."""
-    safe_run_id = quote(run_id, safe="")  # URL-encode the user-supplied id so it cannot inject `/`, `?`, `#`, CR/LF or other URL syntax into the proxied path
+    safe_run_id = quote(
+        run_id, safe=""
+    )  # URL-encode the user-supplied id so it cannot inject `/`, `?`, `#`, CR/LF or other URL syntax into the proxied path
     resp = await _agents_proxy("GET", f"/api/v1/investigations/{safe_run_id}")
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
@@ -1188,7 +1224,11 @@ async def list_case_investigations(
     """
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     # _resolve_case_id does NOT check ownership of a UUID, and the agents service does not scope an internal-token call: without this check any tenant could list any case's runs by guessing its id.
-    owned = (await db.execute(text("SELECT 1 FROM aisoc_cases WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=cid, tenant_id=user.tenant_id))).fetchone()
+    owned = (
+        await db.execute(
+            text("SELECT 1 FROM aisoc_cases WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=cid, tenant_id=user.tenant_id)
+        )
+    ).fetchone()
     if not owned:
         raise HTTPException(status_code=404, detail="Case not found.")
     try:

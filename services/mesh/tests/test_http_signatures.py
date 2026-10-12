@@ -4,6 +4,7 @@ POST /v1/opt-out took only a public key and no signature, while every other writ
 not a secret (it accompanies every published sighting), so anyone could remove any instance from the mesh, after which its
 sightings were rejected. It now needs a signature over crypto.opt_out_message(pubkey) by that instance's own key.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

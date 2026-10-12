@@ -3,6 +3,7 @@
 Found by calling the real endpoint with an empty body against a tenant that had never saved a policy: PUT /data-lifecycle/retention raised `TypeError: int() argument must be ... not 'NoneType'`. A new RetentionPolicyRow's columns are still None until it is flushed, so
 a field the caller omitted fell through as None into resolve_policy. This is the endpoint through which operators set the windows the retention sweeper enforces.
 """
+
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -57,7 +58,12 @@ class TestFirstSave:
     async def test_the_new_row_is_stored_for_the_callers_tenant_with_the_merged_values(self):
         out, db, user = await put(None, audit_days=400)
         row = db.add.call_args.args[0]
-        assert isinstance(row, RetentionPolicyRow) and row.tenant_id == user.tenant_id and row.audit_days == 400 and row.updated_by == user.user_id
+        assert (
+            isinstance(row, RetentionPolicyRow)
+            and row.tenant_id == user.tenant_id
+            and row.audit_days == 400
+            and row.updated_by == user.user_id
+        )
         assert (row.raw_events_days, row.alerts_days) == (DEFAULTS["raw_events_days"], DEFAULTS["alerts_days"])
 
     async def test_all_three_fields_on_a_first_save_still_work(self):

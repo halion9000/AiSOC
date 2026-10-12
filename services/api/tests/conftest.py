@@ -1,4 +1,5 @@
 """Shared test fixtures for the API service."""
+
 import os
 
 import pytest

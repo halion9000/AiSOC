@@ -8,6 +8,7 @@ Nothing used to run this service's migration, so its tables never existed. Makin
 These tests generate the migration's SQL offline (no database needed) and compare it with the models, and, when AISOC_TEST_PG_URL points at a
 disposable Postgres, run it for real.
 """
+
 from __future__ import annotations
 
 import os
@@ -74,7 +75,9 @@ def test_every_model_column_exists_after_the_migrations():
 def test_the_service_keeps_its_own_version_table():
     sql = _offline_sql()
     assert re.search(rf"CREATE TABLE {VERSION_TABLE} \(", sql), f"{VERSION_TABLE} is not used"
-    assert not re.search(r"CREATE TABLE alembic_version \(", sql), "the shared alembic_version table is back: services will skip each other's migrations"
+    assert not re.search(
+        r"CREATE TABLE alembic_version \(", sql
+    ), "the shared alembic_version table is back: services will skip each other's migrations"
 
 
 def test_there_is_exactly_one_head():
@@ -90,7 +93,9 @@ def test_the_image_applies_the_migrations_before_serving():
     assert "exec uvicorn" in cmd and f"--port {PORT}" in cmd, cmd
 
 
-@pytest.mark.skipif(not PG_URL, reason="set AISOC_TEST_PG_URL to a DISPOSABLE postgresql+asyncpg:// database to run the migrations for real")
+@pytest.mark.skipif(
+    not PG_URL, reason="set AISOC_TEST_PG_URL to a DISPOSABLE postgresql+asyncpg:// database to run the migrations for real"
+)
 def test_against_a_real_postgres_the_tables_and_columns_match_the_models_and_a_second_run_changes_nothing():
     import asyncio
 
@@ -100,7 +105,9 @@ def test_against_a_real_postgres_the_tables_and_columns_match_the_models_and_a_s
     async def inspect() -> dict[str, set[str]]:
         engine = create_async_engine(PG_URL)
         async with engine.connect() as conn:
-            rows = (await conn.execute(text("select table_name, column_name from information_schema.columns where table_schema = 'public'"))).all()
+            rows = (
+                await conn.execute(text("select table_name, column_name from information_schema.columns where table_schema = 'public'"))
+            ).all()
         await engine.dispose()
         out: dict[str, set[str]] = {}
         for table, column in rows:

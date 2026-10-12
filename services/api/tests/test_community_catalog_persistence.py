@@ -5,6 +5,7 @@ rating. Each call here uses its own session on a BRAND-NEW engine over the same 
 Also pinned: a plugin resubmitted under an existing id no longer overwrites the existing entry (it used to); the submitted package bytes are no longer held in memory under "_tarball" (only the SHA-256 is
 recorded); the submitting tenant is recorded; and the read-modify-write paths take a row lock, but the playbook install does NOT hold one across the call to the playbook engine.
 """
+
 import asyncio
 import base64
 import hashlib
@@ -104,7 +105,12 @@ def publish_detection(db_path, u, rule_id=None):
 
 
 def submit_playbook(db_path, u, name="Isolate host"):
-    return run(db_path, lambda s: community.submit_playbook(definition={"name": name, "steps": [{"action": "isolate_host"}], "enabled": True}, current_user=u, db=s))["id"]
+    return run(
+        db_path,
+        lambda s: community.submit_playbook(
+            definition={"name": name, "steps": [{"action": "isolate_host"}], "enabled": True}, current_user=u, db=s
+        ),
+    )["id"]
 
 
 def publish_plugin(db_path, u, plugin_id="plug-1", body=b"PACKAGE-BYTES", version="1.0.0"):
@@ -117,11 +123,21 @@ def list_playbooks(db_path):
 
 
 def list_detections(db_path):
-    return run(db_path, lambda s: community.list_community_detections(page=1, page_size=20, search=None, logsource_category=None, logsource_product=None, level=None, sort_by="install_count", db=s))
+    return run(
+        db_path,
+        lambda s: community.list_community_detections(
+            page=1, page_size=20, search=None, logsource_category=None, logsource_product=None, level=None, sort_by="install_count", db=s
+        ),
+    )
 
 
 def list_plugins(db_path):
-    return run(db_path, lambda s: community.list_community_plugins(status_filter=None, plugin_type=None, tags=None, sort="install_count", order="desc", page=1, page_size=20, db=s))
+    return run(
+        db_path,
+        lambda s: community.list_community_plugins(
+            status_filter=None, plugin_type=None, tags=None, sort="install_count", order="desc", page=1, page_size=20, db=s
+        ),
+    )
 
 
 class TestEverythingSurvivesARestart:
@@ -140,7 +156,12 @@ class TestEverythingSurvivesARestart:
         run(db_path, lambda s: community.install_community_detection(rule_id, current_user=u, db=s))
         run(db_path, lambda s: community.install_community_playbook(pid, current_user=u, db=s))
         for score in (5, 4):
-            run(db_path, lambda s, score=score: community.rate_community_plugin("plug-1", community.RatingIn(score=score), current_user=person(), db=s))
+            run(
+                db_path,
+                lambda s, score=score: community.rate_community_plugin(
+                    "plug-1", community.RatingIn(score=score), current_user=person(), db=s
+                ),
+            )
 
         # ---- everything below is read through brand-new engines: the API "restarted" between each step above and each read ----
         (d,) = list_detections(db_path)["items"]
@@ -165,7 +186,12 @@ class TestEverythingSurvivesARestart:
     def test_a_rejection_and_its_notes_survive(self, db_path):
         u = person()
         rule_id = publish_detection(db_path, u)
-        run(db_path, lambda s: community.curate_community_detection(rule_id, community.ReviewAction(action="reject", notes="too noisy"), current_user=person(), db=s))
+        run(
+            db_path,
+            lambda s: community.curate_community_detection(
+                rule_id, community.ReviewAction(action="reject", notes="too noisy"), current_user=person(), db=s
+            ),
+        )
         r = row(db_path, "detection", rule_id)
         assert r.status == "rejected" and r.data["review_notes"] == "too noisy" and r.data["status"] == "rejected"
         assert list_detections(db_path)["items"] == []
@@ -181,7 +207,12 @@ class TestEverythingSurvivesARestart:
         publish_plugin(db_path, person())
         run(db_path, approve("plugin", "plug-1"))  # only an approved plugin can be rated
         for score in (5, 4, 3):
-            run(db_path, lambda s, score=score: community.rate_community_plugin("plug-1", community.RatingIn(score=score), current_user=person(), db=s))
+            run(
+                db_path,
+                lambda s, score=score: community.rate_community_plugin(
+                    "plug-1", community.RatingIn(score=score), current_user=person(), db=s
+                ),
+            )
         assert row(db_path, "plugin", "plug-1").data["rating"] == 4.0
         assert row(db_path, "plugin", "plug-1").data["rating_count"] == 3
 
@@ -294,8 +325,22 @@ class TestWhatIsRecorded:
         assert "PACKAGE-BYTES" not in json.dumps(data)
         # nothing else derived from the package either (a hex or base64 copy, say): the entry has exactly the expected keys
         assert set(data) == {
-            "id", "name", "version", "plugin_type", "description", "author", "tags", "status", "install_count", "rating", "rating_count",
-            "verified", "submitted_by", "submitted_at", "approved_at", "tarball_sha256",
+            "id",
+            "name",
+            "version",
+            "plugin_type",
+            "description",
+            "author",
+            "tags",
+            "status",
+            "install_count",
+            "rating",
+            "rating_count",
+            "verified",
+            "submitted_by",
+            "submitted_at",
+            "approved_at",
+            "tarball_sha256",
         }
         assert body.hex() not in json.dumps(data) and base64.b64encode(body).decode() not in json.dumps(data)
 
@@ -369,13 +414,19 @@ class TestRowLocks:
         publish_plugin(db_path, person())
         run(db_path, approve("plugin", "plug-1"))
         events: list[str] = []
-        spied(db_path, lambda s: community.rate_community_plugin("plug-1", community.RatingIn(score=5), current_user=person(), db=s), events)
+        spied(
+            db_path, lambda s: community.rate_community_plugin("plug-1", community.RatingIn(score=5), current_user=person(), db=s), events
+        )
         assert events[0] == "select FOR UPDATE"
 
     def test_curation_locks_the_row(self, db_path):
         rule_id = publish_detection(db_path, person())
         events: list[str] = []
-        spied(db_path, lambda s: community.curate_community_detection(rule_id, community.ReviewAction(action="approve"), current_user=person(), db=s), events)
+        spied(
+            db_path,
+            lambda s: community.curate_community_detection(rule_id, community.ReviewAction(action="approve"), current_user=person(), db=s),
+            events,
+        )
         assert events[0] == "select FOR UPDATE"
 
     def test_a_detection_install_locks_the_row_before_counting(self, db_path):
@@ -402,7 +453,11 @@ class TestRowLocks:
 
         monkeypatch.setattr(playbooks_api, "_proxy", fake_proxy)
         spied(db_path, lambda s: community.install_community_playbook(pid, current_user=person(), db=s), events)
-        assert events == ["select", "ENGINE CALL", "select FOR UPDATE"], events  # read, slow call with no lock held, THEN lock and count (and save() issues no extra SELECT)
+        assert events == [
+            "select",
+            "ENGINE CALL",
+            "select FOR UPDATE",
+        ], events  # read, slow call with no lock held, THEN lock and count (and save() issues no extra SELECT)
         assert row(db_path, "playbook", pid).data["install_count"] == 1
 
     def test_a_refused_playbook_install_is_not_counted(self, db_path, monkeypatch):
@@ -463,7 +518,12 @@ class TestRatingsCannotBeSteered:
 
     def test_a_plugin_that_was_rejected_cannot_be_rated(self, db_path):
         publish_plugin(db_path, person(), plugin_id="rejected-1")
-        run(db_path, lambda s: community.review_community_plugin("rejected-1", community.ReviewAction(action="reject", notes="no"), current_user=person(), db=s))  # noqa: E501
+        run(
+            db_path,
+            lambda s: community.review_community_plugin(
+                "rejected-1", community.ReviewAction(action="reject", notes="no"), current_user=person(), db=s
+            ),
+        )  # noqa: E501
         with pytest.raises(HTTPException) as refused:
             rate(db_path, person(), 5, plugin_id="rejected-1")
         assert refused.value.status_code == 404
@@ -499,7 +559,6 @@ class TestRatingsCannotBeSteered:
         rate(db_path, person(), 4)
         (plugin,) = list_plugins(db_path).items
         assert "ratings" not in plugin.model_dump() and plugin.rating == 4.0 and plugin.rating_count == 1
-
 
 
 def _publish_raw(db_path, content):
@@ -549,7 +608,11 @@ class TestPublishingARuleThatIsNotARule:
         assert _publish_raw(db_path, content)["id"] == "ok-2"
 
     def test_the_messages_say_what_is_wrong(self, db_path):
-        for content, expect in (("", "mapping"), ("title: t\nid: [a]\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n", "`id`"), ("title: t\nid: a\nstatus: s\ndescription: d\nlogsource: [x]\ndetection: {condition: x}\n", "`logsource`")):  # noqa: E501
+        for content, expect in (
+            ("", "mapping"),
+            ("title: t\nid: [a]\nstatus: s\ndescription: d\nlogsource: {category: c}\ndetection: {condition: x}\n", "`id`"),
+            ("title: t\nid: a\nstatus: s\ndescription: d\nlogsource: [x]\ndetection: {condition: x}\n", "`logsource`"),
+        ):  # noqa: E501
             with pytest.raises(HTTPException) as refused:
                 _publish_raw(db_path, content)
             assert expect in refused.value.detail, refused.value.detail

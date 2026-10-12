@@ -73,16 +73,8 @@ def _row_to_summary(row: dict) -> ShiftSummary:
     return ShiftSummary(
         id=str(row["id"]),
         name=row["name"],
-        started_at=(
-            row["started_at"].isoformat()
-            if isinstance(row["started_at"], datetime)
-            else str(row["started_at"])
-        ),
-        ended_at=(
-            row["ended_at"].isoformat()
-            if isinstance(row["ended_at"], datetime) and row["ended_at"]
-            else None
-        ),
+        started_at=(row["started_at"].isoformat() if isinstance(row["started_at"], datetime) else str(row["started_at"])),
+        ended_at=(row["ended_at"].isoformat() if isinstance(row["ended_at"], datetime) and row["ended_at"] else None),
         status=row["status"],
         lead=ShiftAnalyst(
             id=row.get("lead_id") or "unknown",
@@ -219,6 +211,7 @@ class HandoffItemOut(BaseModel):
     shift record to answer, it's just currently-open alerts and cases,
     which the database already has for real.
     """
+
     id: str
     priority: str
     title: str
@@ -244,30 +237,34 @@ async def list_handoff_items(
     """
     tenant_params = {"tenant_id": str(current_user.tenant_id)}
     priority_clause = "AND severity = :priority" if priority else ""
-    alert_rows = (await db.execute(
-        text(f"""
+    alert_rows = (
+        await db.execute(
+            text(f"""
             SELECT id, title, severity AS priority, status, assigned_to_id, ai_summary AS notes
             FROM alerts
             WHERE tenant_id = :tenant_id AND status NOT IN ('resolved', 'fp', 'closed') {priority_clause}
             ORDER BY created_at DESC
             LIMIT :limit
         """),
-        {**tenant_params, "priority": priority, "limit": limit} if priority else {**tenant_params, "limit": limit},
-    )).fetchall()
+            {**tenant_params, "priority": priority, "limit": limit} if priority else {**tenant_params, "limit": limit},
+        )
+    ).fetchall()
 
     # Cases live in aisoc_cases (the table the cases API reads and writes). This used to query the old `cases` table, which never receives a case, so a shift handoff silently never included any.
     # aisoc_cases has no `priority` or `assigned_to_id`: severity is the handoff priority and `assignee` is free text.
     case_priority_clause = "AND severity = :priority" if priority else ""
-    case_rows = (await db.execute(
-        text(f"""
+    case_rows = (
+        await db.execute(
+            text(f"""
             SELECT id, title, severity AS priority, status, assignee, description AS notes
             FROM aisoc_cases
             WHERE tenant_id = :tenant_id AND status NOT IN ('resolved', 'closed') {case_priority_clause}
             ORDER BY created_at DESC
             LIMIT :limit
         """),
-        {**tenant_params, "priority": priority, "limit": limit} if priority else {**tenant_params, "limit": limit},
-    )).fetchall()
+            {**tenant_params, "priority": priority, "limit": limit} if priority else {**tenant_params, "limit": limit},
+        )
+    ).fetchall()
 
     items = [
         HandoffItemOut(

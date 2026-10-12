@@ -1,5 +1,6 @@
 """SSRF: connectors call hosts that come from the tenant's own configuration, and POST /connectors/test (connectors:write) forwards that configuration here. Without a guard a user could point a connector at the cloud metadata address, this host's loopback services or another internal service.
 The guard refuses loopback, link-local (which contains 169.254.169.254) and other never-legitimate destinations on every httpx client, including each hop of a redirect, and ALLOWS private ranges because on-prem integrations legitimately live there."""
+
 import asyncio
 import ipaddress
 import threading
@@ -25,11 +26,32 @@ def ip(s):
 
 
 class TestAddresses:
-    @pytest.mark.parametrize("addr", ["169.254.169.254", "169.254.0.1", "127.0.0.1", "127.1.2.3", "::1", "0.0.0.0", "::", "224.0.0.1", "ff02::1", "240.0.0.1", "fe80::1", "fd00:ec2::254", "100.100.100.200", "::ffff:169.254.169.254", "::ffff:127.0.0.1"])
+    @pytest.mark.parametrize(
+        "addr",
+        [
+            "169.254.169.254",
+            "169.254.0.1",
+            "127.0.0.1",
+            "127.1.2.3",
+            "::1",
+            "0.0.0.0",
+            "::",
+            "224.0.0.1",
+            "ff02::1",
+            "240.0.0.1",
+            "fe80::1",
+            "fd00:ec2::254",
+            "100.100.100.200",
+            "::ffff:169.254.169.254",
+            "::ffff:127.0.0.1",
+        ],
+    )
     def test_never_legitimate_destinations_are_blocked(self, addr):
         assert g.address_is_blocked(ip(addr))
 
-    @pytest.mark.parametrize("addr", ["10.1.2.3", "172.16.5.5", "192.168.1.10", "8.8.8.8", "1.1.1.1", "fd12:3456::1", "100.64.0.1", "2606:4700::1111"])
+    @pytest.mark.parametrize(
+        "addr", ["10.1.2.3", "172.16.5.5", "192.168.1.10", "8.8.8.8", "1.1.1.1", "fd12:3456::1", "100.64.0.1", "2606:4700::1111"]
+    )
     def test_private_and_public_addresses_are_allowed(self, addr):
         assert not g.address_is_blocked(ip(addr))
 
@@ -38,7 +60,11 @@ class TestAddresses:
         assert g._unwrap(ip("::ffff:1.2.3.4")) == ip("1.2.3.4")
         assert g._unwrap(ip("10.0.0.1")) == ip("10.0.0.1") and g._unwrap(ip("2606:4700::1111")) == ip("2606:4700::1111")
         assert not g.address_is_blocked(ip("::ffff:10.1.2.3")) and not g.address_is_blocked(ip("::ffff:8.8.8.8"))
-        assert g.address_is_blocked(ip("::ffff:169.254.169.254")) and g.address_is_blocked(ip("::ffff:127.0.0.1")) and g.address_is_blocked(ip("::ffff:100.100.100.200"))
+        assert (
+            g.address_is_blocked(ip("::ffff:169.254.169.254"))
+            and g.address_is_blocked(ip("::ffff:127.0.0.1"))
+            and g.address_is_blocked(ip("::ffff:100.100.100.200"))
+        )
 
     def test_loopback_can_be_allowed_for_local_development_but_metadata_never_is(self, monkeypatch):
         monkeypatch.setenv("CONNECTORS_EGRESS_ALLOW_LOOPBACK", "1")
@@ -56,11 +82,26 @@ class TestUrls:
     def test_a_url_with_no_host_is_refused(self):
         assert self.refusal("http:///path") is not None
 
-    @pytest.mark.parametrize("url", ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8000/", "http://[::1]/", "http://0.0.0.0/", "http://[::ffff:169.254.169.254]/", "http://[fd00:ec2::254]/", "http://localhost/", "http://api.localhost/", "http://169.254.169.254:80/x"])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://169.254.169.254/latest/meta-data/",
+            "http://127.0.0.1:8000/",
+            "http://[::1]/",
+            "http://0.0.0.0/",
+            "http://[::ffff:169.254.169.254]/",
+            "http://[fd00:ec2::254]/",
+            "http://localhost/",
+            "http://api.localhost/",
+            "http://169.254.169.254:80/x",
+        ],
+    )
     def test_literal_addresses_and_localhost_are_refused(self, url):
         assert self.refusal(url) is not None
 
-    @pytest.mark.parametrize("url", ["http://10.1.2.3/ok", "https://192.168.5.5:8089/services", "https://splunk.example.test:8089/", "http://[fd12:3456::1]/"])
+    @pytest.mark.parametrize(
+        "url", ["http://10.1.2.3/ok", "https://192.168.5.5:8089/services", "https://splunk.example.test:8089/", "http://[fd12:3456::1]/"]
+    )
     def test_private_and_unresolvable_hosts_are_allowed(self, url):
         assert self.refusal(url) is None
 
@@ -151,7 +192,9 @@ class TestOnRealClients:
             order.append("mine")
 
         async def go():
-            async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)), event_hooks={"request": [mine]}) as c:
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda r: httpx.Response(200)), event_hooks={"request": [mine]}
+            ) as c:
                 await c.get("http://10.0.0.5/")
                 with pytest.raises(g.EgressBlocked):
                     await c.get("http://127.0.0.1/")

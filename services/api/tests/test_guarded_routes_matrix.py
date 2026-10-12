@@ -4,6 +4,7 @@ Expectations come from the real role table (core.security.ROLE_PERMISSIONS), so 
 role that SHOULD have access is proven not locked out, and one that should not is
 proven refused. A structural check keeps this table honest against the code.
 """
+
 import uuid
 
 import httpx
@@ -113,6 +114,7 @@ def test_the_table_matches_what_the_code_actually_enforces():
         for (m, t), perms in actual.items():
             if m == method:
                 import re
+
                 if re.fullmatch(re.sub(r"\{[^}]+\}", "[^/]+", t), path.split("?")[0]):
                     template = (m, t)
                     break

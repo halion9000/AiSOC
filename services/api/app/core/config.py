@@ -275,7 +275,9 @@ class Settings(BaseSettings):
     # has switched it on in the platform setting AND the four ALERT_EMAIL_* credentials below are set. The Graph credentials are an Entra app registration with the APPLICATION permission Mail.Send (client
     # credentials flow), ideally restricted by an Exchange application access policy to the one sender mailbox. They live in the environment only: never in the database, never returned by the API, never logged.
     # ------------------------------------------------------------------
-    ALERT_EMAIL_WORKER_ENABLED: bool = Field(default=False, validation_alias=AliasChoices("ALERT_EMAIL_WORKER_ENABLED", "AISOC_ALERT_EMAIL_WORKER_ENABLED"))
+    ALERT_EMAIL_WORKER_ENABLED: bool = Field(
+        default=False, validation_alias=AliasChoices("ALERT_EMAIL_WORKER_ENABLED", "AISOC_ALERT_EMAIL_WORKER_ENABLED")
+    )
     ALERT_EMAIL_POLL_INTERVAL_SECONDS: int = Field(default=60, ge=5)
     ALERT_EMAIL_MAX_ALERTS_PER_EMAIL: int = Field(default=20, ge=1, le=100)
     ALERT_EMAIL_MAX_ALERT_AGE_HOURS: int = Field(default=24, ge=1)

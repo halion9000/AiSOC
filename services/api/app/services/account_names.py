@@ -1,4 +1,5 @@
 """Account names that are free to use (see app/core/account_names.py for what a valid name is)."""
+
 from __future__ import annotations
 
 from typing import Any

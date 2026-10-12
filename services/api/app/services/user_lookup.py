@@ -5,6 +5,7 @@ build if code compares `User.email ==` directly).
 
 If a deployment already holds two accounts that differ only in letter case (the very thing this prevents from now on), the answer is deterministic and never an error: an exact-case match wins, otherwise the oldest account.
 """
+
 from __future__ import annotations
 
 import uuid

@@ -3,6 +3,7 @@
 The console used to call the osquery service directly. That service did no authentication and trusted a
 caller-supplied tenant_id, so anyone who could reach it could read any tenant's file-change history.
 """
+
 import uuid
 
 import httpx
@@ -25,11 +26,30 @@ SUMMARY = f"{BASE}/api/v1/osquery/fim/summary"
 TOKEN = "internal-osquery-token-123"
 OTHER_TENANT = uuid.UUID("00000000-0000-0000-0000-0000000000bb")
 
-ITEM = {"id": 1, "tenant_id": "x", "node_key": "n1", "hostname": "web-1", "target_path": "/etc/passwd", "action": "UPDATED",
-        "md5": None, "sha256": None, "pid": None, "ppid": None, "process_name": None, "username": None,
-        "event_time": "2026-10-01T12:00:00Z", "ingested_at": "2026-10-01T12:00:01Z"}
+ITEM = {
+    "id": 1,
+    "tenant_id": "x",
+    "node_key": "n1",
+    "hostname": "web-1",
+    "target_path": "/etc/passwd",
+    "action": "UPDATED",
+    "md5": None,
+    "sha256": None,
+    "pid": None,
+    "ppid": None,
+    "process_name": None,
+    "username": None,
+    "event_time": "2026-10-01T12:00:00Z",
+    "ingested_at": "2026-10-01T12:00:01Z",
+}
 SERVICE_EVENTS = {"total": 120, "offset": 50, "limit": 25, "items": [ITEM]}
-SERVICE_SUMMARY = {"tenant_id": "x", "total_events": 5, "by_action": [{"action": "UPDATED", "count": 2}], "top_paths": [{"target_path": "/etc/passwd", "count": 2}], "active_nodes": 3}
+SERVICE_SUMMARY = {
+    "tenant_id": "x",
+    "total_events": 5,
+    "by_action": [{"action": "UPDATED", "count": 2}],
+    "top_paths": [{"target_path": "/etc/passwd", "count": 2}],
+    "active_nodes": 3,
+}
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +67,8 @@ def _client(role="viewer", scopes=None, tenant=DEMO_TENANT_ID, anonymous=False) 
     app.dependency_overrides[deps.get_db] = fake_db
     if not anonymous:
         app.dependency_overrides[deps.get_current_user] = lambda: CurrentUser(
-            user_id=uuid.uuid4(), tenant_id=tenant, role=role, email="t@example.com", scopes=scopes)
+            user_id=uuid.uuid4(), tenant_id=tenant, role=role, email="t@example.com", scopes=scopes
+        )
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -59,12 +80,29 @@ def _sent(route):
 @respx.mock
 def test_events_forward_exactly_what_the_service_accepts_with_the_internal_token():
     route = respx.get(EVENTS).mock(return_value=httpx.Response(200, json=SERVICE_EVENTS))
-    r = _client().get("/api/v1/osquery/fim/events", params={"tenant_id": "default", "page": 3, "page_size": 25,
-                      "action": "UPDATED", "path_prefix": "/etc/", "node_key": "n1", "since": "2026-10-01T00:00:00"})
+    r = _client().get(
+        "/api/v1/osquery/fim/events",
+        params={
+            "tenant_id": "default",
+            "page": 3,
+            "page_size": 25,
+            "action": "UPDATED",
+            "path_prefix": "/etc/",
+            "node_key": "n1",
+            "since": "2026-10-01T00:00:00",
+        },
+    )
     assert r.status_code == 200, r.text
     q = dict(_sent(route).url.params)
-    assert q == {"tenant_id": "default", "limit": "25", "offset": "50", "action": "UPDATED", "path_prefix": "/etc/",
-                 "node_key": "n1", "since": "2026-10-01T00:00:00"}
+    assert q == {
+        "tenant_id": "default",
+        "limit": "25",
+        "offset": "50",
+        "action": "UPDATED",
+        "path_prefix": "/etc/",
+        "node_key": "n1",
+        "since": "2026-10-01T00:00:00",
+    }
     assert _sent(route).headers["authorization"] == f"Bearer {TOKEN}"
 
 
@@ -157,7 +195,10 @@ def test_a_platform_admin_may_read_any_tenant():
     assert route.call_count == 2
 
 
-@pytest.mark.parametrize("requested,expected", [(None, str(OTHER_TENANT)), ("", str(OTHER_TENANT)), ("  ", str(OTHER_TENANT)), (str(OTHER_TENANT), str(OTHER_TENANT))])
+@pytest.mark.parametrize(
+    "requested,expected",
+    [(None, str(OTHER_TENANT)), ("", str(OTHER_TENANT)), ("  ", str(OTHER_TENANT)), (str(OTHER_TENANT), str(OTHER_TENANT))],
+)
 def test_resolve_tenant_defaults_to_the_callers_own(requested, expected):
     user = CurrentUser(user_id=uuid.uuid4(), tenant_id=OTHER_TENANT, role="viewer", email="e", scopes=None)
     assert osquery_fim.resolve_tenant(user, requested) == expected
@@ -174,8 +215,18 @@ def test_input_limits_are_422_and_never_reach_the_service():
 
 
 @respx.mock
-@pytest.mark.parametrize("failure", [httpx.ConnectError("down"), httpx.Response(401), httpx.Response(503), httpx.Response(500, json={}),
-                                     httpx.Response(200, text="not json"), httpx.Response(200, json=["list"]), httpx.Response(200, json={"items": "no", "total": 1})])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ConnectError("down"),
+        httpx.Response(401),
+        httpx.Response(503),
+        httpx.Response(500, json={}),
+        httpx.Response(200, text="not json"),
+        httpx.Response(200, json=["list"]),
+        httpx.Response(200, json={"items": "no", "total": 1}),
+    ],
+)
 def test_upstream_trouble_is_a_502_never_made_up_data(failure):
     if isinstance(failure, Exception):
         respx.get(EVENTS).mock(side_effect=failure)

@@ -5,6 +5,7 @@ The legacy adapter used to return {run_id, case_id, status, message} which
 broke AlertDetailView. This test ensures the contract stays correct and
 that the GET poll endpoint maps internal state properly.
 """
+
 from __future__ import annotations
 
 import pytest

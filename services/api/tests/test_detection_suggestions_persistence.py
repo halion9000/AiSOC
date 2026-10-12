@@ -6,6 +6,7 @@ The proposal insert was also wrapped in `except Exception: proposal_id = None` i
 list/get run against a real file-backed SQLite database here (which has no RLS, so what is proven is the endpoint's own explicit tenant filtering). The POST path stays covered in
 test_detection_loop_tenant_isolation.py with a mocked session (its raw SQL binds uuid.UUID objects, which asyncpg accepts and SQLite does not), and end to end against real Postgres.
 """
+
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -34,7 +35,9 @@ def client_as(role="soc_analyst", tenant_id=None, user_id=None) -> TestClient:
     app = FastAPI()
     app.include_router(dl.router)
     tenant_id = tenant_id or uuid.uuid4()
-    app.dependency_overrides[deps.get_current_user] = lambda: deps.CurrentUser(user_id=user_id or uuid.uuid4(), tenant_id=tenant_id, role=role, email=f"{role}@example.test")
+    app.dependency_overrides[deps.get_current_user] = lambda: deps.CurrentUser(
+        user_id=user_id or uuid.uuid4(), tenant_id=tenant_id, role=role, email=f"{role}@example.test"
+    )
 
     async def real_session():
         async with DB.factory() as session:
@@ -61,8 +64,16 @@ def seed(tenant_id, name="fp-fix-draft", created_at=None, **over) -> uuid.UUID:
     with Session(DB.sync) as s:
         s.add(
             DetectionSuggestion(
-                id=sid, tenant_id=tenant_id, alert_id=uuid.uuid4(), base_rule_id=uuid.uuid4(), draft_rule_name=name, draft_sigma_yaml="title: x\n", rationale="because", proposal_id=uuid.uuid4(),
-                created_at=created_at or datetime.now(UTC), **over,
+                id=sid,
+                tenant_id=tenant_id,
+                alert_id=uuid.uuid4(),
+                base_rule_id=uuid.uuid4(),
+                draft_rule_name=name,
+                draft_sigma_yaml="title: x\n",
+                rationale="because",
+                proposal_id=uuid.uuid4(),
+                created_at=created_at or datetime.now(UTC),
+                **over,
             )
         )
         s.commit()
@@ -84,7 +95,16 @@ class TestListing:
         c = client_as()
         seed(c.tenant_id)
         (item,) = c.get(f"{PREFIX}/suggestions").json()["suggestions"]
-        assert set(item) == {"suggestion_id", "alert_id", "base_rule_id", "draft_rule_name", "draft_sigma_yaml", "rationale", "proposal_id", "created_at"}
+        assert set(item) == {
+            "suggestion_id",
+            "alert_id",
+            "base_rule_id",
+            "draft_rule_name",
+            "draft_sigma_yaml",
+            "rationale",
+            "proposal_id",
+            "created_at",
+        }
         assert "tenant_id" not in item and "created_by" not in item
 
     def test_newest_first(self):
@@ -135,7 +155,9 @@ class TestItSurvivesARestart:
         """The dict emptied on every restart."""
         c = client_as()
         sid = seed(c.tenant_id, "survivor")
-        DB.factory = async_sessionmaker(create_async_engine(f"sqlite+aiosqlite:///{DB.path}", poolclass=NullPool), expire_on_commit=False)  # a new process: nothing in memory
+        DB.factory = async_sessionmaker(
+            create_async_engine(f"sqlite+aiosqlite:///{DB.path}", poolclass=NullPool), expire_on_commit=False
+        )  # a new process: nothing in memory
         again = client_as(tenant_id=c.tenant_id)
         assert [s["suggestion_id"] for s in again.get(f"{PREFIX}/suggestions").json()["suggestions"]] == [str(sid)]
         assert again.get(f"{PREFIX}/suggestions/{sid}").status_code == 200
@@ -206,7 +228,9 @@ class TestTheProposalInsertIsNoLongerSilent:
 
     @pytest.fixture(autouse=True)
     def stub_llm(self, monkeypatch):
-        monkeypatch.setattr(dl, "_llm_draft_sigma", AsyncMock(return_value={"rule_name": "fp-draft", "sigma_yaml": "title: x\n", "rationale": "because"}))
+        monkeypatch.setattr(
+            dl, "_llm_draft_sigma", AsyncMock(return_value={"rule_name": "fp-draft", "sigma_yaml": "title: x\n", "rationale": "because"})
+        )
 
     def user(self):
         return deps.CurrentUser(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="soc_analyst", email="a@example.test")
@@ -261,7 +285,11 @@ class TestWiringAndMigration:
         from app.main import app
 
         paths = app.openapi()["paths"]
-        assert "/api/v1/detection-loop/suggestions" in paths and "/api/v1/detection-loop/suggestions/{suggestion_id}" in paths and "/api/v1/detection-loop/suggest" in paths
+        assert (
+            "/api/v1/detection-loop/suggestions" in paths
+            and "/api/v1/detection-loop/suggestions/{suggestion_id}" in paths
+            and "/api/v1/detection-loop/suggest" in paths
+        )
 
     def test_the_model_and_migration_agree(self):
         import pathlib

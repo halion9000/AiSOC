@@ -107,7 +107,9 @@ async def list_nodes(
     return list(result.scalars().all())
 
 
-@router.post("/nodes", response_model=NodeOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/nodes", response_model=NodeOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))]
+)
 async def create_node(
     body: NodeCreate,
     db: AsyncSession = Depends(get_db),
@@ -177,12 +179,16 @@ async def _require_own_nodes(db: AsyncSession, tenant_id: uuid.UUID, *node_ids: 
     The tenant was always stamped on the NEW row, but the nodes it points at were never checked: the database foreign key accepts any existing node, so a tenant could link its own node to another tenant's (and graph walks over edges
     could then cross into it), while a nonexistent id was an unhandled IntegrityError (HTTP 500). A foreign id and a nonexistent one get the SAME 404, so this cannot be used to probe which node ids exist elsewhere."""
     wanted = set(node_ids)
-    owned = set((await db.execute(select(IdentityNode.id).where(IdentityNode.id.in_(wanted), IdentityNode.tenant_id == tenant_id))).scalars().all())
+    owned = set(
+        (await db.execute(select(IdentityNode.id).where(IdentityNode.id.in_(wanted), IdentityNode.tenant_id == tenant_id))).scalars().all()
+    )
     if owned != wanted:
         raise HTTPException(status_code=404, detail="Node not found")
 
 
-@router.post("/edges", response_model=EdgeOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/edges", response_model=EdgeOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))]
+)
 async def create_edge(
     body: EdgeCreate,
     db: AsyncSession = Depends(get_db),
@@ -201,14 +207,21 @@ async def create_edge(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/alert-links", response_model=AlertLinkOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/alert-links",
+    response_model=AlertLinkOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("alerts:write"))],
+)
 async def link_alert_to_identity(
     body: AlertLinkCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AlertIdentityLink:
     await _require_own_nodes(db, current_user.tenant_id, body.node_id)
-    owned_alert = (await db.execute(select(Alert.id).where(Alert.id == body.alert_id, Alert.tenant_id == current_user.tenant_id))).scalar_one_or_none()
+    owned_alert = (
+        await db.execute(select(Alert.id).where(Alert.id == body.alert_id, Alert.tenant_id == current_user.tenant_id))
+    ).scalar_one_or_none()
     if owned_alert is None:
         raise HTTPException(status_code=404, detail="Alert not found")
     link = AlertIdentityLink(**body.model_dump(), tenant_id=current_user.tenant_id)

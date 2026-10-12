@@ -139,10 +139,7 @@ async def fim_summary(
 
     action_rows = (
         await db.execute(
-            select(FimEvent.action, func.count().label("cnt"))
-            .where(*scope)
-            .group_by(FimEvent.action)
-            .order_by(func.count().desc())
+            select(FimEvent.action, func.count().label("cnt")).where(*scope).group_by(FimEvent.action).order_by(func.count().desc())
         )
     ).all()
     by_action = [FimActionCount(action=r.action, count=r.cnt) for r in action_rows]

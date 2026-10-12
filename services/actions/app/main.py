@@ -72,7 +72,11 @@ async def _register_builtin_live_actions() -> None:
         app.state.mark_ready()
         await warn_if_rls_bypassed()  # a fact worth logging once; best-effort, never raises
     else:
-        logger.error("actions.store_not_ready", reason=reason, hint="set DATABASE_URL and apply migration 055 (services/api/migrations/055_response_actions.sql); /readyz stays 503 until the store answers")
+        logger.error(
+            "actions.store_not_ready",
+            reason=reason,
+            hint="set DATABASE_URL and apply migration 055 (services/api/migrations/055_response_actions.sql); /readyz stays 503 until the store answers",
+        )
         app.state.store_watch = asyncio.create_task(mark_ready_when_store_answers(app.state.mark_ready))
 
 

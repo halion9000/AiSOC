@@ -1,4 +1,5 @@
 """First half of the module-scope check (see test_environment_isolation.py): a MODULE-scoped fixture changes the environment. test_environment_isolation_module_b.py runs after this file (alphabetical order) and must see none of it."""
+
 import os
 
 import pytest

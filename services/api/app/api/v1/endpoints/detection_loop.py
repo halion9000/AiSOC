@@ -208,9 +208,10 @@ async def suggest_fp_fix(
     # before any evidence or rule body is read.
     # `alerts` has no `evidence` column (and `aisoc_alerts`, which this used to query, was never created, so this endpoint failed on every call): the evidence is composed from the alert's own fields.
     row = await db.execute(
-        text("SELECT rule_id, tenant_id, title, severity, mitre_techniques, raw_event, entities, iocs FROM alerts " "WHERE id = :aid AND tenant_id = :tenant_id").bindparams(
-            aid=body.alert_id, tenant_id=user.tenant_id
-        )
+        text(
+            "SELECT rule_id, tenant_id, title, severity, mitre_techniques, raw_event, entities, iocs FROM alerts "
+            "WHERE id = :aid AND tenant_id = :tenant_id"
+        ).bindparams(aid=body.alert_id, tenant_id=user.tenant_id)
     )
     alert_row = row.fetchone()
     if not alert_row:
@@ -331,7 +332,11 @@ async def suggest_fp_fix(
 async def list_suggestions(user: AuthUser, db: TenantDBSession) -> SuggestionListResponse:
     """List suggestions drafted by *this* tenant only, newest first (explicit tenant filter, plus RLS in Postgres)."""
     where = DetectionSuggestion.tenant_id == user.tenant_id
-    rows = (await db.execute(select(DetectionSuggestion).where(where).order_by(DetectionSuggestion.created_at.desc()).limit(MAX_LISTED))).scalars().all()
+    rows = (
+        (await db.execute(select(DetectionSuggestion).where(where).order_by(DetectionSuggestion.created_at.desc()).limit(MAX_LISTED)))
+        .scalars()
+        .all()
+    )
     total = (await db.execute(select(func.count()).select_from(DetectionSuggestion).where(where))).scalar_one()
     return SuggestionListResponse(suggestions=[_to_response(r) for r in rows], total=total)
 
@@ -352,7 +357,11 @@ async def get_suggestion(
     Tenant isolation: a cross-tenant lookup returns 404 (not 403) to avoid
     leaking the existence of a suggestion that belongs to another tenant.
     """
-    row = (await db.execute(select(DetectionSuggestion).where(DetectionSuggestion.id == suggestion_id, DetectionSuggestion.tenant_id == user.tenant_id))).scalar_one_or_none()
+    row = (
+        await db.execute(
+            select(DetectionSuggestion).where(DetectionSuggestion.id == suggestion_id, DetectionSuggestion.tenant_id == user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     return _to_response(row)

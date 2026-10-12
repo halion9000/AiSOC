@@ -130,7 +130,9 @@ class CurrentUser:
             # JWT / role path — static ROLE_PERMISSIONS fallback
             # Working in another tenant with FULL access: identity, credential, platform and MSSP administration is refused whatever the role holds (the wildcard included).
             if self.acting_access == "full" and permission in ACTING_DENIED_PERMISSIONS:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Not available while working in another tenant: {permission}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail=f"Not available while working in another tenant: {permission}"
+                )
             if not has_permission(self.role, permission):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -275,19 +277,41 @@ async def get_current_user(
     if target is None:
         return user
     if request.method.upper() in SAFE_METHODS:
-        await record_view(db, user, target.tenant_id, request)  # in the VIEWED tenant's own audit log; if it cannot be written, the view is not served
+        await record_view(
+            db, user, target.tenant_id, request
+        )  # in the VIEWED tenant's own audit log; if it cannot be written, the view is not served
     else:
-        await record_act_as(db, user, target.tenant_id, target.access, request)  # BEFORE the write, in the tenant's own log; if it cannot be written, the write is not performed
+        await record_act_as(
+            db, user, target.tenant_id, target.access, request
+        )  # BEFORE the write, in the tenant's own log; if it cannot be written, the write is not performed
     # for the audit middleware, which only sees the token (the person's HOME tenant): the outcome of this request belongs in the tenant it was FOR
-    request.state.acting_tenant_id, request.state.acting_home_tenant_id, request.state.acting_access = target.tenant_id, user.tenant_id, target.access
+    request.state.acting_tenant_id, request.state.acting_home_tenant_id, request.state.acting_access = (
+        target.tenant_id,
+        user.tenant_id,
+        target.access,
+    )
     logger.info(
         "viewing another tenant" if request.method.upper() in SAFE_METHODS else "writing in another tenant",
-        extra={"viewer": str(user.user_id), "home_tenant": str(user.tenant_id), "viewed_tenant": str(target.tenant_id), "access": target.access, "http_method": request.method, "path": request.url.path},
+        extra={
+            "viewer": str(user.user_id),
+            "home_tenant": str(user.tenant_id),
+            "viewed_tenant": str(target.tenant_id),
+            "access": target.access,
+            "http_method": request.method,
+            "path": request.url.path,
+        },
     )
     if response is not None:
         response.headers[VIEWING_HEADER] = str(target.tenant_id)
         response.headers[VIEWING_ACCESS_HEADER] = target.access
-    return CurrentUser(user_id=user.user_id, tenant_id=target.tenant_id, role=user.role, email=user.email, home_tenant_id=user.tenant_id, acting_access=target.access)
+    return CurrentUser(
+        user_id=user.user_id,
+        tenant_id=target.tenant_id,
+        role=user.role,
+        email=user.email,
+        home_tenant_id=user.tenant_id,
+        acting_access=target.access,
+    )
 
 
 async def _authenticate(

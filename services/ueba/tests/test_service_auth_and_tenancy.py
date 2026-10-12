@@ -2,6 +2,7 @@
 
 Every route answered anonymous requests, several for ANY tenant named in the request, and acknowledge_anomaly took no tenant at all, so any caller could acknowledge (silence) another tenant's anomaly by id.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,12 +43,18 @@ def _configure(monkeypatch, *, token, environment):
 
 
 def _routes():
-    return sorted((m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops
-                  if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p))
+    return sorted(
+        (m.upper(), p)
+        for p, ops in app.openapi()["paths"].items()
+        for m in ops
+        if m in ("get", "post", "put", "patch", "delete") and not INFRA.match(p)
+    )
 
 
 def _call(c, method, path, headers=None):
-    return c.request(method, re.sub(r"\{[^}]+\}", UUID, path), json={} if method in ("POST", "PUT", "PATCH") else None, headers=headers, timeout=20)
+    return c.request(
+        method, re.sub(r"\{[^}]+\}", UUID, path), json={} if method in ("POST", "PUT", "PATCH") else None, headers=headers, timeout=20
+    )
 
 
 def _past(r):
@@ -70,7 +77,9 @@ def test_the_right_token_gets_past_the_guard(monkeypatch, method, path):
     assert _past(_call(_configure(monkeypatch, token=TOKEN, environment="production"), method, path, GOOD))
 
 
-@pytest.mark.parametrize("environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None])
+@pytest.mark.parametrize(
+    "environment", ["production", "staging", "prod", "prodution", "", "development", "dev", "local", "test", "Development", None]
+)
 @pytest.mark.parametrize("method,path", _routes())
 def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(monkeypatch, environment, method, path):
     c = _configure(monkeypatch, token=None, environment=environment)
@@ -81,7 +90,12 @@ def test_without_a_token_every_route_fails_closed_whatever_the_environment_says(
 
 @pytest.mark.parametrize("header", [f"Bearer {TOKEN}x", f"Bearer {TOKEN[:-1]}", f"Basic {TOKEN}", TOKEN, "Bearer ", "Bearer", ""])
 def test_only_the_exact_token_is_accepted(monkeypatch, header):
-    assert _configure(monkeypatch, token=TOKEN, environment="production").get("/api/v1/ueba/anomalies", headers={"Authorization": header}).status_code == 401
+    assert (
+        _configure(monkeypatch, token=TOKEN, environment="production")
+        .get("/api/v1/ueba/anomalies", headers={"Authorization": header})
+        .status_code
+        == 401
+    )
 
 
 # ------------------------------------------------------------------- tenant isolation ----
@@ -93,7 +107,8 @@ def _run_scenario(monkeypatch, scenario):
     for table in Base.metadata.tables.values():  # sqlite cannot render gen_random_uuid()/now() defaults
         for col in table.columns:
             if col.server_default is not None and re.search(r"gen_random_uuid|now\(\)", str(getattr(col.server_default, "arg", "")), re.I):
-                stripped.append((col, col.server_default)); col.server_default = None
+                stripped.append((col, col.server_default))
+                col.server_default = None
 
     async def main():
         import httpx
@@ -113,8 +128,20 @@ def _run_scenario(monkeypatch, scenario):
         ids = {"a": a, "b": b}
         async with factory() as s:
             for key, tenant in (("an_a", a), ("an_b", b)):
-                row = UEBAAnomaly(id=uuid.uuid4(), tenant_id=tenant, entity_type="user", entity_id="alice", event_type="login", anomaly_score=0.9, risk_level="high", features={}, detected_at=now, acknowledged=False)
-                s.add(row); ids[key] = row.id
+                row = UEBAAnomaly(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant,
+                    entity_type="user",
+                    entity_id="alice",
+                    event_type="login",
+                    anomaly_score=0.9,
+                    risk_level="high",
+                    features={},
+                    detected_at=now,
+                    acknowledged=False,
+                )
+                s.add(row)
+                ids[key] = row.id
             await s.commit()
         try:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t", headers=GOOD) as client:
@@ -134,7 +161,9 @@ def test_a_tenant_cannot_acknowledge_another_tenants_anomaly(monkeypatch):
     async def scenario(c, factory, ids):
         assert (await c.patch(f"/api/v1/ueba/anomalies/{ids['an_b']}/acknowledge", params={"tenant_id": str(ids["a"])})).status_code == 404
         async with factory() as s:
-            assert (await s.execute(select(UEBAAnomaly).where(UEBAAnomaly.id == ids["an_b"]))).scalar_one().acknowledged is False, "B's anomaly was silenced by tenant A"
+            assert (
+                await s.execute(select(UEBAAnomaly).where(UEBAAnomaly.id == ids["an_b"]))
+            ).scalar_one().acknowledged is False, "B's anomaly was silenced by tenant A"
         assert (await c.patch(f"/api/v1/ueba/anomalies/{ids['an_b']}/acknowledge")).status_code == 422, "the tenant is required"
         ok = await c.patch(f"/api/v1/ueba/anomalies/{ids['an_b']}/acknowledge", params={"tenant_id": str(ids["b"])})
         assert ok.status_code == 200 and ok.json()["acknowledged"] is True

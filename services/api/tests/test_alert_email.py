@@ -3,6 +3,7 @@
 Tested against a MOCK Graph (httpx's MockTransport) and a real SQLite database; the worker was also run against real Postgres with a stand-in Graph server (see the commit message). It has NOT been run against a real Microsoft tenant: the first real send should be
 done with the platform setting's test email.
 """
+
 import asyncio
 import re
 import uuid
@@ -65,12 +66,27 @@ class TestTheGraphRequests:
         token_req, send_req = g.requests
         assert token_req.method == "POST" and str(token_req.url) == "https://login.microsoftonline.com/entra-tenant/oauth2/v2.0/token"
         form = dict(httpx.QueryParams(token_req.content.decode()))
-        assert form == {"client_id": "client-1", "client_secret": SECRET, "scope": "https://graph.microsoft.com/.default", "grant_type": "client_credentials"}
-        assert str(send_req.url) == "https://graph.microsoft.com/v1.0/users/alerts@msp.example/sendMail" and send_req.headers["Authorization"] == "Bearer tok-1"
+        assert form == {
+            "client_id": "client-1",
+            "client_secret": SECRET,
+            "scope": "https://graph.microsoft.com/.default",
+            "grant_type": "client_credentials",
+        }
+        assert (
+            str(send_req.url) == "https://graph.microsoft.com/v1.0/users/alerts@msp.example/sendMail"
+            and send_req.headers["Authorization"] == "Bearer tok-1"
+        )
         import json
 
         body = json.loads(send_req.content)
-        assert body == {"message": {"subject": "Hello", "body": {"contentType": "Text", "content": "Line one\nLine two"}, "toRecipients": [{"emailAddress": {"address": "a@msp.example"}}, {"emailAddress": {"address": "b@msp.example"}}]}, "saveToSentItems": False}
+        assert body == {
+            "message": {
+                "subject": "Hello",
+                "body": {"contentType": "Text", "content": "Line one\nLine two"},
+                "toRecipients": [{"emailAddress": {"address": "a@msp.example"}}, {"emailAddress": {"address": "b@msp.example"}}],
+            },
+            "saveToSentItems": False,
+        }
 
     def test_the_sender_mailbox_is_url_encoded_but_keeps_its_at_sign(self):
         g = MockGraph()
@@ -80,11 +96,18 @@ class TestTheGraphRequests:
     def test_the_authority_and_graph_urls_can_be_changed_for_other_clouds_or_a_stand_in(self):
         g = MockGraph()
         send(g.mailer(base_url="https://graph.microsoft.us/v1.0/", authority="https://login.microsoftonline.us/"))
-        assert str(g.requests[0].url).startswith("https://login.microsoftonline.us/entra-tenant/") and str(g.requests[1].url).startswith("https://graph.microsoft.us/v1.0/users/")
+        assert str(g.requests[0].url).startswith("https://login.microsoftonline.us/entra-tenant/") and str(g.requests[1].url).startswith(
+            "https://graph.microsoft.us/v1.0/users/"
+        )
 
     def test_a_token_is_reused_until_a_minute_before_it_expires_then_renewed(self):
         clock = [1000.0]
-        g = MockGraph(token_script=[(200, {"access_token": "tok-1", "expires_in": 3600}, {}), (200, {"access_token": "tok-2", "expires_in": 3600}, {})])
+        g = MockGraph(
+            token_script=[
+                (200, {"access_token": "tok-1", "expires_in": 3600}, {}),
+                (200, {"access_token": "tok-2", "expires_in": 3600}, {}),
+            ]
+        )
         m = g.mailer(monotonic=lambda: clock[0])
         send(m), send(m)
         assert [r.url.path.endswith("/token") for r in g.requests] == [True, False, False]
@@ -96,7 +119,10 @@ class TestTheGraphRequests:
         assert sum(r.url.path.endswith("/token") for r in g.requests) == 2 and g.requests[-1].headers["Authorization"] == "Bearer tok-2"
 
     def test_a_401_on_the_send_is_retried_once_with_a_fresh_token(self):
-        g = MockGraph(token_script=[(200, {"access_token": "old", "expires_in": 3600}, {}), (200, {"access_token": "new", "expires_in": 3600}, {})], send_script=[(401, {"error": {"code": "InvalidAuthenticationToken"}}, {}), (202, None, {})])
+        g = MockGraph(
+            token_script=[(200, {"access_token": "old", "expires_in": 3600}, {}), (200, {"access_token": "new", "expires_in": 3600}, {})],
+            send_script=[(401, {"error": {"code": "InvalidAuthenticationToken"}}, {}), (202, None, {})],
+        )
         send(g.mailer())
         assert [r.headers.get("Authorization") for r in g.requests if r.url.path.endswith("/sendMail")] == ["Bearer old", "Bearer new"]
 
@@ -129,7 +155,11 @@ class TestTheGraphRequests:
         assert e.value.retry_after == expected
 
     def test_a_refused_token_request_is_permanent_and_never_shows_the_secret(self):
-        g = MockGraph(token_script=[(401, {"error": "invalid_client", "error_description": f"AADSTS7000215: Invalid client secret provided {SECRET}"}, {})])
+        g = MockGraph(
+            token_script=[
+                (401, {"error": "invalid_client", "error_description": f"AADSTS7000215: Invalid client secret provided {SECRET}"}, {})
+            ]
+        )
         with pytest.raises(MailError) as e:
             send(g.mailer())
         assert e.value.permanent is True and "invalid_client" in str(e.value) and SECRET not in str(e.value) and "***" in str(e.value)
@@ -163,9 +193,19 @@ class TestTheGraphRequests:
 
     def test_an_error_body_that_is_not_json_still_gives_a_status(self):
         def handler(request):
-            return httpx.Response(200, json={"access_token": "t", "expires_in": 3600}) if request.url.path.endswith("/token") else httpx.Response(502, text="<html>Bad gateway</html>")
+            return (
+                httpx.Response(200, json={"access_token": "t", "expires_in": 3600})
+                if request.url.path.endswith("/token")
+                else httpx.Response(502, text="<html>Bad gateway</html>")
+            )
 
-        m = GraphMailer(tenant_id="t", client_id="c", client_secret=SECRET, sender="a@b.example", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        m = GraphMailer(
+            tenant_id="t",
+            client_id="c",
+            client_secret=SECRET,
+            sender="a@b.example",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
         with pytest.raises(MailError) as e:
             send(m)
         assert "HTTP 502" in str(e.value) and e.value.permanent is False
@@ -192,7 +232,12 @@ class TestTheGraphRequests:
         assert scrub("line1\n  line2", ()) == "line1 line2"
 
     def test_from_settings_reads_the_environment_settings(self, monkeypatch):
-        for name, value in (("ALERT_EMAIL_GRAPH_TENANT_ID", "T"), ("ALERT_EMAIL_GRAPH_CLIENT_ID", "C"), ("ALERT_EMAIL_GRAPH_CLIENT_SECRET", "S"), ("ALERT_EMAIL_SENDER", "m@x.example")):
+        for name, value in (
+            ("ALERT_EMAIL_GRAPH_TENANT_ID", "T"),
+            ("ALERT_EMAIL_GRAPH_CLIENT_ID", "C"),
+            ("ALERT_EMAIL_GRAPH_CLIENT_SECRET", "S"),
+            ("ALERT_EMAIL_SENDER", "m@x.example"),
+        ):
             monkeypatch.setattr(settings, name, value)
         m = GraphMailer.from_settings()
         assert (m.tenant_id, m.client_id, m.client_secret, m.sender, m.configured) == ("T", "C", "S", "m@x.example", True)
@@ -200,11 +245,30 @@ class TestTheGraphRequests:
 
 # ---------------------------------------------------------------- the composer, against hostile alert text
 def line(title="Impossible travel", severity="high", tenant="Acme Corp", rule="geo-1", source="okta", age=0, id=None):
-    return compose.AlertLine(id=id or uuid.uuid4(), tenant_name=tenant, title=title, severity=severity, rule_name=rule, connector_type=source, created_at=NOW - timedelta(minutes=age))
+    return compose.AlertLine(
+        id=id or uuid.uuid4(),
+        tenant_name=tenant,
+        title=title,
+        severity=severity,
+        rule_name=rule,
+        connector_type=source,
+        created_at=NOW - timedelta(minutes=age),
+    )
 
 
 class TestTheEmailText:
-    @pytest.mark.parametrize("hostile", ["a\nBcc: attacker@evil.example", "a\r\nSubject: forged", "a\x00b\x1bc", "a\u202eb", "a\u2028b\u2029c", "a\u200bb\u200fc\ufeffd", "tab\there"])
+    @pytest.mark.parametrize(
+        "hostile",
+        [
+            "a\nBcc: attacker@evil.example",
+            "a\r\nSubject: forged",
+            "a\x00b\x1bc",
+            "a\u202eb",
+            "a\u2028b\u2029c",
+            "a\u200bb\u200fc\ufeffd",
+            "tab\there",
+        ],
+    )
     def test_nothing_in_an_alert_can_start_a_new_line_or_inject_a_header_or_reverse_text(self, hostile):
         subject, body = compose.build_message([line(title=hostile)], pending_more=0, min_severity="high")
         assert "\n" not in subject and "\r" not in subject
@@ -212,40 +276,78 @@ class TestTheEmailText:
             assert forbidden not in subject and forbidden not in body
         assert not any(l.lstrip().lower().startswith(("bcc:", "subject:")) for l in body.split("\n"))
 
-    @pytest.mark.parametrize("raw,shown", [("go to http://evil.example/x", "hxxp://evil.example/x"), ("see HTTPS://Evil.example", "hxxps://Evil.example"), ("a https://x.y and http://z.w", "hxxps://x.y and hxxp://z.w")])
+    @pytest.mark.parametrize(
+        "raw,shown",
+        [
+            ("go to http://evil.example/x", "hxxp://evil.example/x"),
+            ("see HTTPS://Evil.example", "hxxps://Evil.example"),
+            ("a https://x.y and http://z.w", "hxxps://x.y and hxxp://z.w"),
+        ],
+    )
     def test_links_in_alert_text_are_defanged(self, raw, shown):
         assert shown in compose.build_message([line(title=raw)], pending_more=0, min_severity="high")[1]
-        assert "http://" not in compose.build_message([line(title=raw, tenant=raw, rule=raw, source=raw)], pending_more=0, min_severity="high")[1]
+        assert (
+            "http://"
+            not in compose.build_message([line(title=raw, tenant=raw, rule=raw, source=raw)], pending_more=0, min_severity="high")[1]
+        )
 
     def test_every_untrusted_field_is_limited_and_marked_when_cut(self):
-        _, body = compose.build_message([line(title="T" * 900, tenant="N" * 400, rule="R" * 400, source="S" * 400)], pending_more=0, min_severity="high")
+        _, body = compose.build_message(
+            [line(title="T" * 900, tenant="N" * 400, rule="R" * 400, source="S" * 400)], pending_more=0, min_severity="high"
+        )
         assert "T" * 201 not in body and "N" * 81 not in body and "R" * 81 not in body and "S" * 81 not in body and "..." in body
 
     def test_the_subject_is_one_short_line_with_the_count_and_the_highest_severity(self):
-        subject, _ = compose.build_message([line(severity="medium"), line(severity="critical", title="Ransomware"), line(severity="high")], pending_more=0, min_severity="medium")
+        subject, _ = compose.build_message(
+            [line(severity="medium"), line(severity="critical", title="Ransomware"), line(severity="high")],
+            pending_more=0,
+            min_severity="medium",
+        )
         assert subject == "[AiSOC] 3 alerts, highest CRITICAL: Ransomware"
         assert compose.build_message([line()], pending_more=0, min_severity="high")[0].startswith("[AiSOC] 1 alert, highest HIGH")
         assert len(compose.build_message([line(title="x" * 5000)], pending_more=0, min_severity="high")[0]) <= 150
 
     def test_the_most_severe_alert_comes_first_and_older_before_newer_within_a_severity(self):
-        a, b, c = line(title="med", severity="medium", age=1), line(title="crit", severity="critical", age=5), line(title="high-old", severity="high", age=30)
+        a, b, c = (
+            line(title="med", severity="medium", age=1),
+            line(title="crit", severity="critical", age=5),
+            line(title="high-old", severity="high", age=30),
+        )
         d = line(title="high-new", severity="high", age=2)
         _, body = compose.build_message([a, d, b, c], pending_more=0, min_severity="medium")
-        assert [body.index(t) for t in ("crit", "high-old", "high-new", "med")] == sorted(body.index(t) for t in ("crit", "high-old", "high-new", "med"))
+        assert [body.index(t) for t in ("crit", "high-old", "high-new", "med")] == sorted(
+            body.index(t) for t in ("crit", "high-old", "high-new", "med")
+        )
 
     def test_each_alert_names_its_tenant_severity_rule_source_and_time(self):
-        _, body = compose.build_message([line(tenant="Acme Corp", title="Impossible travel", severity="critical", rule="geo-1", source="okta", age=3)], pending_more=0, min_severity="high")
+        _, body = compose.build_message(
+            [line(tenant="Acme Corp", title="Impossible travel", severity="critical", rule="geo-1", source="okta", age=3)],
+            pending_more=0,
+            min_severity="high",
+        )
         assert "[CRITICAL] Acme Corp: Impossible travel" in body and "rule: geo-1 | source: okta | 2026-10-10 11:57 UTC" in body
 
     def test_the_link_is_the_consoles_own_address_plus_the_alert_uuid_and_only_when_configured(self):
         aid = uuid.uuid4()
-        with_link = compose.build_message([line(id=aid)], pending_more=0, min_severity="high", console_base_url="https://console.msp.example/")[1]
+        with_link = compose.build_message(
+            [line(id=aid)], pending_more=0, min_severity="high", console_base_url="https://console.msp.example/"
+        )[1]
         assert f"  https://console.msp.example/alerts/{aid}" in with_link
         for base in ("", "ftp://x", "javascript:alert(1)", "console.msp.example"):
-            assert "/alerts/" not in compose.build_message([line(id=aid)], pending_more=0, min_severity="high", console_base_url=base)[1], base
+            assert (
+                "/alerts/" not in compose.build_message([line(id=aid)], pending_more=0, min_severity="high", console_base_url=base)[1]
+            ), base
 
     def test_the_description_and_raw_events_are_never_part_of_it(self):
-        assert [f.name for f in __import__("dataclasses").fields(compose.AlertLine)] == ["id", "tenant_name", "title", "severity", "rule_name", "connector_type", "created_at"]
+        assert [f.name for f in __import__("dataclasses").fields(compose.AlertLine)] == [
+            "id",
+            "tenant_name",
+            "title",
+            "severity",
+            "rule_name",
+            "connector_type",
+            "created_at",
+        ]
 
     @pytest.mark.parametrize("n,text", [(1, "1 more alert is waiting"), (2, "2 more alerts are waiting")])
     def test_pending_alerts_are_mentioned_in_the_singular_and_plural(self, n, text):
@@ -268,9 +370,22 @@ def world(tmp_path):
     sync = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(sync, tables=[Tenant.__table__, PlatformAlertEmailSettings.__table__, AlertEmailLog.__table__])
     meta = MetaData()
-    alerts = Table("alerts", meta, Column("id", Uuid, primary_key=True), Column("tenant_id", Uuid), Column("title", String), Column("severity", String), Column("created_at", DateTime(timezone=True)), Column("rule_name", String), Column("connector_type", String))
+    alerts = Table(
+        "alerts",
+        meta,
+        Column("id", Uuid, primary_key=True),
+        Column("tenant_id", Uuid),
+        Column("title", String),
+        Column("severity", String),
+        Column("created_at", DateTime(timezone=True)),
+        Column("rule_name", String),
+        Column("connector_type", String),
+    )
     meta.create_all(sync)
-    ta, tb = Tenant(id=uuid.uuid4(), name="Acme Corp", slug="acme-" + uuid.uuid4().hex[:6]), Tenant(id=uuid.uuid4(), name="Globex", slug="globex-" + uuid.uuid4().hex[:6])
+    ta, tb = (
+        Tenant(id=uuid.uuid4(), name="Acme Corp", slug="acme-" + uuid.uuid4().hex[:6]),
+        Tenant(id=uuid.uuid4(), name="Globex", slug="globex-" + uuid.uuid4().hex[:6]),
+    )
     with Session(sync, expire_on_commit=False) as s:
         s.add_all([ta, tb])
         s.commit()
@@ -280,7 +395,17 @@ def world(tmp_path):
     def add(tenant, title="An alert", severity="high", age=1.0, rule="rule-1", source="okta"):
         aid = uuid.uuid4()
         with sync.begin() as c:
-            c.execute(insert(alerts).values(id=aid, tenant_id=tenant.id, title=title, severity=severity, created_at=NOW - timedelta(minutes=age), rule_name=rule, connector_type=source))
+            c.execute(
+                insert(alerts).values(
+                    id=aid,
+                    tenant_id=tenant.id,
+                    title=title,
+                    severity=severity,
+                    created_at=NOW - timedelta(minutes=age),
+                    rule_name=rule,
+                    connector_type=source,
+                )
+            )
         return aid
 
     w.add = add
@@ -297,7 +422,23 @@ def db(world, fn):
 
 
 class TestRecipientsAndTheSetting:
-    @pytest.mark.parametrize("bad", ["Ops <ops@msp.example>", "ops@msp.example\nBcc: x@y.example", "ops@msp.example,other@msp.example", "ops @msp.example", "ops@", "@msp.example", "ops@localhost", "", "ops@msp..example", "a" * 70 + "@msp.example", "<ops@msp.example>", "ops@msp.example;x@y.example"])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "Ops <ops@msp.example>",
+            "ops@msp.example\nBcc: x@y.example",
+            "ops@msp.example,other@msp.example",
+            "ops @msp.example",
+            "ops@",
+            "@msp.example",
+            "ops@localhost",
+            "",
+            "ops@msp..example",
+            "a" * 70 + "@msp.example",
+            "<ops@msp.example>",
+            "ops@msp.example;x@y.example",
+        ],
+    )
     def test_anything_that_is_not_a_plain_address_is_refused(self, bad):
         with pytest.raises(settings_store.InvalidSettings):
             settings_store.normalize_recipients([bad])
@@ -306,7 +447,10 @@ class TestRecipientsAndTheSetting:
         assert settings_store.normalize_recipients(["ops@msp.example\r", "\tb@msp.example\n"]) == ["ops@msp.example", "b@msp.example"]
 
     def test_addresses_are_trimmed_lower_cased_and_deduplicated_in_order(self):
-        assert settings_store.normalize_recipients(["  Ops@MSP.example ", "ops@msp.example", "b@msp.example", "OPS@msp.example"]) == ["ops@msp.example", "b@msp.example"]
+        assert settings_store.normalize_recipients(["  Ops@MSP.example ", "ops@msp.example", "b@msp.example", "OPS@msp.example"]) == [
+            "ops@msp.example",
+            "b@msp.example",
+        ]
 
     def test_at_most_twenty_recipients(self):
         assert len(settings_store.normalize_recipients([f"u{i}@msp.example" for i in range(20)])) == 20
@@ -320,7 +464,13 @@ class TestRecipientsAndTheSetting:
 
     def test_the_row_is_created_everything_off_when_missing(self, world):
         row = db(world, settings_store.get_settings)
-        assert (row.enabled, row.min_severity, list(row.recipients), row.enabled_since, row.consecutive_failures) == (False, "high", [], None, 0)
+        assert (row.enabled, row.min_severity, list(row.recipients), row.enabled_since, row.consecutive_failures) == (
+            False,
+            "high",
+            [],
+            None,
+            0,
+        )
 
     def test_it_cannot_be_switched_on_without_a_recipient(self, world):
         with pytest.raises(settings_store.InvalidSettings, match="at least one recipient"):
@@ -329,7 +479,12 @@ class TestRecipientsAndTheSetting:
     def test_switching_on_starts_the_clock_and_staying_on_does_not_restart_it(self, world):
         first = NOW
         db(world, lambda s: settings_store.update_settings(s, updated_by="hal", recipients=["ops@msp.example"], enabled=True, now=first))
-        db(world, lambda s: settings_store.update_settings(s, updated_by="hal", min_severity="critical", enabled=True, now=first + timedelta(hours=5)))
+        db(
+            world,
+            lambda s: settings_store.update_settings(
+                s, updated_by="hal", min_severity="critical", enabled=True, now=first + timedelta(hours=5)
+            ),
+        )
         row = db(world, settings_store.get_settings)
         assert row.enabled and row.enabled_since.replace(tzinfo=UTC) == first and row.min_severity == "critical"
 
@@ -371,7 +526,12 @@ class FakeMailer:
 
 
 def turn_on(world, *, since=None, severity="high", recipients=("ops@msp.example",)):
-    db(world, lambda s: settings_store.update_settings(s, updated_by="hal", recipients=list(recipients), min_severity=severity, enabled=True, now=since or NOW - timedelta(hours=2)))
+    db(
+        world,
+        lambda s: settings_store.update_settings(
+            s, updated_by="hal", recipients=list(recipients), min_severity=severity, enabled=True, now=since or NOW - timedelta(hours=2)
+        ),
+    )
 
 
 def cycle(world, mailer, now=NOW):
@@ -394,7 +554,12 @@ class TestWhatTheWorkerSends:
         assert cycle(world, m).skipped == "disabled" and m.sent == [] and logged(world) == set()
 
     def test_nothing_is_sent_without_a_recipient(self, world):
-        db(world, lambda s: settings_store.update_settings(s, updated_by="hal", recipients=["ops@msp.example"], enabled=True, now=NOW - timedelta(hours=2)))
+        db(
+            world,
+            lambda s: settings_store.update_settings(
+                s, updated_by="hal", recipients=["ops@msp.example"], enabled=True, now=NOW - timedelta(hours=2)
+            ),
+        )
         with world.sync.begin() as c:
             c.exec_driver_sql("update platform_alert_email_settings set recipients = '[]'")
         world.add(world.ta)
@@ -413,7 +578,10 @@ class TestWhatTheWorkerSends:
 
     def test_it_emails_one_message_to_all_recipients_listing_the_alerts_and_logs_each(self, world):
         turn_on(world, recipients=["ops@msp.example", "lead@msp.example"])
-        a, b = world.add(world.ta, title="Impossible travel", severity="critical"), world.add(world.tb, title="Malware beaconing", severity="high")
+        a, b = (
+            world.add(world.ta, title="Impossible travel", severity="critical"),
+            world.add(world.tb, title="Malware beaconing", severity="high"),
+        )
         m = FakeMailer()
         r = cycle(world, m)
         assert r.sent == 2 and len(m.sent) == 1
@@ -424,7 +592,16 @@ class TestWhatTheWorkerSends:
         row = cfg(world)
         assert row.last_sent_at is not None and row.last_error is None and row.consecutive_failures == 0
 
-    @pytest.mark.parametrize("minimum,expected", [("critical", {"critical"}), ("high", {"critical", "high"}), ("medium", {"critical", "high", "medium"}), ("low", {"critical", "high", "medium", "low"}), ("info", {"critical", "high", "medium", "low", "info"})])
+    @pytest.mark.parametrize(
+        "minimum,expected",
+        [
+            ("critical", {"critical"}),
+            ("high", {"critical", "high"}),
+            ("medium", {"critical", "high", "medium"}),
+            ("low", {"critical", "high", "medium", "low"}),
+            ("info", {"critical", "high", "medium", "low", "info"}),
+        ],
+    )
     def test_only_alerts_at_or_above_the_severity_are_sent(self, world, minimum, expected):
         turn_on(world, severity=minimum)
         ids = {s: world.add(world.ta, title=f"{s} alert", severity=s) for s in ("critical", "high", "medium", "low", "info")}
@@ -471,7 +648,9 @@ class TestWhatTheWorkerSends:
         assert sizes == [20, 20, 6, 0] and len(m.sent) == 3
         assert "THE-CRITICAL" in m.sent[0][2], "the critical alert is in the first message although it is the newest"
         assert logged(world) == set(ids) | {crit}, "46 alerts, each exactly once"
-        assert "26 more alerts are waiting" in m.sent[0][2] and "6 more alerts are waiting" in m.sent[1][2] and "waiting" not in m.sent[2][2]
+        assert (
+            "26 more alerts are waiting" in m.sent[0][2] and "6 more alerts are waiting" in m.sent[1][2] and "waiting" not in m.sent[2][2]
+        )
 
     def test_the_cap_is_a_setting(self, world, monkeypatch):
         monkeypatch.setattr(settings, "ALERT_EMAIL_MAX_ALERTS_PER_EMAIL", 3)
@@ -483,7 +662,17 @@ class TestWhatTheWorkerSends:
     def test_an_alert_from_a_deleted_tenant_still_goes_out_as_unknown(self, world):
         turn_on(world)
         with world.sync.begin() as c:
-            c.execute(insert(world.alerts).values(id=uuid.uuid4(), tenant_id=uuid.uuid4(), title="orphan", severity="high", created_at=NOW - timedelta(minutes=1), rule_name=None, connector_type=None))
+            c.execute(
+                insert(world.alerts).values(
+                    id=uuid.uuid4(),
+                    tenant_id=uuid.uuid4(),
+                    title="orphan",
+                    severity="high",
+                    created_at=NOW - timedelta(minutes=1),
+                    rule_name=None,
+                    connector_type=None,
+                )
+            )
         m = FakeMailer()
         assert cycle(world, m).sent == 1 and "unknown tenant: orphan" in m.sent[0][2]
 
@@ -518,7 +707,12 @@ class TestWhenSendingFails:
         r = cycle(world, m)
         row = cfg(world)
         assert r.sent == 0 and r.error and logged(world) == set() and a is not None
-        assert SECRET not in row.last_error and "HTTP 403" in row.last_error and row.consecutive_failures == 1 and row.last_error_at is not None
+        assert (
+            SECRET not in row.last_error
+            and "HTTP 403" in row.last_error
+            and row.consecutive_failures == 1
+            and row.last_error_at is not None
+        )
         cycle(world, m, now=NOW + timedelta(minutes=1))
         assert cfg(world).consecutive_failures == 2
 
@@ -553,7 +747,17 @@ class TestWhenSendingFails:
 
         def other_copy_logs_a():
             with Session(world.sync) as s:
-                s.add(AlertEmailLog(alert_id=a, alert_tenant_id=world.ta.id, severity="high", title="a", batch_id=uuid.uuid4(), recipient_count=1, sent_at=NOW))
+                s.add(
+                    AlertEmailLog(
+                        alert_id=a,
+                        alert_tenant_id=world.ta.id,
+                        severity="high",
+                        title="a",
+                        batch_id=uuid.uuid4(),
+                        recipient_count=1,
+                        sent_at=NOW,
+                    )
+                )
                 s.commit()
 
         class Colliding:
@@ -589,7 +793,9 @@ class TestWhenSendingFails:
 
         m = FakeMailer()
         r = asyncio.run(worker.run_once(session_factory=Factory(), mailer=m, now=NOW))
-        assert len(m.sent) == 1 and r.sent == 3 and logged(world) == {a, b, c}, "the other copy's row is kept, ours are added: nothing is left to be emailed again"
+        assert (
+            len(m.sent) == 1 and r.sent == 3 and logged(world) == {a, b, c}
+        ), "the other copy's row is kept, ours are added: nothing is left to be emailed again"
         assert cycle(world, m, now=NOW + timedelta(minutes=1)).skipped == "nothing_to_send" and len(m.sent) == 1
         assert cfg(world).last_sent_at is not None and cfg(world).consecutive_failures == 0
 
@@ -597,7 +803,28 @@ class TestWhenSendingFails:
         monkeypatch.setattr(settings, "ALERT_EMAIL_LOG_RETENTION_DAYS", 30)
         turn_on(world)
         with Session(world.sync) as s:
-            s.add_all([AlertEmailLog(alert_id=uuid.uuid4(), alert_tenant_id=world.ta.id, severity="high", title="old", batch_id=uuid.uuid4(), recipient_count=1, sent_at=NOW - timedelta(days=31)), AlertEmailLog(alert_id=uuid.uuid4(), alert_tenant_id=world.ta.id, severity="high", title="recent", batch_id=uuid.uuid4(), recipient_count=1, sent_at=NOW - timedelta(days=29))])
+            s.add_all(
+                [
+                    AlertEmailLog(
+                        alert_id=uuid.uuid4(),
+                        alert_tenant_id=world.ta.id,
+                        severity="high",
+                        title="old",
+                        batch_id=uuid.uuid4(),
+                        recipient_count=1,
+                        sent_at=NOW - timedelta(days=31),
+                    ),
+                    AlertEmailLog(
+                        alert_id=uuid.uuid4(),
+                        alert_tenant_id=world.ta.id,
+                        severity="high",
+                        title="recent",
+                        batch_id=uuid.uuid4(),
+                        recipient_count=1,
+                        sent_at=NOW - timedelta(days=29),
+                    ),
+                ]
+            )
             s.commit()
         cycle(world, FakeMailer())
         with Session(world.sync) as s:
@@ -657,14 +884,31 @@ class TestWiringAndTheTables:
     def test_it_is_off_by_default_and_the_loop_is_only_started_when_switched_on(self):
         assert settings.ALERT_EMAIL_WORKER_ENABLED is False
         src = (APP / "main.py").read_text(encoding="utf-8")
-        assert "if settings.ALERT_EMAIL_WORKER_ENABLED:" in src and 'job_name="alert_email"' in src and "alert_email_task.cancel()" in src and "run_alert_email" in src
+        assert (
+            "if settings.ALERT_EMAIL_WORKER_ENABLED:" in src
+            and 'job_name="alert_email"' in src
+            and "alert_email_task.cancel()" in src
+            and "run_alert_email" in src
+        )
 
-    @pytest.mark.parametrize("name,low", [("ALERT_EMAIL_POLL_INTERVAL_SECONDS", 5), ("ALERT_EMAIL_MAX_ALERTS_PER_EMAIL", 1), ("ALERT_EMAIL_MAX_ALERT_AGE_HOURS", 1), ("ALERT_EMAIL_LOG_RETENTION_DAYS", 1)])
+    @pytest.mark.parametrize(
+        "name,low",
+        [
+            ("ALERT_EMAIL_POLL_INTERVAL_SECONDS", 5),
+            ("ALERT_EMAIL_MAX_ALERTS_PER_EMAIL", 1),
+            ("ALERT_EMAIL_MAX_ALERT_AGE_HOURS", 1),
+            ("ALERT_EMAIL_LOG_RETENTION_DAYS", 1),
+        ],
+    )
     def test_the_numeric_settings_have_floors_so_nobody_configures_a_hot_loop_or_zero_alerts(self, name, low):
         assert any(getattr(m, "ge", None) == low for m in type(settings).model_fields[name].metadata)
 
     def test_the_defaults(self):
-        assert (settings.ALERT_EMAIL_POLL_INTERVAL_SECONDS, settings.ALERT_EMAIL_MAX_ALERTS_PER_EMAIL, settings.ALERT_EMAIL_MAX_ALERT_AGE_HOURS) == (60, 20, 24)
+        assert (
+            settings.ALERT_EMAIL_POLL_INTERVAL_SECONDS,
+            settings.ALERT_EMAIL_MAX_ALERTS_PER_EMAIL,
+            settings.ALERT_EMAIL_MAX_ALERT_AGE_HOURS,
+        ) == (60, 20, 24)
 
     def test_the_credentials_are_empty_by_default_and_the_secret_is_only_ever_read_from_the_environment(self):
         assert settings.ALERT_EMAIL_GRAPH_CLIENT_SECRET == "" and settings.ALERT_EMAIL_SENDER == ""

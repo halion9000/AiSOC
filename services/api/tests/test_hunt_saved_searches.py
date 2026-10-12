@@ -6,6 +6,7 @@ They were one module-level dict in the AGENTS service, reached through a Next.js
 They now live in the API: a real table, an explicit tenant filter (plus RLS in Postgres), and a permission check. These tests run against a real file-backed SQLite database, which has no RLS, so what they prove
 is the explicit tenant scoping in the endpoint itself.
 """
+
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -33,7 +34,9 @@ def client_as(role="soc_analyst", tenant_id=None, user_id=None) -> TestClient:
     app = FastAPI()
     app.include_router(saved.router)
     tenant_id = tenant_id or uuid.uuid4()
-    app.dependency_overrides[deps.get_current_user] = lambda: deps.CurrentUser(user_id=user_id or uuid.uuid4(), tenant_id=tenant_id, role=role, email=f"{role}@example.test")
+    app.dependency_overrides[deps.get_current_user] = lambda: deps.CurrentUser(
+        user_id=user_id or uuid.uuid4(), tenant_id=tenant_id, role=role, email=f"{role}@example.test"
+    )
 
     async def real_session():
         async with DB.factory() as session:
@@ -78,7 +81,14 @@ class TestSaving:
         r = save(c)
         assert r.status_code == 201
         body = r.json()
-        assert set(body) == {"id", "name", "query", "language", "createdAt", "pinned"}  # unchanged from the agents endpoint, so the web client needs no change
+        assert set(body) == {
+            "id",
+            "name",
+            "query",
+            "language",
+            "createdAt",
+            "pinned",
+        }  # unchanged from the agents endpoint, so the web client needs no change
         assert body["name"] == "Encoded PowerShell" and body["language"] == "lucene" and body["pinned"] is False
         uuid.UUID(body["id"])
         datetime.fromisoformat(body["createdAt"])
@@ -121,7 +131,18 @@ class TestSaving:
 
 
 class TestValidation:
-    @pytest.mark.parametrize("payload", [{"name": "", "query": "q"}, {"name": "   ", "query": "q"}, {"name": "n", "query": ""}, {"name": "n", "query": "    "}, {"name": "n"}, {"query": "q"}, {}])
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"name": "", "query": "q"},
+            {"name": "   ", "query": "q"},
+            {"name": "n", "query": ""},
+            {"name": "n", "query": "    "},
+            {"name": "n"},
+            {"query": "q"},
+            {},
+        ],
+    )
     def test_blank_or_missing_fields_are_refused_and_nothing_is_stored(self, payload):
         assert client_as().post(PREFIX, json=payload).status_code == 422
         assert rows() == []
@@ -139,7 +160,12 @@ class TestValidation:
     def test_a_tenant_is_capped(self):
         c = client_as()
         with Session(DB.sync) as s:
-            s.add_all([SavedHuntSearch(id=uuid.uuid4(), tenant_id=c.tenant_id, name=f"s{i}", query="q", language="lucene", pinned=False) for i in range(saved.MAX_PER_TENANT)])
+            s.add_all(
+                [
+                    SavedHuntSearch(id=uuid.uuid4(), tenant_id=c.tenant_id, name=f"s{i}", query="q", language="lucene", pinned=False)
+                    for i in range(saved.MAX_PER_TENANT)
+                ]
+            )
             s.commit()
         r = save(c, name="one too many")
         assert r.status_code == 409 and str(saved.MAX_PER_TENANT) in r.json()["detail"]

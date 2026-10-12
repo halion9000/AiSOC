@@ -5,6 +5,7 @@ administrators get 403, and nothing here is tenant data. The routes use the plai
 
 The Microsoft credentials are never accepted, stored or returned here: they are environment variables, and this API only reports WHICH are missing (by name). Changing the setting writes an audit event in the same transaction as the change.
 """
+
 from __future__ import annotations
 
 import time
@@ -95,7 +96,9 @@ def _status(row) -> AlertEmailStatus:
     missing = missing_credentials()
     warnings: list[str] = []
     if row.enabled and not settings.ALERT_EMAIL_WORKER_ENABLED:
-        warnings.append("Alert email is on, but the background worker is switched off in this deployment (ALERT_EMAIL_WORKER_ENABLED), so nothing will be sent.")
+        warnings.append(
+            "Alert email is on, but the background worker is switched off in this deployment (ALERT_EMAIL_WORKER_ENABLED), so nothing will be sent."
+        )
     if row.enabled and missing:
         warnings.append("Alert email is on, but these environment variables are not set: " + ", ".join(missing) + ".")
     return AlertEmailStatus(
@@ -118,18 +121,29 @@ def _status(row) -> AlertEmailStatus:
 
 
 @router.get("", response_model=AlertEmailStatus)
-async def get_alert_email(current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession) -> AlertEmailStatus:
+async def get_alert_email(
+    current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession
+) -> AlertEmailStatus:
     """The setting, whether the deployment can actually send (which environment variables are missing, by name), and the last error."""
     return _status(await get_settings(db))
 
 
 @router.put("", response_model=AlertEmailStatus)
-async def update_alert_email(body: AlertEmailUpdate, current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession) -> AlertEmailStatus:
+async def update_alert_email(
+    body: AlertEmailUpdate, current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession
+) -> AlertEmailStatus:
     """Change who receives alert emails, from which severity, and whether it is on. Switching on needs a recipient and starts the clock: only alerts created afterwards are emailed. Audited in the same transaction."""
     before = await get_settings(db)
     was = {"enabled": before.enabled, "min_severity": before.min_severity, "recipients": list(before.recipients or [])}
     try:
-        row = await update_settings(db, updated_by=current_user.email or str(current_user.user_id), enabled=body.enabled, min_severity=body.min_severity, recipients=body.recipients, commit=False)
+        row = await update_settings(
+            db,
+            updated_by=current_user.email or str(current_user.user_id),
+            enabled=body.enabled,
+            min_severity=body.min_severity,
+            recipients=body.recipients,
+            commit=False,
+        )
     except InvalidSettings as exc:
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from None
@@ -149,7 +163,9 @@ async def update_alert_email(body: AlertEmailUpdate, current_user: Annotated[Aut
 
 
 @router.post("/test", response_model=TestEmailResult)
-async def send_test_email(current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession) -> TestEmailResult:
+async def send_test_email(
+    current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession
+) -> TestEmailResult:
     """Send one test message to the configured recipients, now, through the real sender: the way to find out that the Microsoft setup works before an alert depends on it. At most one every 10 seconds."""
     global _last_test_at
     cfg = await get_settings(db)
@@ -158,10 +174,17 @@ async def send_test_email(current_user: Annotated[AuthUser, Depends(require_perm
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add at least one recipient first.")
     mailer = _mailer()
     if not mailer.configured:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="These environment variables are not set: " + ", ".join(missing_credentials()) + ".")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="These environment variables are not set: " + ", ".join(missing_credentials()) + ".",
+        )
     clock = time.monotonic()
     if _last_test_at is not None and clock - _last_test_at < TEST_EMAIL_MIN_INTERVAL_SECONDS:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="A test email was just sent; wait a few seconds.", headers={"Retry-After": str(int(TEST_EMAIL_MIN_INTERVAL_SECONDS))})
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="A test email was just sent; wait a few seconds.",
+            headers={"Retry-After": str(int(TEST_EMAIL_MIN_INTERVAL_SECONDS))},
+        )
     _last_test_at = clock
     who = (current_user.email or str(current_user.user_id)).replace("\r", " ").replace("\n", " ")[:120]
     try:
@@ -172,17 +195,43 @@ async def send_test_email(current_user: Annotated[AuthUser, Depends(require_perm
         )
     except MailError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=scrub(str(exc), (mailer.client_secret,))) from None
-    await emit_audit(db=db, tenant_id=current_user.tenant_id, actor_id=current_user.user_id, actor_email=current_user.email, action="platform:alert_email_test_sent", resource="platform_alert_email", resource_id="settings", changes={"recipient_count": len(recipients)})
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        actor_email=current_user.email,
+        action="platform:alert_email_test_sent",
+        resource="platform_alert_email",
+        resource_id="settings",
+        changes={"recipient_count": len(recipients)},
+    )
     await db.commit()
     return TestEmailResult(sent_to=recipients)
 
 
 @router.get("/log", response_model=list[SentAlert])
-async def recent_alert_emails(current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))], db: DBSession, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> list[SentAlert]:
+async def recent_alert_emails(
+    current_user: Annotated[AuthUser, Depends(require_permission("platform:cross_tenant_query"))],
+    db: DBSession,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[SentAlert]:
     """The alerts that have been emailed, newest first, with their tenant."""
     rows = (await db.execute(select(AlertEmailLog).order_by(AlertEmailLog.sent_at.desc()).limit(limit))).scalars().all()
-    names = dict((await db.execute(select(Tenant.id, Tenant.name).where(Tenant.id.in_({r.alert_tenant_id for r in rows})))).all()) if rows else {}
+    names = (
+        dict((await db.execute(select(Tenant.id, Tenant.name).where(Tenant.id.in_({r.alert_tenant_id for r in rows})))).all())
+        if rows
+        else {}
+    )
     return [
-        SentAlert(alert_id=str(r.alert_id), tenant_id=str(r.alert_tenant_id), tenant_name=names.get(r.alert_tenant_id), severity=r.severity, title=r.title, sent_at=r.sent_at, batch_id=str(r.batch_id), recipient_count=r.recipient_count)
+        SentAlert(
+            alert_id=str(r.alert_id),
+            tenant_id=str(r.alert_tenant_id),
+            tenant_name=names.get(r.alert_tenant_id),
+            severity=r.severity,
+            title=r.title,
+            sent_at=r.sent_at,
+            batch_id=str(r.batch_id),
+            recipient_count=r.recipient_count,
+        )
         for r in rows
     ]

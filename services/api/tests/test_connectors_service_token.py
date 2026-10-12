@@ -8,6 +8,7 @@ While wiring this, two things that had silently never worked turned up: the API'
 at port 8003 (that is the FUSION service; connectors listens on 8087), and the resource-config fetcher built
 `/connectors/{id}/resource_config` without the `/api/v1` prefix the service mounts its routes under.
 """
+
 import ast
 import re
 from pathlib import Path
@@ -83,7 +84,11 @@ def test_no_other_module_that_uses_the_connectors_url_builds_an_unauthenticated_
     for f in APP.rglob("*.py"):
         rel = str(f.relative_to(APP))
         text = f.read_text(encoding="utf-8")
-        if "CONNECTORS_SERVICE_URL" in text and rel not in CLIENT_MODULES and rel not in ("core/config.py", "api/v1/endpoints/effective_permissions.py"):
+        if (
+            "CONNECTORS_SERVICE_URL" in text
+            and rel not in CLIENT_MODULES
+            and rel not in ("core/config.py", "api/v1/endpoints/effective_permissions.py")
+        ):
             pytest.fail(f"{rel} uses CONNECTORS_SERVICE_URL but is not in CLIENT_MODULES: does it send the token?")
 
 
@@ -92,7 +97,9 @@ def test_no_other_module_that_uses_the_connectors_url_builds_an_unauthenticated_
 @pytest.mark.asyncio
 async def test_the_case_fanout_client_sends_the_token():
     route = respx.post(f"{BASE}/api/v1/connectors/okta/push_case").mock(return_value=httpx.Response(200, json={"external_id": "1"}))
-    status, body, err = await case_fanout._post_to_connector_service(url=f"{BASE}/api/v1/connectors/okta/push_case", payload={"a": 1}, timeout_seconds=5)
+    status, body, err = await case_fanout._post_to_connector_service(
+        url=f"{BASE}/api/v1/connectors/okta/push_case", payload={"a": 1}, timeout_seconds=5
+    )
     assert (status, err) == ("ok", None) and body == {"external_id": "1"}
     assert route.calls[0].request.headers["authorization"] == f"Bearer {TOKEN}"
 
@@ -101,7 +108,9 @@ async def test_the_case_fanout_client_sends_the_token():
 @pytest.mark.asyncio
 async def test_the_resource_config_fetcher_uses_the_real_route_and_sends_the_token():
     """It used to call {base}/connectors/... (no /api/v1), which 404'd, and the 404 was swallowed as an empty config."""
-    right = respx.post(f"{BASE}/api/v1/connectors/okta/resource_config").mock(return_value=httpx.Response(200, json={"config": {"groups": ["admins"]}}))
+    right = respx.post(f"{BASE}/api/v1/connectors/okta/resource_config").mock(
+        return_value=httpx.Response(200, json={"config": {"groups": ["admins"]}})
+    )
     old_wrong = respx.post(f"{BASE}/connectors/okta/resource_config").mock(return_value=httpx.Response(404))
     fetched = await HttpResourceConfigFetcher(BASE, {"api_token": "x"}, {"domain": "d"})("okta", "user-1", "2026-10-06T00:00:00Z")
     assert fetched == {"groups": ["admins"]}, "the config must come back, not an empty dict from a swallowed 404"
@@ -120,7 +129,9 @@ async def test_the_catalog_fetch_sends_the_token(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-@pytest.mark.parametrize("refusal", [httpx.Response(401), httpx.Response(503, json={"detail": "connectors service auth is not configured"})])
+@pytest.mark.parametrize(
+    "refusal", [httpx.Response(401), httpx.Response(503, json={"detail": "connectors service auth is not configured"})]
+)
 async def test_a_refused_token_falls_back_to_the_bundled_catalog_instead_of_breaking_the_wizard(monkeypatch, refusal):
     """Characterises a deliberate behaviour: a misconfigured token degrades to the bundled catalog (and logs it)."""
     monkeypatch.setattr(connectors_ep.settings, "CONNECTORS_SERVICE_URL", BASE)

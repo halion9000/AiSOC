@@ -5,6 +5,7 @@ THE TABLE EXISTS, and the failure was handled three bad ways, each verified on r
 to an in-memory dict (a get returned the value, but 0 rows were persisted and nothing was shared); and the only trace was a DEBUG log line. Found by a differential of the real API as aisoc_app vs the superuser: a row-count comparison showed one
 table with 10 rows against 0.
 """
+
 from pathlib import Path
 
 import sys
@@ -129,8 +130,14 @@ class TestReportUnavailable:
         et.report_unavailable(spy, "a", "e", "c")
         assert spy.levels("a") == ["warning", "debug"] and spy.levels("b") == ["warning"]
 
+
 MODULES = [
-    ("app.memory.institutional", "aisoc_institutional_memory", "memory.institutional.db_unavailable", "aisoc_institutional_memory_tenant_key"),
+    (
+        "app.memory.institutional",
+        "aisoc_institutional_memory",
+        "memory.institutional.db_unavailable",
+        "aisoc_institutional_memory_tenant_key",
+    ),
     ("app.core.cost_telemetry", "aisoc_run_costs", "cost_telemetry.db_unavailable", "aisoc_run_costs_tenant_run"),
 ]
 

@@ -983,7 +983,9 @@ async def promote_proposal(
             )
         if existing.tenant_id != current_user.tenant_id:  # a shared (tenantless) rule is None here, so it is refused too
             # Defence in depth: PATCH /detection/rules edits only the caller's own rules, and promotion must not be a way around that to change a shared (tenantless) rule for every tenant. (The database cannot hold a tenantless rule today: detection_rules.tenant_id is NOT NULL.)
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shared rules cannot be edited by promotion; propose a new rule instead.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Shared rules cannot be edited by promotion; propose a new rule instead."
+            )
         await db.execute(
             update(DetectionRule)
             .where(DetectionRule.id == existing.id)

@@ -4,6 +4,7 @@ Compose gives every service a plain DATABASE_URL, but this service's settings cl
 service fell back to postgresql://...@localhost, which does not exist inside its container. Both names are accepted now, the prefixed one first
 (the same order as its Alembic environment, so the app and its migrations always agree).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +12,9 @@ from pathlib import Path
 import yaml
 from app.core.config import Settings
 
-COMPOSE = yaml.safe_load((Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(encoding="utf-8"))["services"]["honeytokens"]
+COMPOSE = yaml.safe_load((Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(encoding="utf-8"))["services"][
+    "honeytokens"
+]
 DEFAULT = "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc"
 
 

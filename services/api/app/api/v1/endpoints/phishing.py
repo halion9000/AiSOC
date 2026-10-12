@@ -230,7 +230,12 @@ async def submit(body: SubmitRequest, db: DBSession, user: AuthUser) -> Submissi
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/submissions", response_model=list[SubmissionResponse], summary="List phishing submissions", dependencies=[Depends(require_permission("alerts:read"))])
+@router.get(
+    "/submissions",
+    response_model=list[SubmissionResponse],
+    summary="List phishing submissions",
+    dependencies=[Depends(require_permission("alerts:read"))],
+)
 async def list_submissions(
     db: DBSession,
     user: AuthUser,
@@ -254,7 +259,12 @@ async def list_submissions(
         raise HTTPException(status_code=503, detail="Database error") from exc
 
 
-@router.get("/{submission_id}", response_model=SubmissionResponse, summary="Get submission", dependencies=[Depends(require_permission("alerts:read"))])
+@router.get(
+    "/{submission_id}",
+    response_model=SubmissionResponse,
+    summary="Get submission",
+    dependencies=[Depends(require_permission("alerts:read"))],
+)
 async def get_submission(submission_id: uuid.UUID, db: DBSession, user: AuthUser) -> SubmissionResponse:
     row = (
         await db.execute(
@@ -268,7 +278,12 @@ async def get_submission(submission_id: uuid.UUID, db: DBSession, user: AuthUser
     return _row_to_submission(row)
 
 
-@router.post("/{submission_id}/retriage", response_model=SubmissionResponse, summary="Re-run triage on submission", dependencies=[Depends(require_permission("alerts:write"))])
+@router.post(
+    "/{submission_id}/retriage",
+    response_model=SubmissionResponse,
+    summary="Re-run triage on submission",
+    dependencies=[Depends(require_permission("alerts:write"))],
+)
 async def retriage(submission_id: uuid.UUID, db: DBSession, user: AuthUser) -> SubmissionResponse:
     existing = (
         await db.execute(

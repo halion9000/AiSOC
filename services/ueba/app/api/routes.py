@@ -128,7 +128,11 @@ async def list_anomalies(
 
 
 @router.patch("/anomalies/{anomaly_id}/acknowledge", response_model=AnomalyOut)
-async def acknowledge_anomaly(anomaly_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> AnomalyOut:
+async def acknowledge_anomaly(
+    anomaly_id: uuid.UUID,
+    db: DB,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> AnomalyOut:
     result = await db.execute(select(UEBAAnomaly).where(UEBAAnomaly.id == anomaly_id, UEBAAnomaly.tenant_id == tenant_id))
     anomaly = result.scalar_one_or_none()
     if not anomaly:

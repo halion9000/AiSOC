@@ -3,6 +3,7 @@
 PostgreSQL superusers and BYPASSRLS roles ignore every RLS policy. The default compose connects every service as the bootstrap superuser `aisoc`, so there RLS protects nothing and tenant isolation rests on the
 application's own tenant filters. Nothing said so. These tests pin the behaviour of the startup check: it reports the fact, once, and never raises or blocks.
 """
+
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.db import role_check as rc
+
 
 class Spy:
     def __init__(self):
@@ -85,7 +87,11 @@ class TestWhatItReports:
     async def test_an_ordinary_role_gets_no_warning_only_an_info_line(self, fresh):
         role = await rc.check_db_role(FakeEngine(("aisoc_app", False, False)))
         assert role is not None and not role.bypasses_rls
-        assert fresh.events("warning") == [] and fresh.events("info") == ["db.rls_enforced"] and fresh.find("db.rls_enforced")["role"] == "aisoc_app"
+        assert (
+            fresh.events("warning") == []
+            and fresh.events("info") == ["db.rls_enforced"]
+            and fresh.find("db.rls_enforced")["role"] == "aisoc_app"
+        )
 
     async def test_it_warns_once_per_process_but_still_reports_each_time(self, fresh):
         engine = FakeEngine(("aisoc", True, False))
@@ -95,7 +101,12 @@ class TestWhatItReports:
     async def test_it_only_ever_reads_the_connected_roles_own_row(self, fresh):
         engine = FakeEngine()
         await rc.check_db_role(engine)
-        assert len(engine.sql) == 1 and "FROM pg_roles WHERE rolname = current_user" in engine.sql[0] and "rolsuper" in engine.sql[0] and "rolbypassrls" in engine.sql[0]
+        assert (
+            len(engine.sql) == 1
+            and "FROM pg_roles WHERE rolname = current_user" in engine.sql[0]
+            and "rolsuper" in engine.sql[0]
+            and "rolbypassrls" in engine.sql[0]
+        )
 
 
 @pytest.mark.anyio
@@ -131,5 +142,12 @@ class TestItNeverGetsInTheWay:
 
 def test_startup_runs_the_check_right_after_the_secure_defaults_check():
     src = (Path(__file__).resolve().parent.parent / "app" / "main.py").read_text(encoding="utf-8")
-    life = src.index("async def lifespan(")  # `create_all` also appears in a docstring and in the demo bootstrap above it, so look only inside the lifespan
-    assert life < src.index("enforce_secure_defaults(settings)", life) < src.index("schedule_role_check(engine)", life) < src.index("create_all", life)
+    life = src.index(
+        "async def lifespan("
+    )  # `create_all` also appears in a docstring and in the demo bootstrap above it, so look only inside the lifespan
+    assert (
+        life
+        < src.index("enforce_secure_defaults(settings)", life)
+        < src.index("schedule_role_check(engine)", life)
+        < src.index("create_all", life)
+    )

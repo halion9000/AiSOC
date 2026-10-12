@@ -3,6 +3,7 @@
 The endpoint looked the case up in the old `cases` table, which nothing writes, so it answered 404 case_not_found for EVERY real case (shown on real Postgres, and fixed there: a case with no alerts is 200 case_has_no_linked_alerts, a case linked to an alert finds it as the
 seed, tenant B and a nonexistent id still get 404).
 """
+
 import re
 import uuid
 from pathlib import Path

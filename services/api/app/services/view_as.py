@@ -26,6 +26,7 @@ The listing used by the switcher (`viewable_tenants`) and the check (`may_view_t
 AUDIT. The audit middleware records only writes, and under the caller's HOME tenant, so without more a customer would have no record at all that an operator looked at their data. A view therefore writes one event (`tenant:viewed`) into the
  VIEWED tenant's own hash-chained log, naming the person, their tenant and role: once per person per viewed tenant per 15 minutes (a screen makes dozens of reads), and if that event cannot be written the view is not served.
 """
+
 from __future__ import annotations
 
 import functools
@@ -133,8 +134,12 @@ class Grants:
 
 @_across_tenants
 async def access_grants(db: Any, user: Any) -> Grants:
-    rows = (await db.execute(select(TenantAccessGrant.tenant_id, TenantAccessGrant.access).where(TenantAccessGrant.user_id == user.user_id))).all()
-    everywhere = (await db.execute(select(AllTenantAccessGrant.access).where(AllTenantAccessGrant.user_id == user.user_id))).scalars().first()
+    rows = (
+        await db.execute(select(TenantAccessGrant.tenant_id, TenantAccessGrant.access).where(TenantAccessGrant.user_id == user.user_id))
+    ).all()
+    everywhere = (
+        (await db.execute(select(AllTenantAccessGrant.access).where(AllTenantAccessGrant.user_id == user.user_id))).scalars().first()
+    )
     return Grants({tenant_id: level for tenant_id, level in rows}, everywhere)
 
 
@@ -152,7 +157,9 @@ def access_level(user: Any, tenant_id: uuid.UUID, grants: Grants) -> Access | No
     return level  # type: ignore[return-value]
 
 
-def may_view_tenant(user: Any, tenant: Tenant, granted: Collection[uuid.UUID] | Mapping[uuid.UUID, str] = (), all_access: str | None = None) -> bool:
+def may_view_tenant(
+    user: Any, tenant: Tenant, granted: Collection[uuid.UUID] | Mapping[uuid.UUID, str] = (), all_access: str | None = None
+) -> bool:
     """May `user` view `tenant`? Their own: always. Any tenant: a holder of the platform-wide permission. Otherwise only a tenant they have been granted (`granted`: ids, or id-to-level; see access_grants), or all of them (`all_access`)."""
     by_tenant = dict(granted) if isinstance(granted, Mapping) else dict.fromkeys(granted, ACCESS_VIEW)
     return access_level(user, tenant.id, Grants(by_tenant, all_access)) is not None
@@ -181,7 +188,15 @@ async def viewable_access(db: Any, user: Any) -> list[tuple[Tenant, Relationship
         candidates = (await db.execute(select(Tenant).where(Tenant.id != home).order_by(Tenant.name).limit(LIST_LIMIT))).scalars().all()
     else:
         candidates = (
-            (await db.execute(select(Tenant).join(TenantAccessGrant, TenantAccessGrant.tenant_id == Tenant.id).where(TenantAccessGrant.user_id == user.user_id, Tenant.id != home).order_by(Tenant.name).limit(LIST_LIMIT)))
+            (
+                await db.execute(
+                    select(Tenant)
+                    .join(TenantAccessGrant, TenantAccessGrant.tenant_id == Tenant.id)
+                    .where(TenantAccessGrant.user_id == user.user_id, Tenant.id != home)
+                    .order_by(Tenant.name)
+                    .limit(LIST_LIMIT)
+                )
+            )
             .scalars()
             .all()
         )
@@ -206,7 +221,12 @@ async def record_view(db: Any, user: Any, target: uuid.UUID, request: Any = None
     cutoff = datetime.now(UTC) - VIEW_AUDIT_WINDOW
     recent = (
         select(AuditLog.id)
-        .where(AuditLog.tenant_id == target, AuditLog.actor_id == user.user_id, AuditLog.action == VIEW_AUDIT_ACTION, AuditLog.created_at >= cutoff)
+        .where(
+            AuditLog.tenant_id == target,
+            AuditLog.actor_id == user.user_id,
+            AuditLog.action == VIEW_AUDIT_ACTION,
+            AuditLog.created_at >= cutoff,
+        )
         .limit(1)
     )
     if (await db.execute(recent)).first() is not None:
@@ -231,7 +251,11 @@ def _refuse(code: int, error: str, detail: str) -> HTTPException:
 
 
 def refuse_api_key() -> HTTPException:
-    return _refuse(status.HTTP_403_FORBIDDEN, "session_only", "Viewing another tenant is only for signed-in sessions; an API key acts on its own tenant.")
+    return _refuse(
+        status.HTTP_403_FORBIDDEN,
+        "session_only",
+        "Viewing another tenant is only for signed-in sessions; an API key acts on its own tenant.",
+    )
 
 
 @dataclass(frozen=True)
@@ -258,9 +282,17 @@ async def resolve_view_as(db: Any, user: Any, requested: str, method: str, path:
         raise _refuse(status.HTTP_403_FORBIDDEN, "forbidden", "You may not view that tenant.")
     if method.upper() not in SAFE_METHODS:
         if level != ACCESS_FULL:
-            raise _refuse(status.HTTP_403_FORBIDDEN, "read_only", "You have read-only access to this tenant. Ask for full access, or switch back to your own tenant to make changes.")
+            raise _refuse(
+                status.HTTP_403_FORBIDDEN,
+                "read_only",
+                "You have read-only access to this tenant. Ask for full access, or switch back to your own tenant to make changes.",
+            )
         if path is not None and IDENTITY_ADMIN_PATH.match(path):
-            raise _refuse(status.HTTP_403_FORBIDDEN, "not_allowed_here", "Users, roles, API keys, access and platform administration are not available while working in another tenant: use an account in that tenant.")
+            raise _refuse(
+                status.HTTP_403_FORBIDDEN,
+                "not_allowed_here",
+                "Users, roles, API keys, access and platform administration are not available while working in another tenant: use an account in that tenant.",
+            )
     return ViewTarget(tenant_id=target, access=level)  # type: ignore[arg-type]
 
 
@@ -276,7 +308,13 @@ async def record_act_as(db: Any, user: Any, target: uuid.UUID, access: str, requ
         action=ACT_AUDIT_ACTION,
         resource="tenant",
         resource_id=str(target),
-        changes={"acted_from_tenant_id": str(home_tenant_of(user)), "role": user.role, "access": access, "method": request.method, "path": request.url.path},
+        changes={
+            "acted_from_tenant_id": str(home_tenant_of(user)),
+            "role": user.role,
+            "access": access,
+            "method": request.method,
+            "path": request.url.path,
+        },
         request=request,
     )
     await db.commit()

@@ -132,7 +132,11 @@ async def list_tokens(
 
 
 @router.get("/{token_id}", response_model=TokenOut, dependencies=[Depends(require_service_token)])
-async def get_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TokenOut:
+async def get_token(
+    token_id: uuid.UUID,
+    db: DB,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> TokenOut:
     result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id, Honeytoken.tenant_id == tenant_id))
     token = result.scalar_one_or_none()
     if not token:
@@ -141,7 +145,11 @@ async def get_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..
 
 
 @router.patch("/{token_id}/revoke", response_model=TokenOut, dependencies=[Depends(require_service_token)])
-async def revoke_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> TokenOut:
+async def revoke_token(
+    token_id: uuid.UUID,
+    db: DB,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> TokenOut:
     result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id, Honeytoken.tenant_id == tenant_id))
     token = result.scalar_one_or_none()
     if not token:
@@ -153,7 +161,11 @@ async def revoke_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query
 
 
 @router.delete("/{token_id}", status_code=204, response_model=None, dependencies=[Depends(require_service_token)])
-async def delete_token(token_id: uuid.UUID, db: DB, tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found")) -> None:
+async def delete_token(
+    token_id: uuid.UUID,
+    db: DB,
+    tenant_id: uuid.UUID = Query(..., description="Tenant that owns the record; another tenant's id is answered as not found"),
+) -> None:
     result = await db.execute(select(Honeytoken).where(Honeytoken.id == token_id, Honeytoken.tenant_id == tenant_id))
     token = result.scalar_one_or_none()
     if not token:

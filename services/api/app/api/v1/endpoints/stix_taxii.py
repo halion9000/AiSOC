@@ -365,7 +365,9 @@ async def create_bundle(
     return STIXBundleWithPush(**bundle.model_dump(), misp=push_result)
 
 
-@router.get("/taxii/collections", response_model=TAXIICollectionListResponse, dependencies=[Depends(require_permission("threat_intel:read"))])
+@router.get(
+    "/taxii/collections", response_model=TAXIICollectionListResponse, dependencies=[Depends(require_permission("threat_intel:read"))]
+)
 async def list_taxii_collections() -> TAXIICollectionListResponse:
     """List TAXII 2.1 collections. No TAXII collection is served yet (there is no per-collection objects endpoint), so there are none to list.
 
@@ -377,7 +379,9 @@ async def list_taxii_collections() -> TAXIICollectionListResponse:
 # ── MISP push admin endpoints ───────────────────────────────────────────────
 
 
-@router.get("/misp/health", response_model=MispPushHealth, tags=["MISP push"], dependencies=[Depends(require_permission("threat_intel:read"))])
+@router.get(
+    "/misp/health", response_model=MispPushHealth, tags=["MISP push"], dependencies=[Depends(require_permission("threat_intel:read"))]
+)
 async def misp_push_health() -> MispPushHealth:
     """Check whether MISP push is configured and reachable.
 
@@ -410,7 +414,9 @@ async def misp_push_health() -> MispPushHealth:
     return base
 
 
-@router.post("/misp/dry-run", response_model=MispDryRunResponse, tags=["MISP push"], dependencies=[Depends(require_permission("threat_intel:write"))])
+@router.post(
+    "/misp/dry-run", response_model=MispDryRunResponse, tags=["MISP push"], dependencies=[Depends(require_permission("threat_intel:write"))]
+)
 async def misp_push_dry_run(body: MispDryRunRequest) -> MispDryRunResponse:
     """Show the MISP event payload that *would* be pushed, without sending it.
 

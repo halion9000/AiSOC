@@ -270,7 +270,9 @@ async def launch_triage(
     Returns immediately with the run identifier; poll
     ``GET /api/v1/triage/{run_id}`` for the final verdict / findings.
     """
-    body.tenant_id = resolve_tenant(body.tenant_id, authenticated_tenant(request))  # the authenticated caller's tenant, never the body's claim
+    body.tenant_id = resolve_tenant(
+        body.tenant_id, authenticated_tenant(request)
+    )  # the authenticated caller's tenant, never the body's claim
     topology = _resolve_topology(body.topology)
 
     run_id = str(uuid4())
@@ -332,7 +334,9 @@ async def get_triage(
     rather than 403 to avoid leaking the existence of run IDs across
     tenant boundaries.
     """
-    tenant_id = resolve_tenant(tenant_id, authenticated_tenant(request) if request is not None else None)  # who the caller IS, not who they say they are
+    tenant_id = resolve_tenant(
+        tenant_id, authenticated_tenant(request) if request is not None else None
+    )  # who the caller IS, not who they say they are
     run = _triage_runs.get(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Triage run not found")

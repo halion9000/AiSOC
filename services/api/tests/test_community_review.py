@@ -8,6 +8,7 @@ which does not exist (entries store "name"), so every install was a KeyError / H
 Now: submissions start pending; unreviewed or rejected items are not listed, viewable or installable; admins approve or reject via PUT .../curate (rules:admin / playbooks:admin); an existing id is
 never overwritten.
 """
+
 import uuid
 from types import SimpleNamespace
 
@@ -143,7 +144,10 @@ class TestDetections:
 
     def test_once_approved_it_is_listed_viewable_and_installable(self, admin):
         rule_id, _ = submit_detection(admin)
-        assert admin.put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "approve"}).json() == {"id": rule_id, "status": "approved"}
+        assert admin.put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "approve"}).json() == {
+            "id": rule_id,
+            "status": "approved",
+        }
         assert [d["id"] for d in admin.get(f"{PREFIX}/detections").json()["items"]] == [rule_id]
         assert admin.get(f"{PREFIX}/detections/{rule_id}").status_code == 200
         installed = admin.post(f"{PREFIX}/detections/{rule_id}/install")
@@ -153,7 +157,10 @@ class TestDetections:
 
     def test_a_rejected_detection_stays_hidden_and_uninstallable(self, admin):
         rule_id, _ = submit_detection(admin)
-        assert admin.put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "reject", "notes": "too noisy"}).json()["status"] == "rejected"
+        assert (
+            admin.put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "reject", "notes": "too noisy"}).json()["status"]
+            == "rejected"
+        )
         assert admin.get(f"{PREFIX}/detections").json()["items"] == []
         assert admin.get(f"{PREFIX}/detections/{rule_id}").status_code == 404
         assert admin.post(f"{PREFIX}/detections/{rule_id}/install").status_code == 400
@@ -161,7 +168,11 @@ class TestDetections:
     def test_resubmitting_an_existing_id_cannot_replace_an_approved_rule(self, admin):
         rule_id, _ = submit_detection(admin)
         admin.put(f"{PREFIX}/detections/{rule_id}/curate", json={"action": "approve"})
-        again = admin.post(f"{PREFIX}/detections/publish", content=SIGMA.format(rule_id=rule_id).replace("powershell", "evil"), headers={"content-type": "text/plain"})
+        again = admin.post(
+            f"{PREFIX}/detections/publish",
+            content=SIGMA.format(rule_id=rule_id).replace("powershell", "evil"),
+            headers={"content-type": "text/plain"},
+        )
         assert again.status_code == 409
         assert catalog("detection", rule_id)["status"] == "approved"
         assert "evil" not in catalog("detection", rule_id)["sigma_yaml"]
@@ -274,12 +285,14 @@ class TestInstallingReallyInstalls:
 
     def test_a_playbook_is_created_in_the_engine_disabled(self):
         admin = client_as("admin")
-        pid = admin.post(f"{PREFIX}/playbooks/submit", json={"name": "Isolate host", "steps": [{"action": "isolate_host"}], "enabled": True}).json()["id"]
+        pid = admin.post(
+            f"{PREFIX}/playbooks/submit", json={"name": "Isolate host", "steps": [{"action": "isolate_host"}], "enabled": True}
+        ).json()["id"]
         admin.put(f"{PREFIX}/playbooks/{pid}/curate", json={"action": "approve"})
         response = admin.post(f"{PREFIX}/playbooks/{pid}/install")
         assert response.status_code == 200
         assert response.json()["playbook_id"] == "pb-1"
-        (method, path, kwargs), = PROXY.calls
+        ((method, path, kwargs),) = PROXY.calls
         assert (method, path) == ("POST", "")
         assert kwargs["json"]["name"] == "Isolate host" and kwargs["json"]["steps"] == [{"action": "isolate_host"}]
         assert kwargs["json"]["enabled"] is False, "an installed community playbook must not start live"
@@ -293,7 +306,7 @@ class TestInstallingReallyInstalls:
         pid = sub.post(f"{PREFIX}/playbooks/submit", json={"name": "Isolate host", "steps": []}).json()["id"]
         sub.put(f"{PREFIX}/playbooks/{pid}/curate", json={"action": "approve"})
         client_as("admin", installer).post(f"{PREFIX}/playbooks/{pid}/install")
-        (_method, _path, kwargs), = PROXY.calls
+        ((_method, _path, kwargs),) = PROXY.calls
         assert kwargs["params"] == {"tenant_id": str(installer)}
         assert str(submitter) not in str(kwargs)
 
