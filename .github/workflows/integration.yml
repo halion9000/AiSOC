@@ -96,6 +96,17 @@ jobs:
             printf '\nAISOC_VERSION=%s\n' "${AISOC_VERSION}" >> .env
           fi
 
+          # Provision the secrets the production-shaped stack REFUSES to boot without (enforce_secure_defaults: services/api/app/core/config.py). Generated per run,
+          # masked in the logs, exactly as an operator would generate them (docs: apps/docs/docs/deployment/env-vars.md).
+          set_env() {  # set_env KEY VALUE: replace an existing KEY= line, else append one (never leave a duplicate)
+            if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
+          }
+          for key in METRICS_TOKEN JWT_SECRET REALTIME_INTERNAL_TOKEN AISOC_REALTIME_JWT_SECRET; do
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::${value}"
+            set_env "${key}" "${value}"
+          done
+
       - name: Pre-pull published images
         run: docker compose pull --ignore-pull-failures --quiet || true
 
@@ -109,7 +120,8 @@ jobs:
         run: docker compose up -d
 
       - name: Run spine test
-        run: python3 scripts/integration/spine_test.py
+        shell: bash   # adds -o pipefail, so a failing spine test still fails the step although its output goes through `tee`
+        run: python3 scripts/integration/spine_test.py 2>&1 | tee "${RUNNER_TEMP}/spine.log"
 
       # ── Phase A1: the ClickHouse event lake is actually populated ────────
       # The spine test ingested events; assert they landed in the
@@ -241,6 +253,22 @@ jobs:
           echo "── api ──";       docker compose logs --tail=100 --no-color api || true
           echo "── postgres ──";  docker compose logs --tail=60  --no-color postgres || true
           echo "── kafka ──";     docker compose logs --tail=60  --no-color kafka || true
+
+      # Runs ONLY when something above failed: re-emits the essentials as ANNOTATIONS (readable through the API; the raw logs are not).
+      - name: Annotate failure (compose state, service logs, spine test output)
+        if: failure()
+        run: |
+          # Surface the essentials as ANNOTATIONS: the raw job logs above are not readable from outside the web UI. Newlines are escaped as %0A so each annotation stays one workflow command.
+          state="$(docker compose ps --all --format '{{.Service}}: {{.State}} health={{.Health}} exit={{.ExitCode}}' 2>&1 | head -40 | sed ':a;N;$!ba;s/\n/%0A/g')"
+          echo "::error title=compose state::${state}"
+          for svc in api ingest-worker fusion; do
+            tail_log="$(docker compose logs --tail=14 --no-color "${svc}" 2>&1 | cut -c1-200 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::error title=last log lines (${svc})::${tail_log}"
+          done
+          if [ -f "${RUNNER_TEMP}/spine.log" ]; then
+            spine_tail="$(tail -n 14 "${RUNNER_TEMP}/spine.log" | cut -c1-200 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::error title=spine test output::${spine_tail}"
+          fi
 
       - name: Teardown
         if: always()

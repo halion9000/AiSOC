@@ -121,6 +121,17 @@ jobs:
           fi
           echo "Resolved AISOC_VERSION=${AISOC_VERSION}"
 
+          # Provision the secrets the production-shaped stack REFUSES to boot without (enforce_secure_defaults: services/api/app/core/config.py). Generated per run,
+          # masked in the logs, exactly as an operator would generate them (docs: apps/docs/docs/deployment/env-vars.md).
+          set_env() {  # set_env KEY VALUE: replace an existing KEY= line, else append one (never leave a duplicate)
+            if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
+          }
+          for key in METRICS_TOKEN JWT_SECRET REALTIME_INTERNAL_TOKEN AISOC_REALTIME_JWT_SECRET; do
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::${value}"
+            set_env "${key}" "${value}"
+          done
+
       - name: Validate compose file
         run: docker compose config --quiet
 
