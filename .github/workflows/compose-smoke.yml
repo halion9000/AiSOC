@@ -268,7 +268,7 @@ jobs:
             sleep 5
           done
 
-          echo "::error::Stack did not converge within ${HEALTH_BUDGET_SECONDS}s"
+          echo "::error::Stack did not converge within ${HEALTH_BUDGET_SECONDS}s (postgres=${ok_postgres} api=${ok_api} web=${ok_web}; 1 = ok)"
           echo "  postgres healthy: ${ok_postgres}"
           echo "  api /health 200:  ${ok_api}"
           echo "  web 200:          ${ok_web}"
@@ -293,6 +293,14 @@ jobs:
       - name: Capture forensics on failure
         if: failure()
         run: |
+          # Surface the essentials as ANNOTATIONS as well: the raw logs below are not always readable (they were not through the API).
+          # Newlines are escaped as %0A so each annotation stays one workflow command.
+          state="$(docker compose ps --all --format '{{.Service}}: {{.State}} health={{.Health}} exit={{.ExitCode}}' 2>&1 | head -40 | sed ':a;N;$!ba;s/\n/%0A/g')"
+          echo "::error title=compose state::${state}"
+          for svc in api web postgres; do
+            tail_log="$(docker compose logs --tail=12 --no-color "${svc}" 2>&1 | cut -c1-200 | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::error title=last log lines (${svc})::${tail_log}"
+          done
           echo "## Compose state"
           docker compose ps || true
           echo
