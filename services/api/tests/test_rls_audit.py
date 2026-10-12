@@ -163,8 +163,9 @@ class TestExitCodes:
 
 
 class FakeConn:
-    def __init__(self, role=("aisoc", True, False), app_role_exists=True, can_truncate=False, tables=("a", "b")):
+    def __init__(self, role=("aisoc", True, False), app_role_exists=True, can_truncate=False, tables=("a", "b"), fail_closed=None):
         self.role, self.sql, self.params = role, [], []
+        self.fail_closed = fail_closed  # what the database says about migration 081's switch: None = not applied, False = off, True = on
         self.app_role_exists, self.can_truncate, self.tables = app_role_exists, can_truncate, tables
 
     async def fetchval(self, sql, *params):
@@ -174,6 +175,8 @@ class FakeConn:
             return 1 if self.app_role_exists else None
         if "has_table_privilege" in sql:
             return self.can_truncate
+        if "rls_fail_closed" in sql:
+            return self.fail_closed
         raise AssertionError(f"unexpected fetchval: {sql}")
 
     async def fetchrow(self, sql):
@@ -199,8 +202,8 @@ class TestCollectAndMain:
         conn = FakeConn()
         asyncio.run(ra.collect(conn))
         assert (
-            len(conn.sql) == 6
-        )  # role, tables, tenant columns, rls, policies, does aisoc_app exist (no audit_log table here, so the TRUNCATE question is not asked)
+            len(conn.sql) == 7
+        )  # role, tables, tenant columns, rls, policies, does aisoc_app exist (no audit_log table here, so the TRUNCATE question is not asked), the switch
         for sql in conn.sql:
             s = " ".join(sql.split()).upper()
             assert s.startswith("SELECT") and not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b", s)
@@ -212,6 +215,7 @@ class TestCollectAndMain:
         r = asyncio.run(ra.collect(FakeConn()))
         assert r.role == "aisoc" and r.covered == ["a"] and r.uncovered == ["b"]
         assert r.app_role == {"exists": True, "can_truncate_audit_log": None}  # the fake schema has no audit_log table, so it is not asked
+        assert r.fail_closed is None  # the fake database has not applied migration 081
 
     def run_main(self, monkeypatch, capsys, args, conn):
         import app.scripts.run_migrations as rm
@@ -424,3 +428,53 @@ class TestTheFlag:
 
         code, out = self.run_main(monkeypatch, capsys, ["--json", "--check-default-password"], FakeConn(), probe)
         assert json.loads(out)["app_role"] == {"exists": True, "can_truncate_audit_log": None, "default_password_accepted": False}
+
+
+SWITCHABLE = (
+    "((tenant_id = current_tenant_id()) OR ((current_tenant_id() IS NULL) AND (NOT ( SELECT rls_fail_closed() AS rls_fail_closed))))"
+)
+
+
+class TestFailClosedSwitch:
+    """Migration 081 rewrites the 77 fail-open policies so their fail-open branch is conditional on `app.rls_fail_closed`. The audit has to say so: reading
+    them as `standard` (fail-open) after the migration would tell an operator who had switched fail-closed ON that nothing had changed."""
+
+    def test_a_switched_policy_is_its_own_kind_and_a_plain_one_is_still_standard(self):
+        assert ra.classify_policy(SWITCHABLE) == "switchable"
+        assert ra.classify_policy(STANDARD) == "standard"
+        assert "switchable" not in ra.DEFECTS  # it is not a defect: it is the mechanism for fixing one
+
+    def test_the_switch_query_calls_no_user_function_and_cannot_write(self):
+        conn = FakeConn(fail_closed=True)
+        asyncio.run(ra.collect(conn))
+        sql = next(q for q in conn.sql if "rls_fail_closed" in q)
+        assert "to_regproc" in sql and "current_setting" in sql  # built-ins only
+        assert "rls_fail_closed(" not in sql  # the audit never calls the migration's function, only asks whether it exists
+
+    @pytest.mark.parametrize("answer", [None, False, True])
+    def test_collect_reports_what_the_database_says(self, answer):
+        assert asyncio.run(ra.collect(FakeConn(fail_closed=answer))).fail_closed is answer
+
+    def report(self, fail_closed, policy=SWITCHABLE):
+        return ra.build_report(
+            role=("aisoc_app", False, False),
+            tables=["a"],
+            tenant_tables={"a"},
+            rls_enabled={"a"},
+            policies=[{"tablename": "a", "policyname": "p", "qual": policy, "with_check": None}],
+            fail_closed=fail_closed,
+        )
+
+    def test_it_says_off_and_how_to_turn_it_on(self):
+        out = ra.render(self.report(False))
+        assert "switchable=1" in out and "OFF" in out and "ALTER DATABASE" in out and "app.rls_fail_closed" in out
+
+    def test_it_says_on(self):
+        out = ra.render(self.report(True))
+        assert "switchable=1" in out and "ON:" in out and "ALTER DATABASE" not in out
+
+    def test_it_says_unknown_when_the_state_could_not_be_read(self):
+        assert "unknown" in ra.render(self.report(None))
+
+    def test_a_database_without_the_migration_does_not_mention_the_switch(self):
+        assert "fail-closed switch" not in ra.render(self.report(None, policy=STANDARD))

@@ -48,6 +48,8 @@ def classify_policy(qual: str | None) -> str:
     """Name the shape of a policy's USING expression (see the module docstring)."""
     q = qual or ""
     if "current_tenant_id()" in q:
+        if "IS NULL" in q and "rls_fail_closed" in q:
+            return "switchable"  # migration 081: fail-open only while the switch is off (see Report.fail_closed)
         return "standard" if "IS NULL" in q else "strict_context"
     m = _SETTING.search(q)
     if m:
@@ -72,6 +74,8 @@ class Report:
     policies: dict[str, list[dict[str, str]]] = field(default_factory=dict)  # kind -> [{table, policy, using}]
     # About `aisoc_app`: exists (bool), can_truncate_audit_log (bool|None: None if unknown), default_password_accepted (bool|None: None = not checked or could not tell)
     app_role: dict[str, Any] = field(default_factory=dict)
+    # Is fail-closed switched ON for this database (what a NEW connection sees)? None = unknown / migration 081 not applied.
+    fail_closed: bool | None = None
 
     @property
     def bypasses_rls(self) -> bool:
@@ -110,8 +114,11 @@ def build_report(
     rls_enabled: set[str],
     policies: list[dict[str, Any]],
     app_role: dict[str, Any] | None = None,
+    fail_closed: bool | None = None,
 ) -> Report:
-    r = Report(role=role[0], superuser=role[1], bypassrls=role[2], tables=len(tables), app_role=dict(app_role or {}))
+    r = Report(
+        role=role[0], superuser=role[1], bypassrls=role[2], tables=len(tables), app_role=dict(app_role or {}), fail_closed=fail_closed
+    )
     r.tenant_scoped = sorted(t for t in tables if t in tenant_tables)
     r.covered = [t for t in r.tenant_scoped if t in rls_enabled]
     off = [t for t in r.tenant_scoped if t not in rls_enabled]
@@ -147,6 +154,18 @@ def render(r: Report) -> str:
         out.append(f"(deliberately excluded: {', '.join(r.excluded)})")
     counts = ", ".join(f"{k}={len(v)}" for k, v in sorted(r.policies.items()))
     out += ["", f"Policies by shape: {counts or 'none'}"]
+    n_sw = len(r.policies.get("switchable", []))
+    if n_sw:
+        state = {
+            True: "ON: tenant-scoped sessions only; a session with no tenant sees nothing",
+            False: "OFF: a session with no tenant sees every row (fail-open, as before migration 081)",
+            None: "unknown",
+        }[r.fail_closed]
+        out.append(f"  fail-closed switch (migration 081; {n_sw} switchable policies): {state}")
+        if r.fail_closed is False:
+            out.append(
+                "    turn on with: ALTER DATABASE <name> SET app.rls_fail_closed = 'on'  (new connections); only after the plan's no-user paths are handled"
+            )
     for kind in ("raises_without_context", "wrong_setting", "other", "strict_context"):
         for p in r.policies.get(kind, []):
             tag = "DEFECT" if kind in DEFECTS else "note  "
@@ -203,6 +222,15 @@ async def collect(conn: Any) -> Report:
         if exists and "audit_log" in tables
         else None
     )
+    try:
+        fail_closed: bool | None = await conn.fetchval(
+            # built-ins only (no user function is called by an audit): to_regproc is the catalog's existence check for migration 081, current_setting reads
+            # what a NEW connection to this database gets from ALTER DATABASE ... SET
+            "SELECT CASE WHEN to_regproc('rls_fail_closed') IS NULL THEN NULL "
+            "ELSE coalesce(current_setting('app.rls_fail_closed', true), '') IN ('on', 'true', '1') END"
+        )
+    except Exception:  # noqa: BLE001  # migration 081 not applied: the function does not exist
+        fail_closed = None
     return build_report(
         role=(me["name"], me["rolsuper"], me["rolbypassrls"]),
         tables=tables,
@@ -210,6 +238,7 @@ async def collect(conn: Any) -> Report:
         rls_enabled=rls,
         policies=pols,
         app_role={"exists": exists, "can_truncate_audit_log": can_truncate},
+        fail_closed=fail_closed,
     )
 
 

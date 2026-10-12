@@ -7,6 +7,7 @@ name: Postgres-backed tests
 #   test_view_as_audit_postgres.py                the view-as audit chain (hash chain, immutable audit_log) as the restricted role
 #   test_tenant_access_postgres.py                tenant access management with the session-tagging hook emulated
 #   test_service_migrations_postgres.py           ueba, honeytokens and purple-team migrated in sequence into one database
+#   test_rls_fail_closed_switch_postgres.py       the fail-closed switch of migration 081 in each state, ALTER DATABASE and RESET, and the unswitched-policy ratchet
 #
 # The first three exist precisely because mocks cannot see what row-level security does: they must run as `aisoc_app` (NOT a superuser, no
 # BYPASSRLS) against a fully migrated database, which is what this job builds: Postgres 16, the API's SQL migrations, then
@@ -143,6 +144,7 @@ jobs:
             tests/test_view_as_audit_postgres.py \
             tests/test_tenant_access_postgres.py \
             tests/test_rls_session_tag_postgres.py \
+            tests/test_rls_fail_closed_switch_postgres.py \
             tests/test_service_migrations_postgres.py \
             -v --tb=short -rs --junitxml=postgres-tests.junit.xml
 
