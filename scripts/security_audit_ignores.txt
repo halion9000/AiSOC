@@ -19,13 +19,9 @@
 # newest version) or is a framework-capped transitive dep where a bump is both
 # risky and ineffective. Time-boxed for re-evaluation within 90 days.
 
-# pnpm — fast-uri 3.1.0 and the babel plugin 7.29.0 are already at their latest published
-# versions; no fixed release exists. They are build/tooling-only transitive deps.
-# (serialize-javascript GHSA-5c6j-r48x-rmvq is NOT ignored: this entry claimed no patched
-# release, but 7.0.3 fixes it, so the root pnpm override pins >=7.0.3 and the waiver is gone.)
-pnpm|GHSA-q3j6-qgpj-74h6|fast-uri 3.1.0 is latest; ReDoS advisory has no fixed version; transitive build/tooling dep|2026-08-25
-pnpm|GHSA-v39h-62p7-jpjc|fast-uri 3.1.0 is latest; ReDoS advisory has no fixed version; transitive build/tooling dep|2026-08-25
-pnpm|GHSA-fv7c-fp4j-7gwp|@babel/plugin-transform-modules-systemjs 7.29.0 is latest; build-time only, not shipped to runtime|2026-08-25
+# pnpm — fast-uri (GHSA-q3j6, v39h, v2hh, 4c8g, 7p8r) and the babel systemjs plugin (GHSA-fv7c) are NOT ignored:
+# their waivers claimed no fixed release (or a 4.x major), but fast-uri 3.1.8 and the plugin 7.29.8 fix them within
+# their ranges, so the root pnpm overrides pin them and the waivers are gone. serialize-javascript likewise (7.0.3+).
 
 # starlette — transitive via fastapi (capped <0.137). CVE-2024-47874 and
 # CVE-2025-54121 are fixed in 1.0.0 but reaching it requires a risky
@@ -154,8 +150,6 @@ pnpm|GHSA-2p49-hgcm-8545|svgo removeScripts residual-script (fixed 3.3.4 upstrea
 pnpm|GHSA-6g55-p6wh-862q|postcss arbitrary file read (fixed 8.5.12 upstream); pnpm reports no auto-fix; build-time CSS processing transitive dep|2026-10-28
 pnpm|GHSA-r28c-9q8g-f849|postcss source-map path traversal (fixed 8.5.18 upstream); pnpm reports no auto-fix; build-time CSS processing transitive dep|2026-10-28
 pnpm|GHSA-mh99-v99m-4gvg|brace-expansion unbounded-expansion DoS; pnpm reports no auto-fix (consumers pinned); transitive build/tooling glob dep|2026-10-28
-pnpm|GHSA-v2hh-gcrm-f6hx|fast-uri host confusion (<=3.1.3, no fixed release yet); transitive build/tooling dep (fastify/ajv stack)|2026-10-28
-pnpm|GHSA-4c8g-83qw-93j6|fast-uri host confusion via failed IP parse; co-resolves with GHSA-v2hh (no fixed release); transitive build/tooling dep|2026-10-28
 # v7.7.0 batch (2026-08-04) — freshly-disclosed high CVEs; fixes tracked for dedicated dependency PRs (expire in <90 days).
 python|CVE-2026-69247|cryptography high (48.0.1/49.0.0); fixed in 50.0.0 but held by the <50 and <49 version caps across services (49 to 50 is a major bump needing cross-service compat testing); tracked for a dedicated dependency PR|2026-10-28
 python|CVE-2026-69248|cryptography high (48.0.1); fixed in 50.0.0, held by the <50/<49 major-version caps; tracked for a dedicated dependency PR|2026-10-28
@@ -163,7 +157,6 @@ python|CVE-2026-69249|cryptography high (48.0.1); fixed in 50.0.0, held by the <
 python|CVE-2026-59881|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
 python|CVE-2026-69243|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
 python|CVE-2026-69244|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
-pnpm|GHSA-7p8r-x3mc-p8w7|fast-uri 3.1.0 advisory; fix requires the 4.x major; transitive build/tooling dep (fastify/ajv stack), not runtime-exposed; tracked|2026-10-28
 pnpm|GHSA-mwp4-54f8-5fhr|ip-address 10.1.0 advisory; transitive build/tooling dep; pnpm reports no auto-fix without an override; tracked|2026-10-28
 pnpm|GHSA-rgw5-rvv9-x895|brace-expansion advisory (1.x/2.x/5.x instances); pnpm reports no auto-fix (consumers pinned); transitive build/tooling glob dep|2026-10-28
 # 2026-08-11 batch — freshly-disclosed high advisories (all transitive; expire <90d; tracked for dep-bump PRs).
