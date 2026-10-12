@@ -453,22 +453,24 @@ jobs:
 
       - name: Install tooling (awscli + postgres client)
         run: |
-          pip install --quiet awscli
+          pip install --quiet awscli "moto[server]>=5,<6"
           sudo apt-get update -q && sudo apt-get install -y -q postgresql-client
 
       # MinIO needs a `server /data` command, which the GitHub `services:`
       # block cannot pass — run it as a plain container instead.
-      - name: Start MinIO
+      # An S3-compatible server for the backup scripts (they only use `aws s3 mb|cp|ls|rm` and `aws s3api head-object` against AWS_ENDPOINT_URL).
+      # This used to be `docker run minio/minio:RELEASE.2024-12-18T13-15-44Z`, but MinIO withdrew its community images from Docker Hub (`pull access denied`,
+      # seen in this job's annotation) and now refuses anonymous pulls from quay.io too. moto's server mode is installed from PyPI, so there is no image or
+      # registry to depend on. The job's credentials are still called minioadmin: any value works against moto.
+      - name: Start an S3-compatible server (moto)
         run: |
-          # Docker's own message is what says WHY (exit code 125 = `docker run` itself failed: image not found, pull denied or rate-limited, bad flag);
-          # it goes into an annotation because the job logs are not always readable from outside the web UI.
-          if ! out="$(docker run -d --name minio -p 9000:9000 \
-               -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-               minio/minio:RELEASE.2024-12-18T13-15-44Z server /data 2>&1)"; then
-            echo "$out"
-            echo "::error title=start minio::$(printf '%s\n' "$out" | tail -n 8 | cut -c1-260 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
-            exit 1
-          fi
+          nohup moto_server -H 127.0.0.1 -p 9000 > "${RUNNER_TEMP}/moto.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fs -o /dev/null http://localhost:9000/ && exit 0
+            sleep 1
+          done
+          echo "::error title=start s3 server::$(tail -n 8 "${RUNNER_TEMP}/moto.log" | cut -c1-260 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          exit 1
 
       - name: Create bucket
         run: |
