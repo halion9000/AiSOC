@@ -96,16 +96,35 @@ jobs:
             printf '\nAISOC_VERSION=%s\n' "${AISOC_VERSION}" >> .env
           fi
 
+          # The AISOC_*_SERVICE_TOKEN values are the inter-service bearer tokens: every service answers 503 to everything but its health route when its token
+          # is unset ("there is no development mode"; CORE generates them on every build), so without them the stack only LOOKS healthy.
           # Provision the secrets the production-shaped stack REFUSES to boot without (enforce_secure_defaults: services/api/app/core/config.py). Generated per run,
           # masked in the logs, exactly as an operator would generate them (docs: apps/docs/docs/deployment/env-vars.md).
           set_env() {  # set_env KEY VALUE: replace an existing KEY= line, else append one (never leave a duplicate)
             if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
           }
-          for key in METRICS_TOKEN JWT_SECRET REALTIME_INTERNAL_TOKEN AISOC_REALTIME_JWT_SECRET; do
+          for key in METRICS_TOKEN JWT_SECRET REALTIME_INTERNAL_TOKEN AISOC_REALTIME_JWT_SECRET \
+              AISOC_ACTIONS_SERVICE_TOKEN \
+              AISOC_API_SERVICE_TOKEN \
+              AISOC_CONNECTORS_SERVICE_TOKEN \
+              AISOC_ENRICHMENT_SERVICE_TOKEN \
+              AISOC_FUSION_SERVICE_TOKEN \
+              AISOC_HONEYTOKENS_SERVICE_TOKEN \
+              AISOC_INGEST_SERVICE_TOKEN \
+              AISOC_PURPLE_TEAM_SERVICE_TOKEN \
+              AISOC_THREATINTEL_SERVICE_TOKEN \
+              AISOC_UEBA_SERVICE_TOKEN; do
             value="$(openssl rand -hex 32)"
             echo "::add-mask::${value}"
             set_env "${key}" "${value}"
           done
+
+          # AISOC_CREDENTIAL_KEY must be a Fernet key (url-safe base64 of 32 random bytes). The placeholder in .env.example is not one, and the secure-defaults guard only
+          # checks that the value is non-empty, so the stack boots and the credential vault then raises the first time a connector credential is touched (seen in the api
+          # log: the oauth_refresh worker, "AISOC_CREDENTIAL_KEY is not a valid Fernet key").
+          fernet_key="$(openssl rand -base64 32 | tr '+/' '-_')"
+          echo "::add-mask::${fernet_key}"
+          set_env AISOC_CREDENTIAL_KEY "${fernet_key}"
 
       - name: Pre-pull published images
         run: docker compose pull --ignore-pull-failures --quiet || true
@@ -118,6 +137,41 @@ jobs:
 
       - name: Boot stack
         run: docker compose up -d
+
+      # The API has no development mode here, so the test needs a real account: created with the production bootstrap, exported to the next steps.
+      - name: Create the spine test's account (production bootstrap)
+        run: |
+          set -euo pipefail
+          # The API container applies the migrations at start and is healthy once it can serve; wait for that, then create the spine test's account the way an operator
+          # does (app.scripts.bootstrap_production, the password only in the environment, never on a command line).
+          cid="$(docker compose ps -q api)"
+          state="none"
+          for _ in $(seq 1 90); do
+            state="$(docker inspect -f '{{.State.Health.Status}}' "${cid}" 2>/dev/null || echo none)"
+            [ "${state}" = "healthy" ] && break
+            sleep 5
+          done
+          [ "${state}" = "healthy" ] || { echo "::error title=bootstrap::the api container never became healthy (state: ${state})"; exit 1; }
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::${password}"
+          out="$(docker compose exec -T -e AISOC_BOOTSTRAP_ADMIN_PASSWORD="${password}" api python -m app.scripts.bootstrap_production --admin-email spine-test@example.com --admin-name spine-test 2>&1 || true)"
+          # The result line carries RAW API keys (CORE's and the agents service's): it is parsed here and never printed, and neither is the rest of the output on success.
+          parsed="$(printf '%s\n' "${out}" | grep '^AISOC_BOOTSTRAP_RESULT ' | tail -1 | sed 's/^AISOC_BOOTSTRAP_RESULT //' | python3 -c '
+          import json, sys
+          try:
+              r = json.load(sys.stdin)
+          except Exception:
+              print("ERR no machine-readable result line"); raise SystemExit
+          print(("OK " + r["admin_account_name"]) if r.get("ok") else "ERR " + str(r.get("error", "unknown"))[:300])
+          ' || echo 'ERR the result line could not be parsed')"
+          case "${parsed}" in
+            "OK "*) account="${parsed#OK }" ;;
+            *) echo "::error title=bootstrap::${parsed#ERR }"; exit 1 ;;
+          esac
+          ingest_token="$(grep '^AISOC_INGEST_SERVICE_TOKEN=' .env | cut -d= -f2)"
+          echo "::add-mask::${ingest_token}"
+          { echo "SPINE_ACCOUNT=${account}"; echo "SPINE_PASSWORD=${password}"; echo "AISOC_INGEST_SERVICE_TOKEN=${ingest_token}"; } >> "${GITHUB_ENV}"
+          echo "bootstrapped account ${account}"
 
       - name: Run spine test
         shell: bash   # adds -o pipefail, so a failing spine test still fails the step although its output goes through `tee`

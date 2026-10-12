@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 import uuid
@@ -46,6 +47,38 @@ FUSION = "http://localhost:8003"
 REALTIME_HTTP = "http://localhost:8086"
 REALTIME_WS = "ws://localhost:8086"
 TENANT = "00000000-0000-0000-0000-000000000001"
+
+# CREDENTIALS. The production-shaped stack has no development mode: ingest answers 503 (no token) or 401 to anything but its health route without
+# `Authorization: Bearer $AISOC_INGEST_SERVICE_TOKEN`, and the API answers 401 to an anonymous caller. Both are optional here so the test still runs
+# against a development-mode stack, which needs neither:
+#   AISOC_INGEST_SERVICE_TOKEN   the ingest service's bearer token (the same value compose gives the ingest service)
+#   SPINE_ACCOUNT, SPINE_PASSWORD  an account in the default tenant (the workflow creates it with app.scripts.bootstrap_production)
+_TOKEN: str | None = None
+
+
+def ingest_headers() -> dict[str, str]:
+    """Headers for a POST to ingest: the tenant (ingest trusts it, so the bearer token is what decides who may use it) and the service token."""
+    headers = {"X-Tenant-ID": TENANT}
+    token = os.environ.get("AISOC_INGEST_SERVICE_TOKEN", "")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+async def api_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    """Headers for a call to the API: a bearer token from logging in as SPINE_ACCOUNT, once; nothing if no account was given."""
+    global _TOKEN
+    account, password = os.environ.get("SPINE_ACCOUNT", ""), os.environ.get("SPINE_PASSWORD", "")
+    if not (account and password):
+        return {}
+    if _TOKEN is None:
+        r = await client.post(f"{API}/api/v1/auth/login", json={"account_name": account, "password": password}, timeout=15)
+        if r.status_code != 200:
+            raise SystemExit(f"login as {account!r} failed: HTTP {r.status_code} {r.text[:200]}")  # never prints the password
+        _TOKEN = r.json()["access_token"]
+        log(f"logged in as {account!r}")
+    return {"Authorization": f"Bearer {_TOKEN}"}
+
 
 HEALTH_BUDGET_S = 300
 SPINE_BUDGET_S = 180
@@ -107,7 +140,7 @@ async def post_event(client: httpx.AsyncClient, title: str) -> None:
     r = await client.post(
         f"{INGEST}/v1/ingest/batch",
         json=event_payload(title),
-        headers={"X-Tenant-ID": TENANT},
+        headers=ingest_headers(),
         timeout=10,
     )
     r.raise_for_status()
@@ -142,7 +175,7 @@ async def post_detection_event(client: httpx.AsyncClient) -> None:
     r = await client.post(
         f"{INGEST}/v1/ingest/batch",
         json=payload,
-        headers={"X-Tenant-ID": TENANT},
+        headers=ingest_headers(),
         timeout=10,
     )
     r.raise_for_status()
@@ -153,14 +186,14 @@ async def post_detection_event(client: httpx.AsyncClient) -> None:
 
 
 async def count_alerts_titled(client: httpx.AsyncClient, title: str) -> int:
-    r = await client.get(f"{API}/api/v1/alerts", params={"page_size": 200}, timeout=10)
+    r = await client.get(f"{API}/api/v1/alerts", params={"page_size": 200}, headers=await api_headers(client), timeout=10)
     r.raise_for_status()
     items = r.json().get("items", [])
     return sum(1 for a in items if a.get("title") == title)
 
 
 async def get_alert_titled(client: httpx.AsyncClient, title: str) -> dict | None:
-    r = await client.get(f"{API}/api/v1/alerts", params={"page_size": 200}, timeout=10)
+    r = await client.get(f"{API}/api/v1/alerts", params={"page_size": 200}, headers=await api_headers(client), timeout=10)
     r.raise_for_status()
     for a in r.json().get("items", []):
         if a.get("title") == title:
@@ -169,7 +202,7 @@ async def get_alert_titled(client: httpx.AsyncClient, title: str) -> dict | None
 
 
 async def mint_ws_ticket(client: httpx.AsyncClient) -> str:
-    r = await client.post(f"{API}/api/v1/realtime/ticket", timeout=10)
+    r = await client.post(f"{API}/api/v1/realtime/ticket", headers=await api_headers(client), timeout=10)
     r.raise_for_status()
     return r.json()["token"]
 
