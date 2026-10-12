@@ -303,7 +303,16 @@ jobs:
           # auth tests refuse to assume, and test_dev_mode_unification asserts the defaults when the variable is unset).
           SECRET_KEY: ci-dummy-secret-key-at-least-32bytes!
           DATABASE_URL: postgresql+asyncpg://x:x@localhost/x
-        run: python -m pytest tests/ -v --tb=short
+        shell: bash   # `shell: bash` adds `-o pipefail`, so a failing pytest still fails the step although its output goes through `tee`
+        run: python -m pytest tests/ -v --tb=short 2>&1 | tee "${RUNNER_TEMP}/api-pytest.log"
+      # Runs ONLY when the API tests failed: turns the FAILED/ERROR lines of the saved output into ANNOTATIONS (the job logs are not always readable
+      # from outside the web UI, and a failure that cannot be read cannot be fixed). No re-run: it reads the file the test step wrote.
+      - name: Annotate failing API tests
+        if: failure()
+        run: |
+          grep -E '^(FAILED|ERROR) ' "${RUNNER_TEMP}/api-pytest.log" | head -9 | cut -c1-300 | sed 's/%/%25/g; s/\r//g' \
+            | while IFS= read -r line; do echo "::error title=api test::${line}"; done
+          tail -n 3 "${RUNNER_TEMP}/api-pytest.log" | sed 's/%/%25/g' | while IFS= read -r line; do echo "::error title=api test summary::${line}"; done
       - name: Run agents unit tests (Pillar-1 eval suites + audit helpers + fusion client)
         # `test_audit_helpers.py` imports `app.investigator.state` directly
         # (it stubs out the package __init__ to avoid pulling in LangGraph),
@@ -386,7 +395,9 @@ jobs:
         # archives normalized events into the ClickHouse event lake.
         # pyyaml: required since Phase A2 — the detection-matcher parity test
         # loads the canonical scripts/generate_detections.py (imports yaml).
-        run: pip install --quiet pydantic pydantic-settings pytest pytest-asyncio structlog redis aioredis fastapi httpx aiokafka asyncpg clickhouse-driver pyyaml cryptography
+        # sqlalchemy[asyncio] + aiosqlite: the honeytokens tenancy tests build an in-memory SQLite database; apscheduler: purple-team's scheduler.
+        # (Found by building this exact list in a clean environment: without them honeytokens fails 5 tests and purple-team fails at collection.)
+        run: pip install --quiet pydantic pydantic-settings pytest pytest-asyncio structlog redis aioredis fastapi httpx aiokafka asyncpg clickhouse-driver pyyaml cryptography 'sqlalchemy[asyncio]>=2,<3' 'aiosqlite>=0.19,<0.22' 'apscheduler>=3.10,<4'
       - name: Install pytest-cov (Phase 2.2 coverage gate)
         run: pip install --quiet 'pytest-cov>=4,<7'
       # Phase 2.2 — every wave-1 service now has a measured coverage
@@ -510,6 +521,12 @@ jobs:
             'jinja2>=3,<4' \
             'jsonschema>=4,<5' \
             'tenacity>=8,<10'
+      # threatintel imports these at collection time and they are not in the shared set (every other service would install them for nothing).
+      # The ranges are the ones services/threatintel/pyproject.toml declares, so CI tests what is shipped.
+      - name: Install service-specific dependencies (threatintel)
+        if: matrix.service == 'threatintel'
+        run: pip install --quiet 'neo4j>=5.19,<6' 'opensearch-py[async]>=2.7,<3' 'qdrant-client>=1.9,<2' 'mmh3>=4.1,<5'
+
       # Phase 2.2 — coverage floor read from each service's pyproject.
       # `--cov-config=pyproject.toml` makes coverage.py honour the
       # `[tool.coverage.report] fail_under = N` line; pytest-cov then
@@ -523,6 +540,17 @@ jobs:
             --cov=app \
             --cov-report=term-missing \
             -v --tb=short
+
+      # Runs ONLY when the tests failed: re-runs them quietly and re-emits the failing lines as ANNOTATIONS, because the job logs are not always
+      # readable from outside the web UI (they were not through the API) and a failure that cannot be read cannot be fixed.
+      - name: Annotate failing tests
+        if: failure()
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m pytest tests/ -q --tb=line -rf -p no:cacheprovider --no-header 2>&1 \
+            | grep -E '^(FAILED|ERROR)|Error|^E ' | head -8 \
+            | sed 's/%/%25/g; s/\r//g' \
+            | while IFS= read -r line; do echo "::error title=${{ matrix.service }} failing test::${line}"; done
 
   # ──────────────────────────────────────────────
   # SDK packages (Python)
