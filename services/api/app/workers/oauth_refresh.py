@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
+from app.db.rls_sessions import mark_platform
 from app.models.connector import Connector
 from app.models.oauth import OAuthAppCredential
 from app.security.credential_vault import CredentialVaultError, get_vault
@@ -470,6 +471,7 @@ async def run_once() -> dict[str, int]:
     """
     stats = {"checked": 0, "refreshed": 0, "failed": 0}
     async with AsyncSessionLocal() as db:
+        mark_platform(db)  # sweeps EVERY tenant's connectors (step 4b: a platform session keeps the fail-closed switch off)
         due = await _select_due_connectors(db, lead_time_s=settings.OAUTH_REFRESH_LEAD_TIME_SECONDS)
         stats["checked"] = len(due)
         for conn in due:

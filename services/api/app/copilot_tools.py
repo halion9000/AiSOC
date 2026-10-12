@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
 from app.db.rls import set_rls_context
+from app.db.rls_sessions import mark_tenant
 from app.models.alert import Alert
 
 
@@ -36,6 +37,7 @@ def _like_pattern(query: str) -> str:
 async def _get_session(tenant_id: uuid.UUID) -> AsyncSession:
     """Create a tenant-scoped session outside FastAPI DI."""
     session = AsyncSessionLocal()
+    mark_tenant(session, tenant_id)  # set_rls_context below lasts one transaction; the tag keeps the tenant across commits (step 4b)
     await set_rls_context(session, tenant_id)
     return session
 

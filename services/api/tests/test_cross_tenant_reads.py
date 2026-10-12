@@ -39,9 +39,12 @@ class _Result:
 class FakeSession:
     """Records every statement as ('read'|'clear'|'set', value). `current` is what current_setting() returns when the block starts."""
 
-    def __init__(self, current=None, tag=None, dialect="postgresql"):
+    def __init__(self, current=None, tag=None, dialect="postgresql", switch=None):
         self.current, self.info, self.log = current, ({"rls_tenant_id": tag} if tag else {}), []
         self._dialect = dialect
+        # The fail-closed switch (migration 081, app.rls_fail_closed) is a SECOND setting. Its statements are kept in their own log so every assertion
+        # below about the TENANT statements stays exactly as it was; `switch` is what current_setting('app.rls_fail_closed') returns at the start.
+        self.switch, self.switch_log = switch, []
 
     def get_bind(self):
         from types import SimpleNamespace
@@ -56,6 +59,14 @@ class FakeSession:
 
     async def execute(self, statement, params=None):
         sql = str(statement)
+        if "rls_fail_closed" in sql:
+            if "current_setting" in sql:
+                self.switch_log.append(("read", None))
+                return _Result(self.switch)
+            value = "off" if "'off'" in sql else params["v"]
+            self.switch_log.append(("off" if value == "off" else "restore", value))
+            self.switch = value
+            return _Result(None)
         if "current_setting" in sql:
             self.log.append(("read", None))
             return _Result(self.current)
@@ -556,3 +567,48 @@ class TestTheTenantAccessRoutesUseIt:
         assert all(hasattr(r.endpoint, "__wrapped__") for r in access), [
             r.endpoint.__name__ for r in access if not hasattr(r.endpoint, "__wrapped__")
         ]
+
+
+class TestTheFailClosedSwitch:
+    """Migration 081's switch. `cross_tenant_reads` is the granted bypass: for the length of the block a session with no tenant sees every row even when
+    fail-closed is switched ON. It must turn the switch off, put the PREVIOUS value back (not 'off', not blank if it was 'on'), and leave `acting_as_tenant`
+    (which works as a tenant, switch untouched) and non-PostgreSQL sessions alone."""
+
+    @pytest.mark.asyncio
+    async def test_the_switch_is_off_inside_the_block_and_the_previous_value_is_put_back(self):
+        session = FakeSession(current=None, switch="on")
+        async with cross_tenant_reads(session):
+            assert session.switch == "off"
+        assert session.switch == "on"
+        assert [kind for kind, _ in session.switch_log] == ["read", "off", "restore"]
+
+    @pytest.mark.asyncio
+    async def test_a_switch_that_was_never_set_goes_back_to_unset_not_to_off(self):
+        session = FakeSession(current=None, switch=None)
+        async with cross_tenant_reads(session):
+            assert session.switch == "off"
+        assert (
+            session.switch == ""
+        ), "unset is an empty value: putting 'off' back would turn an explicit setting on later code did not choose"
+
+    @pytest.mark.asyncio
+    async def test_the_switch_is_put_back_when_the_block_fails_too(self):
+        session = FakeSession(current=TENANT, switch="on")
+        with pytest.raises(RuntimeError, match="boom"):
+            async with cross_tenant_reads(session):
+                raise RuntimeError("boom")
+        assert session.switch == "on"
+
+    @pytest.mark.asyncio
+    async def test_acting_as_a_tenant_never_touches_the_switch(self):
+        session = FakeSession(current=TENANT, switch="on")
+        async with acting_as_tenant(session, uuid.uuid4()):
+            assert session.switch == "on"
+        assert session.switch_log == [], "a block that works AS a tenant must not widen the session: only the cross-tenant read bypass may"
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_is_not_postgresql_gets_no_switch_statements(self):
+        session = FakeSession(current=None, dialect="sqlite", switch="on")
+        async with cross_tenant_reads(session):
+            pass
+        assert session.switch_log == [] and session.log == []

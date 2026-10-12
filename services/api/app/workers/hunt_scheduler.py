@@ -68,6 +68,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.airgap import AirgapViolation
 from app.core.config import settings
 from app.db.database import AsyncSessionLocal
+from app.db.rls_sessions import mark_platform
 from app.models.saved_hunt import SavedHunt
 from app.services.event_warehouse import (
     HuntExecutionError,
@@ -418,6 +419,7 @@ async def run_once(
     if db is None:
         db = AsyncSessionLocal()
     assert db is not None  # for type narrowing
+    mark_platform(db)  # selects EVERY tenant's due hunts (step 4b); per-hunt writes re-bind the tenant as before
     now = now or datetime.now(UTC)
     callback = hit_callback or _on_hunt_hits
     runner = executor or _execute_hunt

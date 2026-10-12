@@ -88,6 +88,8 @@ from sqlalchemy import text
 
 from app.api.v1.deps import DBSession
 from app.core.logging import safe_log_value
+from app.db.rls_scope import cross_tenant_reads
+from app.db.rls_sessions import adopt_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +345,7 @@ def _map_inbound_status(vendor: str, raw_status: str | None) -> str | None:
     return None
 
 
-async def _fetch_token_and_connector(
+async def _lookup_token_and_connector(
     db: Any,
     *,
     tenant_token: str,
@@ -453,6 +455,27 @@ async def _fetch_token_and_connector(
             ),
         )
 
+    return token_row, connector_row
+
+
+async def _fetch_token_and_connector(
+    db: Any,
+    *,
+    tenant_token: str,
+    connector_instance_id: uuid.UUID,
+) -> tuple[Any, Any]:
+    """`_lookup_token_and_connector`, run the way a webhook with no signed-in user has to be (step 4b of the RLS plan).
+
+    The tenant is learned FROM the token, so the two lookups and the explicit token-versus-connector tenant check are cross-tenant reads by nature; with
+    fail-closed policies (migration 081) a plain session would find no token and every webhook would answer 401. They run in an explicit `cross_tenant_reads` block,
+    so a mismatched connector is still a 403 (not a 404 that RLS would turn it into), and only AFTER the token and connector have been validated is the session
+    made to work for the token's tenant, for the rest of the request.
+    """
+    async with cross_tenant_reads(db):
+        token_row, connector_row = await _lookup_token_and_connector(
+            db, tenant_token=tenant_token, connector_instance_id=connector_instance_id
+        )
+    await adopt_tenant(db, token_row.tenant_id)
     return token_row, connector_row
 
 

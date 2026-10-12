@@ -31,6 +31,10 @@ from app.db.rls_scope import _is_postgresql
 
 TAG = "rls_tenant_id"
 SETTING = "app.current_tenant_id"
+# A PLATFORM session is one that legitimately works across tenants (the sweeps: oauth_refresh, retention, the hunt scheduler). It is tagged EXPLICITLY by
+# app.db.rls_sessions (never by the flag), and the listener below keeps the fail-closed switch OFF for its transactions, exactly as it keeps a tenant tag.
+TAG_PLATFORM = "rls_platform"
+SWITCH = "app.rls_fail_closed"
 
 
 def tagging_enabled() -> bool:
@@ -54,8 +58,14 @@ async def tag_session(session, tenant_id: uuid.UUID | str | None) -> None:
 
 
 def _after_begin(session: Session, transaction, connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    if session.info.get(TAG_PLATFORM):
+        # no tenant, and the switch off for this transaction: with fail-closed policies a tenant-less session would otherwise see nothing
+        connection.execute(text(f"SELECT set_config('{SETTING}', '', TRUE), set_config('{SWITCH}', 'off', TRUE)"))
+        return
     tag = session.info.get(TAG)
-    if not tag or connection.dialect.name != "postgresql":
+    if not tag:
         return
     connection.execute(text(f"SELECT set_config('{SETTING}', :t, TRUE)"), {"t": tag})
 

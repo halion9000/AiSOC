@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import CurrentUser, get_current_user, require_permission
 from app.core.config import get_settings
 from app.db.database import get_db
+from app.db.rls_sessions import mark_tenant
 from app.models.easm import ExternalAsset, ExternalAssetDrift, ExternalAssetType
 from app.models.tenant import Tenant
 from app.services.easm_discovery import run_discovery
@@ -42,6 +43,7 @@ async def _run_scan_job(
     try:
         discovered = await run_discovery(org_query, ip_targets=ip_targets or None)
         async with async_session_factory() as db:
+            mark_tenant(db, tenant_id)  # a background job for one tenant (step 4b)
             drift_records = await detect_drift(db, tenant_id, discovered)
             await db.commit()
             logger.info(

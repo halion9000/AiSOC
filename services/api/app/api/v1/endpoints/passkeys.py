@@ -48,6 +48,8 @@ from app.api.v1.deps import DBSession, SessionUser
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token
 from app.db.rls import TenantDBSession
+from app.db.rls_scope import cross_tenant_reads
+from app.db.rls_sessions import adopt_tenant
 from app.models.responder import PasskeyChallenge, PasskeyCredential
 from app.models.tenant import User
 from app.services.user_lookup import find_user_by_login
@@ -106,26 +108,51 @@ async def _store_challenge(
     return encoded
 
 
-async def _consume_challenge(db: Any, *, encoded: str, purpose: str) -> PasskeyChallenge:
-    """Look up an unconsumed, unexpired challenge and mark it consumed."""
-    row = (
-        await db.execute(
-            select(PasskeyChallenge).where(
-                PasskeyChallenge.challenge == encoded,
-                PasskeyChallenge.purpose == purpose,
-                PasskeyChallenge.consumed_at.is_(None),
-                PasskeyChallenge.expires_at > _now(),
-            )
-        )
-    ).scalar_one_or_none()
+async def _consume_challenge(db: Any, *, encoded: str, purpose: str, pre_session: bool = False) -> PasskeyChallenge:
+    """Look up an unconsumed, unexpired challenge and mark it consumed.
+
+    `pre_session=True` is for the sign-in flow, where there is no session yet and so no tenant: the challenge is found by its (secret, single-use) value in an
+    explicit cross-tenant read, and a challenge that was issued for a known user is then consumed AS that user's tenant (step 4b of the RLS plan; with fail-closed
+    policies a plain session would find nothing, and an UPDATE that RLS filters out would not even raise). It is opt-in so the authenticated registration flow
+    never gains the ability to read another tenant's challenges.
+    """
+    query = select(PasskeyChallenge).where(
+        PasskeyChallenge.challenge == encoded,
+        PasskeyChallenge.purpose == purpose,
+        PasskeyChallenge.consumed_at.is_(None),
+        PasskeyChallenge.expires_at > _now(),
+    )
+    if pre_session:
+        async with cross_tenant_reads(db):
+            row = (await db.execute(query)).scalar_one_or_none()
+    else:
+        row = (await db.execute(query)).scalar_one_or_none()
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unknown, expired, or already-consumed passkey challenge",
         )
+    if pre_session and row.tenant_id is not None:
+        await adopt_tenant(db, row.tenant_id)
     row.consumed_at = _now()
     await db.commit()
     return row
+
+
+def _credential_descriptor(structs: Any, row: Any) -> Any:
+    """A WebAuthn credential descriptor OBJECT for a stored credential, for `allowCredentials`.
+
+    The library's JSON serializer (`options_to_json`) reads `.id` from each entry, so the plain dicts this used to build crashed it with `AttributeError: 'dict'
+    object has no attribute 'id'`: signing in by name failed for EVERY user who had a passkey registered (a usernameless sign-in, which lists no credentials, did
+    not). An unrecognised transport hint is dropped, not fatal.
+    """
+    transports = []
+    for hint in row.transports or []:
+        try:
+            transports.append(structs.AuthenticatorTransport(hint))
+        except ValueError:
+            continue
+    return structs.PublicKeyCredentialDescriptor(id=_b64url_decode(row.credential_id), transports=transports or None)
 
 
 def _import_webauthn() -> Any:
@@ -323,15 +350,17 @@ async def passkey_authenticate_begin(
     user's keys are tried. If omitted we go fully discoverable (the browser
     picks the right credential from its store).
     """
-    webauthn, _ = _import_webauthn()
+    webauthn, webauthn_structs = _import_webauthn()
 
-    allow_credentials: list[dict[str, Any]] = []
+    allow_credentials: list[Any] = []
     target_user: User | None = None
 
     if body.identifier:
         user_row = await find_user_by_login(db, body.identifier, active_only=True)
         if user_row is not None:
             target_user = user_row
+            # no session yet, but the user (and so the tenant) is now known: the credential list and the tenant-tagged challenge below are that tenant's
+            await adopt_tenant(db, user_row.tenant_id)
             cred_rows = (
                 (
                     await db.execute(
@@ -344,14 +373,7 @@ async def passkey_authenticate_begin(
                 .scalars()
                 .all()
             )
-            allow_credentials = [
-                {
-                    "id": _b64url_decode(c.credential_id),
-                    "type": "public-key",
-                    "transports": c.transports or None,
-                }
-                for c in cred_rows
-            ]
+            allow_credentials = [_credential_descriptor(webauthn_structs, c) for c in cred_rows]
 
     options = webauthn.generate_authentication_options(
         rp_id=settings.PASSKEY_RP_ID,
@@ -379,7 +401,7 @@ async def passkey_authenticate_finish(
     """Verify a passkey assertion and mint JWTs."""
     webauthn, _ = _import_webauthn()
 
-    await _consume_challenge(db, encoded=body.challenge, purpose="authenticate")
+    await _consume_challenge(db, encoded=body.challenge, purpose="authenticate", pre_session=True)
 
     raw_credential_id = body.credential.get("id") or body.credential.get("rawId")
     if not isinstance(raw_credential_id, str):
@@ -388,19 +410,22 @@ async def passkey_authenticate_finish(
             detail="Missing credential id in assertion",
         )
 
-    cred_row = (
-        await db.execute(
-            select(PasskeyCredential).where(
-                PasskeyCredential.credential_id == raw_credential_id,
-                PasskeyCredential.revoked_at.is_(None),
+    # the credential is found by its id BEFORE its owner (and tenant) is known: an explicit cross-tenant read, then the session works for that tenant
+    async with cross_tenant_reads(db):
+        cred_row = (
+            await db.execute(
+                select(PasskeyCredential).where(
+                    PasskeyCredential.credential_id == raw_credential_id,
+                    PasskeyCredential.revoked_at.is_(None),
+                )
             )
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
     if cred_row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Unknown or revoked passkey",
         )
+    await adopt_tenant(db, cred_row.tenant_id)
 
     user_row = (
         await db.execute(

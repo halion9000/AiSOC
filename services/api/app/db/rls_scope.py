@@ -32,7 +32,7 @@ def _is_postgresql(session: AsyncSession) -> bool:
 
 
 @contextlib.asynccontextmanager
-async def _rescoped(session: AsyncSession, setting: str, tag: str | None) -> AsyncIterator[None]:
+async def _rescoped(session: AsyncSession, setting: str, tag: str | None, *, switch_off: bool = False) -> AsyncIterator[None]:
     """Run a block with the session's tenant setting (and its tag) changed, then put both back. The shared body of the two public blocks
     below.
 
@@ -49,10 +49,17 @@ async def _rescoped(session: AsyncSession, setting: str, tag: str | None) -> Asy
         return
     await session.flush()
     previous = (await session.execute(text("SELECT current_setting('app.current_tenant_id', TRUE)"))).scalar_one_or_none()
+    previous_switch = (
+        (await session.execute(text("SELECT current_setting('app.rls_fail_closed', TRUE)"))).scalar_one_or_none() if switch_off else None
+    )
     old_tag = session.info.pop("rls_tenant_id", None)
     if tag is not None:
         session.info["rls_tenant_id"] = tag
     await session.execute(text("SELECT set_config('app.current_tenant_id', :t, TRUE)"), {"t": setting} if setting else {"t": ""})
+    if (
+        switch_off
+    ):  # the granted bypass: for this block a session with no tenant sees every row even when fail-closed is switched on (migration 081)
+        await session.execute(text("SELECT set_config('app.rls_fail_closed', 'off', TRUE)"))
     outcome = "ok"
     try:
         yield
@@ -73,6 +80,8 @@ async def _rescoped(session: AsyncSession, setting: str, tag: str | None) -> Asy
                 restore = previous or ""
                 if restore != setting:
                     await session.execute(text("SELECT set_config('app.current_tenant_id', :t, TRUE)"), {"t": restore})
+                if switch_off:
+                    await session.execute(text("SELECT set_config('app.rls_fail_closed', :v, TRUE)"), {"v": previous_switch or ""})
             except Exception:
                 # After an ordinary error the restore is best-effort: if the transaction is aborted the statement raises, and the rollback
                 # resets the setting anyway.
@@ -104,7 +113,7 @@ async def cross_tenant_reads(session: AsyncSession) -> AsyncIterator[None]:
     is for (use acting_as_tenant). With fail-closed policies this will need a granted bypass (the plan's step 4); today it changes nothing
     for a session that already has no tenant set.
     """
-    async with _rescoped(session, "", None):
+    async with _rescoped(session, "", None, switch_off=True):
         yield
 
 

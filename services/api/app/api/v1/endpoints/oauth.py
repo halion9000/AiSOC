@@ -77,6 +77,8 @@ from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.api.v1.endpoints.connectors import _validate_connector_type
 from app.core.config import settings
 from app.core.logging import safe_log_value
+from app.db.rls_scope import cross_tenant_reads
+from app.db.rls_sessions import adopt_tenant
 from app.models.connector import Connector
 from app.models.oauth import OAuthAppCredential, OAuthState
 from app.security.credential_vault import CredentialVaultError, get_vault
@@ -799,13 +801,18 @@ async def oauth_callback(
             detail="Missing OAuth state parameter",
         )
 
-    state_res = await db.execute(select(OAuthState).where(OAuthState.state == state))
-    state_row: OAuthState | None = state_res.scalar_one_or_none()
+    # The tenant is learned FROM the state nonce (issued at /oauth/start under an authenticated session), so this lookup is cross-tenant by nature: with
+    # fail-closed policies (migration 081) a plain session would find no row and every callback would fail (step 4b). Once a real state is found, the
+    # session works for ITS tenant for everything below, including the single-use DELETEs.
+    async with cross_tenant_reads(db):
+        state_res = await db.execute(select(OAuthState).where(OAuthState.state == state))
+        state_row: OAuthState | None = state_res.scalar_one_or_none()
     if state_row is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unknown or already-consumed OAuth state",
         )
+    await adopt_tenant(db, state_row.tenant_id)
     if state_row.expires_at < datetime.now(UTC):
         await db.execute(delete(OAuthState).where(OAuthState.state == state))
         await db.commit()

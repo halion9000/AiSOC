@@ -45,6 +45,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import AsyncSessionLocal
+from app.db.rls_sessions import mark_tenant
 from app.models.report import ReportArtefact
 from app.models.tenant import Tenant
 from app.services.digest_pdf import WeasyPrintUnavailableError, render_digest_pdf
@@ -121,6 +122,7 @@ async def _generate_for_tenant(
     caller's session.
     """
     async with AsyncSessionLocal() as db:
+        mark_tenant(db, tenant_id)  # works FOR this tenant (step 4b)
         if await _artefact_exists(db, tenant_id, period_start):
             logger.info(
                 "weekly_digest.skip tenant_id=%s period_start=%s — artefact already exists",

@@ -43,6 +43,7 @@ from app.core.security import decode_token, has_permission, hash_api_key, permis
 from app.core.token_revocation import is_revoked
 from app.db.database import get_db
 from app.db.rls_hook import tag_session
+from app.db.rls_scope import cross_tenant_reads
 from app.models.tenant import ApiKey, User
 from app.services.view_as import (
     ACTING_DENIED_PERMISSIONS,
@@ -209,13 +210,19 @@ class CurrentUser:
 async def _resolve_api_key(raw_key: str, db: AsyncSession) -> CurrentUser:
     """Look up and validate an aisoc_ API key; return its CurrentUser."""
     hashed = hash_api_key(raw_key)
-    result = await db.execute(
-        select(ApiKey).where(
-            ApiKey.hashed_key == hashed,
-            ApiKey.is_active == True,  # noqa: E712
+    # The key is found BEFORE its tenant is known, so this read is cross-tenant by nature. With fail-closed policies (migration 081) a plain session would see no
+    # api_keys row at all and EVERY API-key request (CORE, the agents service, SDK users) would answer 401: an explicit, narrow bypass (step 4b). It is the key's own
+    # hash that selects the row; nothing else is read in the block, and last_used_at is only bumped for a key that is still valid.
+    async with cross_tenant_reads(db):
+        result = await db.execute(
+            select(ApiKey).where(
+                ApiKey.hashed_key == hashed,
+                ApiKey.is_active == True,  # noqa: E712
+            )
         )
-    )
-    api_key: ApiKey | None = result.scalar_one_or_none()
+        api_key: ApiKey | None = result.scalar_one_or_none()
+        if api_key is not None and (api_key.expires_at is None or api_key.expires_at >= datetime.now(UTC)):
+            await db.execute(update(ApiKey).where(ApiKey.id == api_key.id).values(last_used_at=datetime.now(UTC)))
     if api_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -231,8 +238,7 @@ async def _resolve_api_key(raw_key: str, db: AsyncSession) -> CurrentUser:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Update last_used_at in background (fire-and-forget style — don't await)
-    await db.execute(update(ApiKey).where(ApiKey.id == api_key.id).values(last_used_at=datetime.now(UTC)))
+    # (last_used_at was bumped above, inside the cross-tenant block, for a key that is still valid)
 
     # Fetch the owning user for context (user_id may be NULL for service keys)
     role = "api_service"

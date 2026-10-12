@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 
 from app.core.trusted_proxy import resolve_client_ip
 from app.db.database import AsyncSessionLocal
+from app.db.rls_sessions import mark_tenant
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
@@ -138,6 +139,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
                     pass  # segment is not a UUID; try next
 
             async with AsyncSessionLocal() as db:
+                mark_tenant(db, tenant_id)  # the audit row and its hash-chain read belong to this tenant (step 4b)
                 from app.models.audit import AuditLog  # noqa: PLC0415
                 from app.services.audit import _resolve_prev_hash  # noqa: PLC0415
                 from app.services.audit_hash import compute_entry_hash  # noqa: PLC0415

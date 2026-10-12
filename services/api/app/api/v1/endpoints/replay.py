@@ -36,6 +36,7 @@ from sqlalchemy import select, update
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission, require_signed_in_session
 from app.db.rls import TenantDBSession
+from app.db.rls_scope import cross_tenant_reads
 from app.models.investigation import InvestigationEvent, InvestigationRun
 from app.models.published_replay import PublishedReplay
 from app.services.replay_redaction import build_redacted_snapshot
@@ -169,7 +170,9 @@ async def _unique_slug(db: DBSession) -> str:
         slug = secrets.token_urlsafe(8).replace("-", "").replace("_", "")[:12].lower()
         if len(slug) < 8:
             continue
-        exists = (await db.execute(select(PublishedReplay.id).where(PublishedReplay.slug == slug))).first()
+        # a slug is unique across ALL tenants, so this is a cross-tenant read (a request tagged with its own tenant would otherwise miss other tenants' slugs)
+        async with cross_tenant_reads(db):
+            exists = (await db.execute(select(PublishedReplay.id).where(PublishedReplay.slug == slug))).first()
         if not exists:
             return slug
     raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not allocate a unique slug; retry.")
@@ -278,14 +281,19 @@ async def get_public_replay(slug: str, db: DBSession) -> PublicReplay:
     best-effort view counter (the only mutation the immutability trigger
     permits).
     """
-    row = (await db.execute(select(PublishedReplay).where(PublishedReplay.slug == slug))).scalar_one_or_none()
+    # Public by design: ANY tenant's published replay is readable by anyone with the slug. That used to work only because a tenant-less session saw every row
+    # (the policies were fail-open); with fail-closed policies (migration 081) it needs the explicit bypass (step 4b). It is the slug that selects the row.
+    async with cross_tenant_reads(db):
+        row = (await db.execute(select(PublishedReplay).where(PublishedReplay.slug == slug))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Replay not found")
 
-    # Best-effort view bump; never fail the read on a counter error.
+    # Best-effort view bump; never fail the read on a counter error. It writes ONE row, selected by its primary key, that belongs to whichever tenant published it
+    # (possibly none), so it is the same explicit cross-tenant block.
     try:
-        await db.execute(update(PublishedReplay).where(PublishedReplay.id == row.id).values(view_count=PublishedReplay.view_count + 1))
-        await db.commit()
+        async with cross_tenant_reads(db):
+            await db.execute(update(PublishedReplay).where(PublishedReplay.id == row.id).values(view_count=PublishedReplay.view_count + 1))
+            await db.commit()
     except Exception:  # pragma: no cover - counter is best-effort only
         await db.rollback()
 

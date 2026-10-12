@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as default_settings
 from app.db.database import AsyncSessionLocal
+from app.db.rls_sessions import mark_platform
 from app.models.copilot_conversation import CopilotConversation
 from app.models.data_lifecycle import RetentionPolicyRow
 from app.models.detection_suggestion import DetectionSuggestion
@@ -155,6 +156,7 @@ async def sweep_once(
     for name, job in jobs.items():
         try:
             async with session_factory() as session:
+                mark_platform(session)  # deletes expired rows of EVERY tenant (step 4b)
                 result.counts[name] = await job(session)
         except Exception as exc:  # noqa: BLE001
             result.errors[name] = type(exc).__name__
