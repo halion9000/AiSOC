@@ -19,9 +19,9 @@
 # newest version) or is a framework-capped transitive dep where a bump is both
 # risky and ineffective. Time-boxed for re-evaluation within 90 days.
 
-# pnpm — fast-uri (GHSA-q3j6, v39h, v2hh, 4c8g, 7p8r) and the babel systemjs plugin (GHSA-fv7c) are NOT ignored:
-# their waivers claimed no fixed release (or a 4.x major), but fast-uri 3.1.8 and the plugin 7.29.8 fix them within
-# their ranges, so the root pnpm overrides pin them and the waivers are gone. serialize-javascript likewise (7.0.3+).
+# pnpm — NO waivers. Every npm advisory that used to be waived is either fixed by the root pnpm overrides in package.json
+# (serialize-javascript, fast-uri, the babel systemjs plugin, axios, undici, js-yaml, brace-expansion, ...) or is not reported by the audit any more
+# (the next 16.2.11 and sharp 0.35.0 ones are fixed in the versions already locked). Remaining unwaived npm findings are real; see the audit output.
 
 # starlette — transitive via fastapi (capped <0.137). CVE-2024-47874 and
 # CVE-2025-54121 are fixed in 1.0.0 but reaching it requires a risky
@@ -41,12 +41,6 @@ python|CVE-2026-27794|langgraph-checkpoint 3.0.1 freshly disclosed; awaiting pat
 # idna — deep transitive dep (httpx/requests/email-validator); freshly
 # disclosed, no fixed version available yet.
 python|CVE-2026-45409|idna 3.13 freshly disclosed; transitive dep, no fixed version available yet|2026-08-25
-
-# ── 2026-06-27 triage (expire 2026-09-25) ────────────────────────────────────
-# esbuild GHSA-gv7w-rqvm-qjhr was WITHDRAWN by GitHub on 2026-06-17 (advisory
-# reclassified as not exploitable). pnpm audit still surfaces withdrawn
-# advisories from its cached DB, so suppress until the upstream DB refresh.
-pnpm|GHSA-gv7w-rqvm-qjhr|esbuild advisory withdrawn 2026-06-17 by GitHub; reclassified as not exploitable|2026-09-25
 
 # starlette — additional fresh disclosures stacking on top of the existing
 # CVE-2024-47874 / CVE-2025-54121 / PYSEC-2026-161 entries above. Fixed in
@@ -111,15 +105,6 @@ python|GHSA-qh6h-p6c9-ff54|langchain-core prompts.loading path traversal (fixed 
 python|PYSEC-2026-2562|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
 python|GHSA-2g6r-c272-w58r|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
 
-# websocket-driver DoS (freshly disclosed) reaches the tree only via
-# apps/docs → webpack-dev-server 5.2.3 → sockjs → websocket-driver. It is a
-# dev-server-only transitive dependency of the Docusaurus docs site: it never
-# runs in production, is never exposed to untrusted network input in CI, and
-# webpack-dev-server 5.x (the latest major) still resolves the vulnerable
-# version — no non-breaking fix exists. Tracked for the next webpack-dev-server
-# upgrade.
-pnpm|GHSA-xv26-6w52-cph6|websocket-driver DoS via apps/docs webpack-dev-server (dev-server only, not shipped/prod-exposed); no fix in webpack-dev-server 5.x line|2026-10-15
-
 # ── 2026-07-30 triage (expire 2026-10-28) ────────────────────────────────────
 # Fresh high-severity advisories published after the last green main run
 # (2026-07-19). `pnpm audit` reports fixAvailable=false for every one of these:
@@ -129,27 +114,10 @@ pnpm|GHSA-xv26-6w52-cph6|websocket-driver DoS via apps/docs webpack-dev-server (
 # native rebuild matrix), so each real remediation is tracked for a dedicated
 # PR rather than folded into a dependency-audit unblock.
 
-# next — 4 high advisories all fixed in 16.2.11 (a patch inside our 16.2.x
-# line). Low-risk version-wise but touches both the apps/web and apps/docs App
-# Routers, so tracked for a dedicated PR gated on a full web build + e2e run.
-pnpm|GHSA-6gpp-xcg3-4w24|next middleware/proxy bypass (fixed in 16.2.11); patch bump tracked for a dedicated PR gated on web build+e2e|2026-10-28
-pnpm|GHSA-m99w-x7hq-7vfj|next App Router Server Components DoS (fixed in 16.2.11); patch bump tracked for a dedicated PR gated on web build+e2e|2026-10-28
-pnpm|GHSA-89xv-2m56-2m9x|next Server Actions SSRF (fixed in 16.2.11); patch bump tracked for a dedicated PR gated on web build+e2e|2026-10-28
-pnpm|GHSA-p9j2-gv94-2wf4|next rewrites SSRF (fixed in 16.2.11); patch bump tracked for a dedicated PR gated on web build+e2e|2026-10-28
-
-# sharp — libvips inherited CVEs, fixed in 0.35.0. sharp ships a prebuilt native
-# binary; the bump needs a platform rebuild matrix, tracked for a dedicated PR.
-pnpm|GHSA-f88m-g3jw-g9cj|sharp libvips inherited CVEs (fixed in 0.35.0); native-binary bump tracked for a dedicated PR; build-time image generation, no untrusted runtime input|2026-10-28
-
 # Transitive build/tooling deps (SVG/CSS/YAML/URI/glob processing pulled in by
 # the web + docs toolchains). pnpm reports fixAvailable=false for each because
 # the capping dependents have not shipped updated pins; tracked for overrides
 # once upstream releases them.
-pnpm|GHSA-52cp-r559-cp3m|js-yaml YAML merge-key quadratic DoS; pnpm reports no auto-fix (3.x line unfixed, consumers pinned); transitive build/tooling dep|2026-10-28
-pnpm|GHSA-2p49-hgcm-8545|svgo removeScripts residual-script (fixed 3.3.4 upstream); pnpm reports no auto-fix; build-time SVG optimization transitive dep|2026-10-28
-pnpm|GHSA-6g55-p6wh-862q|postcss arbitrary file read (fixed 8.5.12 upstream); pnpm reports no auto-fix; build-time CSS processing transitive dep|2026-10-28
-pnpm|GHSA-r28c-9q8g-f849|postcss source-map path traversal (fixed 8.5.18 upstream); pnpm reports no auto-fix; build-time CSS processing transitive dep|2026-10-28
-pnpm|GHSA-mh99-v99m-4gvg|brace-expansion unbounded-expansion DoS; pnpm reports no auto-fix (consumers pinned); transitive build/tooling glob dep|2026-10-28
 # v7.7.0 batch (2026-08-04) — freshly-disclosed high CVEs; fixes tracked for dedicated dependency PRs (expire in <90 days).
 python|CVE-2026-69247|cryptography high (48.0.1/49.0.0); fixed in 50.0.0 but held by the <50 and <49 version caps across services (49 to 50 is a major bump needing cross-service compat testing); tracked for a dedicated dependency PR|2026-10-28
 python|CVE-2026-69248|cryptography high (48.0.1); fixed in 50.0.0, held by the <50/<49 major-version caps; tracked for a dedicated dependency PR|2026-10-28
@@ -157,11 +125,5 @@ python|CVE-2026-69249|cryptography high (48.0.1); fixed in 50.0.0, held by the <
 python|CVE-2026-59881|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
 python|CVE-2026-69243|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
 python|CVE-2026-69244|aiohttp high (3.14.1); fixed in 3.14.3 within the <4.0 cap; patch bump tracked for the next poetry lock refresh|2026-10-28
-pnpm|GHSA-mwp4-54f8-5fhr|ip-address 10.1.0 advisory; transitive build/tooling dep; pnpm reports no auto-fix without an override; tracked|2026-10-28
-pnpm|GHSA-rgw5-rvv9-x895|brace-expansion advisory (1.x/2.x/5.x instances); pnpm reports no auto-fix (consumers pinned); transitive build/tooling glob dep|2026-10-28
 # 2026-08-11 batch — freshly-disclosed high advisories (all transitive; expire <90d; tracked for dep-bump PRs).
-pnpm|GHSA-2v37-7h3g-55p8|nanoid advisory; transitive dep; pnpm reports no in-place auto-fix; tracked for a dep-bump PR|2026-11-05
-pnpm|GHSA-5p2g-fcmc-qvqq|image-size advisory; transitive build-time dep (next image pipeline); tracked for a dep-bump PR|2026-11-05
-pnpm|GHSA-w3rx-r6r6-pgpr|image-size advisory (co-resolves with GHSA-5p2g); transitive build-time dep; tracked|2026-11-05
-pnpm|GHSA-5p4m-2wfm-xmqj|js-yaml advisory (new); transitive build/tooling dep; pnpm reports no auto-fix; tracked|2026-11-05
 python|CVE-2026-71554|h2 4.3.0 HTTP/2 advisory; transitive (httpx/httpcore + aiohttp stack); tracked for the next lock refresh|2026-11-05
