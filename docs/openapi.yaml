@@ -10,7 +10,16 @@ paths:
       tags:
       - auth
       summary: Login
-      description: Authenticate with email/password, return JWT tokens.
+      description: 'Authenticate with email/password, return JWT tokens.
+
+
+        Failed attempts are counted (app.services.login_throttle): too many for one
+        address, or from one client address, in the window and further attempts are
+        refused (429) until it passes, even with the right password.
+
+        The count is by address AS TYPED whether or not an account exists, and the
+        refusal is the same for every case, so the lock cannot be used to find out
+        which addresses are registered.'
       operationId: login_api_v1_auth_login_post
       requestBody:
         content:
@@ -31,6 +40,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Logout
+      description: 'End this session on the server: revoke the access token (and the
+        refresh token, if given) so neither works again, even if copied.
+
+
+        Honest about what it did: ``revoked`` is false, with the reason, when there
+        was nothing it could revoke (an API key, or a token issued before revocation
+        existed);
+
+        and if the revocation store is down it answers 503 rather than claiming the
+        session ended.'
+      operationId: logout_api_v1_auth_logout_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/LogoutRequest'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/auth/refresh:
     post:
       tags:
@@ -57,6 +105,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/authorize:
+    post:
+      tags:
+      - auth
+      summary: Authorize
+      description: 'May the caller (user login or API key) do `permission`?
+
+
+        Other services (the agents service, which the web console talks to directly)
+
+        ask the API instead of keeping their own copy of the role table, so there
+        is
+
+        one source of truth. 401 for bad credentials, 403 when the caller lacks the
+
+        permission, 422 for a name the API does not recognise (a typo must not
+
+        silently pass for an admin, who holds every permission).'
+      operationId: authorize_api_v1_auth_authorize_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizeRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/auth/me:
     get:
       tags:
@@ -109,6 +197,24 @@ paths:
       security:
       - HTTPBearer: []
   /api/v1/api-keys:
+    get:
+      tags:
+      - api-keys
+      summary: List Api Keys
+      description: List all API keys for the current tenant (raw keys are never returned).
+      operationId: list_api_keys_api_v1_api_keys_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ApiKeyOut'
+                type: array
+                title: Response List Api Keys Api V1 Api Keys Get
+      security:
+      - HTTPBearer: []
     post:
       tags:
       - api-keys
@@ -118,18 +224,12 @@ paths:
 
         The raw key value is returned **only once** in this response.'
       operationId: create_api_key_api_v1_api_keys_post
-      parameters:
-      - name: current_user
-        in: query
-        required: true
-        schema:
-          title: Current User
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateApiKeyRequest'
+        required: true
       responses:
         '201':
           description: Successful Response
@@ -143,24 +243,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-    get:
-      tags:
-      - api-keys
-      summary: List Api Keys
-      description: List all API keys for the current tenant (raw keys are never returned).
-      operationId: list_api_keys_api_v1_api_keys_get
       security:
       - HTTPBearer: []
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ApiKeyOut'
-                title: Response List Api Keys Api V1 Api Keys Get
   /api/v1/api-keys/{key_id}:
     get:
       tags:
@@ -197,6 +281,8 @@ paths:
       summary: Update Api Key
       description: Update an API key's name, scopes, or expiry.
       operationId: update_api_key_api_v1_api_keys__key_id__patch
+      security:
+      - HTTPBearer: []
       parameters:
       - name: key_id
         in: path
@@ -205,11 +291,6 @@ paths:
           type: string
           format: uuid
           title: Key Id
-      - name: current_user
-        in: query
-        required: true
-        schema:
-          title: Current User
       requestBody:
         required: true
         content:
@@ -236,6 +317,8 @@ paths:
       description: Revoke (deactivate) an API key. The key can no longer be used for
         authentication.
       operationId: revoke_api_key_api_v1_api_keys__key_id__delete
+      security:
+      - HTTPBearer: []
       parameters:
       - name: key_id
         in: path
@@ -244,11 +327,6 @@ paths:
           type: string
           format: uuid
           title: Key Id
-      - name: current_user
-        in: query
-        required: true
-        schema:
-          title: Current User
       responses:
         '204':
           description: Successful Response
@@ -354,6 +432,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -504,6 +583,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -798,6 +878,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -2280,6 +2361,191 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tenants/selectable:
+    get:
+      tags:
+      - tenants
+      summary: List Selectable Tenants
+      description: 'The tenants this caller may choose between in a tenant picker.
+
+
+        Your own tenant, plus every other tenant if (and only if) you hold platform:cross_tenant_query;
+        anyone else gets exactly one entry, their own, and `can_select_other_tenants:
+        false`. Needs alerts:read (every role holds it), the permission of the pages
+        that offer a picker.'
+      operationId: list_selectable_tenants_api_v1_tenants_selectable_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelectableTenantsResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/viewable:
+    get:
+      tags:
+      - tenants
+      summary: List Viewable Tenants
+      description: 'The tenants this caller may VIEW (read-only) with the `X-View-As-Tenant`
+        header: their own first, then the tenants they were GRANTED (read-only; see
+        `PUT /tenants/{id}/access/{account_name}`) or every tenant (a platform admin).
+
+
+        It is the same rule the server applies when the header is sent (app.services.view_as),
+        so the console can only offer what will be honoured. It always answers for
+        the person''s own account, whatever is being viewed.'
+      operationId: list_viewable_tenants_api_v1_tenants_viewable_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ViewableTenantsResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/manageable:
+    get:
+      tags:
+      - tenants
+      summary: List Manageable Tenants
+      description: 'The tenants whose ACCESS this caller may manage (who may be granted
+        a view of them): the tenants for which `PUT /tenants/{id}/access/{account_name}`
+        would be allowed, own tenant first. It is built from the same rule as those
+        routes
+
+        (`may_manage_access`), so the console can only offer what the server will
+        honour. Empty for a role that cannot manage access.'
+      operationId: list_manageable_tenants_api_v1_tenants_manageable_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManageableTenantsResponse'
+      security:
+      - HTTPBearer: []
+  /api/v1/tenants/{tenant_id}/access:
+    get:
+      tags:
+      - tenants
+      summary: List Tenant Access
+      description: Who has been GRANTED read-only access to this tenant (people who
+        belong to other tenants). For a platform admin, this tenant's own administrators,
+        or the administrators of its parent.
+      operationId: list_tenant_access_api_v1_tenants__tenant_id__access_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Tenant Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccessGrantResponse'
+                title: Response List Tenant Access Api V1 Tenants  Tenant Id  Access
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tenants/{tenant_id}/access/{account_name}:
+    put:
+      tags:
+      - tenants
+      summary: Grant Tenant Access
+      description: 'Let the person with this account name work in this tenant: `view`
+        (read-only, the default) or `full` (read and write as their own role allows;
+        users, roles, API keys and access administration excepted). Idempotent; asking
+        for a different level changes
+
+        the existing grant. Takes effect on their next request. Recorded in this tenant''s
+        own audit log.'
+      operationId: grant_tenant_access_api_v1_tenants__tenant_id__access__account_name__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Tenant Id
+      - name: account_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Account Name
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/GrantAccessRequest'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessGrantResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - tenants
+      summary: Revoke Tenant Access
+      description: Take the person's access to this tenant away. Takes effect on their
+        next request. Recorded in this tenant's own audit log.
+      operationId: revoke_tenant_access_api_v1_tenants__tenant_id__access__account_name__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Tenant Id
+      - name: account_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Account Name
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/tenants/me/identity:
     get:
       tags:
@@ -3596,6 +3862,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -4139,6 +4406,8 @@ paths:
       - playbooks
       summary: List playbooks
       operationId: list_playbooks_api_v1_playbooks_get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: enabled_only
         in: query
@@ -4164,6 +4433,8 @@ paths:
       - playbooks
       summary: Create playbook
       operationId: create_playbook_api_v1_playbooks_post
+      security:
+      - HTTPBearer: []
       responses:
         '201':
           description: Successful Response
@@ -4176,12 +4447,16 @@ paths:
       - playbooks
       summary: List playbook runs
       operationId: list_runs_api_v1_playbooks_runs_get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: limit
         in: query
         required: false
         schema:
           type: integer
+          maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       responses:
@@ -4202,6 +4477,8 @@ paths:
       - playbooks
       summary: Get a playbook run
       operationId: get_run_api_v1_playbooks_runs__run_id__get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: run_id
         in: path
@@ -4227,6 +4504,8 @@ paths:
       - playbooks
       summary: Get a playbook
       operationId: get_playbook_api_v1_playbooks__playbook_id__get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: playbook_id
         in: path
@@ -4251,6 +4530,8 @@ paths:
       - playbooks
       summary: Update a playbook
       operationId: update_playbook_api_v1_playbooks__playbook_id__put
+      security:
+      - HTTPBearer: []
       parameters:
       - name: playbook_id
         in: path
@@ -4275,6 +4556,8 @@ paths:
       - playbooks
       summary: Delete a playbook
       operationId: delete_playbook_api_v1_playbooks__playbook_id__delete
+      security:
+      - HTTPBearer: []
       parameters:
       - name: playbook_id
         in: path
@@ -4297,6 +4580,8 @@ paths:
       - playbooks
       summary: Execute a playbook
       operationId: run_playbook_api_v1_playbooks__playbook_id__run_post
+      security:
+      - HTTPBearer: []
       parameters:
       - name: playbook_id
         in: path
@@ -4310,6 +4595,215 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/playbooks/{playbook_id}/clone:
+    post:
+      tags:
+      - playbooks
+      summary: Clone a shared library (or own) playbook into your tenant to customise
+        it
+      operationId: clone_playbook_api_v1_playbooks__playbook_id__clone_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: playbook_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Playbook Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/platform/alert-email:
+    get:
+      tags:
+      - platform
+      summary: Get Alert Email
+      description: The setting, whether the deployment can actually send (which environment
+        variables are missing, by name), and the last error.
+      operationId: get_alert_email_api_v1_platform_alert_email_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertEmailStatus'
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - platform
+      summary: Update Alert Email
+      description: 'Change who receives alert emails, from which severity, and whether
+        it is on. Switching on needs a recipient and starts the clock: only alerts
+        created afterwards are emailed. Audited in the same transaction.'
+      operationId: update_alert_email_api_v1_platform_alert_email_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertEmailUpdate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertEmailStatus'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/platform/alert-email/test:
+    post:
+      tags:
+      - platform
+      summary: Send Test Email
+      description: 'Send one test message to the configured recipients, now, through
+        the real sender: the way to find out that the Microsoft setup works before
+        an alert depends on it. At most one every 10 seconds.'
+      operationId: send_test_email_api_v1_platform_alert_email_test_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestEmailResult'
+      security:
+      - HTTPBearer: []
+  /api/v1/platform/alert-email/log:
+    get:
+      tags:
+      - platform
+      summary: Recent Alert Emails
+      description: The alerts that have been emailed, newest first, with their tenant.
+      operationId: recent_alert_emails_api_v1_platform_alert_email_log_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SentAlert'
+                title: Response Recent Alert Emails Api V1 Platform Alert Email Log
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/platform/all-tenant-access:
+    get:
+      tags:
+      - platform
+      summary: List All Tenant Access
+      description: Everyone who has been granted every tenant, and at which level.
+      operationId: list_all_tenant_access_api_v1_platform_all_tenant_access_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/AllAccessGrantResponse'
+                type: array
+                title: Response List All Tenant Access Api V1 Platform All Tenant
+                  Access Get
+      security:
+      - HTTPBearer: []
+  /api/v1/platform/all-tenant-access/{account_name}:
+    put:
+      tags:
+      - platform
+      summary: Grant All Tenant Access
+      description: Let this person work in EVERY tenant, at `view` or `full`. Idempotent;
+        a different level changes the existing grant. Takes effect on their next request.
+      operationId: grant_all_tenant_access_api_v1_platform_all_tenant_access__account_name__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: account_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Account Name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllAccessRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllAccessGrantResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - platform
+      summary: Revoke All Tenant Access
+      description: Take the person's all-tenants access away. Takes effect on their
+        next request. (Grants to individual tenants are separate and are not touched.)
+      operationId: revoke_all_tenant_access_api_v1_platform_all_tenant_access__account_name__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: account_name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Account Name
+      responses:
+        '204':
+          description: Successful Response
         '422':
           description: Validation Error
           content:
@@ -4616,6 +5110,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -4706,7 +5201,22 @@ paths:
       tags:
       - community
       summary: Rate Community Plugin
-      description: Rate a community plugin.
+      description: 'Rate a community plugin: one rating per person (rating again replaces
+        your own), and only a plugin an administrator has approved.
+
+
+        The score is shown to EVERY tenant and orders the marketplace, so it must
+        not be steerable. It used to be a running average that took
+
+        every call as a new vote, so one signed-in user
+
+        could repeat the call to push a plugin''s rating anywhere, and it accepted
+        ratings for pending and rejected submissions (which are not
+
+        listed, viewable or installable). A plugin that
+
+        is not approved is the same 404 as one that does not exist, and the submitter
+        may not rate their own submission.'
       operationId: rate_community_plugin_api_v1_community_plugins__plugin_id__rate_post
       security:
       - HTTPBearer: []
@@ -4823,6 +5333,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -4954,6 +5465,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/community/detections/{detection_id}/curate:
+    put:
+      tags:
+      - community
+      summary: Curate Community Detection
+      description: 'Admin: approve or reject a detection submission.'
+      operationId: curate_community_detection_api_v1_community_detections__detection_id__curate_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: detection_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Detection Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewAction'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Response Curate Community Detection Api V1 Community Detections  Detection
+                  Id  Curate Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/community/playbooks/submit:
     post:
       tags:
@@ -5000,6 +5550,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -5217,15 +5768,13 @@ paths:
       description: 'Activate a marketplace item for the caller''s tenant.
 
 
-        For core (on-disk) items this records that the item is "enabled"
+        For core (on-disk) items this records that the item is "enabled" for the tenant:
+        the underlying detection/playbook/plugin file is already present on the AiSOC
+        instance and is read straight from disk by the relevant
 
-        for the tenant — the underlying detection/playbook/plugin file is
-
-        already present on the AiSOC instance and is read straight from disk
-
-        by the relevant subsystem. The install marker is what the UI needs
-
-        in order to show ``✓ Installed`` and what tenants can later disable.'
+        subsystem. The install marker is what the UI needs in order to show "Installed"
+        and what tenants can later disable. It is a row in marketplace_installs, so
+        it survives a restart and is the same on every worker.'
       operationId: install_marketplace_item_api_v1_marketplace_install_post
       security:
       - HTTPBearer: []
@@ -5570,7 +6119,17 @@ paths:
       tags:
       - rbac
       summary: Revoke Role
-      description: Revoke a role from a user.
+      description: 'Revoke a role from a user.
+
+
+        Both the role and the user must belong to the caller''s tenant, exactly as
+        assign_role requires. This used to delete the assignment by the two ids alone
+        (user_roles has no tenant column to filter on), so any tenant admin with users:write
+        could strip any role from any user of ANY tenant, shown on real
+
+        Postgres by the two-tenant flows (tenant B removed tenant A''s role assignment,
+        HTTP 204). A role or user that is not this tenant''s is the same 404 as one
+        that does not exist.'
       operationId: revoke_role_api_v1_rbac_users__user_id__roles__role_id__delete
       security:
       - HTTPBearer: []
@@ -5613,6 +6172,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -5770,12 +6330,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FrameworksResponse'
+      security:
+      - HTTPBearer: []
   /api/v1/compliance/frameworks/{framework_id}/controls:
     get:
       tags:
       - compliance
       summary: List controls for a framework
       operationId: list_framework_controls_api_v1_compliance_frameworks__framework_id__controls_get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: framework_id
         in: path
@@ -5821,6 +6385,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/compliance/evidence:
     post:
       tags:
@@ -5903,6 +6469,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -6021,6 +6588,83 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/copilot/chat:
+    post:
+      tags:
+      - copilot
+      summary: Send a message to the AI copilot and get a real LLM response.
+      description: 'Route a copilot message through the LiteLLM gateway.
+
+
+        Falls back to a deterministic error message if the LLM call fails —
+
+        the dock treats any non-2xx as demo-mode, so we always return 200
+
+        with *something* useful even when the gateway is unreachable.
+
+        The ``degraded`` flag in the response tells the frontend whether the
+
+        reply came from the real model or from the fallback path.'
+      operationId: copilot_chat_api_v1_copilot_chat_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotChatRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotChatResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/copilot/actions/confirm:
+    post:
+      tags:
+      - copilot
+      summary: Confirm a destructive action the Copilot asked for
+      description: 'Perform a destructive action the Copilot REQUESTED, after the
+        analyst approved it.
+
+
+        This is the only way such an action happens, and it is not a model tool: the
+        model cannot call it. The token must have been issued to THIS user in THIS
+        tenant, must not have expired, and its signature must verify; the user then
+        needs the same permission the
+
+        matching REST endpoint requires (alerts:delete for an alert), checked here
+        at confirmation time, not only when the request was made.'
+      operationId: confirm_action_api_v1_copilot_actions_confirm_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmActionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/metrics/dashboard:
     get:
       tags:
@@ -6133,6 +6777,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/health:
+    get:
+      tags:
+      - health
+      summary: Reachability probe for the web UI (no auth, no DB)
+      description: 'Cheap probe the web UI uses to show whether the API is reachable.
+
+
+        The Copilot dock calls GET /api/v1/health for its connected/disconnected
+
+        badge. It must live under /api/v1 because the Next.js rewrite only proxies
+
+        /api/v1/*; the root /health is not reachable from the browser. Before this
+
+        route existed the probe always 404''d, so the dock always said
+
+        "disconnected". Deliberately no auth and no database work.'
+      operationId: api_reachability_api_v1_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Api Reachability Api V1 Health Get
   /api/v1/health/pipeline:
     get:
       tags:
@@ -6542,6 +7213,7 @@ paths:
         schema:
           anyOf:
           - type: integer
+            maximum: 1000000000
             minimum: 0
           - type: 'null'
           description: Return only events with seq strictly greater than this value
@@ -6649,6 +7321,7 @@ paths:
         required: true
         schema:
           type: integer
+          maximum: 1000000000
           minimum: 0
           description: Event seq to explain
           title: Step
@@ -7383,6 +8056,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -7897,6 +8571,7 @@ paths:
         schema:
           type: integer
           maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -7904,6 +8579,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -7943,6 +8619,92 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AssetOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/assets/vulnerabilities:
+    get:
+      tags:
+      - assets
+      summary: List Vulnerabilities
+      operationId: list_vulnerabilities_api_v1_assets_vulnerabilities_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: severity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Severity
+      - name: is_exploited
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Exploited
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VulnerabilityOut'
+                title: Response List Vulnerabilities Api V1 Assets Vulnerabilities
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - assets
+      summary: Create Vulnerability
+      operationId: create_vulnerability_api_v1_assets_vulnerabilities_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VulnerabilityCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityOut'
         '422':
           description: Validation Error
           content:
@@ -8030,90 +8792,6 @@ paths:
       responses:
         '204':
           description: Successful Response
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/assets/vulnerabilities:
-    get:
-      tags:
-      - assets
-      summary: List Vulnerabilities
-      operationId: list_vulnerabilities_api_v1_assets_vulnerabilities_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: severity
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Severity
-      - name: is_exploited
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          title: Is Exploited
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          maximum: 500
-          default: 50
-          title: Limit
-      - name: offset
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 0
-          default: 0
-          title: Offset
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/VulnerabilityOut'
-                title: Response List Vulnerabilities Api V1 Assets Vulnerabilities
-                  Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - assets
-      summary: Create Vulnerability
-      operationId: create_vulnerability_api_v1_assets_vulnerabilities_post
-      security:
-      - HTTPBearer: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VulnerabilityCreate'
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/VulnerabilityOut'
         '422':
           description: Validation Error
           content:
@@ -8763,7 +9441,8 @@ paths:
       tags:
       - mssp
       summary: Mssp Overview
-      description: Cross-tenant KPI summary for the MSSP parent dashboard.
+      description: 'Cross-tenant KPI summary for the MSSP parent dashboard: real children,
+        latest snapshot each, ``None`` where nothing is reported.'
       operationId: mssp_overview_api_v1_mssp_overview_get
       responses:
         '200':
@@ -8779,7 +9458,8 @@ paths:
       tags:
       - mssp
       summary: List Managed Tenants
-      description: List managed tenants with health scores for the parent dashboard.
+      description: 'The caller''s real child tenants with their latest metrics snapshot.
+        A tenant that is not an MSSP parent has no children: an empty list.'
       operationId: list_managed_tenants_api_v1_mssp_tenants_get
       responses:
         '200':
@@ -8798,7 +9478,16 @@ paths:
       tags:
       - mssp
       summary: List Cross Tenant Incidents
-      description: Critical incidents across all managed tenants.
+      description: 'Critical incidents across managed tenants.
+
+
+        There is no cross-tenant incident feed yet: reading a child''s incidents needs
+        a delegation-checked, tenant-scoped read (alerts and cases are
+
+        row-level-security FORCED), which has not been built. This used to return
+        five invented incidents for tenants that did not exist; it now
+
+        returns an empty list rather than anything made up.'
       operationId: list_cross_tenant_incidents_api_v1_mssp_incidents_get
       security:
       - HTTPBearer: []
@@ -8860,6 +9549,7 @@ paths:
         schema:
           type: integer
           maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -8867,6 +9557,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -8981,6 +9672,7 @@ paths:
         schema:
           type: integer
           maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -8988,6 +9680,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -8999,7 +9692,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/IndicatorOut'
+                  $ref: '#/components/schemas/app__api__v1__endpoints__insider_threat__IndicatorOut'
                 title: Response List Indicators Api V1 Insider Threat Indicators Get
         '422':
           description: Validation Error
@@ -9026,7 +9719,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IndicatorOut'
+                $ref: '#/components/schemas/app__api__v1__endpoints__insider_threat__IndicatorOut'
         '422':
           description: Validation Error
           content:
@@ -9055,7 +9748,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IndicatorOut'
+                $ref: '#/components/schemas/app__api__v1__endpoints__insider_threat__IndicatorOut'
         '422':
           description: Validation Error
           content:
@@ -9171,6 +9864,7 @@ paths:
         schema:
           type: integer
           maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -9178,6 +9872,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -9486,6 +10181,8 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000
+          minimum: 1
           default: 100
           title: Limit
       responses:
@@ -9806,6 +10503,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/nl-detection/propose:
     post:
       tags:
@@ -9891,14 +10590,8 @@ paths:
       - detection_rules
       - detection_loop
       summary: List LLM-drafted Sigma suggestions
-      description: 'List suggestions drafted by *this* tenant only.
-
-
-        Tenant isolation: ``_SUGGESTIONS`` is process-wide and shared across all
-
-        tenants. Filtering on the stored ``tenant_id`` ensures one tenant never
-
-        sees another tenant''s drafts, rule names, or evidence-derived rationale.'
+      description: List suggestions drafted by *this* tenant only, newest first (explicit
+        tenant filter, plus RLS in Postgres).
       operationId: list_suggestions_api_v1_detection_loop_suggestions_get
       responses:
         '200':
@@ -9998,6 +10691,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/nl-query/tenants:
+    get:
+      tags:
+      - nl_query
+      summary: The tenants this caller may search (for a tenant selector)
+      description: 'Your own tenant, plus every other tenant if you may search across
+        tenants. A caller who may not gets exactly one entry: their own.'
+      operationId: list_searchable_tenants_api_v1_nl_query_tenants_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NLQueryTenantsResponse'
       security:
       - HTTPBearer: []
   /api/v1/identity-timeline/build:
@@ -10101,6 +10811,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/translation/formats:
     get:
       tags:
@@ -10114,6 +10826,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FormatsResponse'
+      security:
+      - HTTPBearer: []
   /api/v1/hunts:
     get:
       tags:
@@ -10153,6 +10867,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -10509,6 +11224,80 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hunt/saved:
+    get:
+      tags:
+      - hunt
+      summary: List Saved Searches
+      description: The caller's tenant's saved searches, newest first.
+      operationId: list_saved_searches_api_v1_hunt_saved_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  items:
+                    $ref: '#/components/schemas/SavedSearchOut'
+                  type: array
+                type: object
+                title: Response List Saved Searches Api V1 Hunt Saved Get
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - hunt
+      summary: Save Search
+      description: Save a search for the caller's tenant.
+      operationId: save_search_api_v1_hunt_saved_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedSearchCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedSearchOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/hunt/saved/{search_id}:
+    delete:
+      tags:
+      - hunt
+      summary: Delete Saved Search
+      description: Delete one of the caller's tenant's saved searches. Another tenant's
+        id is a 404, exactly like an id that does not exist.
+      operationId: delete_saved_search_api_v1_hunt_saved__search_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: search_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Search Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/phishing/submit:
     post:
       tags:
@@ -10567,6 +11356,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -10811,6 +11601,7 @@ paths:
         schema:
           type: integer
           maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -10818,6 +11609,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -10939,6 +11731,7 @@ paths:
         schema:
           type: integer
           maximum: 200
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -10946,6 +11739,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -11107,6 +11901,7 @@ paths:
         schema:
           type: integer
           maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -11114,6 +11909,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -11297,6 +12093,7 @@ paths:
         schema:
           type: integer
           maximum: 100
+          minimum: 1
           default: 20
           title: Limit
       - name: offset
@@ -11304,6 +12101,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -11469,6 +12267,7 @@ paths:
         schema:
           type: integer
           maximum: 200
+          minimum: 1
           default: 50
           title: Limit
       responses:
@@ -11527,6 +12326,7 @@ paths:
         schema:
           type: integer
           maximum: 200
+          minimum: 1
           default: 50
           title: Limit
       responses:
@@ -11585,6 +12385,7 @@ paths:
         schema:
           type: integer
           maximum: 500
+          minimum: 1
           default: 50
           title: Limit
       - name: offset
@@ -11592,6 +12393,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -11722,6 +12524,7 @@ paths:
         schema:
           type: integer
           maximum: 1000
+          minimum: 1
           default: 100
           title: Limit
       - name: offset
@@ -11729,6 +12532,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -11962,6 +12766,7 @@ paths:
         schema:
           type: integer
           maximum: 100
+          minimum: 1
           default: 20
           title: Limit
       - name: offset
@@ -11969,6 +12774,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000000
           minimum: 0
           default: 0
           title: Offset
@@ -12191,6 +12997,565 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Get Airgap Status Api V1 Airgap Status Get
+      security:
+      - HTTPBearer: []
+  /api/v1/enrichment/lookup:
+    get:
+      tags:
+      - enrichment
+      summary: Lookup
+      operationId: lookup_api_v1_enrichment_lookup_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: ioc
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: IP, domain, URL, hash or email
+          title: Ioc
+        description: IP, domain, URL, hash or email
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__enrichment__IndicatorOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/enrichment/bulk:
+    post:
+      tags:
+      - enrichment
+      summary: Bulk
+      operationId: bulk_api_v1_enrichment_bulk_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/osquery/fim/events:
+    get:
+      tags:
+      - osquery
+      summary: Fim Events
+      operationId: fim_events_api_v1_osquery_fim_events_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Tenant Id
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100000
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 25
+          title: Page Size
+      - name: action
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 32
+          - type: 'null'
+          title: Action
+      - name: path_prefix
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 1024
+          - type: 'null'
+          title: Path Prefix
+      - name: node_key
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Node Key
+      - name: since
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          description: ISO-8601
+          title: Since
+        description: ISO-8601
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FimEventsPage'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/osquery/fim/summary:
+    get:
+      tags:
+      - osquery
+      summary: Fim Summary
+      operationId: fim_summary_api_v1_osquery_fim_summary_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Tenant Id
+      - name: since
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          description: ISO-8601
+          title: Since
+        description: ISO-8601
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FimSummaryOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/honeytokens:
+    get:
+      tags:
+      - honeytokens
+      summary: GET honeytokens (authenticated gateway to the honeytokens service)
+      operationId: honeytokens_get_root_api_v1_honeytokens_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - honeytokens
+      summary: POST honeytokens (authenticated gateway to the honeytokens service)
+      operationId: honeytokens_post_root_api_v1_honeytokens_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/honeytokens/{token_id}:
+    get:
+      tags:
+      - honeytokens
+      summary: GET honeytokens/{token_id} (authenticated gateway to the honeytokens
+        service)
+      operationId: honeytokens_get_token_id_api_v1_honeytokens__token_id__get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    delete:
+      tags:
+      - honeytokens
+      summary: DELETE honeytokens/{token_id} (authenticated gateway to the honeytokens
+        service)
+      operationId: honeytokens_delete_token_id_api_v1_honeytokens__token_id__delete
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/honeytokens/{token_id}/revoke:
+    patch:
+      tags:
+      - honeytokens
+      summary: PATCH honeytokens/{token_id}/revoke (authenticated gateway to the honeytokens
+        service)
+      operationId: honeytokens_patch_token_id_revoke_api_v1_honeytokens__token_id__revoke_patch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/honeytokens/{token_id}/triggers:
+    get:
+      tags:
+      - honeytokens
+      summary: GET honeytokens/{token_id}/triggers (authenticated gateway to the honeytokens
+        service)
+      operationId: honeytokens_get_token_id_triggers_api_v1_honeytokens__token_id__triggers_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/atomics/sync:
+    post:
+      tags:
+      - purple-team
+      summary: POST purple-team/atomics/sync (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_post_atomics_sync_api_v1_purple_team_atomics_sync_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/atomics:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/atomics (authenticated gateway to the purple-team service)
+      operationId: purple_team_get_atomics_api_v1_purple_team_atomics_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/atomics/run:
+    post:
+      tags:
+      - purple-team
+      summary: POST purple-team/atomics/run (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_post_atomics_run_api_v1_purple_team_atomics_run_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/caldera/health:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/caldera/health (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_caldera_health_api_v1_purple_team_caldera_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/caldera/abilities:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/caldera/abilities (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_caldera_abilities_api_v1_purple_team_caldera_abilities_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/caldera/adversaries:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/caldera/adversaries (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_caldera_adversaries_api_v1_purple_team_caldera_adversaries_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/caldera/operations:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/caldera/operations (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_caldera_operations_api_v1_purple_team_caldera_operations_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/caldera/run:
+    post:
+      tags:
+      - purple-team
+      summary: POST purple-team/caldera/run (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_post_caldera_run_api_v1_purple_team_caldera_run_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/executions:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/executions (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_executions_api_v1_purple_team_executions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/executions/{execution_id}/detection:
+    patch:
+      tags:
+      - purple-team
+      summary: PATCH purple-team/executions/{execution_id}/detection (authenticated
+        gateway to the purple-team service)
+      operationId: purple_team_patch_executions_execution_id_detection_api_v1_purple_team_executions__execution_id__detection_patch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/coverage:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/coverage (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_coverage_api_v1_purple_team_coverage_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/drift/snapshot:
+    post:
+      tags:
+      - purple-team
+      summary: POST purple-team/drift/snapshot (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_post_drift_snapshot_api_v1_purple_team_drift_snapshot_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/drift/snapshots:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/drift/snapshots (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_drift_snapshots_api_v1_purple_team_drift_snapshots_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/drift/latest:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/drift/latest (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_drift_latest_api_v1_purple_team_drift_latest_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/tabletop:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/tabletop (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_get_tabletop_api_v1_purple_team_tabletop_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - purple-team
+      summary: POST purple-team/tabletop (authenticated gateway to the purple-team
+        service)
+      operationId: purple_team_post_tabletop_api_v1_purple_team_tabletop_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/tabletop/{session_id}:
+    get:
+      tags:
+      - purple-team
+      summary: GET purple-team/tabletop/{session_id} (authenticated gateway to the
+        purple-team service)
+      operationId: purple_team_get_tabletop_session_id_api_v1_purple_team_tabletop__session_id__get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/tabletop/{session_id}/findings:
+    post:
+      tags:
+      - purple-team
+      summary: POST purple-team/tabletop/{session_id}/findings (authenticated gateway
+        to the purple-team service)
+      operationId: purple_team_post_tabletop_session_id_findings_api_v1_purple_team_tabletop__session_id__findings_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
+  /api/v1/purple-team/tabletop/{session_id}/complete:
+    patch:
+      tags:
+      - purple-team
+      summary: PATCH purple-team/tabletop/{session_id}/complete (authenticated gateway
+        to the purple-team service)
+      operationId: purple_team_patch_tabletop_session_id_complete_api_v1_purple_team_tabletop__session_id__complete_patch
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+      security:
+      - HTTPBearer: []
   /api/v1/llm/status:
     get:
       tags:
@@ -12215,6 +13580,8 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Get Llm Status Api V1 Llm Status Get
+      security:
+      - HTTPBearer: []
   /api/v1/llm/credentials:
     get:
       tags:
@@ -12294,14 +13661,18 @@ paths:
       tags:
       - Threat Intelligence
       summary: List Indicators
-      description: List STIX 2.1 indicators from the threat intelligence store.
+      description: List the STIX 2.1 indicators THIS tenant has published (none until
+        it publishes some).
       operationId: list_indicators_api_v1_threatintel_stix_indicators_get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: page
         in: query
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -12341,6 +13712,8 @@ paths:
       summary: Create Indicator
       description: Publish a new STIX 2.1 indicator and optionally mirror it to MISP.
       operationId: create_indicator_api_v1_threatintel_stix_indicators_post
+      security:
+      - HTTPBearer: []
       parameters:
       - name: push_to_misp
         in: query
@@ -12378,8 +13751,11 @@ paths:
       tags:
       - Threat Intelligence
       summary: List Bundles
-      description: List STIX 2.1 bundles.
+      description: List the STIX 2.1 bundles THIS tenant has published (none until
+        it publishes some).
       operationId: list_bundles_api_v1_threatintel_stix_bundles_get
+      security:
+      - HTTPBearer: []
       responses:
         '200':
           description: Successful Response
@@ -12393,6 +13769,8 @@ paths:
       summary: Create Bundle
       description: Create a new STIX 2.1 bundle and optionally mirror it to MISP.
       operationId: create_bundle_api_v1_threatintel_stix_bundles_post
+      security:
+      - HTTPBearer: []
       parameters:
       - name: push_to_misp
         in: query
@@ -12430,7 +13808,13 @@ paths:
       tags:
       - Threat Intelligence
       summary: List Taxii Collections
-      description: List TAXII 2.1 collections for server compatibility.
+      description: 'List TAXII 2.1 collections. No TAXII collection is served yet
+        (there is no per-collection objects endpoint), so there are none to list.
+
+
+        It used to list three that did not exist ("AiSOC Threat Feed", "Community
+        IOCs", "MITRE ATT&CK Mapping"), which a TAXII client would try to read and
+        fail.'
       operationId: list_taxii_collections_api_v1_threatintel_stix_taxii_collections_get
       responses:
         '200':
@@ -12439,6 +13823,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TAXIICollectionListResponse'
+      security:
+      - HTTPBearer: []
   /api/v1/threatintel/stix/misp/health:
     get:
       tags:
@@ -12461,6 +13847,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MispPushHealth'
+      security:
+      - HTTPBearer: []
   /api/v1/threatintel/stix/misp/dry-run:
     post:
       tags:
@@ -12498,6 +13886,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/shifts:
     get:
       tags:
@@ -12515,9 +13905,9 @@ paths:
           anyOf:
           - type: string
           - type: 'null'
-          description: active | completed
+          description: active | completed | cancelled
           title: Status
-        description: active | completed
+        description: active | completed | cancelled
       - name: limit
         in: query
         required: false
@@ -12547,7 +13937,12 @@ paths:
       tags:
       - shifts
       summary: Create Shift
-      description: Start a new shift.
+      description: 'Start a new shift.
+
+
+        Closes any currently active shift for this tenant before opening the
+
+        new one — only one active shift per tenant at a time.'
       operationId: create_shift_api_v1_shifts_post
       security:
       - HTTPBearer: []
@@ -12586,6 +13981,56 @@ paths:
                 $ref: '#/components/schemas/ShiftSummary'
       security:
       - HTTPBearer: []
+  /api/v1/shifts/handoff-items:
+    get:
+      tags:
+      - shifts
+      summary: List Handoff Items
+      description: 'Real alerts and cases still open at query time - not resolved,
+        not a
+
+        false positive, not closed - the actual candidates for handoff to the
+
+        next shift.'
+      operationId: list_handoff_items_api_v1_shifts_handoff_items_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: priority
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filter to one priority: critical/high/medium/low'
+          title: Priority
+        description: 'Filter to one priority: critical/high/medium/low'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HandoffItemOut'
+                title: Response List Handoff Items Api V1 Shifts Handoff Items Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/shifts/{shift_id}/handoff:
     put:
       tags:
@@ -12635,6 +14080,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeploymentConfig'
+      security:
+      - HTTPBearer: []
     put:
       tags:
       - Deployment
@@ -12660,6 +14107,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/deployment/airgap/status:
     get:
       tags:
@@ -12675,6 +14124,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AirgapStatus'
+      security:
+      - HTTPBearer: []
   /api/v1/deployment/airgap/bundle:
     post:
       tags:
@@ -12689,6 +14140,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BundleJob'
+      security:
+      - HTTPBearer: []
   /api/v1/fusion/health:
     get:
       tags:
@@ -12704,6 +14157,8 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Fusion Health Api V1 Fusion Health Get
+      security:
+      - HTTPBearer: []
   /api/v1/fusion/metrics:
     get:
       tags:
@@ -12719,6 +14174,8 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Fusion Metrics Api V1 Fusion Metrics Get
+      security:
+      - HTTPBearer: []
   /api/v1/fusion/ml/status:
     get:
       tags:
@@ -12734,19 +14191,25 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Ml Status Api V1 Fusion Ml Status Get
+      security:
+      - HTTPBearer: []
   /api/v1/fusion/entity-risk/queue:
     get:
       tags:
       - fusion
       summary: Top entities by risk score
       operationId: entity_risk_queue_api_v1_fusion_entity_risk_queue_get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: tenant_id
         in: query
-        required: true
+        required: false
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Tenant Id
       - name: limit
         in: query
@@ -12786,13 +14249,17 @@ paths:
       - fusion
       summary: Entity-risk queue stats
       operationId: entity_risk_stats_api_v1_fusion_entity_risk_stats_get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: tenant_id
         in: query
-        required: true
+        required: false
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Tenant Id
       responses:
         '200':
@@ -12816,6 +14283,8 @@ paths:
       - fusion
       summary: Entity risk record detail
       operationId: entity_risk_detail_api_v1_fusion_entity_risk__entity_type___entity_value__get
+      security:
+      - HTTPBearer: []
       parameters:
       - name: entity_type
         in: path
@@ -12831,10 +14300,12 @@ paths:
           title: Entity Value
       - name: tenant_id
         in: query
-        required: true
+        required: false
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Tenant Id
       responses:
         '200':
@@ -13221,6 +14692,8 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000
+          minimum: 1
           default: 100
           title: Limit
       responses:
@@ -13342,6 +14815,8 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 1000
+          minimum: 1
           default: 200
           title: Limit
       responses:
@@ -13632,6 +15107,53 @@ paths:
       - HTTPBearer: []
 components:
   schemas:
+    AccessGrantResponse:
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+          title: Tenant Id
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        account_name:
+          type: string
+          title: Account Name
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        username:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Username
+        home_tenant_id:
+          type: string
+          format: uuid
+          title: Home Tenant Id
+        access:
+          type: string
+          title: Access
+        granted_by:
+          type: string
+          title: Granted By
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - tenant_id
+      - user_id
+      - account_name
+      - home_tenant_id
+      - access
+      - granted_by
+      - created_at
+      title: AccessGrantResponse
     ActionCount:
       properties:
         action:
@@ -14082,6 +15604,122 @@ components:
         \ from the case timeline and the audit log.\n* ``recommended_actions`` — normalised\
         \ structured actions from\n  the ResponderAgent (or the legacy list-of-strings\
         \ shape)."
+    AlertEmailStatus:
+      properties:
+        enabled:
+          type: boolean
+          title: Enabled
+        min_severity:
+          type: string
+          enum:
+          - info
+          - low
+          - medium
+          - high
+          - critical
+          title: Min Severity
+        recipients:
+          items:
+            type: string
+          type: array
+          title: Recipients
+        enabled_since:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Enabled Since
+        updated_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Updated By
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        last_sent_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Sent At
+        last_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Error
+        last_error_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Error At
+        consecutive_failures:
+          type: integer
+          title: Consecutive Failures
+          default: 0
+        worker_enabled:
+          type: boolean
+          title: Worker Enabled
+        credentials_configured:
+          type: boolean
+          title: Credentials Configured
+        missing_credentials:
+          items:
+            type: string
+          type: array
+          title: Missing Credentials
+        sender:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sender
+        warnings:
+          items:
+            type: string
+          type: array
+          title: Warnings
+      type: object
+      required:
+      - enabled
+      - min_severity
+      - recipients
+      - worker_enabled
+      - credentials_configured
+      - missing_credentials
+      title: AlertEmailStatus
+    AlertEmailUpdate:
+      properties:
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        min_severity:
+          anyOf:
+          - type: string
+            enum:
+            - info
+            - low
+            - medium
+            - high
+            - critical
+          - type: 'null'
+          title: Min Severity
+        recipients:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 50
+          - type: 'null'
+          title: Recipients
+      additionalProperties: false
+      type: object
+      title: AlertEmailUpdate
     AlertLinkCreate:
       properties:
         alert_id:
@@ -14132,6 +15770,7 @@ components:
           title: Tenant Id
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -14579,6 +16218,61 @@ components:
           title: Case Id
       type: object
       title: AlertUpdateRequest
+    AllAccessGrantResponse:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        account_name:
+          type: string
+          title: Account Name
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        username:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Username
+        home_tenant_id:
+          type: string
+          format: uuid
+          title: Home Tenant Id
+        access:
+          type: string
+          title: Access
+        granted_by:
+          type: string
+          title: Granted By
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - user_id
+      - account_name
+      - home_tenant_id
+      - access
+      - granted_by
+      - created_at
+      title: AllAccessGrantResponse
+    AllAccessRequest:
+      properties:
+        access:
+          type: string
+          enum:
+          - view
+          - full
+          title: Access
+      additionalProperties: false
+      type: object
+      required:
+      - access
+      title: AllAccessRequest
     ApiKeyOut:
       properties:
         id:
@@ -14910,9 +16604,11 @@ components:
           title: Title
         period_start:
           type: string
+          format: date-time
           title: Period Start
         period_end:
           type: string
+          format: date-time
           title: Period End
         output_format:
           type: string
@@ -14932,6 +16628,7 @@ components:
         delivered_at:
           anyOf:
           - type: string
+            format: date-time
           - type: 'null'
           title: Delivered At
         generated_by:
@@ -14947,6 +16644,7 @@ components:
           title: Error Message
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -15192,20 +16890,20 @@ components:
           title: Tenant Id
         created_at:
           type: string
+          format: date-time
           title: Created At
         updated_at:
           type: string
+          format: date-time
           title: Updated At
         last_seen:
           type: string
+          format: date-time
           title: Last Seen
         first_seen:
           type: string
+          format: date-time
           title: First Seen
-        asset_metadata:
-          additionalProperties: true
-          type: object
-          title: Asset Metadata
       type: object
       required:
       - name
@@ -15422,14 +17120,17 @@ components:
       title: AuditListResponse
     AuthenticateBeginRequest:
       properties:
-        email:
+        account_name:
           anyOf:
           - type: string
-            format: email
+            maxLength: 320
           - type: 'null'
-          title: Email
+          title: Account Name
       type: object
       title: AuthenticateBeginRequest
+      description: 'Who is signing in, as typed: an account name (or, while LOGIN_ALLOW_EMAIL
+        is on, an email). The JSON key `email` still works; `account_name` and `username`
+        are accepted too. Omit it for a discoverable-credential sign-in.'
     AuthenticateFinishResponse:
       properties:
         access_token:
@@ -15451,6 +17152,45 @@ components:
       - access_token
       - refresh_token
       title: AuthenticateFinishResponse
+    AuthorizeRequest:
+      properties:
+        permission:
+          type: string
+          title: Permission
+      type: object
+      required:
+      - permission
+      title: AuthorizeRequest
+    AuthorizeResponse:
+      properties:
+        allowed:
+          type: boolean
+          title: Allowed
+        permission:
+          type: string
+          title: Permission
+        tenant_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Tenant Id
+        user_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: User Id
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+      type: object
+      required:
+      - allowed
+      - permission
+      title: AuthorizeResponse
     AutoSuggestResponse:
       properties:
         window_days:
@@ -15717,6 +17457,48 @@ components:
       - identity_kind
       - identity_value
       title: BuildTimelineRequest
+    BulkError:
+      properties:
+        ioc:
+          type: string
+          title: Ioc
+        error:
+          type: string
+          title: Error
+      type: object
+      required:
+      - ioc
+      - error
+      title: BulkError
+    BulkRequest:
+      properties:
+        iocs:
+          items:
+            type: string
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: Iocs
+      type: object
+      required:
+      - iocs
+      title: BulkRequest
+    BulkResponse:
+      properties:
+        results:
+          items:
+            $ref: '#/components/schemas/app__api__v1__endpoints__enrichment__IndicatorOut'
+          type: array
+          title: Results
+        errors:
+          items:
+            $ref: '#/components/schemas/BulkError'
+          type: array
+          title: Errors
+      type: object
+      required:
+      - results
+      title: BulkResponse
     BulkToggleBody:
       properties:
         ruleIds:
@@ -16025,6 +17807,7 @@ components:
           title: Mssp Role
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -16449,6 +18232,35 @@ components:
       - medianConfidence
       - lowConfidence
       title: ConfidenceSummary
+    ConfirmActionRequest:
+      properties:
+        token:
+          type: string
+          maxLength: 4000
+          minLength: 10
+          title: Token
+      type: object
+      required:
+      - token
+      title: ConfirmActionRequest
+    ConfirmActionResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        action:
+          type: string
+          title: Action
+        result:
+          additionalProperties: true
+          type: object
+          title: Result
+      type: object
+      required:
+      - status
+      - action
+      - result
+      title: ConfirmActionResponse
     ConnectorHealthSummary:
       properties:
         total:
@@ -16672,6 +18484,98 @@ components:
       - framework_id
       - controls
       title: ControlsResponse
+    CopilotChatRequest:
+      properties:
+        conversationId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Conversationid
+        message:
+          type: string
+          minLength: 1
+          title: Message
+        context:
+          anyOf:
+          - $ref: '#/components/schemas/CopilotContext'
+          - type: 'null'
+      type: object
+      required:
+      - message
+      title: CopilotChatRequest
+    CopilotChatResponse:
+      properties:
+        conversationId:
+          type: string
+          title: Conversationid
+        reply:
+          $ref: '#/components/schemas/CopilotMessageOut'
+        degraded:
+          type: boolean
+          title: Degraded
+          default: false
+        pendingActions:
+          items:
+            $ref: '#/components/schemas/PendingActionOut'
+          type: array
+          title: Pendingactions
+      type: object
+      required:
+      - conversationId
+      - reply
+      title: CopilotChatResponse
+    CopilotContext:
+      properties:
+        alertId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Alertid
+        caseId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Caseid
+        entity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Entity
+        page:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Page
+      type: object
+      title: CopilotContext
+    CopilotMessageOut:
+      properties:
+        id:
+          type: string
+          title: Id
+        role:
+          type: string
+          title: Role
+        content:
+          type: string
+          title: Content
+        createdAt:
+          type: string
+          title: Createdat
+        suggestions:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Suggestions
+      type: object
+      required:
+      - id
+      - role
+      - content
+      - createdAt
+      title: CopilotMessageOut
     CostAggregateResponse:
       properties:
         window_days:
@@ -17399,12 +19303,21 @@ components:
       title: CreateTaskRequest
     CreateUserRequest:
       properties:
+        account_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Account Name
         email:
-          type: string
-          format: email
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
           title: Email
         username:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Username
         password:
           type: string
@@ -17415,10 +19328,15 @@ components:
           default: soc_analyst
       type: object
       required:
-      - email
-      - username
       - password
       title: CreateUserRequest
+      description: '`account_name` is what the person signs in with (3-32 lower-case
+        letters, digits, ''.'', ''_'', ''-''; unique across the platform). If it is
+        left out (an older client) one is made from `username`, or from the email,
+        and made unique.
+
+        `email` is optional contact information: it is not verified and not needed
+        to sign in. `username` is a display name and defaults to the account name.'
     CredentialsListResponse:
       properties:
         items:
@@ -17449,6 +19367,7 @@ components:
           title: Status
         created_at:
           type: string
+          format: date-time
           title: Created At
         assignee:
           anyOf:
@@ -17634,6 +19553,7 @@ components:
           title: Revoked At
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -18006,9 +19926,11 @@ components:
           title: Tenant Id
         valid_from:
           type: string
+          format: date-time
           title: Valid From
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -18779,10 +20701,12 @@ components:
         last_polled_at:
           anyOf:
           - type: string
+            format: date-time
           - type: 'null'
           title: Last Polled At
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -18793,6 +20717,57 @@ components:
       - is_enabled
       - created_at
       title: FeedOut
+    FimEventsPage:
+      properties:
+        events:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Events
+        total:
+          type: integer
+          title: Total
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+      type: object
+      required:
+      - events
+      - total
+      - page
+      - page_size
+      title: FimEventsPage
+      description: The console's FimEventsPage (apps/web/src/lib/osquery-api.ts).
+    FimSummaryOut:
+      properties:
+        total_events:
+          type: integer
+          title: Total Events
+        by_action:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: By Action
+        top_paths:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Top Paths
+        active_nodes:
+          type: integer
+          title: Active Nodes
+      type: object
+      required:
+      - total_events
+      - active_nodes
+      title: FimSummaryOut
+      description: The console's FimSummary.
     FindingCreate:
       properties:
         cloud_provider:
@@ -18945,13 +20920,16 @@ components:
           title: Auto Remediated
         first_detected_at:
           type: string
+          format: date-time
           title: First Detected At
         last_evaluated_at:
           type: string
+          format: date-time
           title: Last Evaluated At
         resolved_at:
           anyOf:
           - type: string
+            format: date-time
           - type: 'null'
           title: Resolved At
       type: object
@@ -19245,6 +21223,7 @@ components:
           title: Actor
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -19293,6 +21272,18 @@ components:
       - period_start
       - period_end
       title: GenerateRequest
+    GrantAccessRequest:
+      properties:
+        access:
+          type: string
+          enum:
+          - view
+          - full
+          title: Access
+          default: view
+      additionalProperties: false
+      type: object
+      title: GrantAccessRequest
     GraphEdge:
       properties:
         source:
@@ -19336,6 +21327,65 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    HandoffItemOut:
+      properties:
+        id:
+          type: string
+          title: Id
+        priority:
+          type: string
+          title: Priority
+        title:
+          type: string
+          title: Title
+        type:
+          type: string
+          title: Type
+        status:
+          type: string
+          title: Status
+        assigned_to:
+          type: string
+          title: Assigned To
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - id
+      - priority
+      - title
+      - type
+      - status
+      - assigned_to
+      title: HandoffItemOut
+      description: 'Hal, 2026-09-22, review: this endpoint (and this model) existed
+        before
+
+        the aisoc_shifts rewrite (migration 050) replaced the old in-memory
+
+        _MOCK_SHIFTS system - that rewrite fixed a real, separate gap (shift
+
+        tracking itself had no real table at all) but replaced this whole file
+
+        wholesale in the process, silently dropping this endpoint along with
+
+        the mock it was never part of. ShiftsView.tsx''s frontend still calls
+
+        GET /shifts/handoff-items directly (shiftsApi.handoffItems() in
+
+        api.ts) - without this, that call 404s.
+
+
+        Deliberately independent of the aisoc_shifts table above: "what''s
+
+        still open and worth flagging to the next shift" doesn''t need a real
+
+        shift record to answer, it''s just currently-open alerts and cases,
+
+        which the database already has for real.'
     HandoffNotes:
       properties:
         notes:
@@ -19623,12 +21673,15 @@ components:
           title: False Positive
         first_seen:
           type: string
+          format: date-time
           title: First Seen
         last_seen:
           type: string
+          format: date-time
           title: Last Seen
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -19943,60 +21996,6 @@ components:
       - items
       - total
       title: IndicatorListResponse
-    IndicatorOut:
-      properties:
-        id:
-          type: string
-          format: uuid
-          title: Id
-        tenant_id:
-          type: string
-          format: uuid
-          title: Tenant Id
-        profile_id:
-          type: string
-          format: uuid
-          title: Profile Id
-        indicator_type:
-          type: string
-          title: Indicator Type
-        severity:
-          type: string
-          title: Severity
-        description:
-          type: string
-          title: Description
-        source_alert_id:
-          anyOf:
-          - type: string
-            format: uuid
-          - type: 'null'
-          title: Source Alert Id
-        evidence:
-          additionalProperties: true
-          type: object
-          title: Evidence
-        occurred_at:
-          type: string
-          title: Occurred At
-        acknowledged_at:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Acknowledged At
-      type: object
-      required:
-      - id
-      - tenant_id
-      - profile_id
-      - indicator_type
-      - severity
-      - description
-      - source_alert_id
-      - evidence
-      - occurred_at
-      - acknowledged_at
-      title: IndicatorOut
     IndicatorPayload:
       properties:
         field:
@@ -20714,55 +22713,138 @@ components:
         uses (``has_secret``).'
     LoginRequest:
       properties:
-        email:
+        account_name:
           type: string
-          format: email
-          title: Email
+          maxLength: 320
+          minLength: 1
+          title: Account Name
         password:
           type: string
           title: Password
       type: object
       required:
-      - email
+      - account_name
       - password
       title: LoginRequest
+      description: What the person types is their ACCOUNT NAME (or, while LOGIN_ALLOW_EMAIL
+        is on, their email). The JSON key `email` still works, so existing clients
+        keep signing in; `account_name` and `username` are accepted too.
+    LogoutRequest:
+      properties:
+        refresh_token:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refresh Token
+      type: object
+      title: LogoutRequest
+      description: Optionally also revoke the refresh token that goes with this session.
+    LogoutResponse:
+      properties:
+        revoked:
+          type: boolean
+          title: Revoked
+        detail:
+          type: string
+          title: Detail
+      type: object
+      required:
+      - revoked
+      - detail
+      title: LogoutResponse
     MSSPKpiOverview:
       properties:
         total_tenants:
           type: integer
           title: Total Tenants
+        tenants_reporting:
+          type: integer
+          title: Tenants Reporting
         total_open_alerts:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Total Open Alerts
-        total_critical_incidents:
-          type: integer
-          title: Total Critical Incidents
+        total_critical_alerts:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Total Critical Alerts
+        total_open_cases:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Total Open Cases
         avg_health_score:
-          type: number
+          anyOf:
+          - type: number
+          - type: 'null'
           title: Avg Health Score
         avg_mttr_minutes:
-          type: number
+          anyOf:
+          - type: number
+          - type: 'null'
           title: Avg Mttr Minutes
         sla_breach_count:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Sla Breach Count
-        connectors_online:
-          type: integer
-          title: Connectors Online
-        connectors_degraded:
-          type: integer
-          title: Connectors Degraded
       type: object
       required:
       - total_tenants
-      - total_open_alerts
-      - total_critical_incidents
-      - avg_health_score
-      - avg_mttr_minutes
-      - sla_breach_count
-      - connectors_online
-      - connectors_degraded
+      - tenants_reporting
       title: MSSPKpiOverview
+      description: 'Cross-tenant totals for the parent dashboard.
+
+
+        Every figure comes from the latest metrics snapshot of the tenants that HAVE
+        one. A figure no tenant has reported is ``None``, never a
+
+        made-up number: this used to return hard-coded values (a fixed 23.4-minute
+        MTTR, "3 connectors online") for tenants that did not exist.'
+    ManageableTenant:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        slug:
+          type: string
+          title: Slug
+        relationship:
+          type: string
+          enum:
+          - self
+          - child
+          - other
+          title: Relationship
+      type: object
+      required:
+      - id
+      - name
+      - slug
+      - relationship
+      title: ManageableTenant
+    ManageableTenantsResponse:
+      properties:
+        home_tenant_id:
+          type: string
+          format: uuid
+          title: Home Tenant Id
+        tenants:
+          items:
+            $ref: '#/components/schemas/ManageableTenant'
+          type: array
+          title: Tenants
+      type: object
+      required:
+      - home_tenant_id
+      - tenants
+      title: ManageableTenantsResponse
     ManagedTenantRow:
       properties:
         tenant_id:
@@ -20771,35 +22853,58 @@ components:
         name:
           type: string
           title: Name
+        has_metrics:
+          type: boolean
+          title: Has Metrics
+        snapshot_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Snapshot At
         health_score:
-          type: number
+          anyOf:
+          - type: number
+          - type: 'null'
           title: Health Score
         open_alerts:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Open Alerts
         critical_alerts:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Critical Alerts
+        open_cases:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Open Cases
+        mttr_minutes:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Mttr Minutes
         sla_breaches:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Sla Breaches
-        connector_status:
-          type: string
-          title: Connector Status
-        last_event_at:
-          type: string
-          title: Last Event At
+        connector_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Connector Count
       type: object
       required:
       - tenant_id
       - name
-      - health_score
-      - open_alerts
-      - critical_alerts
-      - sla_breaches
-      - connector_status
-      - last_event_at
+      - has_metrics
       title: ManagedTenantRow
+      description: One REAL child tenant of the caller, with its latest metrics snapshot
+        if any (``has_metrics`` is False and every metric ``None`` otherwise).
     MarketplaceItemSummary:
       properties:
         id:
@@ -20926,9 +23031,11 @@ components:
           title: Action Overrides
         changed_at:
           type: string
+          format: date-time
           title: Changed At
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -20947,6 +23054,7 @@ components:
           title: Tenant Id
         snapshot_at:
           type: string
+          format: date-time
           title: Snapshot At
         open_alerts:
           type: integer
@@ -21532,6 +23640,23 @@ components:
           title: Time Range Hours
           description: Look-back window in hours.
           default: 24
+        tenant_ids:
+          anyOf:
+          - items:
+              type: string
+              format: uuid
+            type: array
+            maxItems: 50
+          - type: 'null'
+          title: Tenant Ids
+          description: 'Search these tenants (several allowed). Omitted: your own
+            tenant only. Other tenants need the platform:cross_tenant_query permission.'
+        all_tenants:
+          type: boolean
+          title: All Tenants
+          description: Search every tenant. Needs platform:cross_tenant_query. Mutually
+            exclusive with tenant_ids.
+          default: false
         es_url:
           anyOf:
           - type: string
@@ -21590,6 +23715,19 @@ components:
           title: Grammar Validated
           description: True if every emitted query passed grammar checks.
           default: true
+        tenant_scope:
+          type: string
+          title: Tenant Scope
+          description: 'Whose events the query reads: `own`, `selected` or `all`.'
+          default: own
+        tenant_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tenant Ids
+          description: The tenants searched (`own` and `selected`); null for `all`.
         result:
           anyOf:
           - $ref: '#/components/schemas/QueryResult'
@@ -21609,6 +23747,46 @@ components:
       - explanation
       - created_at
       title: NLQueryExecuteResponse
+    NLQueryTenant:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        slug:
+          type: string
+          title: Slug
+      type: object
+      required:
+      - id
+      - name
+      - slug
+      title: NLQueryTenant
+    NLQueryTenantsResponse:
+      properties:
+        own_tenant_id:
+          type: string
+          format: uuid
+          title: Own Tenant Id
+        cross_tenant_enabled:
+          type: boolean
+          title: Cross Tenant Enabled
+          description: 'True when this caller may search other tenants: they hold
+            platform:cross_tenant_query AND NL_QUERY_TENANT_FIELD is configured.'
+        tenants:
+          items:
+            $ref: '#/components/schemas/NLQueryTenant'
+          type: array
+          title: Tenants
+      type: object
+      required:
+      - own_tenant_id
+      - cross_tenant_enabled
+      - tenants
+      title: NLQueryTenantsResponse
     NLQueryTranslateRequest:
       properties:
         question:
@@ -21629,6 +23807,23 @@ components:
           title: Time Range Hours
           description: Look-back window in hours.
           default: 24
+        tenant_ids:
+          anyOf:
+          - items:
+              type: string
+              format: uuid
+            type: array
+            maxItems: 50
+          - type: 'null'
+          title: Tenant Ids
+          description: 'Search these tenants (several allowed). Omitted: your own
+            tenant only. Other tenants need the platform:cross_tenant_query permission.'
+        all_tenants:
+          type: boolean
+          title: All Tenants
+          description: Search every tenant. Needs platform:cross_tenant_query. Mutually
+            exclusive with tenant_ids.
+          default: false
       type: object
       required:
       - question
@@ -21668,6 +23863,19 @@ components:
           title: Grammar Validated
           description: True if every emitted query passed grammar checks.
           default: true
+        tenant_scope:
+          type: string
+          title: Tenant Scope
+          description: 'Whose events the query reads: `own`, `selected` or `all`.'
+          default: own
+        tenant_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tenant Ids
+          description: The tenants searched (`own` and `selected`); null for `all`.
       type: object
       required:
       - request_id
@@ -21765,9 +23973,11 @@ components:
           title: Is Active
         created_at:
           type: string
+          format: date-time
           title: Created At
         updated_at:
           type: string
+          format: date-time
           title: Updated At
       type: object
       required:
@@ -22126,6 +24336,7 @@ components:
           title: Parameter Overrides
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -22301,6 +24512,7 @@ components:
           title: Tenant Id
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -22309,6 +24521,30 @@ components:
       - tenant_id
       - created_at
       title: PeerGroupOut
+    PendingActionOut:
+      properties:
+        action:
+          type: string
+          title: Action
+        summary:
+          type: string
+          title: Summary
+        token:
+          type: string
+          title: Token
+        expiresAt:
+          type: integer
+          title: Expiresat
+      type: object
+      required:
+      - action
+      - summary
+      - token
+      - expiresAt
+      title: PendingActionOut
+      description: A destructive action the Copilot asked for and that is WAITING
+        for the analyst. Nothing has happened yet. The token is for the UI's confirm
+        call only; it is never shown to the model.
     PermissionOut:
       properties:
         id:
@@ -23516,9 +25752,11 @@ components:
           title: Watchlist Reason
         last_evaluated_at:
           type: string
+          format: date-time
           title: Last Evaluated At
         updated_at:
           type: string
+          format: date-time
           title: Updated At
       type: object
       required:
@@ -23737,6 +25975,7 @@ components:
           title: Parameter Overrides
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -23797,9 +26036,11 @@ components:
           title: Is Default
         created_at:
           type: string
+          format: date-time
           title: Created At
         updated_at:
           type: string
+          format: date-time
           title: Updated At
       type: object
       required:
@@ -24720,6 +26961,56 @@ components:
       - updated_at
       title: SavedHuntModel
       description: Wire format for a saved hunt row.
+    SavedSearchCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        query:
+          type: string
+          maxLength: 8000
+          minLength: 1
+          title: Query
+        language:
+          type: string
+          title: Language
+          default: lucene
+      type: object
+      required:
+      - name
+      - query
+      title: SavedSearchCreate
+    SavedSearchOut:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        query:
+          type: string
+          title: Query
+        language:
+          type: string
+          title: Language
+        createdAt:
+          type: string
+          title: Createdat
+        pinned:
+          type: boolean
+          title: Pinned
+          default: false
+      type: object
+      required:
+      - id
+      - name
+      - query
+      - language
+      - createdAt
+      title: SavedSearchOut
     SavedViewModel:
       properties:
         id:
@@ -24807,10 +27098,12 @@ components:
           title: Cloud Account
         started_at:
           type: string
+          format: date-time
           title: Started At
         completed_at:
           anyOf:
           - type: string
+            format: date-time
           - type: 'null'
           title: Completed At
         status:
@@ -24844,6 +27137,86 @@ components:
       - findings_closed
       - error_message
       title: ScanRunOut
+    SelectableTenant:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        slug:
+          type: string
+          title: Slug
+      type: object
+      required:
+      - id
+      - name
+      - slug
+      title: SelectableTenant
+      description: 'Just enough to label a picker entry: the same minimal identity
+        as /me/identity (no plan, settings or limits).'
+    SelectableTenantsResponse:
+      properties:
+        own_tenant_id:
+          type: string
+          format: uuid
+          title: Own Tenant Id
+        can_select_other_tenants:
+          type: boolean
+          title: Can Select Other Tenants
+        tenants:
+          items:
+            $ref: '#/components/schemas/SelectableTenant'
+          type: array
+          title: Tenants
+      type: object
+      required:
+      - own_tenant_id
+      - can_select_other_tenants
+      - tenants
+      title: SelectableTenantsResponse
+    SentAlert:
+      properties:
+        alert_id:
+          type: string
+          title: Alert Id
+        tenant_id:
+          type: string
+          title: Tenant Id
+        tenant_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Name
+        severity:
+          type: string
+          title: Severity
+        title:
+          type: string
+          title: Title
+        sent_at:
+          type: string
+          format: date-time
+          title: Sent At
+        batch_id:
+          type: string
+          title: Batch Id
+        recipient_count:
+          type: integer
+          title: Recipient Count
+      type: object
+      required:
+      - alert_id
+      - tenant_id
+      - tenant_name
+      - severity
+      - title
+      - sent_at
+      - batch_id
+      - recipient_count
+      title: SentAlert
     ShiftAnalyst:
       properties:
         id:
@@ -25399,13 +27772,16 @@ components:
         last_run_at:
           anyOf:
           - type: string
+            format: date-time
           - type: 'null'
           title: Last Run At
         created_at:
           type: string
+          format: date-time
           title: Created At
         updated_at:
           type: string
+          format: date-time
           title: Updated At
       type: object
       required:
@@ -25552,6 +27928,7 @@ components:
           title: Author Id
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -25571,7 +27948,7 @@ components:
         seed_demo:
           type: boolean
           title: Seed Demo
-          default: true
+          default: false
         invite_base_url:
           anyOf:
           - type: string
@@ -25587,7 +27964,8 @@ components:
 
         ``waitlist_entry_id`` is the only required field. The optional
 
-        ``seed_demo`` flag lets the operator turn off the starter dataset
+        ``seed_demo`` (default OFF) lets an operator explicitly opt in to loading
+        the demo dataset
 
         for tenants where the customer wants a clean slate.'
     TenantProvisionResponse:
@@ -25736,6 +28114,17 @@ components:
         a separate path (:func:`test_existing_connector`) that decrypts the
 
         stored creds first.'
+    TestEmailResult:
+      properties:
+        sent_to:
+          items:
+            type: string
+          type: array
+          title: Sent To
+      type: object
+      required:
+      - sent_to
+      title: TestEmailResult
     TestResponse:
       properties:
         matches:
@@ -25892,6 +28281,7 @@ components:
           title: Is Active
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -27047,8 +29437,13 @@ components:
           format: uuid
           title: Tenant Id
         email:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Email
+        account_name:
+          type: string
+          title: Account Name
         username:
           type: string
           title: Username
@@ -27063,11 +29458,17 @@ components:
           type: object
           title: Preferences
           default: {}
+        capabilities:
+          items:
+            type: string
+          type: array
+          title: Capabilities
+          default: []
       type: object
       required:
       - id
       - tenant_id
-      - email
+      - account_name
       - username
       - role
       - is_active
@@ -27083,8 +29484,13 @@ components:
           format: uuid
           title: Tenant Id
         email:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Email
+        account_name:
+          type: string
+          title: Account Name
         username:
           type: string
           title: Username
@@ -27108,7 +29514,7 @@ components:
       required:
       - id
       - tenant_id
-      - email
+      - account_name
       - username
       - role
       - is_active
@@ -27175,6 +29581,55 @@ components:
       - msg
       - type
       title: ValidationError
+    ViewableTenant:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        slug:
+          type: string
+          title: Slug
+        relationship:
+          type: string
+          enum:
+          - self
+          - platform
+          - granted
+          title: Relationship
+        access:
+          type: string
+          enum:
+          - view
+          - full
+          title: Access
+          default: view
+      type: object
+      required:
+      - id
+      - name
+      - slug
+      - relationship
+      title: ViewableTenant
+    ViewableTenantsResponse:
+      properties:
+        home_tenant_id:
+          type: string
+          format: uuid
+          title: Home Tenant Id
+        tenants:
+          items:
+            $ref: '#/components/schemas/ViewableTenant'
+          type: array
+          title: Tenants
+      type: object
+      required:
+      - home_tenant_id
+      - tenants
+      title: ViewableTenantsResponse
     VulnerabilityCreate:
       properties:
         asset_id:
@@ -27299,19 +29754,18 @@ components:
           title: Tenant Id
         first_found:
           type: string
+          format: date-time
           title: First Found
         last_found:
           type: string
+          format: date-time
           title: Last Found
         remediated_at:
           anyOf:
           - type: string
+            format: date-time
           - type: 'null'
           title: Remediated At
-        asset_metadata:
-          additionalProperties: true
-          type: object
-          title: Asset Metadata
       type: object
       required:
       - asset_id
@@ -27536,6 +29990,7 @@ components:
           title: Approved By
         created_at:
           type: string
+          format: date-time
           title: Created At
       type: object
       required:
@@ -27685,6 +30140,81 @@ components:
           title: Tags
       type: object
       title: UpdateRuleRequest
+    app__api__v1__endpoints__enrichment__IndicatorOut:
+      properties:
+        id:
+          type: string
+          title: Id
+        type:
+          type: string
+          title: Type
+        value:
+          type: string
+          title: Value
+        confidence:
+          type: number
+          title: Confidence
+        severity:
+          type: string
+          title: Severity
+        malicious:
+          type: boolean
+          title: Malicious
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        sources:
+          items:
+            type: string
+          type: array
+          title: Sources
+        firstSeen:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Firstseen
+        lastSeen:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lastseen
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        country:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Country
+        asn:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Asn
+        mitre:
+          items:
+            type: string
+          type: array
+          title: Mitre
+        raw:
+          additionalProperties: true
+          type: object
+          title: Raw
+      type: object
+      required:
+      - id
+      - type
+      - value
+      - confidence
+      - severity
+      - malicious
+      title: IndicatorOut
+      description: The web console's ThreatIndicator (apps/web/src/lib/api.ts), plus
+        the raw provider result.
     app__api__v1__endpoints__hunts__HuntResponse:
       properties:
         id:
@@ -27839,6 +30369,62 @@ components:
       - source
       - description
       title: TimelineEvent
+    app__api__v1__endpoints__insider_threat__IndicatorOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        tenant_id:
+          type: string
+          format: uuid
+          title: Tenant Id
+        profile_id:
+          type: string
+          format: uuid
+          title: Profile Id
+        indicator_type:
+          type: string
+          title: Indicator Type
+        severity:
+          type: string
+          title: Severity
+        description:
+          type: string
+          title: Description
+        source_alert_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Source Alert Id
+        evidence:
+          additionalProperties: true
+          type: object
+          title: Evidence
+        occurred_at:
+          type: string
+          format: date-time
+          title: Occurred At
+        acknowledged_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Acknowledged At
+      type: object
+      required:
+      - id
+      - tenant_id
+      - profile_id
+      - indicator_type
+      - severity
+      - description
+      - source_alert_id
+      - evidence
+      - occurred_at
+      - acknowledged_at
+      title: IndicatorOut
     app__api__v1__endpoints__investigations__TimelineResponse:
       properties:
         run_id:
