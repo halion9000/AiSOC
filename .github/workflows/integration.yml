@@ -453,7 +453,11 @@ jobs:
 
       - name: Install tooling (awscli + postgres client)
         run: |
-          pip install --quiet awscli "moto[server]>=5,<6"
+          pip install --quiet awscli
+          # moto goes in its OWN virtualenv: installed next to the runner's apt-managed packages it fails to start, because the system pyOpenSSL is
+          # imported against the newer cryptography pip brings (`AttributeError: module 'lib' has no attribute 'GEN_EMAIL'`, seen in this job).
+          python3 -m venv "${RUNNER_TEMP}/moto-venv"
+          "${RUNNER_TEMP}/moto-venv/bin/pip" install --quiet "moto[server]>=5,<6"
           sudo apt-get update -q && sudo apt-get install -y -q postgresql-client
 
       # MinIO needs a `server /data` command, which the GitHub `services:`
@@ -464,7 +468,7 @@ jobs:
       # registry to depend on. The job's credentials are still called minioadmin: any value works against moto.
       - name: Start an S3-compatible server (moto)
         run: |
-          nohup moto_server -H 127.0.0.1 -p 9000 > "${RUNNER_TEMP}/moto.log" 2>&1 &
+          nohup "${RUNNER_TEMP}/moto-venv/bin/moto_server" -H 127.0.0.1 -p 9000 > "${RUNNER_TEMP}/moto.log" 2>&1 &
           for _ in $(seq 1 30); do
             curl -fs -o /dev/null http://localhost:9000/ && exit 0
             sleep 1
