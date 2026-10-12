@@ -85,7 +85,8 @@
       "undici": "^8.10.2",
       "image-size": "^2.0.3",
       "ip-address": "^10.3.1",
-      "websocket-driver": "^0.7.5"
+      "websocket-driver": "^0.7.5",
+      "tinypool": "^2.1.2"
     }
   }
 }
