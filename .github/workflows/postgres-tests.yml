@@ -173,7 +173,7 @@ jobs:
           ENVIRONMENT: development
         run: |
           pip install --quiet fastapi pydantic pydantic-settings "sqlalchemy[asyncio]" asyncpg structlog httpx redis python-dateutil cryptography pytest-asyncio
-          python -m pytest tests/test_rls_platform_postgres.py -v --tb=short -rs --junitxml=actions-postgres-tests.junit.xml
+          python -m pytest tests/test_rls_platform_postgres.py -v --tb=short -rs --junitxml=actions-postgres-tests.junit.xml 2>&1 | tee actions-pytest.log
           python - <<'PY'
           import sys
           import xml.etree.ElementTree as ET
@@ -186,6 +186,34 @@ jobs:
           print(f"tests={tests} skipped={skipped} failed={failed}")
           if tests < 4 or skipped or failed:
               sys.exit("the actions Postgres test must RUN and pass: a skip means its variables or database were not as required")
+          PY
+
+      # When a step above fails, put the failing test names and the end of pytest's output into ANNOTATIONS (visible on the run's summary and through the
+      # checks API), so a red job can be diagnosed without downloading logs or artifacts.
+      - name: Annotate failures
+        if: failure()
+        run: |
+          python - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          def esc(text):
+              return text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+
+          shown = 0
+          for path in glob.glob("services/*/*.junit.xml"):
+              for case in ET.parse(path).getroot().iter("testcase"):
+                  for kind in ("failure", "error"):
+                      node = case.find(kind)
+                      if node is not None and shown < 20:
+                          shown += 1
+                          detail = (node.get("message") or "") + "\n" + (node.text or "")
+                          print(f"::error title={kind}: {case.get('classname', '').split('.')[-1]}::{esc(case.get('name', ''))} | {esc(detail[:900])}")
+          log = "services/actions/actions-pytest.log"
+          if os.path.exists(log):
+              tail = open(log, errors="replace").read().splitlines()[-45:]
+              print("::error title=tail of the actions service pytest output::" + esc("\n".join(tail))[:3500])
           PY
 
       # The point of this job: a skipped test here means the opt-in variables or the database were not what the tests need.
