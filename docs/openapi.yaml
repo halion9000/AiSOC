@@ -14578,6 +14578,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/status:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Status
+      description: Record CORE's latest run for each source it forwards.
+      operationId: report_core_feed_status_api_v1_inbox_core_feed__tenant_token__status_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/lake/sql:
     post:
       tags:
@@ -27302,6 +27335,59 @@ components:
       - alerts_handled
       - escalations
       title: ShiftSummary
+    SourceReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+          description: CORE's id for the source, e.g. ``huntress``.
+        name:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Name
+          description: Display name for a new row; ignored for an existing one.
+        category:
+          type: string
+          enum:
+          - siem
+          - edr
+          - cloud
+          - iam
+          - saas
+          - audit
+          - vcs
+          - ndr
+          - network
+          title: Category
+          default: saas
+        status:
+          type: string
+          enum:
+          - ok
+          - error
+          title: Status
+        fetched:
+          type: integer
+          maximum: 1000000.0
+          minimum: 0.0
+          title: Fetched
+          default: 0
+        sent:
+          type: integer
+          maximum: 1000000.0
+          minimum: 0.0
+          title: Sent
+          description: Records AiSOC accepted in this run.
+          default: 0
+      type: object
+      required:
+      - vendor
+      - status
+      title: SourceReport
+      description: One source's outcome for CORE's latest run.
     SourceStat:
       properties:
         name:
@@ -27373,6 +27459,27 @@ components:
         \ message. Other backends may still have\n    succeeded.\n  * ``unsupported``\
         \ — connector type doesn't speak federated search\n    (kept for forward-compat;\
         \ today we pre-filter so this is rare)."
+    StatusReport:
+      properties:
+        sources:
+          items:
+            $ref: '#/components/schemas/SourceReport'
+          type: array
+          maxItems: 50
+          title: Sources
+      type: object
+      required:
+      - sources
+      title: StatusReport
+    StatusResponse:
+      properties:
+        updated:
+          type: integer
+          title: Updated
+      type: object
+      required:
+      - updated
+      title: StatusResponse
     SubmissionResponse:
       properties:
         id:

@@ -409,6 +409,14 @@ class ConnectorScheduler:
             await self._record_failure(target.id)
             return
 
+        if getattr(connector_class, "externally_managed", False) is True:
+            # Something else (CORE's forwarder) writes this row's status and counters; polling here would overwrite them with "healthy, 0 events".
+            logger.info(
+                "connector.scheduler.poll_skipped id=%s reason=externally_managed",
+                connector_id,
+            )
+            return
+
         # Decrypt creds and instantiate. We do this inside the try block
         # so InvalidToken / TypeError / etc all funnel into the same
         # failure recorder.

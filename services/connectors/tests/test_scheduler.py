@@ -368,6 +368,20 @@ async def test_poll_one_unknown_connector_type(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_poll_one_leaves_a_connector_that_something_else_manages_alone():
+    """A "Forwarded from CORE" row gets its status and counters from CORE's reports. A poll would overwrite them with "healthy, 0 events" (or, with no
+    credentials to decrypt, mark it unhealthy), so the scheduler must neither succeed nor fail it, and must not push anything. Uses the real registry."""
+    inst = _make_instance(connector_type="core_feed", auth_config={})
+
+    scheduler = ConnectorScheduler(engine=_FakeEngine([inst]), ingest_client=_FakeIngestClient(), vault=_FakeVault())
+    await scheduler._poll_one(connector_id=inst.id)
+
+    engine: _FakeEngine = scheduler._engine  # type: ignore[assignment]
+    assert engine.success_calls == [] and engine.failure_calls == []
+    assert scheduler._ingest_client.calls == 0  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
 async def test_poll_one_decrypt_failure(monkeypatch):
     inst = _make_instance(connector_type="fake_connector")
     monkeypatch.setattr("app.scheduler.CONNECTOR_REGISTRY", {"fake_connector": MagicMock()})

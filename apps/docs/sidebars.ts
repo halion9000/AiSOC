@@ -71,6 +71,7 @@ const sidebars: SidebarsConfig = {
         "connectors/endpoint-decision-matrix",
         "connectors/api-coverage",
         "connectors/universal-capture",
+        "connectors/core-feed",
         "connectors/azure-entra",
         "connectors/azure-activity",
         "connectors/azure-defender",

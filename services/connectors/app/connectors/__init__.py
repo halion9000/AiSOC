@@ -34,6 +34,7 @@ from app.connectors.cisco_umbrella import CiscoUmbrellaConnector
 from app.connectors.cloudflare import CloudflareConnector
 from app.connectors.cloudflare_zt import CloudflareZTConnector
 from app.connectors.confluence_audit import ConfluenceAuditConnector
+from app.connectors.core_feed import CoreFeedConnector
 from app.connectors.cortex_xdr import CortexXDRConnector
 from app.connectors.cortex_xsiam import CortexXSIAMConnector
 from app.connectors.crowdstrike import CrowdStrikeConnector
@@ -125,6 +126,7 @@ _CONNECTOR_CLASSES: tuple[type[BaseConnector], ...] = (
     CloudflareConnector,
     CloudflareZTConnector,
     ConfluenceAuditConnector,
+    CoreFeedConnector,
     CortexXDRConnector,
     CortexXSIAMConnector,
     CrowdStrikeConnector,
@@ -255,6 +257,7 @@ __all__ = [
     "CloudflareZTConnector",
     "ConfluenceAuditConnector",
     "ConnectorSchema",
+    "CoreFeedConnector",
     "CortexXDRConnector",
     "CortexXSIAMConnector",
     "CrowdStrikeConnector",

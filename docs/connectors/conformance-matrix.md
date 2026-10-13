@@ -6,7 +6,7 @@
 > async coroutines, valid capabilities, secret fields marked `secret`).
 > Live-vendor sandbox smoke is a separate wave; this gates the contract.
 
-**83 / 83 connectors conform** to the runtime contract.
+**84 / 84 connectors conform** to the runtime contract.
 
 | connector | category | fields | vaulted | caps | test_connection | fetch_alerts | normalize |
 |-----------|----------|-------:|--------:|-----:|:---------------:|:------------:|:---------:|
@@ -27,6 +27,7 @@
 | cloudflare | saas | 2 | 1 | 1 | ✅ | ✅ | ✅ |
 | cloudflare_zt | network | 4 | 1 | 3 | ✅ | ✅ | ✅ |
 | confluence_audit | saas | 3 | 1 | 2 | ✅ | ✅ | ✅ |
+| core_feed | siem | 1 | 0 | 0 | ✅ | ✅ | — |
 | cortex_xdr | edr | 3 | 2 | 3 | ✅ | ✅ | ✅ |
 | cortex_xsiam | siem | 3 | 2 | 5 | ✅ | ✅ | ✅ |
 | crowdstrike | edr | 3 | 1 | 6 | ✅ | ✅ | ✅ |

@@ -41,6 +41,7 @@ from app.api.v1.endpoints import (
     identity_graph,
     identity_timeline,
     inbox,
+    inbox_core_feed,
     inbox_itsm,
     insider_threat,
     insights,
@@ -296,6 +297,7 @@ api_router.include_router(inbox.router)
 # handles outbound AiSOC → ITSM projection) and is what makes the
 # operator's existing ITSM the source of truth for case status.
 api_router.include_router(inbox_itsm.router)
+api_router.include_router(inbox_core_feed.router)
 
 # Tenant lake API (Workstream 7 of AI Stack plan).
 # /lake/sql executes a tenant-scoped SELECT against the warm tier

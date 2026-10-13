@@ -76,6 +76,10 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
         "POST",
         "/api/v1/inbox/itsm/{tenant_token}/{connector_instance_id}",
     ): "ITSM webhook: authenticated by the secret in the path, checked in the handler (401 without it)",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/status",
+    ): "CORE's per-run report: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write that tenant's core_feed rows",
 }
 
 LOGIN_ONLY_NO_CHECK: dict[tuple[str, str], str] = {
