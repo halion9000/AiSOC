@@ -13,6 +13,8 @@ FROM alpine:3.19
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /ingest-service .
+# The push inbox (/v1/inbox/*) maps each vendor payload with these YAML templates; INBOX_TEMPLATES_DIR defaults to /app/templates.
+COPY --from=builder /app/internal/normalizer/templates ./templates
 
 EXPOSE 8080
 

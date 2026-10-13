@@ -331,6 +331,8 @@ services:
     pull_policy: build
     container_name: aisoc-ingest
     depends_on:
+      postgres:
+        condition: service_healthy
       kafka:
         condition: service_healthy
       neo4j:
@@ -345,6 +347,8 @@ services:
       ENV: ${AISOC_ENVIRONMENT:-production}
       HTTP_PORT: 8080
       METRICS_PORT: 9090
+      # Without this the push inbox (/v1/inbox/*) is switched off: it needs Postgres to look up each push token.
+      DATABASE_DSN: postgres://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc?sslmode=disable
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/1
       LOG_LEVEL: info
