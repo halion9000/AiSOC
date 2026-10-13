@@ -37,6 +37,15 @@ describe('the sign-in page', () => {
     expect(container.textContent ?? '').not.toMatch(/demo/i);
   });
 
+  // "/" is the project's public marketing site. A self-hosted console must not send people there from its own sign-in page (found live: a "Back to localhost" link
+  // that, despite its label, led to the original project's site).
+  it('has no link back to the marketing site', () => {
+    const { container } = render(<LoginPage />);
+    expect(container.textContent ?? '').not.toMatch(/back to localhost/i);
+    const toRoot = Array.from(container.querySelectorAll('a')).filter((a) => a.getAttribute('href') === '/');
+    expect(toRoot).toHaveLength(0);
+  });
+
   it('presents an account name and password sign-in', () => {
     render(<LoginPage />);
     expect(screen.getByRole('heading', { name: /sign in to aisoc/i })).toBeInTheDocument();
