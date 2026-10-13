@@ -144,27 +144,8 @@ jobs:
             echo "AISOC_TEST_PG_APP_URL=postgresql+asyncpg://aisoc_app:${app_password}@${PGHOST}:${PGPORT}/${PGDATABASE}"
           } >> "${GITHUB_ENV}"
 
-      - name: Run the Postgres-backed tests
-        working-directory: services/api
-        env:
-          ENVIRONMENT: development
-          SECRET_KEY: ci-dummy-secret-key-at-least-32bytes!
-        run: |
-          python -m pytest \
-            tests/test_mssp_resolver_cross_tenant_postgres.py \
-            tests/test_view_as_audit_postgres.py \
-            tests/test_tenant_access_postgres.py \
-            tests/test_rls_session_tag_postgres.py \
-            tests/test_rls_fail_closed_switch_postgres.py \
-            tests/test_api_migrations_rerun_postgres.py \
-            tests/test_rls_platform_and_tenant_sessions_postgres.py \
-            tests/test_rls_workers_fail_closed_postgres.py \
-            tests/test_rls_pre_tenant_lookups_postgres.py \
-            tests/test_rls_passkeys_fail_closed_postgres.py \
-            tests/test_rls_shared_rows_postgres.py \
-            tests/test_service_migrations_postgres.py \
-            -v --tb=short -rs --junitxml=postgres-tests.junit.xml
-
+      # RUNS BEFORE THE API'S TESTS ON PURPOSE: the last of those (test_service_migrations_postgres.py) does `drop schema public cascade` to start from nothing, which
+      # removes the API's tables, response_actions among them; this test needs the migrated database, so it must go first.
       # The actions service is a separate Python package that is also named `app`, so its test cannot run in the API's pytest process: it has its own step, its own
       # working directory and the dependencies its pyproject declares (the subset this test imports; checked in a clean virtualenv).
       - name: Run the actions service's Postgres-backed test
@@ -187,6 +168,28 @@ jobs:
           if tests < 4 or skipped or failed:
               sys.exit("the actions Postgres test must RUN and pass: a skip means its variables or database were not as required")
           PY
+
+      - name: Run the Postgres-backed tests
+        if: ${{ !cancelled() }}  # even when the actions step above failed: one red step should not hide the others
+        working-directory: services/api
+        env:
+          ENVIRONMENT: development
+          SECRET_KEY: ci-dummy-secret-key-at-least-32bytes!
+        run: |
+          python -m pytest \
+            tests/test_mssp_resolver_cross_tenant_postgres.py \
+            tests/test_view_as_audit_postgres.py \
+            tests/test_tenant_access_postgres.py \
+            tests/test_rls_session_tag_postgres.py \
+            tests/test_rls_fail_closed_switch_postgres.py \
+            tests/test_api_migrations_rerun_postgres.py \
+            tests/test_rls_platform_and_tenant_sessions_postgres.py \
+            tests/test_rls_workers_fail_closed_postgres.py \
+            tests/test_rls_pre_tenant_lookups_postgres.py \
+            tests/test_rls_passkeys_fail_closed_postgres.py \
+            tests/test_rls_shared_rows_postgres.py \
+            tests/test_service_migrations_postgres.py \
+            -v --tb=short -rs --junitxml=postgres-tests.junit.xml
 
       # When a step above fails, put the failing test names and the end of pytest's output into ANNOTATIONS (visible on the run's summary and through the
       # checks API), so a red job can be diagnosed without downloading logs or artifacts.
