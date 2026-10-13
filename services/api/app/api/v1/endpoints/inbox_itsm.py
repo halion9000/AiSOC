@@ -556,9 +556,9 @@ async def _apply_status_to_case(
         text(
             """
             INSERT INTO aisoc_case_comments
-                (id, case_id, author, body, is_system, created_at)
+                (id, case_id, tenant_id, author, body, is_system, created_at)
             VALUES
-                (:id, :case_id, :author, :body, TRUE, :now)
+                (:id, :case_id, (SELECT tenant_id FROM aisoc_cases WHERE id = :case_id), :author, :body, TRUE, :now)
             """
         ).bindparams(
             id=uuid.uuid4(),

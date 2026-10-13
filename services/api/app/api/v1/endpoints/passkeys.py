@@ -103,8 +103,15 @@ async def _store_challenge(
         rp_id=settings.PASSKEY_RP_ID,
         expires_at=_challenge_expiry(),
     )
-    db.add(row)
-    await db.commit()
+    if tenant_id is None:
+        # A usernameless sign-in has no tenant yet, so its challenge is a deliberate shared (tenant_id NULL) row. Since migration 082 a tenant-tagged or
+        # fail-closed session may not create those (that was the cross-tenant hole), so this one write is an explicit, granted bypass.
+        async with cross_tenant_reads(db):
+            db.add(row)
+            await db.commit()
+    else:
+        db.add(row)
+        await db.commit()
     return encoded
 
 
@@ -134,8 +141,15 @@ async def _consume_challenge(db: Any, *, encoded: str, purpose: str, pre_session
         )
     if pre_session and row.tenant_id is not None:
         await adopt_tenant(db, row.tenant_id)
-    row.consumed_at = _now()
-    await db.commit()
+    if pre_session and row.tenant_id is None:
+        # a usernameless challenge is a shared row, which a tenant-tagged or fail-closed session may not modify (migration 082): consuming it is the same
+        # explicit bypass that created it. The change is made INSIDE the block: entering it flushes anything pending under the old scope.
+        async with cross_tenant_reads(db):
+            row.consumed_at = _now()
+            await db.commit()
+    else:
+        row.consumed_at = _now()
+        await db.commit()
     return row
 
 

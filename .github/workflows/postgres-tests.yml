@@ -13,6 +13,7 @@ name: Postgres-backed tests
 #   test_rls_workers_fail_closed_postgres.py      the retention sweeper and oauth refresh worker still see every tenant with the switch ON
 #   test_rls_pre_tenant_lookups_postgres.py       API keys, the ITSM token, the OAuth state and public replays: lookups before the tenant is known, switch ON
 #   test_rls_passkeys_fail_closed_postgres.py     the passkey sign-in flow with the switch ON
+#   test_rls_shared_rows_postgres.py              shared (tenant_id IS NULL) rows are read-only for tenants, on all 12 tables (migration 082)
 #   (services/actions) test_rls_platform_postgres.py   the actions service's own sessions keep working with the switch ON; separate step below
 #
 # The first three exist precisely because mocks cannot see what row-level security does: they must run as `aisoc_app` (NOT a superuser, no
@@ -158,6 +159,7 @@ jobs:
             tests/test_rls_workers_fail_closed_postgres.py \
             tests/test_rls_pre_tenant_lookups_postgres.py \
             tests/test_rls_passkeys_fail_closed_postgres.py \
+            tests/test_rls_shared_rows_postgres.py \
             tests/test_service_migrations_postgres.py \
             -v --tb=short -rs --junitxml=postgres-tests.junit.xml
 
