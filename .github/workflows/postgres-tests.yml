@@ -15,6 +15,7 @@ name: Postgres-backed tests
 #   test_rls_passkeys_fail_closed_postgres.py     the passkey sign-in flow with the switch ON
 #   test_rls_shared_rows_postgres.py              shared (tenant_id IS NULL) rows are read-only for tenants, on all 12 tables (migration 082)
 #   test_load_builtin_detections_postgres.py      the shipped detection rules load per tenant, idempotently, as the restricted role with the switch on
+#   test_ensure_core_feed_token_postgres.py       the CORE feed push token is created once per tenant, reused, never a revoked or another label's one
 #   (services/actions) test_rls_platform_postgres.py   the actions service's own sessions keep working with the switch ON; separate step below
 #
 # The first three exist precisely because mocks cannot see what row-level security does: they must run as `aisoc_app` (NOT a superuser, no
@@ -190,6 +191,7 @@ jobs:
             tests/test_rls_passkeys_fail_closed_postgres.py \
             tests/test_rls_shared_rows_postgres.py \
             tests/test_load_builtin_detections_postgres.py \
+            tests/test_ensure_core_feed_token_postgres.py \
             tests/test_service_migrations_postgres.py \
             -v --tb=short -rs --junitxml=postgres-tests.junit.xml
 
