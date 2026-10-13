@@ -84,7 +84,8 @@ jobs:
       PGUSER: aisoc
       PGPASSWORD: pg-${{ github.run_id }}-${{ github.run_attempt }}
       PGDATABASE: aisoc
-      # The same dependency set as `python-test` in ci.yml, plus alembic for the service-migration test.
+      # The same dependency set as `python-test` in ci.yml, plus alembic for the service-migration test and webauthn (services/api/pyproject.toml) for the
+      # passkey tests: without it the endpoint answers 503 and test_rls_passkeys_fail_closed_postgres.py fails.
       API_DEPS: >-
         fastapi "pydantic[email]" pydantic-settings "sqlalchemy[asyncio]" asyncpg
         structlog cryptography "passlib[bcrypt]" tenacity pyyaml
@@ -95,6 +96,7 @@ jobs:
         neo4j redis celery httpx aiofiles email-validator PyJWT
         "sqlglot>=23,<27" aiosqlite
         "croniter>=2.0,<7.0"
+        "webauthn>=2.2,<4.0"
         alembic
         pytest pytest-asyncio
 
