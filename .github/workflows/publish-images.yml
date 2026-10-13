@@ -33,6 +33,9 @@ permissions:
 jobs:
   build:
     name: ${{ matrix.service }}
+    # The image names below are ghcr.io/beenuar/...: only that organisation's repository can push them. On a fork this job could never succeed (every leg
+    # failed with "denied: The requested installation does not exist") and showed as a permanent red run on every push, hiding real failures.
+    if: github.repository == 'beenuar/AiSOC'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
