@@ -43,8 +43,14 @@ _TACTIC_TAG = re.compile(r"^mitre\.attack\.([a-z][a-z-]*)$", re.IGNORECASE)
 _SEVERITIES = {"low", "medium", "high", "critical"}
 
 
-def detections_dir() -> Path | None:
-    for candidate in (os.environ.get("AISOC_DETECTIONS_DIR"), "/app/detections", str(Path(__file__).resolve().parents[4] / "detections")):
+def detections_dir(module_file: str | Path = __file__) -> Path | None:
+    """Where the rule files are. ``module_file`` exists so a test can pretend to be somewhere else: in the container this file is at /app/app/scripts/, only
+    three folders below the root, so a checkout-relative guess (``parents[4]``) does not exist there and must never be evaluated unless it is needed."""
+    candidates: list[str | None] = [os.environ.get("AISOC_DETECTIONS_DIR"), "/app/detections"]
+    parents = Path(module_file).resolve().parents
+    if len(parents) > 4:
+        candidates.append(str(parents[4] / "detections"))
+    for candidate in candidates:
         if candidate and Path(candidate).is_dir():
             return Path(candidate)
     return None

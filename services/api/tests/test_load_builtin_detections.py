@@ -90,3 +90,16 @@ def test_the_shipped_rules_all_load():
     assert all(r["name"] and r["category"] and r["rule_body"] for r in rules)
     assert any(r["mitre_techniques"] for r in rules), "technique ids are being extracted from the shipped tags"
     assert len(skipped) < 100
+
+
+def test_finding_the_folder_does_not_crash_when_the_script_is_only_a_few_folders_deep(tmp_path, monkeypatch):
+    """Found live: in the container the script is /app/app/scripts/load_builtin_detections.py, where the checkout-relative fallback (four folders up) does not exist.
+    Looking for the folder raised IndexError before it ever tried /app/detections."""
+    monkeypatch.delenv("AISOC_DETECTIONS_DIR", raising=False)
+    found = detections_dir(Path("/app/app/scripts/load_builtin_detections.py"))  # must not raise, whatever it finds
+    assert found is None or found.is_dir()
+
+
+def test_the_environment_override_is_used_even_from_a_shallow_location(tmp_path, monkeypatch):
+    monkeypatch.setenv("AISOC_DETECTIONS_DIR", str(tmp_path))
+    assert detections_dir(Path("/app/app/scripts/load_builtin_detections.py")) == tmp_path
