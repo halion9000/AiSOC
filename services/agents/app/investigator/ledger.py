@@ -541,18 +541,22 @@ async def record_suppression(
             tenant_id = await _resolve_tenant_id(conn, tenant_ref)
             if tenant_id is None:
                 return False
-            await conn.execute(
-                """
-                INSERT INTO aisoc_outcome_suppressions
-                    (id, tenant_id, signature, alert_id, disposition, prior_author, created_at)
-                VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, now())
-                """,
-                tenant_id,
-                signature,
-                _coerce_uuid(alert_id),
-                disposition,
-                prior_author,
-            )
+            # In the tenant's scope like every other write in this module: aisoc_outcome_suppressions is row-level-security covered, and with fail-closed policies
+            # (migration 081) an unscoped INSERT is rejected. This write is best-effort and swallows the error below, so the compounding-reduction metric would have
+            # silently stopped being recorded rather than failing loudly.
+            async with tenant_scope(conn, tenant_id):
+                await conn.execute(
+                    """
+                    INSERT INTO aisoc_outcome_suppressions
+                        (id, tenant_id, signature, alert_id, disposition, prior_author, created_at)
+                    VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, now())
+                    """,
+                    tenant_id,
+                    signature,
+                    _coerce_uuid(alert_id),
+                    disposition,
+                    prior_author,
+                )
         return True
     except Exception as exc:  # noqa: BLE001 — metric write is best-effort
         logger.debug("ledger.record_suppression_failed", signature=signature, error=str(exc))

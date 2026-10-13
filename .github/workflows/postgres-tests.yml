@@ -13,6 +13,7 @@ name: Postgres-backed tests
 #   test_rls_workers_fail_closed_postgres.py      the retention sweeper and oauth refresh worker still see every tenant with the switch ON
 #   test_rls_pre_tenant_lookups_postgres.py       API keys, the ITSM token, the OAuth state and public replays: lookups before the tenant is known, switch ON
 #   test_rls_passkeys_fail_closed_postgres.py     the passkey sign-in flow with the switch ON
+#   (services/actions) test_rls_platform_postgres.py   the actions service's own sessions keep working with the switch ON; separate step below
 #
 # The first three exist precisely because mocks cannot see what row-level security does: they must run as `aisoc_app` (NOT a superuser, no
 # BYPASSRLS) against a fully migrated database, which is what this job builds: Postgres 16, the API's SQL migrations, then
@@ -29,6 +30,7 @@ on:
   pull_request:
     paths:
       - 'services/api/**'
+      - 'services/actions/**'
       - 'services/ueba/**'
       - 'services/honeytokens/**'
       - 'services/purple-team/**'
@@ -38,6 +40,7 @@ on:
     branches: [main]
     paths:
       - 'services/api/**'
+      - 'services/actions/**'
       - 'services/ueba/**'
       - 'services/honeytokens/**'
       - 'services/purple-team/**'
@@ -157,6 +160,29 @@ jobs:
             tests/test_rls_passkeys_fail_closed_postgres.py \
             tests/test_service_migrations_postgres.py \
             -v --tb=short -rs --junitxml=postgres-tests.junit.xml
+
+      # The actions service is a separate Python package that is also named `app`, so its test cannot run in the API's pytest process: it has its own step, its own
+      # working directory and the dependencies its pyproject declares (the subset this test imports; checked in a clean virtualenv).
+      - name: Run the actions service's Postgres-backed test
+        working-directory: services/actions
+        env:
+          ENVIRONMENT: development
+        run: |
+          pip install --quiet fastapi pydantic pydantic-settings "sqlalchemy[asyncio]" asyncpg structlog httpx redis python-dateutil cryptography pytest-asyncio
+          python -m pytest tests/test_rls_platform_postgres.py -v --tb=short -rs --junitxml=actions-postgres-tests.junit.xml
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("actions-postgres-tests.junit.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else list(root)
+          tests = sum(int(s.get("tests", 0)) for s in suites)
+          skipped = sum(int(s.get("skipped", 0)) for s in suites)
+          failed = sum(int(s.get("failures", 0)) + int(s.get("errors", 0)) for s in suites)
+          print(f"tests={tests} skipped={skipped} failed={failed}")
+          if tests < 4 or skipped or failed:
+              sys.exit("the actions Postgres test must RUN and pass: a skip means its variables or database were not as required")
+          PY
 
       # The point of this job: a skipped test here means the opt-in variables or the database were not what the tests need.
       - name: Fail if any of these tests was skipped (or none ran)

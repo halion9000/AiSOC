@@ -10,14 +10,38 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 from fastapi import HTTPException, status
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Session
 
 from app.core.config import get_settings
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class _PlatformSession(Session):
+    """The sessions of a PLATFORM service (step 4b of docs/security/rls-fail-closed-plan.md).
+
+    The actions service has no tenant on a request: callers authenticate with a service token, an action is read and changed BY ID (`claim`, `finish`, `reject`,
+    `get`), and the ChatOps callback is keyed by a signed token. It also INSERTS rows for whatever tenant the submitted request names. With the API's fail-closed
+    policies switched on (migration 081, `app.rls_fail_closed`) a session with no tenant sees nothing and may not insert, so every action route would fail.
+    Until each call carries its tenant, this service keeps the switch OFF for its own transactions and behaves exactly as it does with the switch off. That is a
+    granted bypass in application code, not a database boundary: it means fail-closed gives `response_actions` NO second layer of protection here, and tenant
+    isolation for actions rests on the callers (the API authorizes the tenant before it calls this service).
+    """
+
+
+@event.listens_for(_PlatformSession, "after_begin")
+def _keep_fail_closed_off(session, transaction, connection) -> None:
+    if connection.dialect.name == "postgresql":
+        connection.execute(text("SELECT set_config('app.rls_fail_closed', 'off', TRUE)"))
+
+
+def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """The session factory for `engine`: every transaction keeps the fail-closed switch off (see `_PlatformSession`)."""
+    return async_sessionmaker(engine, expire_on_commit=False, sync_session_class=_PlatformSession)
 
 
 _engine: AsyncEngine | None = None
@@ -32,7 +56,7 @@ def get_session_factory() -> async_sessionmaker[AsyncSession] | None:
         if not url:
             return None
         _engine = create_async_engine(url, pool_pre_ping=True)
-        _factory = async_sessionmaker(_engine, expire_on_commit=False)
+        _factory = make_session_factory(_engine)
     return _factory
 
 

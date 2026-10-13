@@ -208,6 +208,22 @@ class TestEveryCallSiteIsScopedInOrder:
         assert sets == [(str(TENANT),), (str(OTHER),)]
         assert [e[0] for e in conn.events].count("BEGIN") == 2 == [e[0] for e in conn.events].count("COMMIT")
 
+    @pytest.mark.anyio
+    async def test_a_suppression_is_recorded_inside_the_scope_of_its_tenant(self, conn, monkeypatch):
+        """It used to write with no tenant context. That write is best-effort and swallows its errors, so with fail-closed policies it would have silently stopped recording
+        the compounding-reduction metric instead of failing."""
+
+        async def resolved(_conn, _ref):
+            return TENANT
+
+        monkeypatch.setattr(ledger, "_resolve_tenant_id", resolved)
+        recorded = await ledger.record_suppression(
+            tenant_ref="acme", signature="sig", alert_id=uuid.uuid4(), disposition="benign", prior_author="analyst"
+        )
+        assert recorded is True
+        assert_scoped(conn.events, TENANT)
+        assert any("aisoc_outcome_suppressions" in e[1] for e in conn.events if e[0] == "execute")
+
 
 class TestNoQueryInThesModulesRunsUnscoped:
     """Static guard: a query added later without tenant_scope would silently bypass RLS again."""
@@ -218,7 +234,6 @@ class TestNoQueryInThesModulesRunsUnscoped:
         "_resolve_tenant_id": "resolves a slug/name to an id: there is no tenant to scope to yet",
         "_resolve_tenant_uuid": "same, in the LLM resolver",
         "resolve_tenant": "same, public wrapper",
-        "record_suppression": "writes a suppression row keyed by an explicit tenant filter (not RLS-dependent); tracked separately",
         "_insert_finding": "is only ever called with a connection that is already inside tenant_scope (checked below)",
         "sync_catalog": "see test_insert_finding_is_only_called_inside_a_scope",
     }
