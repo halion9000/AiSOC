@@ -233,11 +233,12 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
           <RoleBadge role={userRole} />
         </div>
 
+        {/* The clock, divider and name text wait for xl: in a narrower window (the CORE desktop panel) they pushed the avatar and Sign out off the right edge. */}
         {/* Divider between v1.5 console context and existing top-bar chrome. */}
-        <div className="hidden lg:block h-6 w-px bg-surface-border" aria-hidden />
+        <div className="hidden xl:block h-6 w-px bg-surface-border" aria-hidden />
 
         {/* Clock */}
-        <div className="text-right hidden lg:block">
+        <div className="text-right hidden xl:block">
           <p className="text-sm font-mono text-fg-secondary" suppressHydrationWarning>{timeStr}</p>
           <p className="text-xs text-fg-subtle" suppressHydrationWarning>{dateStr}</p>
         </div>
@@ -275,7 +276,7 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
             {initials}
           </div>
           {identity ? (
-            <div className="hidden lg:block min-w-0">
+            <div className="hidden xl:block min-w-0">
               <p className="text-xs font-medium text-fg-secondary truncate max-w-[12rem]">{identity}</p>
               {user?.username && (user.account_name || user.email) ? <p className="text-xs text-fg-subtle truncate max-w-[12rem]">{user.account_name || user.email}</p> : null}
             </div>
