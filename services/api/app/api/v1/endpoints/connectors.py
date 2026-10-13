@@ -872,6 +872,10 @@ async def test_existing_connector(
         connector.connector_config or {},
     )
 
+    if connector.connector_type == "core_feed":
+        # CORE reports this row's health after every run. A test from here reaches nothing, so it must not overwrite what CORE last said.
+        return verdict
+
     health_status = "healthy" if verdict.get("success") else "unhealthy"
     await db.execute(
         update(Connector)

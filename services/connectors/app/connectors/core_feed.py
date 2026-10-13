@@ -52,7 +52,8 @@ class CoreFeedConnector(BaseConnector):
             ],
         )
 
-    def __init__(self, vendor: str | None = None) -> None:
+    def __init__(self, vendor: str | None = None, **_managed: Any) -> None:
+        # The row CORE creates stores {"vendor": ..., "managed_by": "core"}, and the Test button passes the whole blob here, so extra keys must not be an error.
         self._vendor = vendor or ""
 
     async def test_connection(self) -> dict[str, Any]:
