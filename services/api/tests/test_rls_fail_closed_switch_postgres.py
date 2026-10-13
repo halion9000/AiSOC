@@ -188,9 +188,9 @@ async def test_the_operators_statement_works_on_new_connections_and_resetting_it
             await conn.execute(
                 text("DO $$ BEGIN EXECUTE format('ALTER DATABASE %I SET app.rls_fail_closed = ''on''', current_database()); END $$")
             )
-        assert await _visible(world, switch=None, tenant=None) == set(), (
-            "a new connection should be fail-closed once the database setting is on"
-        )
+        assert (
+            await _visible(world, switch=None, tenant=None) == set()
+        ), "a new connection should be fail-closed once the database setting is on"
     finally:
         async with admin.connect() as conn:
             await conn.execute(
@@ -216,7 +216,7 @@ async def test_no_policy_has_an_unswitched_fail_open_branch(world):
         switched = (
             await conn.execute(text("select count(*) from pg_policies where schemaname = 'public' and qual like '%rls_fail_closed%'"))
         ).scalar_one()
-    assert unswitched == [], (
-        f"these policies are fail-open whatever app.rls_fail_closed says; make them honour it (see migration 081): {unswitched}"
-    )
+    assert (
+        unswitched == []
+    ), f"these policies are fail-open whatever app.rls_fail_closed says; make them honour it (see migration 081): {unswitched}"
     assert switched >= 77, f"migration 081 should have switched at least the 77 policies it found, found {switched}"
