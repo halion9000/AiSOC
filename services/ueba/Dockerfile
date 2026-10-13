@@ -14,6 +14,9 @@ COPY pyproject.toml .
 # numpy/scipy install from manylinux wheels on python:3.11-slim, no
 # build-essential required. Keep this list in lockstep with
 # pyproject.toml [project.dependencies].
+# Slow or contended networks (many images building at once) made pip/poetry time out on the default 15s read timeout and cancel every other build.
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=8
+
 RUN pip install --no-cache-dir \
     "fastapi>=0.110.0" \
     "uvicorn[standard]>=0.29.0" \

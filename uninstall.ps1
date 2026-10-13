@@ -197,9 +197,9 @@ function Remove-AiSOCImages {
         return
     }
     Write-Section "Removing AiSOC container images"
-    $images = docker images --format '{{.Repository}}:{{.Tag}}' | Where-Object { $_ -like 'ghcr.io/beenuar/aisoc-*' }
+    $images = docker images --format '{{.Repository}}:{{.Tag}}' | Where-Object { $_ -like 'ghcr.io/beenuar/aisoc-*' -or $_ -like 'ghcr.io/halion9000/aisoc-*' }
     if (-not $images) {
-        Write-Info "No ghcr.io/beenuar/aisoc-* images found."
+        Write-Info "No ghcr.io/beenuar/aisoc-* or ghcr.io/halion9000/aisoc-* images found."
         return
     }
     $images | ForEach-Object { Write-Host "  $_" }

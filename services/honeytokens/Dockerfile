@@ -12,6 +12,9 @@ COPY pyproject.toml .
 # because the hatchling backend would need the package source, but we
 # don't COPY app/ until later (so this layer caches across source edits).
 # Keep this list in lockstep with pyproject.toml [project.dependencies].
+# Slow or contended networks (many images building at once) made pip/poetry time out on the default 15s read timeout and cancel every other build.
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=8
+
 RUN pip install --no-cache-dir \
     "fastapi>=0.110.0" \
     "uvicorn[standard]>=0.29.0" \

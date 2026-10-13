@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Slow or contended networks (many images building at once) made pip/poetry time out on the default 15s read timeout and cancel every other build.
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=8
+
 RUN pip install --no-cache-dir poetry==1.7.1 \
     && poetry config virtualenvs.create false
 

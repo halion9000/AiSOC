@@ -172,9 +172,9 @@ remove_aisoc_images() {
   fi
   section "Removing AiSOC container images"
   local images
-  images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^ghcr.io/beenuar/aisoc-' || true)
+  images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^ghcr.io/(beenuar|halion9000)/aisoc-' || true)
   if [ -z "$images" ]; then
-    info "No ghcr.io/beenuar/aisoc-* images found."
+    info "No ghcr.io/beenuar/aisoc-* or ghcr.io/halion9000/aisoc-* images found."
     return 0
   fi
   printf '%s\n' "$images" | sed 's/^/  /'
