@@ -61,7 +61,7 @@ function ConfidencePill({ label }: { label: ConfidenceLabel }) {
       className={clsx('text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border shrink-0', cfg.cls)}
       title={`Detection confidence: ${cfg.label}`}
     >
-      {cfg.label}
+      Conf: {cfg.label}
     </span>
   );
 }
@@ -447,6 +447,7 @@ function AlertsTableGrid({
     <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl overflow-hidden">
       <div className="flex items-center px-4 py-2 border-b border-gray-800/60 bg-gray-900/80">
         <span className="text-xs text-gray-500 flex-1 pl-2">ALERT</span>
+        <span className="text-xs text-gray-500 w-20">CONFIDENCE</span>
         <span className="text-xs text-gray-500 w-20">SEVERITY</span>
         <span className="text-xs text-gray-500 w-24">STATUS</span>
         <span className="text-xs text-gray-500 w-24 text-right">TIME</span>
