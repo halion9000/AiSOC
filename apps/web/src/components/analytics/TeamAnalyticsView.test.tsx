@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Case } from '@/lib/api';
@@ -112,7 +112,13 @@ describe('formatDuration', () => {
 });
 
 describe('the page', () => {
-  beforeEach(() => recentMock.mockReset());
+  // The page reads the real clock, while the test data is built around NOW. Freeze only Date (timers stay real so userEvent works), or the periods drift as real time passes.
+  beforeEach(() => {
+    recentMock.mockReset();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => vi.useRealTimers());
 
   it('shows an honest empty state, none of the invented people, and no gamification', async () => {
     recentMock.mockResolvedValue({ cases: [], total: 0, page: 1, pageSize: 0 });

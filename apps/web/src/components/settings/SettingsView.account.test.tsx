@@ -34,8 +34,8 @@ import { SettingsView, profileFromAccount, workspaceProblem } from './SettingsVi
 const DEMO = ['Sasha Lin', 'sasha.lin@example.com', 'Senior SOC Analyst', 'AiSOC Demo', 'tenant_demo_01H0XE4T2WJ9N6', 'us-east-1', 'Avi Sharma', 'Diego Vega', 'Mia Ocampo', 'CI Service', 'demo data'];
 
 const account: AuthUser = { id: 'u1', account_name: 'hal.owner', email: 'owner@liveoak.test', username: 'hal', role: 'admin', tenant_id: 't1', preferences: {} };
-const tenant: TenantDetails = { id: '0b6f2a52-1c1e-4a8e-9a55-0c4a3f1d9d11', name: 'Live Oak IT', slug: 'live-oak-it', plan: 'open-source', is_active: true, created_at: '2026-10-07T03:00:00Z' };
-const member = (over: Partial<TenantUser> & { email: string }): TenantUser => ({ id: over.email, account_name: over.email.split('@')[0], username: null, role: 'analyst', is_active: true, last_login: null, created_at: '2026-10-07T03:00:00Z', ...over });
+const tenant: TenantDetails = { id: '0b6f2a52-1c1e-4a8e-9a55-0c4a3f1d9d11', name: 'Live Oak IT', slug: 'live-oak-it', plan: 'open-source', is_active: true, created_at: '2026-10-07T12:00:00Z' };
+const member = (over: Partial<TenantUser> & { email: string }): TenantUser => ({ id: over.email, account_name: over.email.split('@')[0], username: null, role: 'analyst', is_active: true, last_login: null, created_at: '2026-10-07T12:00:00Z', ...over });
 
 function renderSettings() {
   return render(
