@@ -18549,6 +18549,12 @@ components:
         unmapped:
           type: integer
           title: Unmapped
+        duplicates:
+          items:
+            $ref: '#/components/schemas/DuplicateGroupOut'
+          type: array
+          title: Duplicates
+          default: []
         sync_vendors:
           items:
             type: string
@@ -20675,6 +20681,36 @@ components:
       - lowConfidence
       - stale
       title: DriftSummary
+    DuplicateGroupOut:
+      properties:
+        tenants:
+          items:
+            $ref: '#/components/schemas/DuplicateTenantOut'
+          type: array
+          title: Tenants
+      type: object
+      required:
+      - tenants
+      title: DuplicateGroupOut
+    DuplicateTenantOut:
+      properties:
+        tenant_id:
+          type: string
+          title: Tenant Id
+        name:
+          type: string
+          title: Name
+        mapped_from:
+          items:
+            type: string
+          type: array
+          title: Mapped From
+      type: object
+      required:
+      - tenant_id
+      - name
+      - mapped_from
+      title: DuplicateTenantOut
     EdgeCreate:
       properties:
         source_id:

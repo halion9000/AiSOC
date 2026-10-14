@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { msspApi, type ManagedTenantRow, type VendorClient } from '@/lib/api';
+import { msspApi, type DuplicateGroup, type ManagedTenantRow, type VendorClient } from '@/lib/api';
 
 /**
  * Each customer has a different name in every tool ("Acme Dental, LLC" in Petra, "ACME" in Halo). CORE sends each tool's client list; here a person says which of
@@ -179,6 +179,7 @@ function SimpleRow({
 export default function ClientMapping({ tenants, onChanged }: { tenants: ManagedTenantRow[]; onChanged: () => void }) {
   const [clients, setClients] = useState<VendorClient[] | null>(null);
   const [synced, setSynced] = useState<string[]>([]);
+  const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [showHidden, setShowHidden] = useState(false);
@@ -188,6 +189,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
       const result = await msspApi.clients();
       setClients(result.clients);
       setSynced(result.sync_vendors ?? []);
+      setDuplicates(result.duplicates ?? []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Could not load client mappings.');
@@ -265,6 +267,25 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
           Say which of your clients each tool&apos;s customer is. Exact name matches are linked for you; everything else waits here.
         </p>
       </div>
+
+      {duplicates.length > 0 ? (
+        <div className="px-5 py-4 border-b border-gray-800/60" role="region" aria-label="Possible duplicates">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-amber-400">Possible duplicates ({duplicates.length})</h3>
+          <p className="mt-1 text-xs text-gray-500">These client tenants have near-identical names. If they are one customer, map each tool&apos;s client to a single tenant and hide the extra.</p>
+          <ul className="mt-2 space-y-3">
+            {duplicates.map((g) => (
+              <li key={g.tenants.map((t) => t.tenant_id).join('-')} className="rounded-lg border border-gray-800/60 p-3">
+                {g.tenants.map((t) => (
+                  <div key={t.tenant_id} className="flex flex-wrap items-baseline gap-x-3 py-0.5">
+                    <span className="font-medium text-white">{t.name}</span>
+                    <span className="text-xs text-gray-400">{t.mapped_from.length > 0 ? t.mapped_from.join(' · ') : 'nothing mapped to it'}</span>
+                  </div>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {clients.length > 0 ? (
         <div className="flex flex-wrap items-center gap-4 px-5 py-3 border-b border-gray-800/60">

@@ -28,6 +28,7 @@ from app.services.client_mapping import (
     sync_vendors,
     tenant_hidden,
 )
+from app.services.client_matching import duplicate_groups
 
 router = APIRouter(prefix="/mssp", tags=["mssp"])
 
@@ -60,9 +61,22 @@ class ClientAliasOut(BaseModel):
     suggestions: list[SuggestionOut]
 
 
+class DuplicateTenantOut(BaseModel):
+    tenant_id: str
+    name: str
+    # The tool clients mapped to this tenant, e.g. "Huntress: Acme Dental".
+    mapped_from: list[str]
+
+
+class DuplicateGroupOut(BaseModel):
+    tenants: list[DuplicateTenantOut]
+
+
 class ClientsOut(BaseModel):
     clients: list[ClientAliasOut]
     unmapped: int
+    # Client tenants whose names look like the same customer.
+    duplicates: list[DuplicateGroupOut] = []
     # Tools whose clients are added as client tenants automatically.
     sync_vendors: list[str] = []
 
@@ -169,8 +183,21 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
         )
         for a in aliases
     ]
+    sources: dict[str, list[str]] = {}
+    for a in aliases:
+        if a.child_tenant_id is not None:
+            sources.setdefault(str(a.child_tenant_id), []).append(f"{a.vendor}: {a.vendor_client_name}")
+    duplicates = [
+        DuplicateGroupOut(
+            tenants=[
+                DuplicateTenantOut(tenant_id=c.tenant_id, name=c.name, mapped_from=sorted(sources.get(c.tenant_id, []))) for c in group
+            ]
+        )
+        for group in duplicate_groups(candidates)
+    ]
     return ClientsOut(
         clients=out,
+        duplicates=duplicates,
         unmapped=sum(1 for a in aliases if a.child_tenant_id is None and not a.ignored),
         sync_vendors=await sync_vendors(db, current_user.tenant_id),
     )

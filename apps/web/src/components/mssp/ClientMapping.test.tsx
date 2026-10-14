@@ -226,3 +226,27 @@ describe('sorting and hiding', () => {
     expect(hiddenMock).toHaveBeenCalledWith('t-Gone', false);
   });
 });
+
+describe('possible duplicates', () => {
+  it('lists tenants with near-identical names and which tool clients feed each', async () => {
+    clientsMock.mockResolvedValue({
+      clients: [client({ vendor_client_name: 'Acme' })],
+      unmapped: 1,
+      sync_vendors: [],
+      duplicates: [{ tenants: [{ tenant_id: 'a', name: 'Acme Dental', mapped_from: ['petra: Acme Dental'] }, { tenant_id: 'b', name: 'Acme Dental LLC', mapped_from: [] }] }],
+    });
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const panel = await screen.findByRole('region', { name: 'Possible duplicates' });
+    expect(panel).toHaveTextContent('Acme Dental');
+    expect(panel).toHaveTextContent('Acme Dental LLC');
+    expect(panel).toHaveTextContent('petra: Acme Dental');
+    expect(panel).toHaveTextContent('nothing mapped to it');
+  });
+
+  it('shows no panel when nothing looks duplicated', async () => {
+    clientsMock.mockResolvedValue({ clients: [client({ vendor_client_name: 'Acme' })], unmapped: 1, sync_vendors: [], duplicates: [] });
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await screen.findByText('Acme');
+    expect(screen.queryByRole('region', { name: 'Possible duplicates' })).toBeNull();
+  });
+});

@@ -244,6 +244,32 @@ async def test_hiding_a_tenant_that_is_not_yours_is_404():
     assert e.value.status_code == 404
 
 
+def test_duplicate_groups_link_near_identical_names_and_chain_them():
+    from app.services.client_matching import Candidate, duplicate_groups
+
+    names = ["Acme Dental", "ACME Dental, LLC", "Acme Dental Group", "Birch Law", "Cedar Farms"]
+    groups = duplicate_groups([Candidate(str(i), n) for i, n in enumerate(names)])
+    assert [sorted(c.name for c in g) for g in groups] == [["ACME Dental, LLC", "Acme Dental", "Acme Dental Group"]]
+    assert duplicate_groups([Candidate("1", "Birch Law"), Candidate("2", "Cedar Farms")]) == []
+
+
+@pytest.mark.asyncio
+async def test_listing_reports_possible_duplicate_tenants_with_the_tool_clients_behind_each():
+    a, b, solo = _tenant("Acme Dental"), _tenant("Acme Dental LLC"), _tenant("Birch Law")
+    hal = _tenant("Hal Test")
+    cm.set_tenant_hidden(hal, True)
+    hal2 = _tenant("Hal Test 2")
+    cm.set_tenant_hidden(hal2, True)
+    aliases = [_alias("Acme Dental", child=a.id), _alias("ACME", child=b.id)]
+    aliases[1].vendor = "huntress"
+    out = await mc.list_clients(USER, _db(aliases, [a, b, solo, hal, hal2], [a, b, solo, hal, hal2]))
+    assert len(out.duplicates) == 1  # the two hidden test tenants are not reported
+    assert [(t.name, t.mapped_from) for t in out.duplicates[0].tenants] == [
+        ("Acme Dental", ["petra: Acme Dental"]),
+        ("Acme Dental LLC", ["huntress: ACME"]),
+    ]
+
+
 # ---- who may -----------------------------------------------------------------------------------------------------------------------------------------------
 
 

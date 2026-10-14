@@ -70,3 +70,30 @@ def is_confident(suggestions: list[Suggestion]) -> bool:
     if not suggestions or suggestions[0].score < EXACT:
         return False
     return len(suggestions) == 1 or suggestions[1].score < EXACT
+
+
+DUPLICATE_THRESHOLD = 0.75
+
+
+def duplicate_groups(candidates: list[Candidate]) -> list[list[Candidate]]:
+    """Client tenants that look like the same customer ("Acme Dental" / "Acme Dental LLC" / "ACME Dental Group"), grouped, each group name-sorted.
+
+    Two tenants are linked when their names score at least DUPLICATE_THRESHOLD; a chain (A~B, B~C) makes one group. Only groups of two or more are returned.
+    """
+    parent = list(range(len(candidates)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(candidates)):
+        for j in range(i + 1, len(candidates)):
+            if score(candidates[i].name, candidates[j].name) >= DUPLICATE_THRESHOLD:
+                parent[find(i)] = find(j)
+    groups: dict[int, list[Candidate]] = {}
+    for i, c in enumerate(candidates):
+        groups.setdefault(find(i), []).append(c)
+    out = [sorted(g, key=lambda c: c.name.lower()) for g in groups.values() if len(g) > 1]
+    return sorted(out, key=lambda g: g[0].name.lower())

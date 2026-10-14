@@ -542,9 +542,15 @@ export interface VendorClient {
   suggestions: ClientSuggestion[];
 }
 
+export interface DuplicateGroup {
+  tenants: { tenant_id: string; name: string; mapped_from: string[] }[];
+}
+
 export interface ClientMappingList {
   clients: VendorClient[];
   unmapped: number;
+  /** Client tenants whose names look like the same customer. */
+  duplicates?: DuplicateGroup[];
   /** Tools whose clients are added as client tenants automatically. */
   sync_vendors: string[];
 }
