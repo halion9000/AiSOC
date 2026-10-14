@@ -9604,6 +9604,147 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/clients/new:
+    post:
+      tags:
+      - mssp
+      summary: Create Client
+      description: Add a client (a new child tenant) by hand.
+      operationId: create_client_api_v1_mssp_clients_new_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewClient'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewClientOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/mssp/clients:
+    get:
+      tags:
+      - mssp
+      summary: List Clients
+      description: Every client CORE has forwarded, with the tenant it is mapped to
+        or the best suggestions.
+      operationId: list_clients_api_v1_mssp_clients_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientsOut'
+      security:
+      - HTTPBearer: []
+  /api/v1/mssp/clients/{alias_id}/map:
+    post:
+      tags:
+      - mssp
+      summary: Map Client
+      description: Map a vendor client to one of your client tenants, or to a new
+        one created from ``new_tenant_name``. A person's choice is never replaced
+        by a suggestion.
+      operationId: map_client_api_v1_mssp_clients__alias_id__map_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alias_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alias Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MapRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientAliasOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/clients/{alias_id}/unmap:
+    post:
+      tags:
+      - mssp
+      summary: Unmap Client
+      operationId: unmap_client_api_v1_mssp_clients__alias_id__unmap_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alias_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alias Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/clients/{alias_id}/ignore:
+    post:
+      tags:
+      - mssp
+      summary: Ignore Client
+      description: 'Hide a vendor client you do not manage from the Unmapped list
+        (or bring it back with ``ignored: false``).'
+      operationId: ignore_client_api_v1_mssp_clients__alias_id__ignore_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alias_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alias Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IgnoreRequest'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/insider-threat/profiles:
     get:
       tags:
@@ -14839,6 +14980,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/clients:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Clients
+      description: CORE sends the list of clients one vendor has (Petra tenants, Halo
+        clients, ...), so each can be mapped to an AiSOC tenant on the MSSP page.
+      operationId: report_core_feed_clients_api_v1_inbox_core_feed__tenant_token__clients_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientsReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/lake/sql:
     post:
       tags:
@@ -18152,6 +18327,118 @@ components:
       - incident_uid
       - params
       title: ClaimedAction
+    ClientAliasOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        vendor:
+          type: string
+          title: Vendor
+        vendor_client_id:
+          type: string
+          title: Vendor Client Id
+        vendor_client_name:
+          type: string
+          title: Vendor Client Name
+        child_tenant_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Child Tenant Id
+        child_tenant_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Child Tenant Name
+        ignored:
+          type: boolean
+          title: Ignored
+        match_source:
+          type: string
+          title: Match Source
+        suggestions:
+          items:
+            $ref: '#/components/schemas/SuggestionOut'
+          type: array
+          title: Suggestions
+      type: object
+      required:
+      - id
+      - vendor
+      - vendor_client_id
+      - vendor_client_name
+      - child_tenant_id
+      - child_tenant_name
+      - ignored
+      - match_source
+      - suggestions
+      title: ClientAliasOut
+    ClientItem:
+      properties:
+        id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Id
+          description: The vendor's own id for the client.
+        name:
+          type: string
+          maxLength: 300
+          minLength: 1
+          title: Name
+      type: object
+      required:
+      - id
+      - name
+      title: ClientItem
+    ClientsOut:
+      properties:
+        clients:
+          items:
+            $ref: '#/components/schemas/ClientAliasOut'
+          type: array
+          title: Clients
+        unmapped:
+          type: integer
+          title: Unmapped
+      type: object
+      required:
+      - clients
+      - unmapped
+      title: ClientsOut
+    ClientsReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        clients:
+          items:
+            $ref: '#/components/schemas/ClientItem'
+          type: array
+          maxItems: 5000
+          title: Clients
+      type: object
+      required:
+      - vendor
+      - clients
+      title: ClientsReport
+    ClientsResponse:
+      properties:
+        new:
+          type: integer
+          title: New
+        linked:
+          type: integer
+          title: Linked
+      type: object
+      required:
+      - new
+      - linked
+      title: ClientsResponse
     CloseRequest:
       properties:
         analyst_note:
@@ -22129,6 +22416,14 @@ components:
       - total_events
       - built_at
       title: IdentityTimeline
+    IgnoreRequest:
+      properties:
+        ignored:
+          type: boolean
+          title: Ignored
+          default: true
+      type: object
+      title: IgnoreRequest
     InboundResult:
       properties:
         case_id:
@@ -23286,6 +23581,22 @@ components:
       title: ManagedTenantRow
       description: One REAL child tenant of the caller, with its latest metrics snapshot
         if any (``has_metrics`` is False and every metric ``None`` otherwise).
+    MapRequest:
+      properties:
+        child_tenant_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Child Tenant Id
+        new_tenant_name:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: New Tenant Name
+      type: object
+      title: MapRequest
     MarketplaceItemSummary:
       properties:
         id:
@@ -24267,6 +24578,31 @@ components:
       - explanation
       - created_at
       title: NLQueryTranslateResponse
+    NewClient:
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Name
+      type: object
+      required:
+      - name
+      title: NewClient
+    NewClientOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+      type: object
+      required:
+      - id
+      - name
+      title: NewClientOut
     NodeCreate:
       properties:
         node_type:
@@ -28023,6 +28359,23 @@ components:
       - suggestions
       - total
       title: SuggestionListResponse
+    SuggestionOut:
+      properties:
+        tenant_id:
+          type: string
+          title: Tenant Id
+        name:
+          type: string
+          title: Name
+        score:
+          type: number
+          title: Score
+      type: object
+      required:
+      - tenant_id
+      - name
+      - score
+      title: SuggestionOut
     SuggestionResponse:
       properties:
         suggestion_id:

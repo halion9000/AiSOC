@@ -28,6 +28,7 @@ from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.connector import Connector
 from app.models.vendor_action import VendorAction
+from app.services.client_mapping import IncomingClient, upsert_clients
 from app.services.vendor_actions import CLAIMED_TTL, PENDING_TTL
 
 logger = logging.getLogger(__name__)
@@ -382,3 +383,30 @@ async def report_core_feed_action_result(
         )
     await db.commit()
     return ActionResultResponse(recorded=True)
+
+
+class ClientItem(BaseModel):
+    id: str = Field(min_length=1, max_length=200, description="The vendor's own id for the client.")
+    name: str = Field(min_length=1, max_length=300)
+
+
+class ClientsReport(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    clients: list[ClientItem] = Field(max_length=5000)
+
+
+class ClientsResponse(BaseModel):
+    new: int
+    linked: int
+
+
+@router.post("/core-feed/{tenant_token}/clients", response_model=ClientsResponse)
+async def report_core_feed_clients(tenant_token: str, body: ClientsReport, db: DBSession) -> ClientsResponse:
+    """CORE sends the list of clients one vendor has (Petra tenants, Halo clients, ...), so each can be mapped to an AiSOC tenant on the MSSP page."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    created, linked = await upsert_clients(
+        db, tenant_id, body.vendor, [IncomingClient(c.id, c.name.strip()) for c in body.clients if c.name.strip()]
+    )
+    await db.commit()
+    return ClientsResponse(new=created, linked=linked)

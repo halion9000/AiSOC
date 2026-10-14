@@ -1,0 +1,232 @@
+"""Add a client and map vendor clients to tenants: what is created, linked, refused, and who may do it."""
+
+import uuid
+from types import SimpleNamespace as NS
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from app.api.v1.endpoints import inbox_core_feed as cf
+from app.api.v1.endpoints import mssp_clients as mc
+from app.models.client_alias import ClientAlias
+from app.models.tenant import Tenant
+from app.services import client_mapping as cm
+from fastapi import HTTPException
+
+PARENT = uuid.uuid4()
+USER = NS(tenant_id=PARENT, user_id=uuid.uuid4())
+
+
+class _Result:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return list(self.rows)
+
+    def scalar_one_or_none(self):
+        return self.rows[0] if self.rows else None
+
+    def scalar_one(self):
+        return self.rows[0]
+
+
+def _db(*results, get=None):
+    """A session whose successive execute() calls return the given row lists; ``get`` maps tenant id -> Tenant for db.get."""
+    db = MagicMock()
+    queue = list(results)
+    db.added = []
+    db.execute = AsyncMock(side_effect=lambda *a, **k: _Result(queue.pop(0)))
+    db.add = lambda o: db.added.append(o)
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+    db.get = AsyncMock(side_effect=lambda model, key: (get or {}).get(key))
+    return db
+
+
+def _tenant(name, parent=PARENT):
+    return Tenant(id=uuid.uuid4(), name=name, slug=name.lower(), parent_tenant_id=parent)
+
+
+def _alias(name, child=None, ignored=False):
+    return ClientAlias(
+        id=uuid.uuid4(), tenant_id=PARENT, vendor="petra", vendor_client_id=name, vendor_client_name=name,
+        normalized_name=name.lower(), child_tenant_id=child, ignored=ignored, match_source="suggested",
+    )  # fmt: skip
+
+
+# ---- slugs -----------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def test_two_clients_with_the_same_name_get_different_slugs():
+    a, b = cm.make_slug("Acme Dental, LLC"), cm.make_slug("Acme Dental, LLC")
+    assert a != b
+    assert a.startswith("acme-dental-llc-")
+    assert cm.make_slug("!!!").startswith("client-")
+
+
+# ---- what CORE sends -------------------------------------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_new_client_that_exactly_matches_one_tenant_is_linked_and_anything_less_waits():
+    acme = _tenant("Acme Dental")
+    db = _db([acme], [])  # candidates, existing aliases
+    created, linked = await cm.upsert_clients(
+        db, PARENT, "petra", [cm.IncomingClient("1", "ACME DENTAL, LLC"), cm.IncomingClient("2", "Totally Different Co")]
+    )
+    assert (created, linked) == (2, 1)
+    by_id = {a.vendor_client_id: a for a in db.added}
+    assert by_id["1"].child_tenant_id == acme.id
+    assert by_id["2"].child_tenant_id is None
+
+
+@pytest.mark.asyncio
+async def test_two_tenants_with_the_same_name_are_not_guessed_between():
+    db = _db([_tenant("Acme Dental"), _tenant("Acme Dental LLC")], [])
+    _, linked = await cm.upsert_clients(db, PARENT, "petra", [cm.IncomingClient("1", "Acme Dental")])
+    assert linked == 0
+
+
+@pytest.mark.asyncio
+async def test_a_known_client_keeps_what_a_person_decided_and_only_its_name_is_refreshed():
+    chosen = uuid.uuid4()
+    known = _alias("Old Name", child=chosen, ignored=False)
+    known.vendor_client_id = "7"
+    known.match_source = "manual"
+    db = _db([_tenant("Elsewhere")], [known])
+    created, _ = await cm.upsert_clients(db, PARENT, "petra", [cm.IncomingClient("7", "New Name")])
+    assert created == 0 and db.added == []
+    assert known.vendor_client_name == "New Name"
+    assert known.child_tenant_id == chosen and known.match_source == "manual"
+
+
+@pytest.mark.asyncio
+async def test_the_clients_route_stores_them_under_the_token_tenant(monkeypatch):
+    monkeypatch.setattr(cf, "_verify_core_feed_token", AsyncMock(return_value=PARENT))
+    monkeypatch.setattr(cf, "adopt_tenant", AsyncMock())
+    db = _db([], [])
+    out = await cf.report_core_feed_clients("tok", cf.ClientsReport(vendor="petra", clients=[cf.ClientItem(id="1", name=" Zed ")]), db)
+    assert (out.new, out.linked) == (1, 0)
+    assert db.added[0].tenant_id == PARENT and db.added[0].vendor_client_name == "Zed"
+    db.commit.assert_awaited()
+
+
+# ---- add a client ----------------------------------------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_add_client_creates_a_child_of_the_callers_tenant(monkeypatch):
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+    parent = Tenant(id=PARENT, name="Live Oak", slug="live-oak", mssp_role=None)
+    db = _db([0], get={PARENT: parent})
+    out = await mc.create_client(mc.NewClient(name="  Acme Dental  "), MagicMock(), USER, db)
+    child = db.added[0]
+    assert out.name == "Acme Dental" and child.parent_tenant_id == PARENT and child.mssp_role == "child"
+    assert parent.mssp_role == "parent"
+
+
+@pytest.mark.asyncio
+async def test_add_client_refuses_a_duplicate_name_and_a_blank_one():
+    with pytest.raises(HTTPException) as dup:
+        await mc.create_client(mc.NewClient(name="Acme"), MagicMock(), USER, _db([1]))
+    assert dup.value.status_code == 409
+    with pytest.raises(HTTPException) as blank:
+        await mc.create_client(mc.NewClient(name="   "), MagicMock(), USER, _db())
+    assert blank.value.status_code == 422
+
+
+# ---- mapping ---------------------------------------------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mapping_to_an_existing_client_is_manual_and_sticks(monkeypatch):
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+    child, alias = _tenant("Acme"), _alias("ACME Inc")
+    db = _db([alias], get={child.id: child})
+    out = await mc.map_client(alias.id, mc.MapRequest(child_tenant_id=child.id), MagicMock(), USER, db)
+    assert alias.child_tenant_id == child.id and alias.match_source == "manual" and out.child_tenant_name == "Acme"
+
+
+@pytest.mark.asyncio
+async def test_mapping_cannot_use_someone_elses_tenant(monkeypatch):
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+    stranger, alias = _tenant("Other MSP's client", parent=uuid.uuid4()), _alias("X")
+    db = _db([alias], get={stranger.id: stranger})
+    with pytest.raises(HTTPException) as e:
+        await mc.map_client(alias.id, mc.MapRequest(child_tenant_id=stranger.id), MagicMock(), USER, db)
+    assert e.value.status_code == 404 and alias.child_tenant_id is None
+
+
+@pytest.mark.asyncio
+async def test_map_with_a_new_name_creates_the_tenant_and_links_it(monkeypatch):
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+    alias = _alias("Brand New Client")
+    db = _db([alias], [0], get={PARENT: Tenant(id=PARENT, name="P", slug="p")})
+    out = await mc.map_client(alias.id, mc.MapRequest(new_tenant_name="Brand New Client"), MagicMock(), USER, db)
+    assert (
+        db.added[0].name == "Brand New Client" and alias.child_tenant_id == db.added[0].id and out.child_tenant_name == "Brand New Client"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [mc.MapRequest(), mc.MapRequest(child_tenant_id=uuid.uuid4(), new_tenant_name="Both")])
+async def test_map_needs_exactly_one_of_existing_or_new(body):
+    with pytest.raises(HTTPException) as e:
+        await mc.map_client(uuid.uuid4(), body, MagicMock(), USER, _db())
+    assert e.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_ignoring_clears_the_link_and_unignoring_keeps_it_clear():
+    alias = _alias("Not mine", child=uuid.uuid4())
+    await mc.ignore_client(alias.id, mc.IgnoreRequest(ignored=True), USER, _db([alias]))
+    assert alias.ignored is True and alias.child_tenant_id is None
+    await mc.ignore_client(alias.id, mc.IgnoreRequest(ignored=False), USER, _db([alias]))
+    assert alias.ignored is False and alias.child_tenant_id is None
+
+
+@pytest.mark.asyncio
+async def test_unmap_returns_the_client_to_the_unmapped_list():
+    alias = _alias("A", child=uuid.uuid4())
+    await mc.unmap_client(alias.id, USER, _db([alias]))
+    assert alias.child_tenant_id is None
+
+
+@pytest.mark.asyncio
+async def test_an_alias_of_another_tenant_is_404():
+    with pytest.raises(HTTPException) as e:
+        await mc.unmap_client(uuid.uuid4(), USER, _db([]))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_listing_shows_suggestions_only_for_unmapped_clients_and_counts_them():
+    acme = _tenant("Acme Dental")
+    mapped, open_one, ignored = _alias("Done", child=acme.id), _alias("Acme Dental Group"), _alias("Skip", ignored=True)
+    out = await mc.list_clients(USER, _db([mapped, open_one, ignored], [acme]))
+    by_name = {c.vendor_client_name: c for c in out.clients}
+    assert out.unmapped == 1
+    assert by_name["Done"].child_tenant_name == "Acme Dental" and by_name["Done"].suggestions == []
+    assert [s.name for s in by_name["Acme Dental Group"].suggestions] == ["Acme Dental"]
+    assert by_name["Skip"].suggestions == []
+
+
+# ---- who may -----------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def test_reading_needs_mssp_read_and_every_change_needs_mssp_manage():
+    from fastapi.routing import APIRoute
+    from route_introspect import required_permissions
+
+    routes = {(m, r.path): r for r in mc.router.routes if isinstance(r, APIRoute) for m in r.methods}
+    assert set(required_permissions(routes[("GET", "/mssp/clients")])) == {"mssp:read"}
+    for method, path in [
+        ("POST", "/mssp/clients/new"),
+        ("POST", "/mssp/clients/{alias_id}/map"),
+        ("POST", "/mssp/clients/{alias_id}/unmap"),
+        ("POST", "/mssp/clients/{alias_id}/ignore"),
+    ]:
+        assert set(required_permissions(routes[(method, path)])) == {"mssp:manage"}, path

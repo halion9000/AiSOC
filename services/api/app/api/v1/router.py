@@ -54,6 +54,7 @@ from app.api.v1.endpoints import (
     marketplace,
     metrics,
     mssp,
+    mssp_clients,
     nl_detection,
     nl_query,
     oauth,
@@ -181,6 +182,7 @@ api_router.include_router(saved_views.router)
 # Wave 3 — operational maturity
 api_router.include_router(assets.router)
 api_router.include_router(mssp.router)
+api_router.include_router(mssp_clients.router)
 api_router.include_router(insider_threat.router)
 api_router.include_router(remediation.router)
 
