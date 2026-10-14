@@ -22,6 +22,7 @@ v1.5 (SOC Console parity) adds:
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -77,6 +78,31 @@ class TrendPoint(BaseModel):
 class SourceThreat(BaseModel):
     source: str
     count: int
+
+
+def build_source_stats(connectors: Any, type_counts: dict[str, int], vendor_counts: dict[str, int]) -> list[SourceStat]:
+    """One row per source for the dashboard's Connected Sources panel.
+
+    Ordinary connectors collapse to one row per connector type. Sources CORE forwards (Huntress, Petra, ...) share the single ``core_feed`` type, so each vendor gets its own row,
+    counted by the ``source`` stamped on its alerts.
+    """
+    sources: list[SourceStat] = []
+    seen: set[str] = set()
+    for row in connectors:
+        config = row.connector_config if isinstance(row.connector_config, dict) else {}
+        vendor = config.get("vendor") if row.connector_type == "core_feed" else None
+        key = f"core_feed:{vendor}" if vendor else (row.connector_type or row.name)
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append(
+            SourceStat(
+                name=row.name,
+                count=vendor_counts.get(vendor, 0) if vendor else type_counts.get(row.connector_type or "", 0),
+                status=row.health_status or "active",
+            )
+        )
+    return sources
 
 
 class DashboardMetrics(BaseModel):
@@ -257,7 +283,11 @@ async def get_dashboard_metrics(
 
     # ── Sources (connectors) ──────────────────────────────────────────────────
     connectors_rows = (
-        await db.execute(select(Connector.name, Connector.connector_type, Connector.health_status).where(Connector.tenant_id == tenant_id))
+        await db.execute(
+            select(Connector.name, Connector.connector_type, Connector.health_status, Connector.connector_config).where(
+                Connector.tenant_id == tenant_id
+            )
+        )
     ).all()
 
     # Count alerts per connector_type
@@ -268,20 +298,18 @@ async def get_dashboard_metrics(
     ).all()
     source_count_map: dict[str, int] = {row.connector_type: row.cnt for row in source_counts_rows if row.connector_type}
 
-    sources: list[SourceStat] = []
-    seen: set[str] = set()
-    for row in connectors_rows:
-        key = row.connector_type or row.name
-        if key in seen:
-            continue
-        seen.add(key)
-        sources.append(
-            SourceStat(
-                name=row.name,
-                count=source_count_map.get(row.connector_type or "", 0),
-                status=row.health_status or "active",
-            )
+    # Sources CORE forwards (Huntress, Petra, ...) all share one connector type, and their alerts arrive through the generic JSON inbox. Count those per vendor, from the
+    # `source` the forwarder stamped on each record, or every one of them reads 0 and all but the first are hidden by the one-row-per-type rule below.
+    vendor_count_rows = (
+        await db.execute(
+            select(Alert.raw_event["source"].astext.label("vendor"), func.count().label("cnt"))
+            .where(Alert.tenant_id == tenant_id, Alert.raw_event["source"].astext.isnot(None))
+            .group_by(Alert.raw_event["source"].astext)
         )
+    ).all()
+    vendor_count_map: dict[str, int] = {row.vendor: row.cnt for row in vendor_count_rows}
+
+    sources = build_source_stats(connectors_rows, source_count_map, vendor_count_map)
 
     # ── Top MITRE tactics ─────────────────────────────────────────────────────
     # Python-side aggregation: avoids set-returning-function-in-SELECT pitfalls
