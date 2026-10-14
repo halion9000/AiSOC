@@ -12,6 +12,7 @@ cannot write here. The report can only create or update this tenant's own ``core
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -26,6 +27,8 @@ from app.db.rls_scope import cross_tenant_reads
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.connector import Connector
+from app.models.vendor_action import VendorAction
+from app.services.vendor_actions import CLAIMED_TTL, PENDING_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -209,3 +212,173 @@ async def report_core_feed_closed(tenant_token: str, body: ClosedReport, db: DBS
     resolved = await apply_closed(db, tenant_id, body)
     await db.commit()
     return ClosedResponse(resolved=resolved)
+
+
+# --- Incident state and vendor actions -------------------------------------------------------------------------------------------------------------------------
+# CORE reports each OPEN incident's current state (status, remediation plan, the ticket the vendor opened in the PSA) so AiSOC can show it; an analyst's approve /
+# reject / resolve is queued as a ``vendor_actions`` row (``alert_vendor_actions.py``), CORE collects it here, carries it out at the vendor (CORE holds the key; AiSOC never does)
+# and reports the outcome. Same path-token authentication as the routes above.
+
+
+class _Param(BaseModel):
+    name: str = Field(max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class _Remediation(BaseModel):
+    id: int
+    type: str | None = Field(default=None, max_length=30)
+    action: str | None = Field(default=None, max_length=200)
+    parameters: list[_Param] = Field(default_factory=list, max_length=20)
+    status: str | None = Field(default=None, max_length=30)
+
+
+class StateItem(BaseModel):
+    uid: str = Field(pattern=_UID_PATTERN)
+    status: str = Field(max_length=40, description="The vendor's status for the incident, e.g. ``sent``.")
+    remediations: list[_Remediation] = Field(default_factory=list, max_length=50)
+    psa_ticket_eids: list[str] = Field(
+        default_factory=list, max_length=20, description="Ticket ids the vendor opened in the PSA for this incident."
+    )
+
+
+class StateReport(BaseModel):
+    vendor: Literal["huntress"]
+    items: list[StateItem] = Field(max_length=500)
+
+
+class StateResponse(BaseModel):
+    updated: int
+
+
+async def apply_state(db: Any, tenant_id: Any, report: StateReport, now: datetime | None = None) -> int:
+    """Store each incident's reported state on its alert (``enrichment_data.vendor_state``). The caller owns the transaction. Returns how many alerts were updated."""
+    now = now or datetime.now(UTC)
+    prefix = f"{report.vendor}:"
+    updated = 0
+    for item in report.items:
+        if not item.uid.startswith(prefix):
+            continue
+        state = {
+            "vendor_state": {
+                "vendor": report.vendor,
+                "at": now.isoformat(),
+                "status": item.status,
+                "remediations": [r.model_dump() for r in item.remediations],
+                "psa_ticket_eids": [str(t)[:120] for t in item.psa_ticket_eids],
+            }
+        }
+        result = await db.execute(
+            update(Alert)
+            .where(Alert.tenant_id == tenant_id, Alert.raw_event["finding"]["uid"].astext == item.uid)
+            .values(enrichment_data=Alert.enrichment_data.op("||")(literal(state, type_=JSONB)))
+        )
+        updated += result.rowcount or 0
+    return updated
+
+
+@router.post("/core-feed/{tenant_token}/state", response_model=StateResponse)
+async def report_core_feed_state(tenant_token: str, body: StateReport, db: DBSession) -> StateResponse:
+    """Record the current state of open vendor incidents, so the alert can show the remediation plan and offer the right actions."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    updated = await apply_state(db, tenant_id, body)
+    await db.commit()
+    return StateResponse(updated=updated)
+
+
+class ClaimRequest(BaseModel):
+    vendor: Literal["huntress"]
+
+
+class ClaimedAction(BaseModel):
+    id: uuid.UUID
+    action: Literal["approve", "reject", "resolve"]
+    incident_uid: str
+    params: dict[str, Any]
+
+
+class ClaimResponse(BaseModel):
+    actions: list[ClaimedAction]
+
+
+async def claim_actions(db: Any, tenant_id: Any, vendor: str, now: datetime | None = None) -> list[VendorAction]:
+    """Hand CORE this tenant's pending actions, each at most once. The caller owns the transaction.
+
+    First the housekeeping that keeps the queue honest: a pending action older than its time-to-live is failed as expired (it must never fire late), and a claimed one CORE never
+    answered is failed. Then pending actions are claimed in one statement (``pending`` -> ``claimed``), so two overlapping polls cannot both receive the same row.
+    """
+    now = now or datetime.now(UTC)
+    await db.execute(
+        update(VendorAction)
+        .where(VendorAction.tenant_id == tenant_id, VendorAction.status == "pending", VendorAction.created_at < now - PENDING_TTL)
+        .values(status="failed", result_message="Expired before CORE collected it; request it again.", finished_at=now)
+    )
+    await db.execute(
+        update(VendorAction)
+        .where(VendorAction.tenant_id == tenant_id, VendorAction.status == "claimed", VendorAction.claimed_at < now - CLAIMED_TTL)
+        .values(status="failed", result_message="CORE did not report a result.", finished_at=now)
+    )
+    rows = (
+        (
+            await db.execute(
+                update(VendorAction)
+                .where(VendorAction.tenant_id == tenant_id, VendorAction.vendor == vendor, VendorAction.status == "pending")
+                .values(status="claimed", claimed_at=now)
+                .returning(VendorAction)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return sorted(rows, key=lambda r: r.created_at)
+
+
+@router.post("/core-feed/{tenant_token}/actions/claim", response_model=ClaimResponse)
+async def claim_core_feed_actions(tenant_token: str, body: ClaimRequest, db: DBSession) -> ClaimResponse:
+    """CORE collects the actions analysts have asked for. Each is handed out once."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    rows = await claim_actions(db, tenant_id, body.vendor)
+    await db.commit()
+    return ClaimResponse(
+        actions=[ClaimedAction(id=r.id, action=r.action, incident_uid=r.incident_uid, params=r.params or {}) for r in rows]  # type: ignore[arg-type]
+    )
+
+
+class ActionResult(BaseModel):
+    status: Literal["done", "failed"]
+    message: str | None = Field(default=None, max_length=1000)
+
+
+class ActionResultResponse(BaseModel):
+    recorded: bool
+
+
+@router.post("/core-feed/{tenant_token}/actions/{action_id}/result", response_model=ActionResultResponse)
+async def report_core_feed_action_result(
+    tenant_token: str, action_id: uuid.UUID, body: ActionResult, db: DBSession
+) -> ActionResultResponse:
+    """CORE reports how a claimed action went. Only a claimed action of this tenant can be answered, once."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    now = datetime.now(UTC)
+    row = (
+        await db.execute(
+            update(VendorAction)
+            .where(VendorAction.id == action_id, VendorAction.tenant_id == tenant_id, VendorAction.status == "claimed")
+            .values(status=body.status, result_message=body.message, finished_at=now)
+            .returning(VendorAction.alert_id, VendorAction.action)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such claimed action")
+    if body.status == "done" and row.action == "resolve":
+        # The vendor accepted the resolution: mirror it now rather than waiting for the next closed-incident sweep. Same narrow rule as ``apply_closed``: never override an analyst's decision.
+        await db.execute(
+            update(Alert)
+            .where(Alert.id == row.alert_id, Alert.tenant_id == tenant_id, Alert.status == "new")
+            .values(status="resolved", resolved_at=now, updated_at=now)
+        )
+    await db.commit()
+    return ActionResultResponse(recorded=True)

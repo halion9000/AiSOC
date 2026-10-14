@@ -54,6 +54,15 @@ PUBLIC = {
         "CORE's closed-incident report: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only resolve that tenant's own alerts "
         "that are still new, matched on the incident id (the 422 here is the empty body)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/state"): (
+        "CORE's open-incident state report: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only write that tenant's own alerts' vendor state (the 422 here is the empty body)"
+    ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/actions/claim"): (
+        "CORE collects the vendor actions analysts queued: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); only that tenant's pending actions, each handed out once (the 422 here is the empty body)"
+    ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/actions/{action_id}/result"): (
+        "CORE reports how a claimed vendor action went: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); only a claimed action of that tenant can be answered (the 422 here is the empty body)"
+    ),
     ("GET", "/api/v1/community/detections"): "public community catalog (global content, no tenant data)",
     ("GET", "/api/v1/community/detections/{detection_id}"): "public community catalog",
     ("GET", "/api/v1/community/playbooks"): "public community catalog",

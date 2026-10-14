@@ -84,6 +84,18 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
         "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/closed",
     ): "CORE's closed-in-vendor report: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only resolve that tenant's still-new alerts",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/state",
+    ): "CORE's open-incident state report: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write that tenant's own alerts' vendor state",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/actions/claim",
+    ): "CORE collects queued vendor actions: authenticated by the core-feed token in the path, checked in the handler (401 without it); only that tenant's pending actions, each handed out once",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/actions/{action_id}/result",
+    ): "CORE reports a claimed vendor action's outcome: authenticated by the core-feed token in the path, checked in the handler (401 without it); only a claimed action of that tenant can be answered",
 }
 
 LOGIN_ONLY_NO_CHECK: dict[tuple[str, str], str] = {
