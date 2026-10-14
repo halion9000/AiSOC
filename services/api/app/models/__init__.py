@@ -22,6 +22,7 @@ from app.models.investigation import (
     InvestigationEvent,
     InvestigationRun,
 )
+from app.models.client_alias import ClientAlias
 from app.models.llm_credential import TenantLlmCredential
 from app.models.login_failure import LoginFailure
 from app.models.marketplace import MarketplaceInstall
@@ -56,6 +57,7 @@ from app.models.tenant_access import AllTenantAccessGrant, TenantAccessGrant
 from app.models.threat_intel import ThreatActor, ThreatIntelFeed, ThreatIntelIOC
 
 __all__ = [
+    "ClientAlias",
     "Base",
     "Tenant",
     "User",
