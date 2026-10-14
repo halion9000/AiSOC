@@ -142,7 +142,7 @@ function FiltersBar({
             key={s}
             onClick={() => onChange({ ...filters, status: s === 'all' ? undefined : s, page: 1 })}
             className={clsx(
-              'text-xs px-2.5 py-1 rounded-lg transition-colors',
+              'text-xs px-2.5 py-1 rounded-lg transition-colors capitalize',
               (s === 'all' && !filters.status) || filters.status === s
                 ? 'bg-gray-700 text-gray-200'
                 : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/60'
