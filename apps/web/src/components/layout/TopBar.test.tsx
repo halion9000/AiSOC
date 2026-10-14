@@ -89,6 +89,18 @@ describe('TopBar', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Some New Page');
   });
 
+  it('writes initialisms in capitals, both for the MSSP page and for an unmapped route', () => {
+    pathnameMock.mockReturnValue('/mssp');
+    const first = renderTopBar();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^MSSP$/);
+    first.unmount();
+
+    // An unmapped route takes its title from the URL, and must not turn "edr" or "sso" into "Edr" / "Sso".
+    pathnameMock.mockReturnValue('/edr-sso-view');
+    renderTopBar();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^EDR SSO View$/);
+  });
+
   it('dispatches a Cmd-K keyboard event when the palette button is clicked', async () => {
     pathnameMock.mockReturnValue('/dashboard');
     renderTopBar();

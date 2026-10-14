@@ -14,6 +14,9 @@ import { useTenant } from './TenantProvider';
 
 // Order matters: longer/more specific paths first so startsWith() picks
 // the right label for nested routes (e.g. /detection/catalog before /detection).
+// Words in a route that are initialisms, so a title derived from the URL reads "MSSP", not "Mssp".
+const ACRONYMS = new Set(['mssp', 'sla', 'siem', 'edr', 'soar', 'ueba', 'api', 'mttr', 'sso', 'ioc']);
+
 const routeLabels: Record<string, { title: string; description: string }> = {
   '/detection/catalog': { title: 'Detection Catalog', description: 'Curated rule packs and templates' },
   '/settings/rbac': { title: 'Roles & Permissions', description: 'Access control and team management' },
@@ -31,6 +34,7 @@ const routeLabels: Record<string, { title: string; description: string }> = {
   '/purple-team': { title: 'Purple Team', description: 'Adversary emulation and detection coverage' },
   '/connectors': { title: 'Connectors', description: 'Security tool integrations' },
   '/compliance': { title: 'Compliance', description: 'Frameworks, controls, and evidence' },
+  '/mssp': { title: 'MSSP', description: 'Cross-tenant operations for the clients you manage' },
   '/sla': { title: 'SLA Tracking', description: 'Response time targets and breach risk' },
   '/audit': { title: 'Audit Log', description: 'Platform activity and security events' },
   '/settings': { title: 'Settings', description: 'Platform configuration' },
@@ -123,7 +127,7 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
     const title = segment
       ? segment
           .split('-')
-          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .map((part) => (ACRONYMS.has(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
           .join(' ')
       : 'AiSOC';
     return { title, description: '' };
