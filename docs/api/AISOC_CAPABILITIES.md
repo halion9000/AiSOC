@@ -613,7 +613,6 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | GET | `/mssp/clients` | List clients | `mssp:read` |
 | POST | `/mssp/clients/import` | Import clients | `mssp:manage` |
 | POST | `/mssp/clients/new` | Create client | `mssp:manage` |
-| POST | `/mssp/clients/reset` | Reset clients | `mssp:manage` |
 | PUT | `/mssp/clients/sources` | Set client sources | `mssp:manage` |
 | POST | `/mssp/clients/{alias_id}/ignore` | Ignore client | `mssp:manage` |
 | POST | `/mssp/clients/{alias_id}/map` | Map client | `mssp:manage` |
@@ -639,6 +638,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | DELETE | `/mssp/rule-packs/{pack_id}/rules/{rule_id}` | Remove rule from pack | `mssp:manage` |
 | GET | `/mssp/tenants` | List managed tenants | `mssp:read` |
 | PUT | `/mssp/tenants/{tenant_id}/hidden` | Set client hidden | `mssp:manage` |
+| POST | `/mssp/tenants/{tenant_id}/remove` | Remove client | `mssp:manage` |
 
 ## nl-detection
 

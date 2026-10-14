@@ -10,7 +10,8 @@ const ignoreMock = vi.fn();
 const importMock = vi.fn();
 const sourcesMock = vi.fn();
 const hiddenMock = vi.fn();
-const resetMock = vi.fn();
+const removeMock = vi.fn();
+const tenantsMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   msspApi: {
     clients: () => clientsMock(),
@@ -20,12 +21,13 @@ vi.mock('@/lib/api', () => ({
     importClients: (...a: unknown[]) => importMock(...a),
     setClientSources: (...a: unknown[]) => sourcesMock(...a),
     setClientHidden: (...a: unknown[]) => hiddenMock(...a),
-    resetClients: () => resetMock(),
+    removeClient: (...a: unknown[]) => removeMock(...a),
+    tenants: (...a: unknown[]) => tenantsMock(...a),
   },
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import ClientMapping, { keptSummary, filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
+import ClientMapping, { removeClients, keptSummary, filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
 
 function client(over: Partial<VendorClient> & { vendor_client_name: string }): VendorClient {
   return { id: `a-${over.vendor_client_name}`, vendor: 'petra', vendor_client_id: '1', child_tenant_id: null, child_tenant_name: null, ignored: false, match_source: 'suggested', suggestions: [], ...over };
@@ -36,8 +38,9 @@ const tenant = (name: string): ManagedTenantRow => ({
 const tenants = [tenant('Acme Dental'), tenant('Birch Law')];
 
 beforeEach(() => {
-  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock, hiddenMock, resetMock]) m.mockReset();
-  resetMock.mockResolvedValue({ removed: 2, kept: [] });
+  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock, hiddenMock, removeMock, tenantsMock]) m.mockReset();
+  tenantsMock.mockResolvedValue([tenant('Acme Dental'), tenant('Birch Law')]);
+  removeMock.mockImplementation(async (id: string) => ({ removed: true, name: id, reason: null }));
   hiddenMock.mockResolvedValue(undefined);
   importMock.mockResolvedValue({ created: 2, linked: 1 });
   sourcesMock.mockResolvedValue({ sync_vendors: [], created: 0, linked: 0 });
@@ -318,7 +321,9 @@ describe('start over', () => {
     await user.clear(screen.getByLabelText('Type REMOVE to confirm'));
     await user.type(screen.getByLabelText('Type REMOVE to confirm'), 'REMOVE');
     await user.click(go);
-    expect(resetMock).toHaveBeenCalledTimes(1);
+    await screen.findByRole('button', { name: 'Remove everything' }).catch(() => null);
+    expect(sourcesMock).toHaveBeenCalledWith([]);
+    expect(removeMock.mock.calls.map((c) => c[0])).toEqual(['t-Acme Dental', 't-Birch Law']);
     expect(prompt).not.toHaveBeenCalled();
     prompt.mockRestore();
   });
@@ -327,7 +332,8 @@ describe('start over', () => {
     const user = await open();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('alertdialog')).toBeNull();
-    expect(resetMock).not.toHaveBeenCalled();
+    expect(removeMock).not.toHaveBeenCalled();
+    expect(sourcesMock).not.toHaveBeenCalled();
   });
 });
 
@@ -337,5 +343,27 @@ describe('keptSummary', () => {
     const k = (n: string) => ({ name: n, reason: 'it has audit records' });
     expect(keptSummary([k('A')])).toBe('; kept 1: A (it has audit records)');
     expect(keptSummary([k('A'), k('B'), k('C'), k('D'), k('E')])).toBe('; kept 5: A (it has audit records), B (it has audit records), C (it has audit records), and 2 more');
+  });
+});
+
+describe('removeClients', () => {
+  const list = [{ tenant_id: 'a', name: 'A' }, { tenant_id: 'b', name: 'B' }, { tenant_id: 'c', name: 'C' }];
+
+  it('removes one at a time, reports progress, and carries on when one is kept or fails', async () => {
+    const calls: string[] = [];
+    const progress: number[] = [];
+    const out = await removeClients(
+      list,
+      async (id) => {
+        calls.push(id);
+        if (id === 'b') return { removed: false, name: 'B', reason: 'it has audit records' };
+        if (id === 'c') throw new Error('API 500');
+        return { removed: true, name: 'A', reason: null };
+      },
+      (done) => progress.push(done),
+    );
+    expect(calls).toEqual(['a', 'b', 'c']);
+    expect(progress).toEqual([1, 2, 3]);
+    expect(out).toEqual({ removed: 1, kept: [{ name: 'B', reason: 'it has audit records' }, { name: 'C', reason: 'API 500' }] });
   });
 });

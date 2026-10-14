@@ -326,16 +326,19 @@ def _no_rls(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reset_removes_every_client_clears_mappings_and_turns_off_auto_add(monkeypatch):
+async def test_remove_deletes_one_client_with_its_new_alerts_unmaps_its_tools_and_fails_fast_on_locks(monkeypatch):
     _no_rls(monkeypatch)
-    db = _reset_db([_tenant("Acme"), _tenant("Birch")])
-    out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
-    assert out.removed == 2 and out.kept == []
+    acme = _tenant("Acme")
+    db = _reset_db([acme])
+    out = await mc.remove_client(acme.id, MagicMock(), USER, db)
+    assert (out.removed, out.name, out.reason) == (True, "Acme", None)
     kinds = [k for k, _ in db.sql]
     assert (
-        kinds.count("DELETE FROM alerts") == 2 and kinds.count("DELETE FROM tenants") == 2 and kinds.count("UPDATE client_aliases SET") == 2
+        kinds.count("DELETE FROM alerts") == 1 and kinds.count("DELETE FROM tenants") == 1 and kinds.count("UPDATE client_aliases SET") == 1
     )
-    assert db.parent.settings[cm.SYNC_KEY] == []
+    assert (
+        kinds[0].startswith("SELECT set_config('lock_timeout'") and kinds.index("DELETE FROM alerts") > 0
+    )  # the timeout is set before anything is deleted
     db.commit.assert_awaited()
 
 
@@ -350,32 +353,29 @@ async def test_reset_removes_every_client_clears_mappings_and_turns_off_auto_add
         ("investigation_events", "investigation records"),
     ],
 )
-async def test_reset_keeps_a_tenant_with_work_or_tamper_proof_records_and_touches_nothing_of_it(monkeypatch, table, label):
+async def test_remove_keeps_a_client_with_work_or_tamper_proof_records_and_touches_nothing(monkeypatch, table, label):
     _no_rls(monkeypatch)
-    worked, plain = _tenant("Has Work"), _tenant("Plain")
-    db = _reset_db([worked, plain], has={worked.id: table})
-    out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
-    assert out.removed == 1 and [(k.name, k.reason) for k in out.kept] == [("Has Work", f"it has {label}")]
-    deletes = [stmt.compile().params.values() for kind, stmt in db.sql if kind.startswith("DELETE")]
-    assert all(worked.id not in list(values) for values in deletes)
+    worked = _tenant("Has Work")
+    db = _reset_db([worked], has={worked.id: table})
+    out = await mc.remove_client(worked.id, MagicMock(), USER, db)
+    assert (out.removed, out.reason) == (False, f"it has {label}") and db.sql == []
 
 
 @pytest.mark.asyncio
-async def test_reset_reports_a_database_refusal_instead_of_failing_the_request(monkeypatch):
+async def test_remove_reports_a_database_refusal_or_lock_timeout_instead_of_failing_the_request(monkeypatch):
     _no_rls(monkeypatch)
-    refused, plain = _tenant("Refused"), _tenant("Plain")
-    db = _reset_db([refused, plain], refuse=[refused.id])
-    out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
-    assert out.removed == 1 and out.kept[0].name == "Refused" and "immutable" in out.kept[0].reason
-    db.commit.assert_awaited()
+    refused = _tenant("Refused")
+    db = _reset_db([refused], refuse=[refused.id])
+    out = await mc.remove_client(refused.id, MagicMock(), USER, db)
+    assert out.removed is False and "immutable" in (out.reason or "")
 
 
 @pytest.mark.asyncio
-async def test_reset_does_nothing_without_confirmation():
-    db = _reset_db([_tenant("Acme")])
+async def test_remove_cannot_touch_a_tenant_that_is_not_your_client():
+    db = _reset_db([])
     with pytest.raises(HTTPException) as e:
-        await mc.reset_clients(mc.ResetRequest(), MagicMock(), USER, db)
-    assert e.value.status_code == 400 and db.sql == [] and db.first is True
+        await mc.remove_client(uuid.uuid4(), MagicMock(), USER, db)
+    assert e.value.status_code == 404 and db.sql == []
 
 
 # ---- who may -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -393,7 +393,7 @@ def test_reading_needs_mssp_read_and_every_change_needs_mssp_manage():
         ("POST", "/mssp/clients/{alias_id}/unmap"),
         ("POST", "/mssp/clients/{alias_id}/ignore"),
         ("PUT", "/mssp/tenants/{tenant_id}/hidden"),
-        ("POST", "/mssp/clients/reset"),
+        ("POST", "/mssp/tenants/{tenant_id}/remove"),
     ]:
         assert set(required_permissions(routes[(method, path)])) == {"mssp:manage"}, path
 

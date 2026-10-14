@@ -8,6 +8,7 @@ Opt in with AISOC_TEST_PG_URL (owner) and AISOC_TEST_PG_APP_URL (aisoc_app), as 
 cleaned up afterwards: the database must be disposable.
 """
 
+import asyncio
 import os
 import uuid
 from types import SimpleNamespace as NS
@@ -77,19 +78,22 @@ async def world():
         await owner.dispose()
 
 
-async def test_reset_removes_plain_clients_and_keeps_ones_with_work_or_audit_records(world):
+async def _remove(world, key):
     user = NS(tenant_id=world["parent"], user_id=None)
     async with world["factory"]() as session:
         await tag_session(session, world["parent"])
         await set_rls_context(session, world["parent"])
-        out = await mc.reset_clients(mc.ResetRequest(confirm=True), NS(headers={}, client=None, scope={}), user, session)
+        out = await mc.remove_client(world[key], NS(headers={}, client=None, scope={}), user, session)
         await session.commit()
+    return out
 
-    assert out.removed == 1
-    assert {k.name.split("-")[1]: k.reason for k in out.kept} == {
-        "worked": "it has alerts someone worked on",
-        "audited": "it has audit records",
-    }
+
+async def test_remove_deletes_a_plain_client_and_keeps_ones_with_work_or_audit_records(world):
+    plain, worked, audited = await _remove(world, "plain"), await _remove(world, "worked"), await _remove(world, "audited")
+
+    assert (plain.removed, plain.reason) == (True, None)
+    assert (worked.removed, worked.reason) == (False, "it has alerts someone worked on")
+    assert (audited.removed, audited.reason) == (False, "it has audit records")
     async with world["owner"].connect() as conn:
         left = {
             r[0].split("-")[1]
@@ -99,3 +103,20 @@ async def test_reset_removes_plain_clients_and_keeps_ones_with_work_or_audit_rec
             await conn.execute(text("select child_tenant_id from client_aliases where tenant_id = :p"), {"p": world["parent"]})
         ).scalar_one()
     assert left == {"worked", "audited"} and alias is None
+
+
+async def test_remove_gives_up_with_a_reason_when_another_process_holds_the_alerts_instead_of_hanging(world):
+    """The live failure: a request that waits is abandoned by the web proxy after 30 s and rolled back, with nothing logged. It must come back, kept, within the lock timeout."""
+    import time
+
+    async with world["owner"].connect() as blocker:
+        async with blocker.begin():
+            await blocker.execute(
+                text("update alerts set title = 'held' where tenant_id = :t"), {"t": world["plain"]}
+            )  # an open transaction on this client's alerts
+            started = time.monotonic()
+            out = await asyncio.wait_for(_remove(world, "plain"), 25)  # without the timeout this waits for ever
+            waited = time.monotonic() - started
+
+    assert out.removed is False and "lock" in (out.reason or "").lower()
+    assert waited < 15

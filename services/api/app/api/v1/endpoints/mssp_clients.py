@@ -308,18 +308,11 @@ async def set_client_hidden(
     await db.commit()
 
 
-class ResetRequest(BaseModel):
-    confirm: bool = False
-
-
-class KeptTenantOut(BaseModel):
+class RemoveOut(BaseModel):
+    removed: bool
     name: str
-    reason: str
-
-
-class ResetOut(BaseModel):
-    removed: int
-    kept: list[KeptTenantOut]
+    # Why it was kept, when it was.
+    reason: str | None = None
 
 
 # What stops a client tenant being removed. Deleting a tenant cascades to everything it owns, so work a person did there must be checked first, and audit and investigation
@@ -342,57 +335,55 @@ async def _blockers(db: TenantDBSession, tenant_id: uuid.UUID) -> list[str]:
     return found
 
 
-@router.post("/clients/reset", response_model=ResetOut)
-async def reset_clients(
-    body: ResetRequest,
+@router.post("/tenants/{tenant_id}/remove", response_model=RemoveOut)
+async def remove_client(
+    tenant_id: uuid.UUID,
     request: Request,
     current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
     db: TenantDBSession,
-) -> ResetOut:
-    """Start over: remove every client tenant, with its untouched ('new') alerts, and put every tool client back in Unmapped.
+) -> RemoveOut:
+    """Remove ONE client tenant and its untouched ('new') alerts; every tool client that was mapped to it goes back to Unmapped.
 
-    Automatic adding is turned off so nothing is re-created until you choose a source again. A client tenant that has cases, connectors, alerts someone worked on, or audit or
-    investigation records is kept (and listed with the reason): removing it would destroy that work, and audit records cannot be deleted at all. Each tenant is handled on its own.
+    The console calls this once per client (start over = every client in turn), so no single request runs long enough for the web proxy to give up on it. A client with cases,
+    connectors, alerts someone worked on, or audit or investigation records is kept and the reason returned: removing it would destroy that work, and audit records cannot be deleted
+    at all. If the database cannot take the locks it needs within a few seconds the client is kept too, with that reason, instead of the request hanging.
     """
-    if not body.confirm:
-        raise HTTPException(status_code=400, detail="Send confirm: true to remove every client tenant")
-    children = (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == current_user.tenant_id))).scalars().all()
-    removed = 0
-    kept: list[KeptTenantOut] = []
-    for child in children:
-        child_id, name = child.id, child.name
-        blockers = await _blockers(db, child_id)
-        if blockers:
-            kept.append(KeptTenantOut(name=name, reason="it has " + ", ".join(blockers)))
-            continue
-        try:
-            async with db.begin_nested():
-                async with acting_as_tenant(db, child_id):
-                    await db.execute(delete(Alert).where(Alert.tenant_id == child_id, Alert.status == "new"))
-                await db.execute(
-                    update(ClientAlias)
-                    .where(ClientAlias.tenant_id == current_user.tenant_id, ClientAlias.child_tenant_id == child_id)
-                    .values(child_tenant_id=None, match_source="suggested")
-                )
-                await db.execute(delete(Tenant).where(Tenant.id == child_id, Tenant.parent_tenant_id == current_user.tenant_id))
-            removed += 1
-        except DBAPIError as exc:  # a constraint or trigger refused it: keep the tenant and say why instead of failing the whole request
-            kept.append(
-                KeptTenantOut(name=name, reason="the database would not remove it (" + " ".join(str(exc.orig or exc).split())[:120] + ")")
+    child = (
+        await db.execute(select(Tenant).where(Tenant.id == tenant_id, Tenant.parent_tenant_id == current_user.tenant_id))
+    ).scalar_one_or_none()
+    if child is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    name = child.name
+    blockers = await _blockers(db, tenant_id)
+    if blockers:
+        return RemoveOut(removed=False, name=name, reason="it has " + ", ".join(blockers))
+    try:
+        async with db.begin_nested():
+            # Fail fast rather than wait behind another process: a request that waits is abandoned by the web proxy after 30 seconds, and the work is lost without a word.
+            await db.execute(text("SELECT set_config('lock_timeout', '8s', true), set_config('statement_timeout', '20s', true)"))
+            async with acting_as_tenant(db, tenant_id):
+                await db.execute(delete(Alert).where(Alert.tenant_id == tenant_id, Alert.status == "new"))
+            await db.execute(
+                update(ClientAlias)
+                .where(ClientAlias.tenant_id == current_user.tenant_id, ClientAlias.child_tenant_id == tenant_id)
+                .values(child_tenant_id=None, match_source="suggested")
             )
-    await set_sync_vendors(db, current_user.tenant_id, [])
+            await db.execute(delete(Tenant).where(Tenant.id == tenant_id, Tenant.parent_tenant_id == current_user.tenant_id))
+    except DBAPIError as exc:  # a lock timeout, a constraint or a trigger refused it: keep the tenant and say why
+        detail = " ".join(str(exc.orig or exc).split())[:160]
+        return RemoveOut(removed=False, name=name, reason=f"the database would not remove it ({detail})")
     await emit_audit(
         db=db,
         tenant_id=current_user.tenant_id,
         actor_id=current_user.user_id,
-        action="mssp:clients_reset",
+        action="mssp:client_removed",
         resource="tenant",
-        resource_id=str(current_user.tenant_id),
-        changes={"removed": removed, "kept": [k.name for k in kept]},
+        resource_id=str(tenant_id),
+        changes={"name": name},
         request=request,
     )
     await db.commit()
-    return ResetOut(removed=removed, kept=kept)
+    return RemoveOut(removed=True, name=name)
 
 
 @router.post("/clients/import", response_model=ImportOut)

@@ -52,6 +52,27 @@ export function keptSummary(kept: { name: string; reason: string }[]): string {
   return `; kept ${kept.length}: ${shown.join(', ')}${kept.length > 3 ? `, and ${kept.length - 3} more` : ''}`;
 }
 
+/** Remove clients one at a time (each request is short, so none is abandoned by the proxy). A failure for one is reported and the rest carry on. */
+export async function removeClients(
+  clients: { tenant_id: string; name: string }[],
+  remove: (tenantId: string) => Promise<{ removed: boolean; name: string; reason: string | null }>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ removed: number; kept: { name: string; reason: string }[] }> {
+  let removed = 0;
+  const kept: { name: string; reason: string }[] = [];
+  for (const [i, c] of clients.entries()) {
+    try {
+      const out = await remove(c.tenant_id);
+      if (out.removed) removed += 1;
+      else kept.push({ name: out.name, reason: out.reason ?? 'it could not be removed' });
+    } catch (err) {
+      kept.push({ name: c.name, reason: err instanceof Error && err.message ? err.message : 'the request failed' });
+    }
+    onProgress?.(i + 1, clients.length);
+  }
+  return { removed, kept };
+}
+
 export function groupClients(clients: VendorClient[], by: SortBy = 'name'): ClientGroups {
   const sorted = sortClients(clients, by);
   const hidden = (c: VendorClient) => c.child_tenant_id !== null && c.child_tenant_hidden === true;
@@ -211,6 +232,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const [search, setSearch] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
   const [typedReset, setTypedReset] = useState('');
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback(async () => {
@@ -277,14 +299,20 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   };
 
   const startOver = async () => {
+    setProgress({ done: 0, total: 0 });
     try {
-      const result = await msspApi.resetClients();
+      await msspApi.setClientSources([]); // first, so nothing re-creates a client while they are being removed
+      const everyone = await msspApi.tenants(true);
+      setProgress({ done: 0, total: everyone.length });
+      const result = await removeClients(everyone, (id) => msspApi.removeClient(id), (done, total) => setProgress({ done, total }));
       toast.success(`Removed ${result.removed} client tenant${result.removed === 1 ? '' : 's'}${keptSummary(result.kept)}`, { duration: result.kept.length > 0 ? 15000 : 4000 });
       setConfirmReset(false);
       setTypedReset('');
       changed();
     } catch (err) {
       toast.error(err instanceof Error && err.message ? err.message : 'Could not remove the client tenants.');
+    } finally {
+      setProgress(null);
     }
   };
 
@@ -342,11 +370,11 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
             </label>
             <button
               type="button"
-              disabled={typedReset.trim() !== 'REMOVE'}
+              disabled={typedReset.trim() !== 'REMOVE' || progress !== null}
               onClick={() => void startOver()}
               className="rounded-lg bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-600 disabled:opacity-40 transition-colors"
             >
-              Remove everything
+              {progress ? (progress.total > 0 ? `Removing ${progress.done} of ${progress.total}…` : 'Starting…') : 'Remove everything'}
             </button>
             <button type="button" onClick={() => { setConfirmReset(false); setTypedReset(''); }} className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors">
               Cancel
