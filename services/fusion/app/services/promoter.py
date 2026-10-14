@@ -108,6 +108,26 @@ def _title(ocsf: dict[str, Any]) -> str:
     return str(class_name)[:500]
 
 
+# What an alert's description may hold. Generous because a vendor's own write-up (a Huntress incident report, say) is the part an analyst most needs to read.
+_DESCRIPTION_CAP = 8000
+
+
+def _description(ocsf: dict[str, Any]) -> str:
+    """The text an analyst reads for this alert.
+
+    A source that keeps the original record (``raw_data``) wins, as before. A source that sends its own write-up instead (the push inbox's ``finding.description``) is no longer
+    dropped: before this, every alert from the generic JSON inbox, which is what CORE's Huntress / Petra / Blumira forwarding uses, was stored with an EMPTY description, so
+    the page showed only the title.
+    """
+    raw = ocsf.get("raw_data")
+    if isinstance(raw, str) and raw.strip():
+        return raw[:_DESCRIPTION_CAP]
+    written = _get_nested(ocsf, "finding", "description")
+    if isinstance(written, str) and written.strip():
+        return written.strip()[:_DESCRIPTION_CAP]
+    return ""
+
+
 def _source(ocsf: dict[str, Any]) -> str:
     vendor = _get_nested(ocsf, "metadata", "product", "vendor_name")
     product = _get_nested(ocsf, "metadata", "product", "name")
@@ -168,7 +188,7 @@ def promote_normalized_event(message: dict[str, Any]) -> RawAlert | None:
         tenant_id=tenant_id,
         source=_source(ocsf),
         title=_title(ocsf),
-        description=str(ocsf.get("raw_data") or "")[:2000],
+        description=_description(ocsf),
         severity=severity,
         src_ip=_get_nested(ocsf, "src_endpoint", "ip"),
         dst_ip=_get_nested(ocsf, "dst_endpoint", "ip"),

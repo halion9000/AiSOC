@@ -153,3 +153,25 @@ class TestPromoteNormalizedEvent:
         b = promote_normalized_event(_message())
         assert a is not None and b is not None
         assert a.fingerprint() == b.fingerprint()
+
+
+def test_a_description_the_source_wrote_is_kept_when_there_is_no_raw_record():
+    """The push inbox's generic template stores the sender's write-up at finding.description and sets no raw_data; the alert used to end up with an empty description."""
+    msg = _message(
+        {
+            "raw_data": None,
+            "finding": {"uid": "huntress:7", "title": "t", "description": "  Huntress found a persistent foothold on LAPTOP01.  "},
+        }
+    )
+    alert = promote_normalized_event(msg)
+    assert alert is not None
+    assert alert.description == "Huntress found a persistent foothold on LAPTOP01."
+
+
+def test_the_original_record_still_wins_over_the_write_up_and_both_are_capped():
+    msg = _message({"finding": {"uid": "x", "description": "write-up"}})
+    assert promote_normalized_event(msg).description == '{"event_simpleName":"CredentialDump"}'
+    long = _message({"raw_data": None, "finding": {"uid": "x", "description": "a" * 20000}})
+    assert len(promote_normalized_event(long).description) == 8000
+    none = _message({"raw_data": None})
+    assert promote_normalized_event(none).description == ""

@@ -47,6 +47,7 @@ import {
 import { ExplainDrawer } from './ExplainDrawer';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { VendorActionsSection } from './VendorActionsSection';
+import { AlertDescriptionSection } from './AlertDescriptionSection';
 
 // ─── Visual config ───────────────────────────────────────────────────────────
 
@@ -131,6 +132,7 @@ export function InvestigationRail({ alertId, onClose }: InvestigationRailProps) 
     <>
       <RailShell title={alert.title} onClose={onClose}>
         <RailHeader alert={alert} onDeepExplain={() => setDeepExplainOpen(true)} />
+        <AlertDescriptionSection description={alert.description} />
         <NarrativeSection narrative={alert.narrative ?? null} />
         <VendorActionsSection alertId={alert.id} />
         <RelatedEntitiesSection entities={alert.relatedEntities ?? []} />
