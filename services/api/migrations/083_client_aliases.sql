@@ -4,7 +4,7 @@
 --
 -- THE TABLE. One row per (owning tenant, vendor, vendor client id): the vendor's name for the client, and the AiSOC child tenant it is linked to. child_tenant_id is NULL while the client is unmapped (it shows in an "Unmapped" list rather than being dropped), and
 -- `ignored` marks a client the person decided not to map. match_source records whether a person chose the link ('manual', never overwritten by a suggestion) or accepted a suggestion ('suggested'). Suggestions themselves are computed on demand, not stored.
--- Row-level security with the standard policy (migrations 060/061/063).
+-- Row-level security with the standard policy, honouring the fail-closed switch (migration 081): a session with no tenant sees nothing once the switch is on.
 --
 -- Idempotent.
 
@@ -30,6 +30,7 @@ CREATE INDEX IF NOT EXISTS ix_client_aliases_child ON client_aliases (child_tena
 ALTER TABLE client_aliases ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON client_aliases;
 CREATE POLICY tenant_isolation ON client_aliases
-    USING (tenant_id = current_tenant_id() OR current_tenant_id() IS NULL);
+    USING ((tenant_id = current_tenant_id()) OR ((current_tenant_id() IS NULL) AND (NOT (SELECT rls_fail_closed()))))
+    WITH CHECK ((tenant_id = current_tenant_id()) OR ((current_tenant_id() IS NULL) AND (NOT (SELECT rls_fail_closed()))));
 
 COMMIT;

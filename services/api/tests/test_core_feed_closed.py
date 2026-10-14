@@ -54,7 +54,9 @@ def test_a_report_rejects_ids_and_vendors_that_could_be_abused():
 @pytest.mark.asyncio
 async def test_only_new_alerts_in_this_tenant_for_this_vendor_are_resolved():
     db = _db([2])
-    rep = ClosedReport(vendor="huntress", closed=[ClosedItem(uid="huntress:1", state="resolved"), ClosedItem(uid="petra:9"), ClosedItem(uid="huntress:2")])
+    rep = ClosedReport(
+        vendor="huntress", closed=[ClosedItem(uid="huntress:1", state="resolved"), ClosedItem(uid="petra:9"), ClosedItem(uid="huntress:2")]
+    )
     assert await apply_closed(db, TENANT, rep) == 2
     sql, params = _sql(db.executed[0])
     assert sql.lower().startswith("update alerts")
