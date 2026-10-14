@@ -46,6 +46,10 @@ PUBLIC = {
         "inbound ITSM webhook: authenticated by the secret tenant_token in the URL plus the "
         "vendor signature, and answers 401 on a mismatch (the 500 here is only the fake database)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/status"): (
+        "CORE's per-run report: authenticated by the secret core-feed token in the URL (only an active token with the core-feed label is accepted; "
+        "anything else is a 401 in the handler), and it can only write that tenant's own core_feed rows (the 422 here is the empty body)"
+    ),
     ("GET", "/api/v1/community/detections"): "public community catalog (global content, no tenant data)",
     ("GET", "/api/v1/community/detections/{detection_id}"): "public community catalog",
     ("GET", "/api/v1/community/playbooks"): "public community catalog",
