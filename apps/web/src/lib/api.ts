@@ -815,6 +815,47 @@ export interface AlertFilters {
   tenantId?: string;
 }
 
+export interface VendorRemediation {
+  id: number;
+  type: string | null;
+  action: string | null;
+  parameters: { name: string; description: string | null }[];
+  status: string | null;
+}
+
+export interface VendorState {
+  vendor: string;
+  at: string;
+  status: string;
+  remediations: VendorRemediation[];
+  psa_ticket_eids: string[];
+}
+
+export interface VendorActionItem {
+  id: string;
+  action: 'approve' | 'reject' | 'resolve';
+  /** pending (waiting for CORE) / claimed (CORE has it) / done / failed / expired */
+  status: string;
+  result_message: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface VendorActions {
+  supported: boolean;
+  vendor: string | null;
+  incident_uid: string | null;
+  vendor_state: VendorState | null;
+  actions: VendorActionItem[];
+}
+
+export interface VendorActionRequest {
+  action: 'approve' | 'reject' | 'resolve';
+  comment?: string;
+  reason?: string;
+  useful?: boolean;
+}
+
 export const alertsApi = {
   list: async (filters: AlertFilters = {}) => {
     const raw = await request<{
@@ -845,6 +886,13 @@ export const alertsApi = {
     const raw = await request<unknown>(`/api/v1/alerts/${id}`);
     return normalizeAlert(raw);
   },
+
+  /** The incident's remediation plan as CORE last reported it, and the approve / reject / resolve requests made so far (Huntress alerts only). */
+  vendorActions: (id: string) => request<VendorActions>(`/api/v1/alerts/${id}/vendor-actions`),
+
+  /** Queue an approve / reject / resolve for CORE to carry out at the vendor. Nothing has happened at the vendor when this returns. */
+  requestVendorAction: (id: string, body: VendorActionRequest) =>
+    request<VendorActionItem>(`/api/v1/alerts/${id}/vendor-actions`, { method: 'POST', body: JSON.stringify(body) }),
 
   update: async (id: string, data: Partial<Alert>) => {
     const raw = await request<unknown>(`/api/v1/alerts/${id}`, {
