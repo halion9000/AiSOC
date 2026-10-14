@@ -80,6 +80,10 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
         "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/status",
     ): "CORE's per-run report: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write that tenant's core_feed rows",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/closed",
+    ): "CORE's closed-in-vendor report: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only resolve that tenant's still-new alerts",
 }
 
 LOGIN_ONLY_NO_CHECK: dict[tuple[str, str], str] = {
