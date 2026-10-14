@@ -18,7 +18,7 @@ from app.db.rls import TenantDBSession
 from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 from app.services.audit import emit_audit
-from app.services.client_mapping import child_candidates, make_slug, suggestions_for
+from app.services.client_mapping import child_candidates, import_unmapped, make_slug, suggestions_for
 
 router = APIRouter(prefix="/mssp", tags=["mssp"])
 
@@ -58,6 +58,15 @@ class ClientsOut(BaseModel):
 class MapRequest(BaseModel):
     child_tenant_id: uuid.UUID | None = None
     new_tenant_name: str | None = Field(default=None, max_length=255)
+
+
+class ImportRequest(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+
+
+class ImportOut(BaseModel):
+    created: int
+    linked: int
 
 
 class IgnoreRequest(BaseModel):
@@ -217,3 +226,30 @@ async def ignore_client(
     if body.ignored:
         alias.child_tenant_id = None  # type: ignore[assignment]
     await db.commit()
+
+
+@router.post("/clients/import", response_model=ImportOut)
+async def import_clients(
+    body: ImportRequest,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> ImportOut:
+    """Add every unmapped client from one tool as a client tenant (or link it to the tenant you already have by that name)."""
+
+    async def make(name: str) -> Tenant:
+        return await _make_child(db, current_user, name)
+
+    created, linked = await import_unmapped(db, current_user.tenant_id, body.vendor, make)
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="mssp:clients_imported",
+        resource="client_alias",
+        resource_id=body.vendor,
+        changes={"vendor": body.vendor, "created": created, "linked": linked},
+        request=request,
+    )
+    await db.commit()
+    return ImportOut(created=created, linked=linked)

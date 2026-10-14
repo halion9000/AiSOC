@@ -9745,6 +9745,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/clients/import:
+    post:
+      tags:
+      - mssp
+      summary: Import Clients
+      description: Add every unmapped client from one tool as a client tenant (or
+        link it to the tenant you already have by that name).
+      operationId: import_clients_api_v1_mssp_clients_import_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/insider-threat/profiles:
     get:
       tags:
@@ -22458,6 +22487,29 @@ components:
           default: true
       type: object
       title: IgnoreRequest
+    ImportOut:
+      properties:
+        created:
+          type: integer
+          title: Created
+        linked:
+          type: integer
+          title: Linked
+      type: object
+      required:
+      - created
+      - linked
+      title: ImportOut
+    ImportRequest:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+      type: object
+      required:
+      - vendor
+      title: ImportRequest
     InboundResult:
       properties:
         case_id:

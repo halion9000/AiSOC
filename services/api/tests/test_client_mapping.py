@@ -230,3 +230,63 @@ def test_reading_needs_mssp_read_and_every_change_needs_mssp_manage():
         ("POST", "/mssp/clients/{alias_id}/ignore"),
     ]:
         assert set(required_permissions(routes[(method, path)])) == {"mssp:manage"}, path
+
+
+# ---- import everything from one tool -------------------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_import_creates_tenants_links_name_matches_and_reuses_a_tenant_made_a_moment_ago():
+    existing = _tenant("Acme Dental")
+    a, b, c = _alias("ACME DENTAL, LLC"), _alias("Birch Law"), _alias("Birch Law Inc")  # the last two are one customer
+    made = []
+
+    async def make(name):
+        t = _tenant(name)
+        made.append(t)
+        return t
+
+    db = _db([existing], [a, b, c])  # candidates, pending aliases
+    for alias, key in ((a, "acme dental"), (b, "birch law"), (c, "birch law")):
+        alias.normalized_name = key
+    created, linked = await cm.import_unmapped(db, PARENT, "petra", make)
+    assert (created, linked) == (1, 2)
+    assert [t.name for t in made] == ["Birch Law"]
+    assert a.child_tenant_id == existing.id and b.child_tenant_id == made[0].id and c.child_tenant_id == made[0].id
+    assert all(x.match_source == "manual" for x in (a, b, c))
+
+
+@pytest.mark.asyncio
+async def test_import_leaves_a_client_alone_when_two_tenants_share_its_name():
+    a = _alias("Acme")
+    a.normalized_name = "acme"
+    made = []
+
+    async def make(name):
+        made.append(name)
+        return _tenant(name)
+
+    created, linked = await cm.import_unmapped(_db([_tenant("Acme"), _tenant("ACME")], [a]), PARENT, "petra", make)
+    assert (created, linked) == (0, 0) and made == [] and a.child_tenant_id is None
+
+
+@pytest.mark.asyncio
+async def test_the_import_route_reports_the_counts_and_audits(monkeypatch):
+    audit = AsyncMock()
+    monkeypatch.setattr(mc, "emit_audit", audit)
+    a = _alias("New Co")
+    a.normalized_name = "new co"
+    db = _db([], [a], [0], get={PARENT: Tenant(id=PARENT, name="P", slug="p")})
+    out = await mc.import_clients(mc.ImportRequest(vendor="petra"), MagicMock(), USER, db)
+    assert (out.created, out.linked) == (1, 0)
+    assert audit.await_args.kwargs["action"] == "mssp:clients_imported"
+    with pytest.raises(ValueError):
+        mc.ImportRequest(vendor="Petra!")
+
+
+def test_importing_needs_mssp_manage():
+    from fastapi.routing import APIRoute
+    from route_introspect import required_permissions
+
+    routes = {(m, r.path): r for r in mc.router.routes if isinstance(r, APIRoute) for m in r.methods}
+    assert set(required_permissions(routes[("POST", "/mssp/clients/import")])) == {"mssp:manage"}

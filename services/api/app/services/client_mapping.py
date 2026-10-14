@@ -82,3 +82,44 @@ def suggestions_for(alias: ClientAlias, candidates: list[Candidate]) -> list[Sug
     if alias.child_tenant_id is not None or alias.ignored:
         return []
     return suggest(alias.vendor_client_name, candidates)
+
+
+async def import_unmapped(db: Any, parent_id: uuid.UUID, vendor: str, make_child: Any) -> tuple[int, int]:
+    """Give every unmapped, not-ignored client of one vendor a tenant. Returns (new tenants created, clients linked to a tenant that already existed).
+
+    A client whose name matches a tenant you already have (after normalization: "ACME Dental, LLC" = "Acme Dental"), including one created a moment ago for the same
+    customer from another tool, is linked to it instead of getting a duplicate. ``make_child(name)`` creates the tenant.
+    """
+    candidates = await child_candidates(db, parent_id)
+    pending = (
+        (
+            await db.execute(
+                select(ClientAlias)
+                .where(
+                    ClientAlias.tenant_id == parent_id,
+                    ClientAlias.vendor == vendor,
+                    ClientAlias.child_tenant_id.is_(None),
+                    ClientAlias.ignored.is_(False),
+                )
+                .order_by(ClientAlias.vendor_client_name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    created = linked = 0
+    for alias in pending:
+        same = [c for c in candidates if normalize_name(c.name) == alias.normalized_name]
+        if len(same) == 1:
+            alias.child_tenant_id = uuid.UUID(same[0].tenant_id)
+            linked += 1
+        elif len(same) > 1:
+            continue  # two tenants share this name: a person has to choose
+        else:
+            child = await make_child(alias.vendor_client_name)
+            candidates.append(Candidate(tenant_id=str(child.id), name=child.name))
+            alias.child_tenant_id = child.id
+            created += 1
+        alias.match_source = "manual"
+    await db.flush()
+    return created, linked

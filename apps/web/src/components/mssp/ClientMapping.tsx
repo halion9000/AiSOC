@@ -23,6 +23,13 @@ export function groupClients(clients: VendorClient[]): ClientGroups {
   };
 }
 
+/** How many unmapped clients each tool has, most first: what an "import all" button offers. */
+export function unmappedByVendor(unmapped: VendorClient[]): { vendor: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const c of unmapped) counts.set(c.vendor, (counts.get(c.vendor) ?? 0) + 1);
+  return [...counts.entries()].map(([vendor, count]) => ({ vendor, count })).sort((a, b) => b.count - a.count || a.vendor.localeCompare(b.vendor));
+}
+
 /** "petra" -> "Petra" */
 export function vendorLabel(vendor: string): string {
   return vendor.charAt(0).toUpperCase() + vendor.slice(1);
@@ -171,6 +178,18 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
 
   const groups = groupClients(clients);
 
+  const importAll = async (vendor: string, count: number) => {
+    const label = vendorLabel(vendor);
+    if (!window.confirm(`Add ${count} ${label} client${count === 1 ? '' : 's'} as client tenants? A client whose name matches one you already have is linked to it instead.`)) return;
+    try {
+      const result = await msspApi.importClients(vendor);
+      toast.success(`${label}: ${result.created} added, ${result.linked} linked to existing clients`);
+      changed();
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : 'Could not import those clients.');
+    }
+  };
+
   return (
     <section aria-labelledby="client-mapping-title" className="rounded-xl border border-gray-800/60 bg-gray-900/40 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-800/60">
@@ -189,6 +208,20 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
       ) : (
         <>
           <h3 className="px-5 pt-4 text-xs font-medium uppercase tracking-wider text-gray-500">Unmapped ({groups.unmapped.length})</h3>
+          {groups.unmapped.length > 0 ? (
+            <div className="flex flex-wrap gap-2 px-5 pt-3">
+              {unmappedByVendor(groups.unmapped).map(({ vendor, count }) => (
+                <button
+                  key={vendor}
+                  type="button"
+                  onClick={() => void importAll(vendor, count)}
+                  className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                >
+                  Import all {count} from {vendorLabel(vendor)}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {groups.unmapped.length === 0 ? (
             <p className="px-5 py-3 text-sm text-gray-400">Everything is mapped.</p>
           ) : (

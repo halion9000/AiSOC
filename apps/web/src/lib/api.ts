@@ -501,6 +501,10 @@ export const msspApi = {
     const body = 'childTenantId' in target ? { child_tenant_id: target.childTenantId } : { new_tenant_name: target.newTenantName };
     return request<VendorClient>(`/api/v1/mssp/clients/${aliasId}/map`, { method: 'POST', body: JSON.stringify(body) });
   },
+  /** Add every unmapped client from one tool as a client tenant (or link it to the tenant you already have by that name). */
+  async importClients(vendor: string): Promise<{ created: number; linked: number }> {
+    return request('/api/v1/mssp/clients/import', { method: 'POST', body: JSON.stringify({ vendor }) });
+  },
   async unmapClient(aliasId: string): Promise<void> {
     await request<void>(`/api/v1/mssp/clients/${aliasId}/unmap`, { method: 'POST' });
   },
