@@ -202,6 +202,8 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [tab, setTab] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [typedReset, setTypedReset] = useState('');
   const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback(async () => {
@@ -268,11 +270,11 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   };
 
   const startOver = async () => {
-    const typed = window.prompt('This removes EVERY client tenant and its untouched alerts, puts all tool clients back in Unmapped, and turns off automatic adding. Tenants with cases or connectors are kept. Type REMOVE to continue.');
-    if (typed?.trim() !== 'REMOVE') return;
     try {
       const result = await msspApi.resetClients();
       toast.success(`Removed ${result.removed} client tenant${result.removed === 1 ? '' : 's'}${result.kept.length > 0 ? `; kept ${result.kept.map((k) => k.name).join(', ')} (${result.kept[0].reason})` : ''}`);
+      setConfirmReset(false);
+      setTypedReset('');
       changed();
     } catch (err) {
       toast.error(err instanceof Error && err.message ? err.message : 'Could not remove the client tenants.');
@@ -321,6 +323,31 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
         </div>
       ) : null}
 
+      {confirmReset ? (
+        <div role="alertdialog" aria-label="Remove all client tenants" className="px-5 py-4 border-b border-red-900/60 bg-red-950/20">
+          <p className="text-sm text-red-200">
+            This removes EVERY client tenant and its untouched alerts, puts all tool clients back in Unmapped, and turns off automatic adding. Tenants with cases or connectors are kept.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-200">
+              Type REMOVE to confirm
+              <input value={typedReset} onChange={(e) => setTypedReset(e.target.value)} className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200" />
+            </label>
+            <button
+              type="button"
+              disabled={typedReset.trim() !== 'REMOVE'}
+              onClick={() => void startOver()}
+              className="rounded-lg bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-600 disabled:opacity-40 transition-colors"
+            >
+              Remove everything
+            </button>
+            <button type="button" onClick={() => { setConfirmReset(false); setTypedReset(''); }} className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {tabs.length > 1 ? (
         <div role="tablist" aria-label="Tool" className="flex flex-wrap gap-1 px-5 pt-3 border-b border-gray-800/60">
           {[{ vendor: null as string | null, label: 'All tools', unmapped: clients.filter((c) => !c.ignored && c.child_tenant_id === null).length }, ...tabs.map((t) => ({ vendor: t.vendor as string | null, label: vendorLabel(t.vendor), unmapped: t.unmapped }))].map((t) => (
@@ -363,7 +390,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
               className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200"
             />
           </label>
-          <button type="button" onClick={() => void startOver()} className="ml-auto rounded-lg border border-red-900/60 px-3 py-1 text-sm text-red-300 hover:bg-red-950/40 transition-colors">
+          <button type="button" onClick={() => setConfirmReset((v) => !v)} className="ml-auto rounded-lg border border-red-900/60 px-3 py-1 text-sm text-red-300 hover:bg-red-950/40 transition-colors">
             Remove all client tenants
           </button>
           {groups.hidden.length > 0 ? (

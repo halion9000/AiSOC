@@ -299,28 +299,34 @@ describe('one tool at a time', () => {
 });
 
 describe('start over', () => {
-  const load = async () => {
+  const open = async () => {
     clientsMock.mockResolvedValue({ clients: [client({ vendor_client_name: 'Acme' })], unmapped: 1, sync_vendors: [] });
     const user = userEvent.setup();
     render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
     await screen.findAllByText('Acme');
+    await user.click(screen.getByRole('button', { name: 'Remove all client tenants' }));
     return user;
   };
 
-  it('removes everything only after REMOVE is typed', async () => {
-    const user = await load();
-    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('REMOVE');
-    await user.click(screen.getByRole('button', { name: 'Remove all client tenants' }));
+  it('shows an in-page confirmation (no browser prompt, which Electron does not support) and removes only after REMOVE is typed', async () => {
+    const prompt = vi.spyOn(window, 'prompt');
+    const user = await open();
+    const go = screen.getByRole('button', { name: 'Remove everything' });
+    expect(go).toBeDisabled();
+    await user.type(screen.getByLabelText('Type REMOVE to confirm'), 'remove it');
+    expect(go).toBeDisabled();
+    await user.clear(screen.getByLabelText('Type REMOVE to confirm'));
+    await user.type(screen.getByLabelText('Type REMOVE to confirm'), 'REMOVE');
+    await user.click(go);
     expect(resetMock).toHaveBeenCalledTimes(1);
+    expect(prompt).not.toHaveBeenCalled();
     prompt.mockRestore();
   });
 
-  it('does nothing when the confirmation is wrong or cancelled', async () => {
-    const user = await load();
-    const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('remove it').mockReturnValueOnce(null);
-    await user.click(screen.getByRole('button', { name: 'Remove all client tenants' }));
-    await user.click(screen.getByRole('button', { name: 'Remove all client tenants' }));
+  it('Cancel closes the confirmation and removes nothing', async () => {
+    const user = await open();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(resetMock).not.toHaveBeenCalled();
-    prompt.mockRestore();
   });
 });
