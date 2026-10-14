@@ -505,6 +505,10 @@ export const msspApi = {
   async importClients(vendor: string): Promise<{ created: number; linked: number }> {
     return request('/api/v1/mssp/clients/import', { method: 'POST', body: JSON.stringify({ vendor }) });
   },
+  /** Choose which tools add their clients as client tenants automatically. A tool newly chosen is imported right away. */
+  async setClientSources(vendors: string[]): Promise<{ sync_vendors: string[]; created: number; linked: number }> {
+    return request('/api/v1/mssp/clients/sources', { method: 'PUT', body: JSON.stringify({ vendors }) });
+  },
   async unmapClient(aliasId: string): Promise<void> {
     await request<void>(`/api/v1/mssp/clients/${aliasId}/unmap`, { method: 'POST' });
   },
@@ -534,6 +538,8 @@ export interface VendorClient {
 export interface ClientMappingList {
   clients: VendorClient[];
   unmapped: number;
+  /** Tools whose clients are added as client tenants automatically. */
+  sync_vendors: string[];
 }
 
 // ─── Alerts ─────────────────────────────────────────────────────────────────

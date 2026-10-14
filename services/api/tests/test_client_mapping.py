@@ -290,3 +290,78 @@ def test_importing_needs_mssp_manage():
 
     routes = {(m, r.path): r for r in mc.router.routes if isinstance(r, APIRoute) for m in r.methods}
     assert set(required_permissions(routes[("POST", "/mssp/clients/import")])) == {"mssp:manage"}
+
+
+# ---- choosing which tools add clients automatically ---------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_chosen_tools_are_remembered_on_the_parent_tenant_and_read_back_sorted():
+    parent = Tenant(id=PARENT, name="P", slug="p", settings={"other": 1})
+    db = _db(get={PARENT: parent})
+    assert await cm.set_sync_vendors(db, PARENT, ["petra", "halopsa", "petra"]) == ["halopsa", "petra"]
+    assert parent.settings == {"other": 1, "client_sync_vendors": ["halopsa", "petra"]}  # nothing else in the settings is lost
+    assert await cm.sync_vendors(db, PARENT) == ["halopsa", "petra"]
+    assert (
+        await cm.sync_vendors(_db(get={PARENT: Tenant(id=PARENT, name="P", slug="p", settings={"client_sync_vendors": "junk"})}), PARENT)
+        == []
+    )
+    assert await cm.sync_vendors(_db(), PARENT) == []
+
+
+def _sync_db(parent, candidates=()):
+    """A session that answers the three queries a sync makes: the tenants, the known aliases, and (after the aliases were added) the pending ones."""
+    db = _db(get={PARENT: parent})
+
+    async def execute(stmt, *a, **k):
+        sql = str(stmt)
+        if "FROM tenants" in sql:
+            return _Result(list(candidates))
+        if "child_tenant_id IS NULL" in sql:
+            return _Result([x for x in db.added if isinstance(x, ClientAlias) and x.child_tenant_id is None])
+        return _Result([])
+
+    db.execute = AsyncMock(side_effect=execute)
+    return db
+
+
+@pytest.mark.asyncio
+async def test_a_new_client_from_a_chosen_tool_becomes_a_tenant_and_one_from_another_tool_waits():
+    parent = Tenant(id=PARENT, name="P", slug="p", settings={"client_sync_vendors": ["halopsa"]})
+    db = _sync_db(parent)
+    await cm.upsert_clients(db, PARENT, "halopsa", [cm.IncomingClient("1", "Acme Dental")])
+    tenants = [o for o in db.added if isinstance(o, Tenant)]
+    assert [t.name for t in tenants] == ["Acme Dental"] and tenants[0].parent_tenant_id == PARENT
+    assert next(o for o in db.added if isinstance(o, ClientAlias)).child_tenant_id == tenants[0].id
+
+    other = _sync_db(parent)
+    await cm.upsert_clients(other, PARENT, "petra", [cm.IncomingClient("9", "Acme Dental")])
+    assert [o for o in other.added if isinstance(o, Tenant)] == []
+    assert next(o for o in other.added if isinstance(o, ClientAlias)).child_tenant_id is None
+
+
+@pytest.mark.asyncio
+async def test_choosing_a_tool_imports_what_is_already_waiting_but_a_tool_already_chosen_is_not_redone(monkeypatch):
+    parent = Tenant(id=PARENT, name="P", slug="p", settings={"client_sync_vendors": ["halopsa"]})
+    waiting = _alias("Waiting Co")
+    waiting.normalized_name = "waiting co"
+    db = _db([waiting], get={PARENT: parent})
+    imported = []
+
+    async def fake_import(db_, parent_id, vendor, make):
+        imported.append(vendor)
+        return 1, 0
+
+    monkeypatch.setattr(mc, "import_unmapped", fake_import)
+    out = await mc.set_client_sources(mc.SourcesRequest(vendors=["halopsa", "petra"]), USER, db)
+    assert imported == ["petra"] and out.sync_vendors == ["halopsa", "petra"] and out.created == 1
+
+
+def test_choosing_sources_needs_mssp_manage_and_a_bad_tool_name_is_refused():
+    from fastapi.routing import APIRoute
+    from route_introspect import required_permissions
+
+    routes = {(m, r.path): r for r in mc.router.routes if isinstance(r, APIRoute) for m in r.methods}
+    assert set(required_permissions(routes[("PUT", "/mssp/clients/sources")])) == {"mssp:manage"}
+    with pytest.raises(ValueError):
+        mc.SourcesRequest(vendors=["Petra!"])

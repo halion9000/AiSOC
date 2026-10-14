@@ -8,6 +8,7 @@ const mapMock = vi.fn();
 const unmapMock = vi.fn();
 const ignoreMock = vi.fn();
 const importMock = vi.fn();
+const sourcesMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   msspApi: {
     clients: () => clientsMock(),
@@ -15,11 +16,12 @@ vi.mock('@/lib/api', () => ({
     unmapClient: (...a: unknown[]) => unmapMock(...a),
     ignoreClient: (...a: unknown[]) => ignoreMock(...a),
     importClients: (...a: unknown[]) => importMock(...a),
+    setClientSources: (...a: unknown[]) => sourcesMock(...a),
   },
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import ClientMapping, { groupClients, unmappedByVendor, vendorLabel } from './ClientMapping';
+import ClientMapping, { groupClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
 
 function client(over: Partial<VendorClient> & { vendor_client_name: string }): VendorClient {
   return { id: `a-${over.vendor_client_name}`, vendor: 'petra', vendor_client_id: '1', child_tenant_id: null, child_tenant_name: null, ignored: false, match_source: 'suggested', suggestions: [], ...over };
@@ -30,8 +32,9 @@ const tenant = (name: string): ManagedTenantRow => ({
 const tenants = [tenant('Acme Dental'), tenant('Birch Law')];
 
 beforeEach(() => {
-  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock]) m.mockReset();
+  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock]) m.mockReset();
   importMock.mockResolvedValue({ created: 2, linked: 1 });
+  sourcesMock.mockResolvedValue({ sync_vendors: [], created: 0, linked: 0 });
   mapMock.mockResolvedValue({});
   unmapMock.mockResolvedValue(undefined);
   ignoreMock.mockResolvedValue(undefined);
@@ -46,6 +49,9 @@ describe('grouping', () => {
     ]);
     expect([g.unmapped, g.mapped, g.ignored].map((x) => x.map((c) => c.vendor_client_name))).toEqual([['A'], ['B'], ['C']]);
     expect(vendorLabel('petra')).toBe('Petra');
+    expect(vendorLabel('halopsa')).toBe('HaloPSA');
+    expect(vendorLabel('ninjaone')).toBe('NinjaOne');
+    expect(vendorLabel('acme')).toBe('Acme');
   });
 });
 
@@ -145,5 +151,38 @@ describe('importing every unmapped client from a tool', () => {
     render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
     await screen.findByText('Everything is mapped.');
     expect(screen.queryByRole('button', { name: /Import all/ })).toBeNull();
+  });
+});
+
+describe('choosing which tools add clients automatically', () => {
+  const list = [client({ vendor_client_name: 'A', vendor: 'petra' }), client({ vendor_client_name: 'B', vendor: 'halopsa' })];
+
+  it('lists every tool that sent clients, with the chosen ones on', () => {
+    expect(sourceChoices(list, ['halopsa'])).toEqual([{ vendor: 'halopsa', on: true }, { vendor: 'petra', on: false }]);
+  });
+
+  it('turning a tool on asks first, then saves the whole chosen list', async () => {
+    clientsMock.mockResolvedValue({ clients: list, unmapped: 2, sync_vendors: ['halopsa'] });
+    const confirm = vi.spyOn(window, 'confirm');
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+
+    const petra = await screen.findByRole('checkbox', { name: 'Petra' });
+    expect(screen.getByRole('checkbox', { name: 'HaloPSA' })).toBeChecked();
+    confirm.mockReturnValueOnce(false);
+    await user.click(petra);
+    expect(sourcesMock).not.toHaveBeenCalled();
+    confirm.mockReturnValueOnce(true);
+    await user.click(petra);
+    expect(sourcesMock).toHaveBeenCalledWith(['halopsa', 'petra']);
+    confirm.mockRestore();
+  });
+
+  it('turning a tool off needs no confirmation and keeps the others', async () => {
+    clientsMock.mockResolvedValue({ clients: list, unmapped: 2, sync_vendors: ['halopsa', 'petra'] });
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await user.click(await screen.findByRole('checkbox', { name: 'HaloPSA' }));
+    expect(sourcesMock).toHaveBeenCalledWith(['petra']);
   });
 });

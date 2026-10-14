@@ -17,6 +17,34 @@ from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 from app.services.client_matching import Candidate, Suggestion, is_confident, normalize_name, suggest
 
+SYNC_KEY = "client_sync_vendors"
+
+
+async def new_child(db: Any, parent_id: uuid.UUID, name: str) -> Tenant:
+    """Create a client tenant under ``parent_id`` (and mark the parent as an MSSP parent). The caller owns the transaction."""
+    child = Tenant(id=uuid.uuid4(), name=name.strip(), slug=make_slug(name), parent_tenant_id=parent_id, mssp_role="child")
+    db.add(child)
+    parent = await db.get(Tenant, parent_id)
+    if parent is not None and parent.mssp_role != "parent":
+        parent.mssp_role = "parent"
+    await db.flush()
+    return child
+
+
+async def sync_vendors(db: Any, parent_id: uuid.UUID) -> list[str]:
+    """The tools whose clients are added as client tenants automatically (a setting of the MSSP tenant)."""
+    parent = await db.get(Tenant, parent_id)
+    found = (parent.settings or {}).get(SYNC_KEY) if parent is not None and isinstance(parent.settings, dict) else None
+    return sorted({v for v in found if isinstance(v, str)}) if isinstance(found, list) else []
+
+
+async def set_sync_vendors(db: Any, parent_id: uuid.UUID, vendors: list[str]) -> list[str]:
+    parent = await db.get(Tenant, parent_id)
+    chosen = sorted(set(vendors))
+    if parent is not None:
+        parent.settings = {**(parent.settings or {}), SYNC_KEY: chosen}
+    return chosen
+
 
 def make_slug(name: str) -> str:
     """A unique, URL-safe tenant slug for a new client: its name plus a random suffix, so two clients called the same thing never collide."""
@@ -74,6 +102,9 @@ async def upsert_clients(db: Any, tenant_id: uuid.UUID, vendor: str, clients: li
         created += 1
         linked += 1 if child_id else 0
     await db.flush()
+    # A tool chosen as a source adds its new clients as tenants straight away (or links them to the tenant you already have by that name).
+    if vendor in await sync_vendors(db, tenant_id):
+        await import_unmapped(db, tenant_id, vendor, lambda name: new_child(db, tenant_id, name))
     return created, linked
 
 

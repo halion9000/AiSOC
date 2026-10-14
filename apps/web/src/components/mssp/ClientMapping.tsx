@@ -30,9 +30,17 @@ export function unmappedByVendor(unmapped: VendorClient[]): { vendor: string; co
   return [...counts.entries()].map(([vendor, count]) => ({ vendor, count })).sort((a, b) => b.count - a.count || a.vendor.localeCompare(b.vendor));
 }
 
-/** "petra" -> "Petra" */
+/** The tools that have sent clients, with whether each adds its clients as tenants automatically. */
+export function sourceChoices(clients: VendorClient[], synced: string[]): { vendor: string; on: boolean }[] {
+  const vendors = new Set([...clients.map((c) => c.vendor), ...synced]);
+  return [...vendors].sort().map((vendor) => ({ vendor, on: synced.includes(vendor) }));
+}
+
+const VENDOR_NAMES: Record<string, string> = { halopsa: 'HaloPSA', ninjaone: 'NinjaOne', petra: 'Petra', huntress: 'Huntress', blumira: 'Blumira' };
+
+/** "halopsa" -> "HaloPSA", "petra" -> "Petra"; a tool it doesn't know is capitalized. */
 export function vendorLabel(vendor: string): string {
-  return vendor.charAt(0).toUpperCase() + vendor.slice(1);
+  return VENDOR_NAMES[vendor] ?? vendor.charAt(0).toUpperCase() + vendor.slice(1);
 }
 
 const NEW_CLIENT = '__new__';
@@ -136,12 +144,14 @@ function SimpleRow({ client, label, action, onClick }: { client: VendorClient; l
 
 export default function ClientMapping({ tenants, onChanged }: { tenants: ManagedTenantRow[]; onChanged: () => void }) {
   const [clients, setClients] = useState<VendorClient[] | null>(null);
+  const [synced, setSynced] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const result = await msspApi.clients();
       setClients(result.clients);
+      setSynced(result.sync_vendors ?? []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Could not load client mappings.');
@@ -178,6 +188,19 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
 
   const groups = groupClients(clients);
 
+  const toggleSource = async (vendor: string, on: boolean) => {
+    const label = vendorLabel(vendor);
+    if (on && !window.confirm(`Add every ${label} client as a client tenant now, and add new ones automatically from here on? A client whose name matches one you already have is linked to it instead.`)) return;
+    try {
+      const next = on ? [...synced, vendor] : synced.filter((v) => v !== vendor);
+      const result = await msspApi.setClientSources(next);
+      toast.success(on ? `${label}: ${result.created} added, ${result.linked} linked to existing clients` : `${label} clients are no longer added automatically`);
+      changed();
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : 'Could not save that.');
+    }
+  };
+
   const importAll = async (vendor: string, count: number) => {
     const label = vendorLabel(vendor);
     if (!window.confirm(`Add ${count} ${label} client${count === 1 ? '' : 's'} as client tenants? A client whose name matches one you already have is linked to it instead.`)) return;
@@ -200,6 +223,21 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
           Say which of your clients each tool&apos;s customer is. Exact name matches are linked for you; everything else waits here.
         </p>
       </div>
+
+      {clients.length > 0 ? (
+        <fieldset className="px-5 py-4 border-b border-gray-800/60">
+          <legend className="text-xs font-medium uppercase tracking-wider text-gray-500">Add clients automatically from</legend>
+          <div className="mt-2 flex flex-wrap gap-4">
+            {sourceChoices(clients, synced).map(({ vendor, on }) => (
+              <label key={vendor} className="flex items-center gap-2 text-sm text-gray-200">
+                <input type="checkbox" checked={on} onChange={(e) => void toggleSource(vendor, e.target.checked)} />
+                {vendorLabel(vendor)}
+              </label>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-500">Pick the tool that is your master client list. Its clients become client tenants; clients from the other tools are mapped to them below.</p>
+        </fieldset>
+      ) : null}
 
       {clients.length === 0 ? (
         <p className="px-5 py-6 text-sm text-gray-400">

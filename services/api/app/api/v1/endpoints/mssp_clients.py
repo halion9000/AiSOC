@@ -18,7 +18,7 @@ from app.db.rls import TenantDBSession
 from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 from app.services.audit import emit_audit
-from app.services.client_mapping import child_candidates, import_unmapped, make_slug, suggestions_for
+from app.services.client_mapping import child_candidates, import_unmapped, new_child, set_sync_vendors, suggestions_for, sync_vendors
 
 router = APIRouter(prefix="/mssp", tags=["mssp"])
 
@@ -53,6 +53,8 @@ class ClientAliasOut(BaseModel):
 class ClientsOut(BaseModel):
     clients: list[ClientAliasOut]
     unmapped: int
+    # Tools whose clients are added as client tenants automatically.
+    sync_vendors: list[str] = []
 
 
 class MapRequest(BaseModel):
@@ -86,12 +88,7 @@ async def _make_child(db: TenantDBSession, current_user: AuthUser, name: str) ->
     ).scalar_one()
     if taken:
         raise HTTPException(status_code=409, detail=f"You already have a client called {clean}.")
-    child = Tenant(id=uuid.uuid4(), name=clean, slug=make_slug(clean), parent_tenant_id=current_user.tenant_id, mssp_role="child")
-    db.add(child)
-    parent = await db.get(Tenant, current_user.tenant_id)
-    if parent is not None and parent.mssp_role != "parent":
-        parent.mssp_role = "parent"  # type: ignore[assignment]
-    await db.flush()
+    child = await new_child(db, current_user.tenant_id, clean)
     return child
 
 
@@ -155,7 +152,11 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
         )
         for a in aliases
     ]
-    return ClientsOut(clients=out, unmapped=sum(1 for a in aliases if a.child_tenant_id is None and not a.ignored))
+    return ClientsOut(
+        clients=out,
+        unmapped=sum(1 for a in aliases if a.child_tenant_id is None and not a.ignored),
+        sync_vendors=await sync_vendors(db, current_user.tenant_id),
+    )
 
 
 @router.post("/clients/{alias_id}/map", response_model=ClientAliasOut)
@@ -253,3 +254,35 @@ async def import_clients(
     )
     await db.commit()
     return ImportOut(created=created, linked=linked)
+
+
+class SourcesRequest(BaseModel):
+    vendors: list[Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")]] = Field(max_length=20)
+
+
+class SourcesOut(BaseModel):
+    sync_vendors: list[str]
+    created: int
+    linked: int
+
+
+@router.put("/clients/sources", response_model=SourcesOut)
+async def set_client_sources(
+    body: SourcesRequest,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> SourcesOut:
+    """Choose which tools add their clients as client tenants automatically. A tool newly chosen is imported right away; the rest are still mapped by hand."""
+    before = set(await sync_vendors(db, current_user.tenant_id))
+    chosen = await set_sync_vendors(db, current_user.tenant_id, body.vendors)
+    created = linked = 0
+
+    async def make(name: str) -> Tenant:
+        return await _make_child(db, current_user, name)
+
+    for vendor in sorted(set(chosen) - before):
+        c, linked_now = await import_unmapped(db, current_user.tenant_id, vendor, make)
+        created += c
+        linked += linked_now
+    await db.commit()
+    return SourcesOut(sync_vendors=chosen, created=created, linked=linked)

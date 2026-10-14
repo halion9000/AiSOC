@@ -9774,6 +9774,35 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/mssp/clients/sources:
+    put:
+      tags:
+      - mssp
+      summary: Set Client Sources
+      description: Choose which tools add their clients as client tenants automatically.
+        A tool newly chosen is imported right away; the rest are still mapped by hand.
+      operationId: set_client_sources_api_v1_mssp_clients_sources_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourcesRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcesOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/insider-threat/profiles:
     get:
       tags:
@@ -18467,6 +18496,12 @@ components:
         unmapped:
           type: integer
           title: Unmapped
+        sync_vendors:
+          items:
+            type: string
+          type: array
+          title: Sync Vendors
+          default: []
       type: object
       required:
       - clients
@@ -28270,6 +28305,38 @@ components:
         \ message. Other backends may still have\n    succeeded.\n  * ``unsupported``\
         \ — connector type doesn't speak federated search\n    (kept for forward-compat;\
         \ today we pre-filter so this is rare)."
+    SourcesOut:
+      properties:
+        sync_vendors:
+          items:
+            type: string
+          type: array
+          title: Sync Vendors
+        created:
+          type: integer
+          title: Created
+        linked:
+          type: integer
+          title: Linked
+      type: object
+      required:
+      - sync_vendors
+      - created
+      - linked
+      title: SourcesOut
+    SourcesRequest:
+      properties:
+        vendors:
+          items:
+            type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          type: array
+          maxItems: 20
+          title: Vendors
+      type: object
+      required:
+      - vendors
+      title: SourcesRequest
     StateItem:
       properties:
         uid:
