@@ -818,6 +818,7 @@ export interface AlertFilters {
 export const alertsApi = {
   list: async (filters: AlertFilters = {}) => {
     const raw = await request<{
+      items?: unknown[];
       alerts?: unknown[];
       total?: number;
       page?: number;
@@ -827,7 +828,8 @@ export const alertsApi = {
       params: filters as Record<string, string>,
     });
     return {
-      alerts: Array.isArray(raw.alerts) ? raw.alerts.map(normalizeAlert) : [],
+      // The API sends the rows as `items` (AlertListResponse). Reading only `alerts` showed the right total over an empty list. `alerts` is still accepted.
+      alerts: (Array.isArray(raw.items) ? raw.items : Array.isArray(raw.alerts) ? raw.alerts : []).map(normalizeAlert),
       total: typeof raw.total === 'number' ? raw.total : 0,
       page: typeof raw.page === 'number' ? raw.page : 1,
       pageSize:
