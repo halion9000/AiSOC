@@ -9804,11 +9804,12 @@ paths:
 
 
         Automatic adding is turned off so nothing is re-created until you choose a
-        source again. A client tenant that has cases, connectors, or alerts someone
-        worked on is kept
+        source again. A client tenant that has cases, connectors, alerts someone worked
+        on, or audit or
 
-        (and listed), because removing it would destroy that work. Each tenant is
-        removed on its own, so one that cannot be removed never blocks the rest.'
+        investigation records is kept (and listed with the reason): removing it would
+        destroy that work, and audit records cannot be deleted at all. Each tenant
+        is handled on its own.'
       operationId: reset_clients_api_v1_mssp_clients_reset_post
       requestBody:
         content:

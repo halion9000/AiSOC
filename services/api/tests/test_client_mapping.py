@@ -281,23 +281,28 @@ class _Nested:
         return False
 
 
-def _reset_db(children, blocked=()):
-    """A session for reset_clients: the first query returns the children; every statement is recorded; deleting a tenant in ``blocked`` raises like a foreign key would."""
-    from sqlalchemy.exc import IntegrityError
+def _reset_db(children, has=None, refuse=()):
+    """A session for reset_clients. The first query returns the children; every later statement is recorded. ``has`` maps tenant id -> table that holds rows for it (the blocker
+    counts); ``refuse`` lists tenant ids whose DELETE the database rejects like the audit-log trigger does."""
+    from sqlalchemy.exc import DBAPIError
 
     db = MagicMock()
     db.sql = []
     db.first = True
+    has = has or {}
     parent = Tenant(id=PARENT, name="Live Oak", slug="live-oak", settings={cm.SYNC_KEY: ["huntress"]})
 
-    async def execute(stmt, *a, **k):
+    async def execute(stmt, params=None, *a, **k):
         text = str(stmt)
         if db.first:
             db.first = False
             return _Result(children)
-        db.sql.append((text.split()[0] + " " + text.split()[1] + " " + text.split()[2], stmt))
-        if text.startswith("DELETE FROM tenants") and any(str(b) in str(stmt.compile().params.values()) for b in blocked):
-            raise IntegrityError("delete", {}, Exception("fk"))
+        if text.startswith("SELECT count(*)"):
+            table = text.split(" FROM ")[1].split()[0]
+            return _Result([1 if has.get(params["t"]) == table else 0])
+        db.sql.append((" ".join(text.split()[:3]), stmt))
+        if text.startswith("DELETE FROM tenants") and any(r in stmt.compile().params.values() for r in refuse):
+            raise DBAPIError("delete", {}, Exception("audit_log rows are immutable"))
         return _Result([])
 
     db.execute = AsyncMock(side_effect=execute)
@@ -308,8 +313,7 @@ def _reset_db(children, blocked=()):
     return db
 
 
-@pytest.mark.asyncio
-async def test_reset_removes_every_client_clears_mappings_and_turns_off_auto_add(monkeypatch):
+def _no_rls(monkeypatch):
     from contextlib import asynccontextmanager
 
     monkeypatch.setattr(mc, "emit_audit", AsyncMock())
@@ -319,8 +323,12 @@ async def test_reset_removes_every_client_clears_mappings_and_turns_off_auto_add
         yield
 
     monkeypatch.setattr(mc, "acting_as_tenant", scope)
-    a, b = _tenant("Acme"), _tenant("Birch")
-    db = _reset_db([a, b])
+
+
+@pytest.mark.asyncio
+async def test_reset_removes_every_client_clears_mappings_and_turns_off_auto_add(monkeypatch):
+    _no_rls(monkeypatch)
+    db = _reset_db([_tenant("Acme"), _tenant("Birch")])
     out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
     assert out.removed == 2 and out.kept == []
     kinds = [k for k, _ in db.sql]
@@ -332,20 +340,34 @@ async def test_reset_removes_every_client_clears_mappings_and_turns_off_auto_add
 
 
 @pytest.mark.asyncio
-async def test_reset_keeps_a_tenant_that_cannot_be_removed_and_still_removes_the_rest(monkeypatch):
-    from contextlib import asynccontextmanager
-
-    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
-
-    @asynccontextmanager
-    async def scope(db, tid):
-        yield
-
-    monkeypatch.setattr(mc, "acting_as_tenant", scope)
-    worked, plain = _tenant("Has Cases"), _tenant("Plain")
-    db = _reset_db([worked, plain], blocked=[worked.id])
+@pytest.mark.parametrize(
+    "table,label",
+    [
+        ("cases", "cases"),
+        ("connectors", "connectors"),
+        ("alerts", "alerts someone worked on"),
+        ("audit_log", "audit records"),
+        ("investigation_events", "investigation records"),
+    ],
+)
+async def test_reset_keeps_a_tenant_with_work_or_tamper_proof_records_and_touches_nothing_of_it(monkeypatch, table, label):
+    _no_rls(monkeypatch)
+    worked, plain = _tenant("Has Work"), _tenant("Plain")
+    db = _reset_db([worked, plain], has={worked.id: table})
     out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
-    assert out.removed == 1 and [k.name for k in out.kept] == ["Has Cases"]
+    assert out.removed == 1 and [(k.name, k.reason) for k in out.kept] == [("Has Work", f"it has {label}")]
+    deletes = [stmt.compile().params.values() for kind, stmt in db.sql if kind.startswith("DELETE")]
+    assert all(worked.id not in list(values) for values in deletes)
+
+
+@pytest.mark.asyncio
+async def test_reset_reports_a_database_refusal_instead_of_failing_the_request(monkeypatch):
+    _no_rls(monkeypatch)
+    refused, plain = _tenant("Refused"), _tenant("Plain")
+    db = _reset_db([refused, plain], refuse=[refused.id])
+    out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
+    assert out.removed == 1 and out.kept[0].name == "Refused" and "immutable" in out.kept[0].reason
+    db.commit.assert_awaited()
 
 
 @pytest.mark.asyncio

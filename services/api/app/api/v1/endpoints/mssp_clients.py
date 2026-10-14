@@ -11,8 +11,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
@@ -322,6 +322,26 @@ class ResetOut(BaseModel):
     kept: list[KeptTenantOut]
 
 
+# What stops a client tenant being removed. Deleting a tenant cascades to everything it owns, so work a person did there must be checked first, and audit and investigation
+# records are tamper-proof (a database trigger refuses to delete them), so a tenant that has any cannot be removed at all.
+_BLOCKERS = (
+    ("cases", text("SELECT count(*) FROM cases WHERE tenant_id = :t")),
+    ("connectors", text("SELECT count(*) FROM connectors WHERE tenant_id = :t")),
+    ("alerts someone worked on", text("SELECT count(*) FROM alerts WHERE tenant_id = :t AND status <> 'new'")),
+    ("audit records", text("SELECT count(*) FROM audit_log WHERE tenant_id = :t")),
+    ("investigation records", text("SELECT count(*) FROM investigation_events WHERE tenant_id = :t")),
+)
+
+
+async def _blockers(db: TenantDBSession, tenant_id: uuid.UUID) -> list[str]:
+    found: list[str] = []
+    async with acting_as_tenant(db, tenant_id):
+        for label, stmt in _BLOCKERS:
+            if (await db.execute(stmt, {"t": tenant_id})).scalar_one():
+                found.append(label)
+    return found
+
+
 @router.post("/clients/reset", response_model=ResetOut)
 async def reset_clients(
     body: ResetRequest,
@@ -331,8 +351,8 @@ async def reset_clients(
 ) -> ResetOut:
     """Start over: remove every client tenant, with its untouched ('new') alerts, and put every tool client back in Unmapped.
 
-    Automatic adding is turned off so nothing is re-created until you choose a source again. A client tenant that has cases, connectors, or alerts someone worked on is kept
-    (and listed), because removing it would destroy that work. Each tenant is removed on its own, so one that cannot be removed never blocks the rest.
+    Automatic adding is turned off so nothing is re-created until you choose a source again. A client tenant that has cases, connectors, alerts someone worked on, or audit or
+    investigation records is kept (and listed with the reason): removing it would destroy that work, and audit records cannot be deleted at all. Each tenant is handled on its own.
     """
     if not body.confirm:
         raise HTTPException(status_code=400, detail="Send confirm: true to remove every client tenant")
@@ -341,6 +361,10 @@ async def reset_clients(
     kept: list[KeptTenantOut] = []
     for child in children:
         child_id, name = child.id, child.name
+        blockers = await _blockers(db, child_id)
+        if blockers:
+            kept.append(KeptTenantOut(name=name, reason="it has " + ", ".join(blockers)))
+            continue
         try:
             async with db.begin_nested():
                 async with acting_as_tenant(db, child_id):
@@ -352,8 +376,10 @@ async def reset_clients(
                 )
                 await db.execute(delete(Tenant).where(Tenant.id == child_id, Tenant.parent_tenant_id == current_user.tenant_id))
             removed += 1
-        except IntegrityError:
-            kept.append(KeptTenantOut(name=name, reason="it has cases, connectors, or alerts someone worked on"))
+        except DBAPIError as exc:  # a constraint or trigger refused it: keep the tenant and say why instead of failing the whole request
+            kept.append(
+                KeptTenantOut(name=name, reason="the database would not remove it (" + " ".join(str(exc.orig or exc).split())[:120] + ")")
+            )
     await set_sync_vendors(db, current_user.tenant_id, [])
     await emit_audit(
         db=db,

@@ -25,7 +25,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import ClientMapping, { filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
+import ClientMapping, { keptSummary, filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
 
 function client(over: Partial<VendorClient> & { vendor_client_name: string }): VendorClient {
   return { id: `a-${over.vendor_client_name}`, vendor: 'petra', vendor_client_id: '1', child_tenant_id: null, child_tenant_name: null, ignored: false, match_source: 'suggested', suggestions: [], ...over };
@@ -328,5 +328,14 @@ describe('start over', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(resetMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('keptSummary', () => {
+  it('is empty when nothing was kept, and names the first few with the reason otherwise', () => {
+    expect(keptSummary([])).toBe('');
+    const k = (n: string) => ({ name: n, reason: 'it has audit records' });
+    expect(keptSummary([k('A')])).toBe('; kept 1: A (it has audit records)');
+    expect(keptSummary([k('A'), k('B'), k('C'), k('D'), k('E')])).toBe('; kept 5: A (it has audit records), B (it has audit records), C (it has audit records), and 2 more');
   });
 });

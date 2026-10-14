@@ -45,6 +45,13 @@ export function filterClients(clients: VendorClient[], tab: string | null, searc
   return clients.filter((c) => (tab === null || c.vendor === tab) && (q === '' || c.vendor_client_name.toLowerCase().includes(q) || (c.child_tenant_name ?? '').toLowerCase().includes(q)));
 }
 
+/** "; kept 3: Acme (it has audit records), ..." for the tenants a reset could not remove (the first few, then a count). */
+export function keptSummary(kept: { name: string; reason: string }[]): string {
+  if (kept.length === 0) return '';
+  const shown = kept.slice(0, 3).map((k) => `${k.name} (${k.reason})`);
+  return `; kept ${kept.length}: ${shown.join(', ')}${kept.length > 3 ? `, and ${kept.length - 3} more` : ''}`;
+}
+
 export function groupClients(clients: VendorClient[], by: SortBy = 'name'): ClientGroups {
   const sorted = sortClients(clients, by);
   const hidden = (c: VendorClient) => c.child_tenant_id !== null && c.child_tenant_hidden === true;
@@ -272,7 +279,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const startOver = async () => {
     try {
       const result = await msspApi.resetClients();
-      toast.success(`Removed ${result.removed} client tenant${result.removed === 1 ? '' : 's'}${result.kept.length > 0 ? `; kept ${result.kept.map((k) => k.name).join(', ')} (${result.kept[0].reason})` : ''}`);
+      toast.success(`Removed ${result.removed} client tenant${result.removed === 1 ? '' : 's'}${keptSummary(result.kept)}`, { duration: result.kept.length > 0 ? 15000 : 4000 });
       setConfirmReset(false);
       setTypedReset('');
       changed();
