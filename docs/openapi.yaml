@@ -14629,6 +14629,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/closed:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Closed
+      description: Mark alerts resolved when CORE reports their incidents closed in
+        the vendor's own portal.
+      operationId: report_core_feed_closed_api_v1_inbox_core_feed__tenant_token__closed_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClosedReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClosedResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/lake/sql:
     post:
       tags:
@@ -17877,6 +17911,51 @@ components:
       type: object
       title: CloseRequest
       description: Optional analyst note appended to the auto-generated summary.
+    ClosedItem:
+      properties:
+        uid:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9:_.-]{0,120}$
+          title: Uid
+          description: The incident's ``finding.uid`` as CORE sent it, e.g. ``huntress:4821``.
+        state:
+          anyOf:
+          - type: string
+            maxLength: 60
+          - type: 'null'
+          title: State
+          description: The vendor's own word for it, e.g. ``resolved`` or ``REMEDIATED``;
+            shown on the alert.
+      type: object
+      required:
+      - uid
+      title: ClosedItem
+    ClosedReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        closed:
+          items:
+            $ref: '#/components/schemas/ClosedItem'
+          type: array
+          maxItems: 500
+          title: Closed
+      type: object
+      required:
+      - vendor
+      - closed
+      title: ClosedReport
+    ClosedResponse:
+      properties:
+        resolved:
+          type: integer
+          title: Resolved
+      type: object
+      required:
+      - resolved
+      title: ClosedResponse
     ClosedSummary:
       properties:
         run_id:

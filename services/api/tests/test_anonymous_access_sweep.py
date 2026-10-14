@@ -50,6 +50,10 @@ PUBLIC = {
         "CORE's per-run report: authenticated by the secret core-feed token in the URL (only an active token with the core-feed label is accepted; "
         "anything else is a 401 in the handler), and it can only write that tenant's own core_feed rows (the 422 here is the empty body)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/closed"): (
+        "CORE's closed-incident report: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only resolve that tenant's own alerts "
+        "that are still new, matched on the incident id (the 422 here is the empty body)"
+    ),
     ("GET", "/api/v1/community/detections"): "public community catalog (global content, no tenant data)",
     ("GET", "/api/v1/community/detections/{detection_id}"): "public community catalog",
     ("GET", "/api/v1/community/playbooks"): "public community catalog",

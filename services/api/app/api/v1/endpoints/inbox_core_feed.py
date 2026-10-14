@@ -12,17 +12,20 @@ cannot write here. The report can only create or update this tenant's own ``core
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, literal, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.api.v1.deps import DBSession
 from app.core.logging import safe_log_value
 from app.db.rls_scope import cross_tenant_reads
 from app.db.rls_sessions import adopt_tenant
+from app.models.alert import Alert
 from app.models.connector import Connector
 
 logger = logging.getLogger(__name__)
@@ -136,3 +139,79 @@ async def report_core_feed_status(tenant_token: str, body: StatusReport, db: DBS
     applied = await apply_report(db, tenant_id, body)
     await db.commit()
     return StatusResponse(updated=applied)
+
+
+# ---- closed in the vendor's own portal --------------------------------------------------------------------------------------------------------------------------------
+
+
+_UID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9:_.-]{0,120}$"
+_CLOSED_CHUNK = 100
+
+
+class ClosedItem(BaseModel):
+    uid: str = Field(pattern=_UID_PATTERN, description="The incident's ``finding.uid`` as CORE sent it, e.g. ``huntress:4821``.")
+    state: str | None = Field(
+        default=None, max_length=60, description="The vendor's own word for it, e.g. ``resolved`` or ``REMEDIATED``; shown on the alert."
+    )
+
+
+class ClosedReport(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    closed: list[ClosedItem] = Field(max_length=500)
+
+
+class ClosedResponse(BaseModel):
+    resolved: int
+
+
+def closed_uid_regex(uids: list[str]) -> str:
+    """A regular expression matching the record text that carries one of these incident ids as its ``"uid"``. Ids are escaped, so they can only match themselves."""
+    return r'"uid"\s*:\s*"(?:' + "|".join(re.escape(u) for u in uids) + ')"'
+
+
+async def apply_closed(db: Any, tenant_id: Any, report: ClosedReport, now: datetime | None = None) -> int:
+    """Resolve this tenant's alerts whose incident the vendor has closed. The caller owns the transaction. Returns how many alerts changed.
+
+    Deliberately narrow: only alerts still ``new`` (nobody has acted on them) are touched, so an analyst's own decision is never overridden; it can only CLOSE, never
+    reopen; and an alert is matched on the incident id inside its own original record, within this tenant. The vendor's state is kept on the alert (and as a tag).
+    """
+    now = now or datetime.now(UTC)
+    prefix = f"{report.vendor}:"
+    by_uid = {item.uid: item.state for item in report.closed if item.uid.startswith(prefix)}
+    uids = sorted(by_uid)
+    changed = 0
+    for i in range(0, len(uids), _CLOSED_CHUNK):
+        chunk = uids[i : i + _CLOSED_CHUNK]
+        note = {
+            "closed_in_vendor": {
+                "vendor": report.vendor,
+                "at": now.isoformat(),
+                "states": sorted({str(by_uid[u]) for u in chunk if by_uid[u]}),
+            }
+        }
+        result = await db.execute(
+            update(Alert)
+            .where(
+                Alert.tenant_id == tenant_id,
+                Alert.status == "new",
+                Alert.raw_event["raw_data"].astext.op("~")(closed_uid_regex(chunk)),
+            )
+            .values(
+                status="resolved",
+                updated_at=now,
+                enrichment_data=Alert.enrichment_data.op("||")(literal(note, type_=JSONB)),
+                tags=Alert.tags.op("||")(literal([f"closed-in-{report.vendor}"], type_=JSONB)),
+            )
+        )
+        changed += result.rowcount or 0
+    return changed
+
+
+@router.post("/core-feed/{tenant_token}/closed", response_model=ClosedResponse)
+async def report_core_feed_closed(tenant_token: str, body: ClosedReport, db: DBSession) -> ClosedResponse:
+    """Mark alerts resolved when CORE reports their incidents closed in the vendor's own portal."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    resolved = await apply_closed(db, tenant_id, body)
+    await db.commit()
+    return ClosedResponse(resolved=resolved)
