@@ -889,6 +889,17 @@ export interface VendorActions {
   incident_uid: string | null;
   vendor_state: VendorState | null;
   actions: VendorActionItem[];
+  /** PSA tickets (HaloPSA) linked to the alert, as CORE last reported them. */
+  tickets: LinkedTicket[];
+}
+
+export interface LinkedTicket {
+  id: string;
+  system: 'halopsa';
+  summary?: string;
+  status?: string;
+  client?: string;
+  url?: string;
 }
 
 export interface VendorActionRequest {

@@ -47,6 +47,7 @@ import {
 import { ExplainDrawer } from './ExplainDrawer';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { VendorActionsSection } from './VendorActionsSection';
+import { LinkedTicketsSection } from './LinkedTicketsSection';
 import { AlertDescriptionSection } from './AlertDescriptionSection';
 
 // ─── Visual config ───────────────────────────────────────────────────────────
@@ -135,6 +136,7 @@ export function InvestigationRail({ alertId, onClose }: InvestigationRailProps) 
         <AlertDescriptionSection description={alert.description} />
         <NarrativeSection narrative={alert.narrative ?? null} />
         <VendorActionsSection alertId={alert.id} />
+        <LinkedTicketsSection alertId={alert.id} />
         <RelatedEntitiesSection entities={alert.relatedEntities ?? []} />
         <MiniTimelineSection events={alert.miniTimeline ?? []} />
         <RecommendedActionsSection actions={alert.recommendedActions ?? []} />

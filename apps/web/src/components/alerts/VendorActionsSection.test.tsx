@@ -23,6 +23,7 @@ const payload = (over: Partial<VendorActions> = {}): VendorActions => ({
   incident_uid: 'huntress:7',
   vendor_state: stateOf('sent', ['unapproved']),
   actions: [],
+  tickets: [],
   ...over,
 });
 
