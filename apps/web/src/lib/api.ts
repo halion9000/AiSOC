@@ -194,24 +194,8 @@ async function request<T>(path: string, options: FetchOptions = {}): Promise<T> 
     ...fetchOptions.headers,
   };
 
-  // Mobile responder PWA auth: if a passkey-issued JWT is present in
-  // localStorage, attach it as a Bearer token. The desktop console relies on
-  // cookies set by the API gateway, so this is purely additive.
-  if (typeof window !== 'undefined') {
-    try {
-      const existing =
-        (headers as Record<string, string>).Authorization ??
-        (headers as Record<string, string>).authorization;
-      if (!existing) {
-        const token = window.localStorage.getItem('aisoc.responder.accessToken');
-        if (token) {
-          (headers as Record<string, string>).Authorization = `Bearer ${token}`;
-        }
-      }
-    } catch {
-      /* localStorage unavailable; ignore */
-    }
-  }
+  // The access token is attached by authFetch (auth-session.ts), not here. Setting Authorization in this function made authFetch treat every call as one carrying
+  // the caller's own credentials, so it never refreshed an expired token and the login died after 30 minutes. A caller that passes its own Authorization still wins.
 
   let response: Response;
   try {
