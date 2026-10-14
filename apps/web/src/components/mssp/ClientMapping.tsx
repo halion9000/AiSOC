@@ -27,6 +27,24 @@ export function sortClients(clients: VendorClient[], by: SortBy): VendorClient[]
   return [...clients].sort((a, b) => byText(key(a), key(b)) || byText(a.vendor_client_name, b.vendor_client_name) || byText(a.vendor, b.vendor));
 }
 
+/** One tab per tool, with how many of its clients still need mapping, so each tool can be worked through on its own. */
+export function toolTabs(clients: VendorClient[]): { vendor: string; total: number; unmapped: number }[] {
+  const tabs = new Map<string, { vendor: string; total: number; unmapped: number }>();
+  for (const c of clients) {
+    const t = tabs.get(c.vendor) ?? { vendor: c.vendor, total: 0, unmapped: 0 };
+    t.total += 1;
+    if (!c.ignored && c.child_tenant_id === null) t.unmapped += 1;
+    tabs.set(c.vendor, t);
+  }
+  return [...tabs.values()].sort((a, b) => byText(a.vendor, b.vendor));
+}
+
+/** The clients of one tool (or all, for tab === null) whose name contains the search text. */
+export function filterClients(clients: VendorClient[], tab: string | null, search: string): VendorClient[] {
+  const q = search.trim().toLowerCase();
+  return clients.filter((c) => (tab === null || c.vendor === tab) && (q === '' || c.vendor_client_name.toLowerCase().includes(q) || (c.child_tenant_name ?? '').toLowerCase().includes(q)));
+}
+
 export function groupClients(clients: VendorClient[], by: SortBy = 'name'): ClientGroups {
   const sorted = sortClients(clients, by);
   const hidden = (c: VendorClient) => c.child_tenant_id !== null && c.child_tenant_hidden === true;
@@ -182,6 +200,8 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('name');
+  const [tab, setTab] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback(async () => {
@@ -224,7 +244,9 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   }
   if (clients === null) return <p role="status" className="text-sm text-gray-400">Loading client mappings…</p>;
 
-  const groups = groupClients(clients, sortBy);
+  const tabs = toolTabs(clients);
+  const activeTab = tab !== null && tabs.some((t) => t.vendor === tab) ? tab : null;
+  const groups = groupClients(filterClients(clients, activeTab, search), sortBy);
 
   const toggleSource = async (vendor: string, on: boolean) => {
     const label = vendorLabel(vendor);
@@ -287,6 +309,24 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
         </div>
       ) : null}
 
+      {tabs.length > 1 ? (
+        <div role="tablist" aria-label="Tool" className="flex flex-wrap gap-1 px-5 pt-3 border-b border-gray-800/60">
+          {[{ vendor: null as string | null, label: 'All tools', unmapped: clients.filter((c) => !c.ignored && c.child_tenant_id === null).length }, ...tabs.map((t) => ({ vendor: t.vendor as string | null, label: vendorLabel(t.vendor), unmapped: t.unmapped }))].map((t) => (
+            <button
+              key={t.vendor ?? 'all'}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t.vendor}
+              onClick={() => setTab(t.vendor)}
+              className={`rounded-t-lg px-3 py-2 text-sm transition-colors ${activeTab === t.vendor ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              {t.label}
+              {t.unmapped > 0 ? <span className="ml-2 rounded-full bg-amber-500/20 px-1.5 text-xs text-amber-300">{t.unmapped}</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {clients.length > 0 ? (
         <div className="flex flex-wrap items-center gap-4 px-5 py-3 border-b border-gray-800/60">
           <label className="flex items-center gap-2 text-sm text-gray-300">
@@ -300,6 +340,16 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
               <option value="tool">Tool</option>
               <option value="tenant">Mapped to</option>
             </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            Search
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Client name"
+              className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200"
+            />
           </label>
           {groups.hidden.length > 0 ? (
             <label className="flex items-center gap-2 text-sm text-gray-300">

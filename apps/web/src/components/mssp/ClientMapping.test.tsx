@@ -23,7 +23,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import ClientMapping, { groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
+import ClientMapping, { filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
 
 function client(over: Partial<VendorClient> & { vendor_client_name: string }): VendorClient {
   return { id: `a-${over.vendor_client_name}`, vendor: 'petra', vendor_client_id: '1', child_tenant_id: null, child_tenant_name: null, ignored: false, match_source: 'suggested', suggestions: [], ...over };
@@ -248,5 +248,49 @@ describe('possible duplicates', () => {
     render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
     await screen.findByText('Acme');
     expect(screen.queryByRole('region', { name: 'Possible duplicates' })).toBeNull();
+  });
+});
+
+describe('one tool at a time', () => {
+  const rows = [
+    client({ vendor_client_name: 'Acme', vendor: 'petra' }),
+    client({ vendor_client_name: 'Cedar Farms', vendor: 'huntress' }),
+    client({ vendor_client_name: 'Acme Dental', vendor: 'huntress', child_tenant_id: 't1', child_tenant_name: 'Acme Dental' }),
+    client({ vendor_client_name: 'Skip', vendor: 'huntress', ignored: true }),
+  ];
+
+  it('counts each tool\'s clients and the ones still unmapped (ignored ones are not "unmapped")', () => {
+    expect(toolTabs(rows)).toEqual([
+      { vendor: 'huntress', total: 3, unmapped: 1 },
+      { vendor: 'petra', total: 1, unmapped: 1 },
+    ]);
+  });
+
+  it('filters by tool and by name text', () => {
+    expect(filterClients(rows, 'huntress', '').map((c) => c.vendor_client_name)).toEqual(['Cedar Farms', 'Acme Dental', 'Skip']);
+    expect(filterClients(rows, null, ' acme ').map((c) => c.vendor_client_name)).toEqual(['Acme', 'Acme Dental']);
+    expect(filterClients(rows, 'petra', 'cedar')).toEqual([]);
+  });
+
+  it('a tool tab shows only that tool\'s clients, and All tools shows everything again', async () => {
+    clientsMock.mockResolvedValue({ clients: rows, unmapped: 2, sync_vendors: [] });
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await screen.findAllByText('Cedar Farms');
+    await user.click(screen.getByRole('tab', { name: /Petra/ }));
+    expect(screen.queryAllByText('Cedar Farms')).toHaveLength(0);
+    expect(screen.getAllByText('Acme').length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('tab', { name: /All tools/ }));
+    expect(screen.getAllByText('Cedar Farms').length).toBeGreaterThan(0);
+  });
+
+  it('searching narrows the list', async () => {
+    clientsMock.mockResolvedValue({ clients: rows, unmapped: 2, sync_vendors: [] });
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await screen.findAllByText('Cedar Farms');
+    await user.type(screen.getByLabelText('Search'), 'cedar');
+    expect(screen.getAllByText('Cedar Farms').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Acme')).toHaveLength(0);
   });
 });
