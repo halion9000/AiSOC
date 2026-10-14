@@ -315,14 +315,14 @@ class RemoveOut(BaseModel):
     reason: str | None = None
 
 
-# What stops a client tenant being removed. Deleting a tenant cascades to everything it owns, so work a person did there must be checked first, and audit and investigation
-# records are tamper-proof (a database trigger refuses to delete them), so a tenant that has any cannot be removed at all.
+# What stops a client tenant being removed. Deleting a tenant cascades to everything it owns, so work a person did there must be checked first, and audit records are
+# tamper-proof (a database trigger refuses to delete them), so a tenant that has any cannot be removed at all. Investigation records are not on this list: the triage agent
+# writes them for every alert, and migration 085 lets them go with the tenant that owns them (and only then).
 _BLOCKERS = (
     ("cases", text("SELECT count(*) FROM cases WHERE tenant_id = :t")),
     ("connectors", text("SELECT count(*) FROM connectors WHERE tenant_id = :t")),
     ("alerts someone worked on", text("SELECT count(*) FROM alerts WHERE tenant_id = :t AND status <> 'new'")),
     ("audit records", text("SELECT count(*) FROM audit_log WHERE tenant_id = :t")),
-    ("investigation records", text("SELECT count(*) FROM investigation_events WHERE tenant_id = :t")),
 )
 
 
@@ -345,7 +345,7 @@ async def remove_client(
     """Remove ONE client tenant and its untouched ('new') alerts; every tool client that was mapped to it goes back to Unmapped.
 
     The console calls this once per client (start over = every client in turn), so no single request runs long enough for the web proxy to give up on it. A client with cases,
-    connectors, alerts someone worked on, or audit or investigation records is kept and the reason returned: removing it would destroy that work, and audit records cannot be deleted
+    connectors, alerts someone worked on, or audit records is kept and the reason returned: removing it would destroy that work, and audit records cannot be deleted
     at all. If the database cannot take the locks it needs within a few seconds the client is kept too, with that reason, instead of the request hanging.
     """
     child = (

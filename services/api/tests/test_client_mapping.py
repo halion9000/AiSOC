@@ -350,7 +350,6 @@ async def test_remove_deletes_one_client_with_its_new_alerts_unmaps_its_tools_an
         ("connectors", "connectors"),
         ("alerts", "alerts someone worked on"),
         ("audit_log", "audit records"),
-        ("investigation_events", "investigation records"),
     ],
 )
 async def test_remove_keeps_a_client_with_work_or_tamper_proof_records_and_touches_nothing(monkeypatch, table, label):
