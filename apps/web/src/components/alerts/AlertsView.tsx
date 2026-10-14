@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { alertsApi, type Alert, type AlertFilters, type ConfidenceLabel } from '@/lib/api';
+import { alertsApi, connectorsApi, type Alert, type AlertFilters, type ConfidenceLabel } from '@/lib/api';
 import { clsx } from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
 import { EntityRiskQueue } from './EntityRiskQueue';
@@ -91,6 +91,17 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+/** The CORE-fed tools to offer in the Source filter: one per `core_feed` connector, named without the " (via CORE)" suffix. */
+export function sourceOptions(connectors: { type: string; name: string; connectorConfig?: Record<string, unknown>; config?: Record<string, unknown> }[]) {
+  const seen = new Map<string, string>();
+  for (const c of connectors) {
+    if (c.type !== 'core_feed') continue;
+    const vendor = (c.connectorConfig ?? c.config)?.vendor;
+    if (typeof vendor === 'string' && vendor && !seen.has(vendor)) seen.set(vendor, c.name.replace(/\s*\(via CORE\)\s*$/, ''));
+  }
+  return [...seen.entries()].map(([vendor, label]) => ({ vendor, label })).sort((a, b) => a.label.localeCompare(b.label));
+}
+
 function FiltersBar({
   filters,
   onChange,
@@ -100,6 +111,9 @@ function FiltersBar({
   onChange: (f: AlertFilters) => void;
   total: number;
 }) {
+  // The tools CORE forwards from (Huntress, Petra, ...), so alerts can be narrowed to one of them. Hidden when there are none.
+  const { data: connectorData } = useSWR('alert-source-options', () => connectorsApi.list(), { shouldRetryOnError: false });
+  const sources = sourceOptions(connectorData?.connectors ?? []);
   const severities = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
   const statuses = ['all', 'new', 'investigating', 'resolved', 'false_positive'] as const;
 
@@ -138,6 +152,24 @@ function FiltersBar({
           </button>
         ))}
       </div>
+      {sources.length > 0 && (
+        <>
+          <div className="w-px h-4 bg-gray-700" />
+          <select
+            aria-label="Source"
+            value={filters.source ?? ''}
+            onChange={(e) => onChange({ ...filters, source: e.target.value || undefined, page: 1 })}
+            className="text-xs bg-gray-900 border border-gray-700 text-gray-300 rounded-lg px-2 py-1"
+          >
+            <option value="">All sources</option>
+            {sources.map((o) => (
+              <option key={o.vendor} value={o.vendor}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
       <span className="ml-auto text-xs text-gray-600">{total} total</span>
     </div>
   );
@@ -472,11 +504,11 @@ function AlertsTableGrid({
             filter-aware copy is the difference between an analyst thinking
             "the system is broken" and "I should clear my filters".
           */}
-          {filters.severity || filters.status ? (
+          {filters.severity || filters.status || filters.source ? (
             <EmptyState
               icon={EmptyStateIcons.search}
               title="No alerts match these filters"
-              description="Try clearing the severity or status filter to widen the search."
+              description="Try clearing the severity, status or source filter to widen the search."
               action={
                 <button
                   onClick={() => onFilterChange({ page: 1, pageSize: filters.pageSize ?? 25 })}

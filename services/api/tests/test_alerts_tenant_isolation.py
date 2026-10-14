@@ -244,10 +244,10 @@ def _assert_tenant_scoped(executed: list[tuple[str, dict[str, Any]]], tenant_id:
                 if (name == "tenant_id" or name.startswith("tenant_id_")) and value == tenant_id
             ]
             assert matching, (
-                f"no bound tenant_id parameter matches caller's tenant in SQL: {sql}; " f"params={params}; expected_tenant={tenant_id}"
+                f"no bound tenant_id parameter matches caller's tenant in SQL: {sql}; params={params}; expected_tenant={tenant_id}"
             )
             saw_tenant_scoped_read = True
-    assert saw_tenant_scoped_read, "no alerts statement was tenant-scoped; " "every alerts read/write must mention tenant_id"
+    assert saw_tenant_scoped_read, "no alerts statement was tenant-scoped; every alerts read/write must mention tenant_id"
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -270,6 +270,7 @@ _LIST_ALERTS_DEFAULTS: dict[str, Any] = {
     "search": None,
     "min_confidence": None,
     "confidence_label": None,
+    "source": None,
 }
 
 
@@ -307,6 +308,30 @@ async def test_list_alerts_with_filters_keeps_tenant_scope() -> None:
     for sql, _params in alerts_stmts:
         normalized = re.sub(r"\s+", " ", sql).lower()
         assert "tenant_id" in normalized, f"alerts statement missing tenant_id: {sql}"
+
+
+@pytest.mark.asyncio
+async def test_list_alerts_source_filter_matches_the_original_records_source_and_keeps_tenant_scope() -> None:
+    """Filtering by tool ("huntress") narrows on the original record's source field, still inside the caller's tenant."""
+    user = _user()
+    db = _mk_db([0, []])
+    await list_alerts(current_user=user, db=db, **{**_LIST_ALERTS_DEFAULTS, "source": "huntress"})
+    _assert_tenant_scoped(db.executed, user.tenant_id)
+    sql, params = db.executed[0]
+    assert "raw_event" in sql and "~" in sql
+    assert "raw_data" in params.values(), params
+    pattern = next(v for v in params.values() if isinstance(v, str) and "huntress" in v)
+    assert re.search(pattern, '{"source":"huntress","severity":"high"}')
+    assert re.search(pattern, '{"source": "huntress"}')
+    assert not re.search(pattern, '{"source":"petra"}')
+
+
+@pytest.mark.asyncio
+async def test_list_alerts_without_a_source_does_not_filter_on_raw_data() -> None:
+    user = _user()
+    db = _mk_db([0, []])
+    await list_alerts(current_user=user, db=db, **_LIST_ALERTS_DEFAULTS)
+    assert all("raw_data" not in sql for sql, _ in db.executed)
 
 
 @pytest.mark.asyncio

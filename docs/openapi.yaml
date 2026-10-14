@@ -414,6 +414,15 @@ paths:
       description: 'List alerts for the current tenant with filtering and pagination.
 
 
+        `source` is the tool an alert came from as CORE names it (``huntress``, ``petra``,
+        ``blumira``). Alerts forwarded by CORE arrive through the generic JSON inbox,
+        so their
+
+        product is all "Generic JSON"; the tool is only in the original record, which
+        is kept as text in ``raw_event.raw_data``. The match is on that record''s
+        `"source"` field.
+
+
         `min_confidence` / `confidence_label` let the queue workbench (PR-5) and
 
         /alerts page filter on the fusion-emitted confidence signal (W3). Alerts
@@ -502,6 +511,15 @@ paths:
           - type: string
           - type: 'null'
           title: Confidence Label
+      - name: source
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          - type: 'null'
+          title: Source
       responses:
         '200':
           description: Successful Response
