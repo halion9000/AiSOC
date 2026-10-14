@@ -270,6 +270,92 @@ async def test_listing_reports_possible_duplicate_tenants_with_the_tool_clients_
     ]
 
 
+# ---- start over ---------------------------------------------------------------------------------------------------------------------------------------
+
+
+class _Nested:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _reset_db(children, blocked=()):
+    """A session for reset_clients: the first query returns the children; every statement is recorded; deleting a tenant in ``blocked`` raises like a foreign key would."""
+    from sqlalchemy.exc import IntegrityError
+
+    db = MagicMock()
+    db.sql = []
+    db.first = True
+    parent = Tenant(id=PARENT, name="Live Oak", slug="live-oak", settings={cm.SYNC_KEY: ["huntress"]})
+
+    async def execute(stmt, *a, **k):
+        text = str(stmt)
+        if db.first:
+            db.first = False
+            return _Result(children)
+        db.sql.append((text.split()[0] + " " + text.split()[1] + " " + text.split()[2], stmt))
+        if text.startswith("DELETE FROM tenants") and any(str(b) in str(stmt.compile().params.values()) for b in blocked):
+            raise IntegrityError("delete", {}, Exception("fk"))
+        return _Result([])
+
+    db.execute = AsyncMock(side_effect=execute)
+    db.begin_nested = lambda: _Nested()
+    db.commit = AsyncMock()
+    db.get = AsyncMock(return_value=parent)
+    db.parent = parent
+    return db
+
+
+@pytest.mark.asyncio
+async def test_reset_removes_every_client_clears_mappings_and_turns_off_auto_add(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+
+    @asynccontextmanager
+    async def scope(db, tid):
+        yield
+
+    monkeypatch.setattr(mc, "acting_as_tenant", scope)
+    a, b = _tenant("Acme"), _tenant("Birch")
+    db = _reset_db([a, b])
+    out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
+    assert out.removed == 2 and out.kept == []
+    kinds = [k for k, _ in db.sql]
+    assert (
+        kinds.count("DELETE FROM alerts") == 2 and kinds.count("DELETE FROM tenants") == 2 and kinds.count("UPDATE client_aliases SET") == 2
+    )
+    assert db.parent.settings[cm.SYNC_KEY] == []
+    db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reset_keeps_a_tenant_that_cannot_be_removed_and_still_removes_the_rest(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+
+    @asynccontextmanager
+    async def scope(db, tid):
+        yield
+
+    monkeypatch.setattr(mc, "acting_as_tenant", scope)
+    worked, plain = _tenant("Has Cases"), _tenant("Plain")
+    db = _reset_db([worked, plain], blocked=[worked.id])
+    out = await mc.reset_clients(mc.ResetRequest(confirm=True), MagicMock(), USER, db)
+    assert out.removed == 1 and [k.name for k in out.kept] == ["Has Cases"]
+
+
+@pytest.mark.asyncio
+async def test_reset_does_nothing_without_confirmation():
+    db = _reset_db([_tenant("Acme")])
+    with pytest.raises(HTTPException) as e:
+        await mc.reset_clients(mc.ResetRequest(), MagicMock(), USER, db)
+    assert e.value.status_code == 400 and db.sql == [] and db.first is True
+
+
 # ---- who may -----------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -285,6 +371,7 @@ def test_reading_needs_mssp_read_and_every_change_needs_mssp_manage():
         ("POST", "/mssp/clients/{alias_id}/unmap"),
         ("POST", "/mssp/clients/{alias_id}/ignore"),
         ("PUT", "/mssp/tenants/{tenant_id}/hidden"),
+        ("POST", "/mssp/clients/reset"),
     ]:
         assert set(required_permissions(routes[(method, path)])) == {"mssp:manage"}, path
 

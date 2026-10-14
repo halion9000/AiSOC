@@ -11,10 +11,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
+from app.db.rls_scope import acting_as_tenant
+from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 from app.services.audit import emit_audit
@@ -303,6 +306,67 @@ async def set_client_hidden(
         request=request,
     )
     await db.commit()
+
+
+class ResetRequest(BaseModel):
+    confirm: bool = False
+
+
+class KeptTenantOut(BaseModel):
+    name: str
+    reason: str
+
+
+class ResetOut(BaseModel):
+    removed: int
+    kept: list[KeptTenantOut]
+
+
+@router.post("/clients/reset", response_model=ResetOut)
+async def reset_clients(
+    body: ResetRequest,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> ResetOut:
+    """Start over: remove every client tenant, with its untouched ('new') alerts, and put every tool client back in Unmapped.
+
+    Automatic adding is turned off so nothing is re-created until you choose a source again. A client tenant that has cases, connectors, or alerts someone worked on is kept
+    (and listed), because removing it would destroy that work. Each tenant is removed on its own, so one that cannot be removed never blocks the rest.
+    """
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail="Send confirm: true to remove every client tenant")
+    children = (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == current_user.tenant_id))).scalars().all()
+    removed = 0
+    kept: list[KeptTenantOut] = []
+    for child in children:
+        child_id, name = child.id, child.name
+        try:
+            async with db.begin_nested():
+                async with acting_as_tenant(db, child_id):
+                    await db.execute(delete(Alert).where(Alert.tenant_id == child_id, Alert.status == "new"))
+                await db.execute(
+                    update(ClientAlias)
+                    .where(ClientAlias.tenant_id == current_user.tenant_id, ClientAlias.child_tenant_id == child_id)
+                    .values(child_tenant_id=None, match_source="suggested")
+                )
+                await db.execute(delete(Tenant).where(Tenant.id == child_id, Tenant.parent_tenant_id == current_user.tenant_id))
+            removed += 1
+        except IntegrityError:
+            kept.append(KeptTenantOut(name=name, reason="it has cases, connectors, or alerts someone worked on"))
+    await set_sync_vendors(db, current_user.tenant_id, [])
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="mssp:clients_reset",
+        resource="tenant",
+        resource_id=str(current_user.tenant_id),
+        changes={"removed": removed, "kept": [k.name for k in kept]},
+        request=request,
+    )
+    await db.commit()
+    return ResetOut(removed=removed, kept=kept)
 
 
 @router.post("/clients/import", response_model=ImportOut)

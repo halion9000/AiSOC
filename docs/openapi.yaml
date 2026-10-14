@@ -9794,6 +9794,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/clients/reset:
+    post:
+      tags:
+      - mssp
+      summary: Reset Clients
+      description: 'Start over: remove every client tenant, with its untouched (''new'')
+        alerts, and put every tool client back in Unmapped.
+
+
+        Automatic adding is turned off so nothing is re-created until you choose a
+        source again. A client tenant that has cases, connectors, or alerts someone
+        worked on is kept
+
+        (and listed), because removing it would destroy that work. Each tenant is
+        removed on its own, so one that cannot be removed never blocks the rest.'
+      operationId: reset_clients_api_v1_mssp_clients_reset_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/mssp/clients/import:
     post:
       tags:
@@ -23196,6 +23233,19 @@ components:
       - created_at
       - created_by
       title: KBDocResponse
+    KeptTenantOut:
+      properties:
+        name:
+          type: string
+          title: Name
+        reason:
+          type: string
+          title: Reason
+      type: object
+      required:
+      - name
+      - reason
+      title: KeptTenantOut
     KpiBarTargetsOut:
       properties:
         false_positive_rate_max_pct:
@@ -26596,6 +26646,29 @@ components:
       required:
       - name
       title: ReportDefinitionBody
+    ResetOut:
+      properties:
+        removed:
+          type: integer
+          title: Removed
+        kept:
+          items:
+            $ref: '#/components/schemas/KeptTenantOut'
+          type: array
+          title: Kept
+      type: object
+      required:
+      - removed
+      - kept
+      title: ResetOut
+    ResetRequest:
+      properties:
+        confirm:
+          type: boolean
+          title: Confirm
+          default: false
+      type: object
+      title: ResetRequest
     RetentionOut:
       properties:
         raw_events_days:

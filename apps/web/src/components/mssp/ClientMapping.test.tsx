@@ -10,6 +10,7 @@ const ignoreMock = vi.fn();
 const importMock = vi.fn();
 const sourcesMock = vi.fn();
 const hiddenMock = vi.fn();
+const resetMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   msspApi: {
     clients: () => clientsMock(),
@@ -19,6 +20,7 @@ vi.mock('@/lib/api', () => ({
     importClients: (...a: unknown[]) => importMock(...a),
     setClientSources: (...a: unknown[]) => sourcesMock(...a),
     setClientHidden: (...a: unknown[]) => hiddenMock(...a),
+    resetClients: () => resetMock(),
   },
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
@@ -34,7 +36,8 @@ const tenant = (name: string): ManagedTenantRow => ({
 const tenants = [tenant('Acme Dental'), tenant('Birch Law')];
 
 beforeEach(() => {
-  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock, hiddenMock]) m.mockReset();
+  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock, hiddenMock, resetMock]) m.mockReset();
+  resetMock.mockResolvedValue({ removed: 2, kept: [] });
   hiddenMock.mockResolvedValue(undefined);
   importMock.mockResolvedValue({ created: 2, linked: 1 });
   sourcesMock.mockResolvedValue({ sync_vendors: [], created: 0, linked: 0 });
@@ -292,5 +295,32 @@ describe('one tool at a time', () => {
     await user.type(screen.getByLabelText('Search'), 'cedar');
     expect(screen.getAllByText('Cedar Farms').length).toBeGreaterThan(0);
     expect(screen.queryAllByText('Acme')).toHaveLength(0);
+  });
+});
+
+describe('start over', () => {
+  const load = async () => {
+    clientsMock.mockResolvedValue({ clients: [client({ vendor_client_name: 'Acme' })], unmapped: 1, sync_vendors: [] });
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await screen.findAllByText('Acme');
+    return user;
+  };
+
+  it('removes everything only after REMOVE is typed', async () => {
+    const user = await load();
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('REMOVE');
+    await user.click(screen.getByRole('button', { name: 'Remove all client tenants' }));
+    expect(resetMock).toHaveBeenCalledTimes(1);
+    prompt.mockRestore();
+  });
+
+  it('does nothing when the confirmation is wrong or cancelled', async () => {
+    const user = await load();
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('remove it').mockReturnValueOnce(null);
+    await user.click(screen.getByRole('button', { name: 'Remove all client tenants' }));
+    await user.click(screen.getByRole('button', { name: 'Remove all client tenants' }));
+    expect(resetMock).not.toHaveBeenCalled();
+    prompt.mockRestore();
   });
 });

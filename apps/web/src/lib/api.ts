@@ -515,6 +515,10 @@ export const msspApi = {
   async setClientSources(vendors: string[]): Promise<{ sync_vendors: string[]; created: number; linked: number }> {
     return request('/api/v1/mssp/clients/sources', { method: 'PUT', body: JSON.stringify({ vendors }) });
   },
+  /** Remove every client tenant (and its untouched alerts) and put every tool client back in Unmapped. Tenants with cases or connectors are kept. */
+  async resetClients(): Promise<{ removed: number; kept: { name: string; reason: string }[] }> {
+    return request('/api/v1/mssp/clients/reset', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+  },
   async unmapClient(aliasId: string): Promise<void> {
     await request<void>(`/api/v1/mssp/clients/${aliasId}/unmap`, { method: 'POST' });
   },

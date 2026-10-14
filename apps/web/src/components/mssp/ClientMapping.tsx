@@ -267,6 +267,18 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     await undo(() => msspApi.setClientHidden(c.child_tenant_id as string, hidden), hidden ? `Hid ${name} (from every tool)` : `Showing ${name}`);
   };
 
+  const startOver = async () => {
+    const typed = window.prompt('This removes EVERY client tenant and its untouched alerts, puts all tool clients back in Unmapped, and turns off automatic adding. Tenants with cases or connectors are kept. Type REMOVE to continue.');
+    if (typed?.trim() !== 'REMOVE') return;
+    try {
+      const result = await msspApi.resetClients();
+      toast.success(`Removed ${result.removed} client tenant${result.removed === 1 ? '' : 's'}${result.kept.length > 0 ? `; kept ${result.kept.map((k) => k.name).join(', ')} (${result.kept[0].reason})` : ''}`);
+      changed();
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : 'Could not remove the client tenants.');
+    }
+  };
+
   const importAll = async (vendor: string, count: number) => {
     const label = vendorLabel(vendor);
     if (!window.confirm(`Add ${count} ${label} client${count === 1 ? '' : 's'} as client tenants? A client whose name matches one you already have is linked to it instead.`)) return;
@@ -351,6 +363,9 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
               className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200"
             />
           </label>
+          <button type="button" onClick={() => void startOver()} className="ml-auto rounded-lg border border-red-900/60 px-3 py-1 text-sm text-red-300 hover:bg-red-950/40 transition-colors">
+            Remove all client tenants
+          </button>
           {groups.hidden.length > 0 ? (
             <label className="flex items-center gap-2 text-sm text-gray-300">
               <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
