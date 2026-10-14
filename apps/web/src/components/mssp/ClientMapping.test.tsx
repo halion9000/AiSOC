@@ -9,6 +9,7 @@ const unmapMock = vi.fn();
 const ignoreMock = vi.fn();
 const importMock = vi.fn();
 const sourcesMock = vi.fn();
+const hiddenMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   msspApi: {
     clients: () => clientsMock(),
@@ -17,11 +18,12 @@ vi.mock('@/lib/api', () => ({
     ignoreClient: (...a: unknown[]) => ignoreMock(...a),
     importClients: (...a: unknown[]) => importMock(...a),
     setClientSources: (...a: unknown[]) => sourcesMock(...a),
+    setClientHidden: (...a: unknown[]) => hiddenMock(...a),
   },
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import ClientMapping, { groupClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
+import ClientMapping, { groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
 
 function client(over: Partial<VendorClient> & { vendor_client_name: string }): VendorClient {
   return { id: `a-${over.vendor_client_name}`, vendor: 'petra', vendor_client_id: '1', child_tenant_id: null, child_tenant_name: null, ignored: false, match_source: 'suggested', suggestions: [], ...over };
@@ -32,7 +34,8 @@ const tenant = (name: string): ManagedTenantRow => ({
 const tenants = [tenant('Acme Dental'), tenant('Birch Law')];
 
 beforeEach(() => {
-  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock]) m.mockReset();
+  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock, hiddenMock]) m.mockReset();
+  hiddenMock.mockResolvedValue(undefined);
   importMock.mockResolvedValue({ created: 2, linked: 1 });
   sourcesMock.mockResolvedValue({ sync_vendors: [], created: 0, linked: 0 });
   mapMock.mockResolvedValue({});
@@ -184,5 +187,42 @@ describe('choosing which tools add clients automatically', () => {
     render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
     await user.click(await screen.findByRole('checkbox', { name: 'HaloPSA' }));
     expect(sourcesMock).toHaveBeenCalledWith(['petra']);
+  });
+});
+
+describe('sorting and hiding', () => {
+  const mapped = (name: string, vendor: string, tenantName: string, hidden = false) =>
+    client({ vendor_client_name: name, vendor, id: `${vendor}-${name}`, child_tenant_id: `t-${tenantName}`, child_tenant_name: tenantName, child_tenant_hidden: hidden });
+
+  it('sorts by name ignoring case, so the same customer from two tools sits side by side', () => {
+    const sorted = sortClients([mapped('birch law', 'petra', 'Birch'), mapped('Acme', 'petra', 'A'), mapped('ACME', 'huntress', 'A'), mapped('Zed', 'halopsa', 'Z')], 'name');
+    expect(sorted.map((c) => `${c.vendor_client_name}/${c.vendor}`)).toEqual(['ACME/huntress', 'Acme/petra', 'birch law/petra', 'Zed/halopsa']);
+  });
+
+  it('can sort by tool or by the tenant it is mapped to, and does not change the input', () => {
+    const input = [mapped('B', 'petra', 'Z'), mapped('A', 'huntress', 'Y')];
+    expect(sortClients(input, 'tool').map((c) => c.vendor)).toEqual(['huntress', 'petra']);
+    expect(sortClients(input, 'tenant').map((c) => c.child_tenant_name)).toEqual(['Y', 'Z']);
+    expect(input[0].vendor_client_name).toBe('B');
+  });
+
+  it('moves clients mapped to a hidden tenant out of Mapped', () => {
+    const g = groupClients([mapped('Hal Test', 'huntress', 'Hal Test', true), mapped('Acme', 'petra', 'Acme')]);
+    expect(g.mapped.map((c) => c.vendor_client_name)).toEqual(['Acme']);
+    expect(g.hidden.map((c) => c.vendor_client_name)).toEqual(['Hal Test']);
+  });
+
+  it('Hide hides the mapped tenant, and a hidden one only appears under "Show hidden"', async () => {
+    clientsMock.mockResolvedValue({ clients: [mapped('Hal Test', 'huntress', 'Hal Test'), mapped('Gone', 'petra', 'Gone', true)], unmapped: 0, sync_vendors: [] });
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await screen.findByText('Hal Test');
+    expect(screen.queryByText('Gone')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(hiddenMock).toHaveBeenCalledWith('t-Hal Test', true);
+    await user.click(screen.getByLabelText(/Show hidden/));
+    expect(await screen.findByText('Gone')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show' }));
+    expect(hiddenMock).toHaveBeenCalledWith('t-Gone', false);
   });
 });

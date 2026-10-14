@@ -6,8 +6,9 @@ import type { ManagedTenantRow, MsspOverview } from '@/lib/api';
 const overviewMock = vi.fn();
 const tenantsMock = vi.fn();
 const createClientMock = vi.fn();
+const hiddenMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  msspApi: { overview: () => overviewMock(), tenants: () => tenantsMock(), clients: async () => ({ clients: [], unmapped: 0 }), createClient: (n: string) => createClientMock(n) },
+  msspApi: { overview: () => overviewMock(), tenants: (h?: boolean) => tenantsMock(h), setClientHidden: (...a: unknown[]) => hiddenMock(...a), clients: async () => ({ clients: [], unmapped: 0 }), createClient: (n: string) => createClientMock(n) },
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
@@ -36,6 +37,8 @@ beforeEach(() => {
   overviewMock.mockReset();
   tenantsMock.mockReset();
   createClientMock.mockReset();
+  hiddenMock.mockReset();
+  hiddenMock.mockResolvedValue(undefined);
 });
 
 describe('a workspace with no child tenants (the reported case)', () => {
@@ -63,7 +66,7 @@ describe('real tenants', () => {
     const reportingRow = within(table).getByText('Reporting Co').closest('tr') as HTMLElement;
     expect(within(reportingRow).getAllByRole('cell').map((c) => c.textContent).slice(1, 8)).toEqual(['12', '2', '4', '30', '1', '3', '80']);
     const quietRow = within(table).getByText('Quiet Co').closest('tr') as HTMLElement;
-    expect(within(quietRow).getAllByRole('cell').map((c) => c.textContent).slice(1)).toEqual(['—', '—', '—', '—', '—', '—', '—', 'No data yet']);
+    expect(within(quietRow).getAllByRole('cell').map((c) => c.textContent).slice(1)).toEqual(['—', '—', '—', '—', '—', '—', '—', 'No data yet', 'Hide']);
   });
 
   it('shows a real zero as 0 and an unreported figure as a dash: they are not the same thing', async () => {
@@ -225,5 +228,24 @@ describe('adding a client by hand (the reported gap)', () => {
     await user.type(screen.getByLabelText('Client name'), '   ');
     expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
     expect(createClientMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('hiding test clients', () => {
+  it('hides a tenant from its row, and "Show hidden" asks the server for the hidden ones too', async () => {
+    overviewMock.mockResolvedValue({ ...none, total_tenants: 1 });
+    tenantsMock.mockImplementation(async (h?: boolean) => (h ? [row({ name: 'Real Co' }), row({ name: 'Hal Test', hidden: true })] : [row({ name: 'Real Co' })]));
+    const user = userEvent.setup();
+    render(<MSSPDashboardView />);
+
+    await screen.findByText('Real Co');
+    expect(screen.queryByText('Hal Test')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(hiddenMock).toHaveBeenCalledWith('id-Real Co', true);
+
+    await user.click(screen.getByLabelText('Show hidden'));
+    expect(await screen.findByText('Hal Test')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show' }));
+    expect(hiddenMock).toHaveBeenCalledWith('id-Hal Test', false);
   });
 });

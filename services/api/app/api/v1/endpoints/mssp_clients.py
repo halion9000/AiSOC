@@ -18,7 +18,16 @@ from app.db.rls import TenantDBSession
 from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 from app.services.audit import emit_audit
-from app.services.client_mapping import child_candidates, import_unmapped, new_child, set_sync_vendors, suggestions_for, sync_vendors
+from app.services.client_mapping import (
+    child_candidates,
+    import_unmapped,
+    new_child,
+    set_sync_vendors,
+    set_tenant_hidden,
+    suggestions_for,
+    sync_vendors,
+    tenant_hidden,
+)
 
 router = APIRouter(prefix="/mssp", tags=["mssp"])
 
@@ -45,6 +54,7 @@ class ClientAliasOut(BaseModel):
     vendor_client_name: str
     child_tenant_id: uuid.UUID | None
     child_tenant_name: str | None
+    child_tenant_hidden: bool = False
     ignored: bool
     match_source: str
     suggestions: list[SuggestionOut]
@@ -138,6 +148,12 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
     )
     candidates = await child_candidates(db, current_user.tenant_id)
     names = {c.tenant_id: c.name for c in candidates}
+    hidden_ids = {
+        str(t.id)
+        for t in (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == current_user.tenant_id))).scalars().all()
+        if tenant_hidden(t)
+    }
+    candidates = [c for c in candidates if c.tenant_id not in hidden_ids]  # never suggest a hidden test client
     out = [
         ClientAliasOut(
             id=a.id,
@@ -146,6 +162,7 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
             vendor_client_name=a.vendor_client_name,
             child_tenant_id=a.child_tenant_id,
             child_tenant_name=names.get(str(a.child_tenant_id)) if a.child_tenant_id else None,
+            child_tenant_hidden=str(a.child_tenant_id) in hidden_ids if a.child_tenant_id else False,
             ignored=a.ignored,
             match_source=a.match_source,
             suggestions=[SuggestionOut(tenant_id=s.tenant_id, name=s.name, score=s.score) for s in suggestions_for(a, candidates)],
@@ -226,6 +243,38 @@ async def ignore_client(
     alias.ignored = body.ignored  # type: ignore[assignment]
     if body.ignored:
         alias.child_tenant_id = None  # type: ignore[assignment]
+    await db.commit()
+
+
+class HiddenRequest(BaseModel):
+    hidden: bool
+
+
+@router.put("/tenants/{tenant_id}/hidden", status_code=status.HTTP_204_NO_CONTENT)
+async def set_client_hidden(
+    tenant_id: uuid.UUID,
+    body: HiddenRequest,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> None:
+    """Hide a client tenant (a test client, say) from the managed-tenant list and the dashboard totals, or show it again. Nothing is deleted."""
+    child = (
+        await db.execute(select(Tenant).where(Tenant.id == tenant_id, Tenant.parent_tenant_id == current_user.tenant_id))
+    ).scalar_one_or_none()
+    if child is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    set_tenant_hidden(child, body.hidden)
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="mssp:client_hidden" if body.hidden else "mssp:client_shown",
+        resource="tenant",
+        resource_id=str(child.id),
+        changes={"name": child.name},
+        request=request,
+    )
     await db.commit()
 
 

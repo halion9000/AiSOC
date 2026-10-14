@@ -13,13 +13,28 @@ export interface ClientGroups {
   unmapped: VendorClient[];
   mapped: VendorClient[];
   ignored: VendorClient[];
+  /** Mapped to a client tenant that was hidden (test clients). Kept apart so they leave the lists. */
+  hidden: VendorClient[];
 }
 
-export function groupClients(clients: VendorClient[]): ClientGroups {
+export type SortBy = 'name' | 'tool' | 'tenant';
+
+const byText = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+
+/** A sorted copy. By name, the same customer from two tools lands side by side (that is how duplicates are spotted); ties break on tool. */
+export function sortClients(clients: VendorClient[], by: SortBy): VendorClient[] {
+  const key = (c: VendorClient) => (by === 'tool' ? c.vendor : by === 'tenant' ? (c.child_tenant_name ?? '') : c.vendor_client_name);
+  return [...clients].sort((a, b) => byText(key(a), key(b)) || byText(a.vendor_client_name, b.vendor_client_name) || byText(a.vendor, b.vendor));
+}
+
+export function groupClients(clients: VendorClient[], by: SortBy = 'name'): ClientGroups {
+  const sorted = sortClients(clients, by);
+  const hidden = (c: VendorClient) => c.child_tenant_id !== null && c.child_tenant_hidden === true;
   return {
-    unmapped: clients.filter((c) => !c.ignored && c.child_tenant_id === null),
-    mapped: clients.filter((c) => !c.ignored && c.child_tenant_id !== null),
-    ignored: clients.filter((c) => c.ignored),
+    unmapped: sorted.filter((c) => !c.ignored && c.child_tenant_id === null),
+    mapped: sorted.filter((c) => !c.ignored && c.child_tenant_id !== null && !hidden(c)),
+    ignored: sorted.filter((c) => c.ignored),
+    hidden: sorted.filter((c) => !c.ignored && hidden(c)),
   };
 }
 
@@ -127,7 +142,21 @@ function UnmappedRow({ client, tenants, onChanged }: { client: VendorClient; ten
   );
 }
 
-function SimpleRow({ client, label, action, onClick }: { client: VendorClient; label: string; action: string; onClick: () => void }) {
+function SimpleRow({
+  client,
+  label,
+  action,
+  onClick,
+  extraAction,
+  onExtra,
+}: {
+  client: VendorClient;
+  label: string;
+  action: string;
+  onClick: () => void;
+  extraAction?: string;
+  onExtra?: () => void;
+}) {
   return (
     <li className="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-gray-800/40">
       <div className="min-w-[14rem] flex-1">
@@ -138,6 +167,11 @@ function SimpleRow({ client, label, action, onClick }: { client: VendorClient; l
       <button type="button" onClick={onClick} className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors">
         {action}
       </button>
+      {extraAction && onExtra ? (
+        <button type="button" onClick={onExtra} className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors">
+          {extraAction}
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -146,6 +180,8 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const [clients, setClients] = useState<VendorClient[] | null>(null);
   const [synced, setSynced] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortBy>('name');
+  const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -186,7 +222,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   }
   if (clients === null) return <p role="status" className="text-sm text-gray-400">Loading client mappings…</p>;
 
-  const groups = groupClients(clients);
+  const groups = groupClients(clients, sortBy);
 
   const toggleSource = async (vendor: string, on: boolean) => {
     const label = vendorLabel(vendor);
@@ -199,6 +235,12 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     } catch (err) {
       toast.error(err instanceof Error && err.message ? err.message : 'Could not save that.');
     }
+  };
+
+  const hideClient = async (c: VendorClient, hidden: boolean) => {
+    if (c.child_tenant_id === null) return;
+    const name = c.child_tenant_name ?? c.vendor_client_name;
+    await undo(() => msspApi.setClientHidden(c.child_tenant_id as string, hidden), hidden ? `Hid ${name} (from every tool)` : `Showing ${name}`);
   };
 
   const importAll = async (vendor: string, count: number) => {
@@ -223,6 +265,29 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
           Say which of your clients each tool&apos;s customer is. Exact name matches are linked for you; everything else waits here.
         </p>
       </div>
+
+      {clients.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-4 px-5 py-3 border-b border-gray-800/60">
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            Sort by
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+              className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200"
+            >
+              <option value="name">Client name</option>
+              <option value="tool">Tool</option>
+              <option value="tenant">Mapped to</option>
+            </select>
+          </label>
+          {groups.hidden.length > 0 ? (
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
+              Show hidden ({groups.hidden.length})
+            </label>
+          ) : null}
+        </div>
+      ) : null}
 
       {clients.length > 0 ? (
         <fieldset className="px-5 py-4 border-b border-gray-800/60">
@@ -281,6 +346,25 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
                     label={`→ ${c.child_tenant_name ?? 'a client'}`}
                     action="Unmap"
                     onClick={() => void undo(() => msspApi.unmapClient(c.id), `Unmapped ${c.vendor_client_name}`)}
+                    extraAction="Hide"
+                    onExtra={() => void hideClient(c, true)}
+                  />
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          {showHidden && groups.hidden.length > 0 ? (
+            <>
+              <h3 className="px-5 pt-4 text-xs font-medium uppercase tracking-wider text-gray-500">Hidden ({groups.hidden.length})</h3>
+              <ul>
+                {groups.hidden.map((c) => (
+                  <SimpleRow
+                    key={c.id}
+                    client={c}
+                    label={`→ ${c.child_tenant_name ?? 'a client'} (hidden)`}
+                    action="Show"
+                    onClick={() => void hideClient(c, false)}
                   />
                 ))}
               </ul>

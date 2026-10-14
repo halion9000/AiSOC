@@ -103,6 +103,26 @@ def test_a_workspace_with_no_children_has_no_managed_tenants_and_no_figures():
         assert figure is None
 
 
+def test_a_hidden_test_client_is_left_out_of_the_list_and_totals_until_asked_for():
+    async def body(s):
+        parent = await tenant(s, "Parent MSSP")
+        await tenant(s, "Real Customer", parent.id)
+        test = await tenant(s, "Hal Test", parent.id)
+        test.settings = {"hidden": True}
+        await s.commit()
+        who = caller(parent)
+        return (
+            await mssp.list_managed_tenants(include_hidden=False, db=s, current_user=who),
+            await mssp.list_managed_tenants(include_hidden=True, db=s, current_user=who),
+            await mssp.mssp_overview(db=s, current_user=who),
+        )
+
+    shown, everything, overview = run(body)
+    assert [r.name for r in shown] == ["Real Customer"]
+    assert [(r.name, r.hidden) for r in everything] == [("Hal Test", True), ("Real Customer", False)]
+    assert overview.total_tenants == 1
+
+
 def test_real_children_are_listed_by_name_with_no_metrics_until_a_snapshot_exists():
     async def body(s):
         parent = await tenant(s, "Parent MSSP")

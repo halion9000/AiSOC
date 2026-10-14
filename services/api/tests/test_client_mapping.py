@@ -206,12 +206,42 @@ async def test_an_alias_of_another_tenant_is_404():
 async def test_listing_shows_suggestions_only_for_unmapped_clients_and_counts_them():
     acme = _tenant("Acme Dental")
     mapped, open_one, ignored = _alias("Done", child=acme.id), _alias("Acme Dental Group"), _alias("Skip", ignored=True)
-    out = await mc.list_clients(USER, _db([mapped, open_one, ignored], [acme]))
+    out = await mc.list_clients(USER, _db([mapped, open_one, ignored], [acme], [acme]))
     by_name = {c.vendor_client_name: c for c in out.clients}
     assert out.unmapped == 1
     assert by_name["Done"].child_tenant_name == "Acme Dental" and by_name["Done"].suggestions == []
     assert [s.name for s in by_name["Acme Dental Group"].suggestions] == ["Acme Dental"]
     assert by_name["Skip"].suggestions == []
+
+
+@pytest.mark.asyncio
+async def test_hiding_a_client_marks_it_hidden_and_stops_suggesting_it():
+    test_client = _tenant("Hal Test")
+    cm.set_tenant_hidden(test_client, True)
+    assert cm.tenant_hidden(test_client)
+    mapped, open_one = _alias("Hal Test", child=test_client.id), _alias("Hal Test Two")
+    out = await mc.list_clients(USER, _db([mapped, open_one], [test_client], [test_client]))
+    by_name = {c.vendor_client_name: c for c in out.clients}
+    assert by_name["Hal Test"].child_tenant_hidden is True and by_name["Hal Test"].child_tenant_name == "Hal Test"
+    assert by_name["Hal Test Two"].suggestions == []  # a hidden test client is never offered as a match
+
+
+@pytest.mark.asyncio
+async def test_showing_a_hidden_client_clears_the_flag_and_keeps_other_settings():
+    t = _tenant("Hal Test")
+    t.settings = {"keep": 1}
+    cm.set_tenant_hidden(t, True)
+    db = _db([t])
+    await mc.set_client_hidden(t.id, mc.HiddenRequest(hidden=False), MagicMock(), USER, db)
+    assert not cm.tenant_hidden(t) and t.settings == {"keep": 1}
+    db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hiding_a_tenant_that_is_not_yours_is_404():
+    with pytest.raises(HTTPException) as e:
+        await mc.set_client_hidden(uuid.uuid4(), mc.HiddenRequest(hidden=True), MagicMock(), USER, _db([]))
+    assert e.value.status_code == 404
 
 
 # ---- who may -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -228,6 +258,7 @@ def test_reading_needs_mssp_read_and_every_change_needs_mssp_manage():
         ("POST", "/mssp/clients/{alias_id}/map"),
         ("POST", "/mssp/clients/{alias_id}/unmap"),
         ("POST", "/mssp/clients/{alias_id}/ignore"),
+        ("PUT", "/mssp/tenants/{tenant_id}/hidden"),
     ]:
         assert set(required_permissions(routes[(method, path)])) == {"mssp:manage"}, path
 

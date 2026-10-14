@@ -52,6 +52,20 @@ def make_slug(name: str) -> str:
     return f"{base}-{uuid.uuid4().hex[:6]}"
 
 
+def tenant_hidden(tenant: Any) -> bool:
+    """A client tenant the MSSP hid (test clients, say). Kept in the tenant's settings, so no schema change."""
+    return bool((getattr(tenant, "settings", None) or {}).get("hidden"))
+
+
+def set_tenant_hidden(tenant: Any, hidden: bool) -> None:
+    settings = dict(getattr(tenant, "settings", None) or {})
+    if hidden:
+        settings["hidden"] = True
+    else:
+        settings.pop("hidden", None)
+    tenant.settings = settings  # a new dict, so the JSONB column is seen as changed
+
+
 async def child_candidates(db: Any, parent_id: uuid.UUID) -> list[Candidate]:
     rows = (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == parent_id))).scalars().all()
     return [Candidate(tenant_id=str(t.id), name=t.name) for t in rows]

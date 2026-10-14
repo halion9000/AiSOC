@@ -467,6 +467,8 @@ export interface MsspOverview {
 export interface ManagedTenantRow {
   tenant_id: string;
   name: string;
+  /** Hidden by the MSSP (a test client); only returned when hidden clients are asked for. */
+  hidden?: boolean;
   has_metrics: boolean;
   snapshot_at: string | null;
   health_score: number | null;
@@ -485,8 +487,12 @@ export const msspApi = {
   async overview(): Promise<MsspOverview> {
     return request<MsspOverview>('/api/v1/mssp/overview');
   },
-  async tenants(): Promise<ManagedTenantRow[]> {
-    return request<ManagedTenantRow[]>('/api/v1/mssp/tenants');
+  async tenants(includeHidden = false): Promise<ManagedTenantRow[]> {
+    return request<ManagedTenantRow[]>(`/api/v1/mssp/tenants${includeHidden ? '?include_hidden=true' : ''}`);
+  },
+  /** Hide a client tenant (a test client) from the lists and totals, or show it again. Nothing is deleted. */
+  async setClientHidden(tenantId: string, hidden: boolean): Promise<void> {
+    await request<void>(`/api/v1/mssp/tenants/${tenantId}/hidden`, { method: 'PUT', body: JSON.stringify({ hidden }) });
   },
   /** Add a client (a new child tenant) by hand. */
   async createClient(name: string): Promise<{ id: string; name: string }> {
@@ -530,6 +536,7 @@ export interface VendorClient {
   vendor_client_name: string;
   child_tenant_id: string | null;
   child_tenant_name: string | null;
+  child_tenant_hidden?: boolean;
   ignored: boolean;
   match_source: 'manual' | 'suggested';
   suggestions: ClientSuggestion[];

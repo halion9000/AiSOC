@@ -9546,18 +9546,34 @@ paths:
       description: 'The caller''s real child tenants with their latest metrics snapshot.
         A tenant that is not an MSSP parent has no children: an empty list.'
       operationId: list_managed_tenants_api_v1_mssp_tenants_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: include_hidden
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Also return tenants that were hidden (test clients)
+          default: false
+          title: Include Hidden
+        description: Also return tenants that were hidden (test clients)
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
+                type: array
                 items:
                   $ref: '#/components/schemas/ManagedTenantRow'
-                type: array
                 title: Response List Managed Tenants Api V1 Mssp Tenants Get
-      security:
-      - HTTPBearer: []
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/mssp/incidents:
     get:
       tags:
@@ -9736,6 +9752,39 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/IgnoreRequest'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/tenants/{tenant_id}/hidden:
+    put:
+      tags:
+      - mssp
+      summary: Set Client Hidden
+      description: Hide a client tenant (a test client, say) from the managed-tenant
+        list and the dashboard totals, or show it again. Nothing is deleted.
+      operationId: set_client_hidden_api_v1_mssp_tenants__tenant_id__hidden_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Tenant Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HiddenRequest'
       responses:
         '204':
           description: Successful Response
@@ -18445,6 +18494,10 @@ components:
           - type: string
           - type: 'null'
           title: Child Tenant Name
+        child_tenant_hidden:
+          type: boolean
+          title: Child Tenant Hidden
+          default: false
         ignored:
           type: boolean
           title: Ignored
@@ -22167,6 +22220,15 @@ components:
       required:
       - notes
       title: HandoffNotes
+    HiddenRequest:
+      properties:
+        hidden:
+          type: boolean
+          title: Hidden
+      type: object
+      required:
+      - hidden
+      title: HiddenRequest
     HuntPreviewItem:
       properties:
         id:
@@ -23691,6 +23753,10 @@ components:
         name:
           type: string
           title: Name
+        hidden:
+          type: boolean
+          title: Hidden
+          default: false
         has_metrics:
           type: boolean
           title: Has Metrics

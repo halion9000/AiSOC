@@ -129,21 +129,32 @@ export default function MSSPDashboardView() {
   const [tenants, setTenants] = useState<ManagedTenantRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
+  const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [nextOverview, nextTenants] = await Promise.all([msspApi.overview(), msspApi.tenants()]);
+      const [nextOverview, nextTenants] = await Promise.all([msspApi.overview(), msspApi.tenants(showHidden)]);
       setOverview(nextOverview);
       setTenants(nextTenants);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Could not load managed tenants.');
     }
-  }, []);
+  }, [showHidden]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const setHidden = async (t: ManagedTenantRow, hidden: boolean) => {
+    try {
+      await msspApi.setClientHidden(t.tenant_id, hidden);
+      toast.success(hidden ? `Hid ${t.name}` : `Showing ${t.name}`);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : 'Could not save that.');
+    }
+  };
 
   const visible = (tenants ?? []).filter((row) => matchesFilter(row, filter));
 
@@ -210,6 +221,10 @@ export default function MSSPDashboardView() {
                     {f.label}
                   </button>
                 ))}
+                <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
+                  Show hidden
+                </label>
                 <button
                   type="button"
                   onClick={exportCsv}
@@ -252,12 +267,16 @@ export default function MSSPDashboardView() {
                       <th className="px-5 py-3 font-medium text-right">Connectors</th>
                       <th className="px-5 py-3 font-medium text-right">Health</th>
                       <th className="px-5 py-3 font-medium">Last Snapshot</th>
+                      <th className="px-5 py-3 font-medium" />
                     </tr>
                   </thead>
                   <tbody>
                     {visible.map((t) => (
                       <tr key={t.tenant_id} className="border-b border-gray-800/40 hover:bg-gray-800/30 transition-colors">
-                        <td className="px-5 py-3 font-medium text-white">{t.name}</td>
+                        <td className={clsx('px-5 py-3 font-medium', t.hidden ? 'text-gray-500' : 'text-white')}>
+                          {t.name}
+                          {t.hidden ? <span className="ml-2 text-xs font-normal text-gray-500">hidden</span> : null}
+                        </td>
                         <td className="px-5 py-3 text-right text-gray-300">{figure(t.open_alerts)}</td>
                         <td className="px-5 py-3 text-right text-gray-300">{figure(t.critical_alerts)}</td>
                         <td className="px-5 py-3 text-right text-gray-300">{figure(t.open_cases)}</td>
@@ -266,6 +285,11 @@ export default function MSSPDashboardView() {
                         <td className="px-5 py-3 text-right text-gray-300">{figure(t.connector_count)}</td>
                         <td className="px-5 py-3 text-right text-gray-300">{figure(t.health_score, { decimals: 0 })}</td>
                         <td className="px-5 py-3 text-gray-400">{snapshotLabel(t.snapshot_at)}</td>
+                        <td className="px-5 py-3 text-right">
+                          <button type="button" onClick={() => void setHidden(t, !t.hidden)} className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
+                            {t.hidden ? 'Show' : 'Hide'}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -274,7 +298,7 @@ export default function MSSPDashboardView() {
             )}
           </div>
 
-          <ClientMapping tenants={tenants} onChanged={() => void load()} />
+          <ClientMapping tenants={tenants.filter((t) => !t.hidden)} onChanged={() => void load()} />
         </>
       )}
     </div>

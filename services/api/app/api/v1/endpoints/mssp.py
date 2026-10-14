@@ -269,6 +269,7 @@ from app.models.mssp import (  # noqa: E402
     MSSPRulePackAssignment,
     MSSPRulePackRule,
 )
+from app.services.client_mapping import tenant_hidden  # noqa: E402
 from app.services.mssp_rule_resolver import count_effective_rules, resolve_effective_rules  # noqa: E402
 
 
@@ -729,6 +730,7 @@ class ManagedTenantRow(BaseModel):
 
     tenant_id: str
     name: str
+    hidden: bool = False
     has_metrics: bool
     snapshot_at: datetime | None = None
     health_score: float | None = None
@@ -754,10 +756,11 @@ class CrossTenantIncident(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-async def _managed_children(db: AsyncSession, parent_id: uuid.UUID) -> list[Tenant]:
-    """The REAL child tenants of ``parent_id`` (what /mssp/children returns), name-ordered."""
+async def _managed_children(db: AsyncSession, parent_id: uuid.UUID, include_hidden: bool = False) -> list[Tenant]:
+    """The REAL child tenants of ``parent_id`` (what /mssp/children returns), name-ordered. Tenants the MSSP hid (test clients) are left out unless asked for."""
     result = await db.execute(select(Tenant).where(Tenant.parent_tenant_id == parent_id).order_by(Tenant.name))
-    return list(result.scalars().all())
+    rows = list(result.scalars().all())
+    return rows if include_hidden else [t for t in rows if not tenant_hidden(t)]
 
 
 async def _latest_snapshots(db: AsyncSession, child_ids: list[uuid.UUID]) -> dict[uuid.UUID, MSSPTenantMetrics]:
@@ -805,11 +808,12 @@ async def mssp_overview(
 
 @router.get("/tenants", response_model=list[ManagedTenantRow], dependencies=[Depends(require_permission("mssp:read"))])
 async def list_managed_tenants(
+    include_hidden: bool = Query(False, description="Also return tenants that were hidden (test clients)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ManagedTenantRow]:
     """The caller's real child tenants with their latest metrics snapshot. A tenant that is not an MSSP parent has no children: an empty list."""
-    children = await _managed_children(db, current_user.tenant_id)
+    children = await _managed_children(db, current_user.tenant_id, include_hidden)
     snaps = await _latest_snapshots(db, [c.id for c in children])
     rows: list[ManagedTenantRow] = []
     for child in children:
@@ -818,6 +822,7 @@ async def list_managed_tenants(
             ManagedTenantRow(
                 tenant_id=str(child.id),
                 name=child.name,
+                hidden=tenant_hidden(child),
                 has_metrics=snap is not None,
                 snapshot_at=snap.snapshot_at.isoformat() if snap is not None and snap.snapshot_at else None,
                 health_score=snap.health_score if snap is not None else None,
