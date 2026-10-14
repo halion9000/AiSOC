@@ -5,6 +5,7 @@ import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { msspApi, type ManagedTenantRow, type MsspOverview } from '@/lib/api';
+import ClientMapping from './ClientMapping';
 
 /**
  * Cross-tenant overview for an MSSP parent workspace.
@@ -68,6 +69,61 @@ function snapshotLabel(iso: string | null): string {
   return Number.isNaN(when.getTime()) ? 'No data yet' : when.toLocaleString();
 }
 
+/** Add a client (a new child tenant) by hand. */
+function AddClient({ onAdded }: { onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = name.trim();
+    if (!clean) return;
+    setBusy(true);
+    try {
+      await msspApi.createClient(clean);
+      toast.success(`Added ${clean}`);
+      setName('');
+      setOpen(false);
+      onAdded();
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : 'Could not add that client.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 transition-colors">
+        Add client
+      </button>
+    );
+  }
+  return (
+    <form onSubmit={(e) => void submit(e)} className="flex items-center gap-2">
+      <label className="sr-only" htmlFor="new-client-name">
+        Client name
+      </label>
+      <input
+        id="new-client-name"
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        maxLength={255}
+        placeholder="Client name"
+        className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 placeholder-gray-500"
+      />
+      <button type="submit" disabled={busy || !name.trim()} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-40 disabled:hover:bg-blue-600 transition-colors">
+        Create
+      </button>
+      <button type="button" onClick={() => { setOpen(false); setName(''); }} className="rounded-lg px-3 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors">
+        Cancel
+      </button>
+    </form>
+  );
+}
+
 export default function MSSPDashboardView() {
   const [overview, setOverview] = useState<MsspOverview | null>(null);
   const [tenants, setTenants] = useState<ManagedTenantRow[] | null>(null);
@@ -76,7 +132,6 @@ export default function MSSPDashboardView() {
 
   const load = useCallback(async () => {
     setError(null);
-    setTenants(null);
     try {
       const [nextOverview, nextTenants] = await Promise.all([msspApi.overview(), msspApi.tenants()]);
       setOverview(nextOverview);
@@ -107,9 +162,12 @@ export default function MSSPDashboardView() {
 
   return (
     <div className="space-y-8 p-6 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-white">MSSP Executive Dashboard</h1>
-        <p className="text-gray-400 mt-1">Cross-tenant security operations overview</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white">MSSP Executive Dashboard</h1>
+          <p className="text-gray-400 mt-1">Cross-tenant security operations overview</p>
+        </div>
+        <AddClient onAdded={() => void load()} />
       </div>
 
       {error ? (
@@ -167,7 +225,7 @@ export default function MSSPDashboardView() {
               <EmptyState
                 icon={EmptyStateIcons.shield}
                 title="No managed tenants yet"
-                description="This workspace has no child tenants. Customer tenants you onboard as an MSSP parent will be listed here."
+                description="This workspace has no clients yet. Use Add client above, or map the clients CORE finds in your tools below."
               />
             ) : visible.length === 0 ? (
               <EmptyState
@@ -215,6 +273,8 @@ export default function MSSPDashboardView() {
               </div>
             )}
           </div>
+
+          <ClientMapping tenants={tenants} onChanged={() => void load()} />
         </>
       )}
     </div>

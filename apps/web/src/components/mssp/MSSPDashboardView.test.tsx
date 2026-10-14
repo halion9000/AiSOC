@@ -5,7 +5,10 @@ import type { ManagedTenantRow, MsspOverview } from '@/lib/api';
 
 const overviewMock = vi.fn();
 const tenantsMock = vi.fn();
-vi.mock('@/lib/api', () => ({ msspApi: { overview: () => overviewMock(), tenants: () => tenantsMock() } }));
+const createClientMock = vi.fn();
+vi.mock('@/lib/api', () => ({
+  msspApi: { overview: () => overviewMock(), tenants: () => tenantsMock(), clients: async () => ({ clients: [], unmapped: 0 }), createClient: (n: string) => createClientMock(n) },
+}));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
 import MSSPDashboardView, { figure, matchesFilter, tenantsToCsv } from './MSSPDashboardView';
@@ -32,6 +35,7 @@ const healthy = row({ name: 'Healthy Co', has_metrics: true, snapshot_at: '2026-
 beforeEach(() => {
   overviewMock.mockReset();
   tenantsMock.mockReset();
+  createClientMock.mockReset();
 });
 
 describe('a workspace with no child tenants (the reported case)', () => {
@@ -190,5 +194,36 @@ describe('figure()', () => {
     expect(figure(Number.NaN)).toBe('—');
     expect(figure(0)).toBe('0');
     expect(figure(30.4, { decimals: 0, suffix: ' min' })).toBe('30 min');
+  });
+});
+
+describe('adding a client by hand (the reported gap)', () => {
+  it('creates the client, then reloads the table so it shows up', async () => {
+    overviewMock.mockResolvedValue(none);
+    tenantsMock.mockResolvedValueOnce([]).mockResolvedValue([row({ name: 'Acme Dental' })]);
+    createClientMock.mockResolvedValue({ id: 'x', name: 'Acme Dental' });
+    const user = userEvent.setup();
+    render(<MSSPDashboardView />);
+
+    await screen.findByText('No managed tenants yet');
+    await user.click(screen.getByRole('button', { name: 'Add client' }));
+    await user.type(screen.getByLabelText('Client name'), '  Acme Dental ');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(createClientMock).toHaveBeenCalledWith('Acme Dental');
+    expect(await screen.findByText('Acme Dental')).toBeInTheDocument();
+  });
+
+  it('will not create a client with a blank name', async () => {
+    overviewMock.mockResolvedValue(none);
+    tenantsMock.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<MSSPDashboardView />);
+
+    await screen.findByText('No managed tenants yet');
+    await user.click(screen.getByRole('button', { name: 'Add client' }));
+    await user.type(screen.getByLabelText('Client name'), '   ');
+    expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+    expect(createClientMock).not.toHaveBeenCalled();
   });
 });

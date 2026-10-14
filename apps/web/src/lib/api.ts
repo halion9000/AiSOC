@@ -488,7 +488,49 @@ export const msspApi = {
   async tenants(): Promise<ManagedTenantRow[]> {
     return request<ManagedTenantRow[]>('/api/v1/mssp/tenants');
   },
+  /** Add a client (a new child tenant) by hand. */
+  async createClient(name: string): Promise<{ id: string; name: string }> {
+    return request('/api/v1/mssp/clients/new', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+  /** The clients CORE forwarded from each vendor, with the tenant each is mapped to or suggested matches. */
+  async clients(): Promise<ClientMappingList> {
+    return request<ClientMappingList>('/api/v1/mssp/clients');
+  },
+  /** Map a vendor client to an existing client tenant, or to a new one named `newTenantName`. */
+  async mapClient(aliasId: string, target: { childTenantId: string } | { newTenantName: string }): Promise<VendorClient> {
+    const body = 'childTenantId' in target ? { child_tenant_id: target.childTenantId } : { new_tenant_name: target.newTenantName };
+    return request<VendorClient>(`/api/v1/mssp/clients/${aliasId}/map`, { method: 'POST', body: JSON.stringify(body) });
+  },
+  async unmapClient(aliasId: string): Promise<void> {
+    await request<void>(`/api/v1/mssp/clients/${aliasId}/unmap`, { method: 'POST' });
+  },
+  async ignoreClient(aliasId: string, ignored: boolean): Promise<void> {
+    await request<void>(`/api/v1/mssp/clients/${aliasId}/ignore`, { method: 'POST', body: JSON.stringify({ ignored }) });
+  },
 };
+
+export interface ClientSuggestion {
+  tenant_id: string;
+  name: string;
+  score: number;
+}
+
+export interface VendorClient {
+  id: string;
+  vendor: string;
+  vendor_client_id: string;
+  vendor_client_name: string;
+  child_tenant_id: string | null;
+  child_tenant_name: string | null;
+  ignored: boolean;
+  match_source: 'manual' | 'suggested';
+  suggestions: ClientSuggestion[];
+}
+
+export interface ClientMappingList {
+  clients: VendorClient[];
+  unmapped: number;
+}
 
 // ─── Alerts ─────────────────────────────────────────────────────────────────
 
