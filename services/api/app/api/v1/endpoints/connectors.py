@@ -179,9 +179,16 @@ def _build_connector_response(connector: Connector) -> ConnectorResponse:
     raw_override = cfg.get("expected_cadence_seconds") if isinstance(cfg, dict) else None
     if isinstance(raw_override, int | float):
         override = int(raw_override)
+    last_seen = connector.last_event_at
+    if connector.connector_type == "core_feed":
+        # A feed CORE polls is healthy while CORE keeps checking in, even when the vendor has nothing new to report: judge it by its last check-in, not its last event.
+        # CORE polls every 5 minutes, so three missed polls (15 minutes) is "late" unless the operator set their own cadence.
+        last_seen = connector.last_sync
+        if override is None:
+            override = 900
     verdict = compute_freshness(
         category=connector.category,
-        last_event_at=connector.last_event_at,
+        last_event_at=last_seen,
         override_seconds=override,
     )
     response.freshness = FreshnessSLOResponse(**verdict.to_dict())

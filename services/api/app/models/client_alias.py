@@ -14,7 +14,9 @@ from app.db.database import Base
 
 class ClientAlias(Base):
     __tablename__ = "client_aliases"
-    __table_args__ = (UniqueConstraint("tenant_id", "vendor", "vendor_client_id", name="client_aliases_tenant_id_vendor_vendor_client_id_key"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "vendor", "vendor_client_id", name="client_aliases_tenant_id_vendor_vendor_client_id_key"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
@@ -22,8 +24,12 @@ class ClientAlias(Base):
     vendor_client_id: Mapped[str] = mapped_column(String(200), nullable=False)
     vendor_client_name: Mapped[str] = mapped_column(Text, nullable=False)
     normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
-    child_tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True)
+    child_tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     ignored: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     match_source: Mapped[str] = mapped_column(String(16), default="suggested", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    )

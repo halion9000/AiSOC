@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 # Words that say what KIND of company it is, not which one. Dropped so "Acme Dental, LLC" and "Acme Dental" are the same name.
-_NOISE = frozenset({"llc", "inc", "incorporated", "corp", "corporation", "co", "company", "ltd", "limited", "pllc", "pc", "lp", "llp", "plc", "the"})
+_NOISE = frozenset(
+    {"llc", "inc", "incorporated", "corp", "corporation", "co", "company", "ltd", "limited", "pllc", "pc", "lp", "llp", "plc", "the"}
+)
 
 EXACT = 1.0
 SUGGEST_THRESHOLD = 0.6
