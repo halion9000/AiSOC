@@ -248,6 +248,7 @@ async def test_claiming_expires_old_work_first_then_claims_pending_for_this_tena
 async def test_a_result_is_accepted_only_for_a_claimed_action_of_this_tenant(monkeypatch):
     monkeypatch.setattr(cf, "_verify_core_feed_token", AsyncMock(return_value=TENANT))
     monkeypatch.setattr(cf, "adopt_tenant", AsyncMock())
+    monkeypatch.setattr(cf, "_scope_ids", AsyncMock(return_value=[TENANT]))
     db = _exec_db(returning=[])  # nothing matched
     with pytest.raises(HTTPException) as e:
         await cf.report_core_feed_action_result("tok", uuid.uuid4(), cf.ActionResult(status="done"), db)
@@ -260,6 +261,7 @@ async def test_a_result_is_accepted_only_for_a_claimed_action_of_this_tenant(mon
 async def test_a_done_resolve_resolves_the_alert_but_only_while_it_is_still_new(monkeypatch):
     monkeypatch.setattr(cf, "_verify_core_feed_token", AsyncMock(return_value=TENANT))
     monkeypatch.setattr(cf, "adopt_tenant", AsyncMock())
+    monkeypatch.setattr(cf, "_scope_ids", AsyncMock(return_value=[TENANT]))
     db = _exec_db(returning=[SimpleNamespace(alert_id=ALERT_ID, action="resolve")])
     out = await cf.report_core_feed_action_result("tok", uuid.uuid4(), cf.ActionResult(status="done", message="ok"), db)
     assert out.recorded is True

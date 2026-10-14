@@ -59,6 +59,14 @@ class VendorActionsResponse(BaseModel):
     incident_uid: str | None = None
     vendor_state: dict[str, Any] | None = None
     actions: list[VendorActionItem]
+    # PSA tickets (HaloPSA) linked to this alert, as CORE last reported them. Present whether or not the alert supports actions.
+    tickets: list[dict[str, Any]] = []
+
+
+def linked_tickets(enrichment: Any) -> list[dict[str, Any]]:
+    """The tickets CORE linked to the alert (``enrichment_data.tickets``), or none. Anything not shaped like a ticket is left out."""
+    found = enrichment.get("tickets") if isinstance(enrichment, dict) else None
+    return [t for t in found if isinstance(t, dict) and t.get("id")] if isinstance(found, list) else []
 
 
 def _item(row: VendorAction, now: datetime) -> VendorActionItem:
@@ -88,8 +96,9 @@ async def list_vendor_actions(
     """The incident's last reported vendor state (remediation plan) and the actions asked for so far. ``supported`` is false for alerts this does not apply to."""
     alert = await _alert(db, alert_id, current_user.tenant_id)
     uid = alert_incident_uid(alert.raw_event)
+    tickets = linked_tickets(alert.enrichment_data)
     if uid is None:
-        return VendorActionsResponse(supported=False, actions=[])
+        return VendorActionsResponse(supported=False, actions=[], tickets=tickets)
     rows = (
         (
             await db.execute(
@@ -110,6 +119,7 @@ async def list_vendor_actions(
         incident_uid=uid,
         vendor_state=state if isinstance(state, dict) else None,
         actions=[_item(r, now) for r in rows],
+        tickets=tickets,
     )
 
 

@@ -90,6 +90,10 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
     ): "CORE's vendor client list: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add or rename that tenant's own client-mapping rows",
     (
         "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/tickets",
+    ): "CORE's linked PSA tickets: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add ticket details to that feed's own alerts",
+    (
+        "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/state",
     ): "CORE's open-incident state report: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write that tenant's own alerts' vendor state",
     (

@@ -15014,6 +15014,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/tickets:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Tickets
+      description: Record the PSA (HaloPSA) tickets linked to open vendor incidents,
+        so each alert shows its tickets.
+      operationId: report_core_feed_tickets_api_v1_inbox_core_feed__tenant_token__tickets_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketsReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/lake/sql:
     post:
       tags:
@@ -23246,6 +23280,47 @@ components:
         the first event to land. Keeping the shape minimal avoids paying
 
         the full ``ConnectorResponse`` cost on every poll tick.'
+    LinkedTicket:
+      properties:
+        id:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Id
+        system:
+          type: string
+          const: halopsa
+          title: System
+          default: halopsa
+        summary:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Summary
+        status:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Status
+        client:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Client
+        url:
+          anyOf:
+          - type: string
+            maxLength: 500
+            pattern: ^https://
+          - type: 'null'
+          title: Url
+      type: object
+      required:
+      - id
+      title: LinkedTicket
     ListResponse:
       properties:
         rules:
@@ -29231,6 +29306,50 @@ components:
       - updated_at
       - updated_by
       title: ThresholdUpdateResponse
+    TicketsItem:
+      properties:
+        uid:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Uid
+        tickets:
+          items:
+            $ref: '#/components/schemas/LinkedTicket'
+          type: array
+          maxItems: 20
+          title: Tickets
+      type: object
+      required:
+      - uid
+      - tickets
+      title: TicketsItem
+    TicketsReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        items:
+          items:
+            $ref: '#/components/schemas/TicketsItem'
+          type: array
+          maxItems: 500
+          title: Items
+      type: object
+      required:
+      - vendor
+      - items
+      title: TicketsReport
+    TicketsResponse:
+      properties:
+        updated:
+          type: integer
+          title: Updated
+      type: object
+      required:
+      - updated
+      title: TicketsResponse
     TimelineDecision:
       properties:
         reason:
@@ -30550,6 +30669,13 @@ components:
             $ref: '#/components/schemas/VendorActionItem'
           type: array
           title: Actions
+        tickets:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Tickets
+          default: []
       type: object
       required:
       - supported

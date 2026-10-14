@@ -57,6 +57,9 @@ PUBLIC = {
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/clients"): (
         "CORE's list of a vendor's clients: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add or rename that tenant's own client-mapping rows (the 422 here is the empty body)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/tickets"): (
+        "CORE's list of the PSA tickets linked to open incidents: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add ticket details to that feed's own alerts (the 422 here is the empty body)"
+    ),
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/state"): (
         "CORE's open-incident state report: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only write that tenant's own alerts' vendor state (the 422 here is the empty body)"
     ),

@@ -23,10 +23,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from app.api.v1.deps import DBSession
 from app.core.logging import safe_log_value
-from app.db.rls_scope import cross_tenant_reads
+from app.db.rls_scope import acting_as_tenant, cross_tenant_reads
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.connector import Connector
+from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.client_mapping import IncomingClient, upsert_clients
 from app.services.vendor_actions import CLAIMED_TTL, PENDING_TTL
@@ -79,6 +80,22 @@ async def _verify_core_feed_token(db: Any, token: str) -> Any:
         logger.warning("inbox_core_feed.token_rejected", extra={"token_fingerprint": safe_log_value(f"...{token[-6:]}")})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked inbox token")
     return row.tenant_id
+
+
+async def _scope_ids(db: Any, owner: Any) -> list[Any]:
+    """The tenant that owns the feed, then its client tenants. A mapped client's alerts are stored under the client's own tenant (fusion's client routing), so anything that
+    looks for "this feed's alerts" has to look there too. Only real children of the owner qualify: the token never reaches any other tenant."""
+    children = (await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == owner))).scalars().all()
+    return [owner, *children]
+
+
+async def _across(db: Any, owner: Any, work: Any) -> list[Any]:
+    """Run ``work(tenant_id)`` once per tenant in scope, each inside that tenant's row-level-security scope (restored afterwards). Returns the results in order."""
+    results = []
+    for tid in await _scope_ids(db, owner):
+        async with acting_as_tenant(db, tid):
+            results.append(await work(tid))
+    return results
 
 
 async def apply_report(db: Any, tenant_id: Any, report: StatusReport, now: datetime | None = None) -> int:
@@ -210,7 +227,7 @@ async def report_core_feed_closed(tenant_token: str, body: ClosedReport, db: DBS
     """Mark alerts resolved when CORE reports their incidents closed in the vendor's own portal."""
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
-    resolved = await apply_closed(db, tenant_id, body)
+    resolved = sum(await _across(db, tenant_id, lambda tid: apply_closed(db, tid, body)))
     await db.commit()
     return ClosedResponse(resolved=resolved)
 
@@ -283,7 +300,7 @@ async def report_core_feed_state(tenant_token: str, body: StateReport, db: DBSes
     """Record the current state of open vendor incidents, so the alert can show the remediation plan and offer the right actions."""
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
-    updated = await apply_state(db, tenant_id, body)
+    updated = sum(await _across(db, tenant_id, lambda tid: apply_state(db, tid, body)))
     await db.commit()
     return StateResponse(updated=updated)
 
@@ -340,7 +357,10 @@ async def claim_core_feed_actions(tenant_token: str, body: ClaimRequest, db: DBS
     """CORE collects the actions analysts have asked for. Each is handed out once."""
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
-    rows = await claim_actions(db, tenant_id, body.vendor)
+    rows = sorted(
+        [r for got in await _across(db, tenant_id, lambda tid: claim_actions(db, tid, body.vendor)) for r in got],
+        key=lambda r: r.created_at,
+    )
     await db.commit()
     return ClaimResponse(
         actions=[ClaimedAction(id=r.id, action=r.action, incident_uid=r.incident_uid, params=r.params or {}) for r in rows]  # type: ignore[arg-type]
@@ -364,23 +384,28 @@ async def report_core_feed_action_result(
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
     now = datetime.now(UTC)
-    row = (
-        await db.execute(
-            update(VendorAction)
-            .where(VendorAction.id == action_id, VendorAction.tenant_id == tenant_id, VendorAction.status == "claimed")
-            .values(status=body.status, result_message=body.message, finished_at=now)
-            .returning(VendorAction.alert_id, VendorAction.action)
-        )
-    ).first()
+    row = None
+    for tid in await _scope_ids(db, tenant_id):
+        async with acting_as_tenant(db, tid):
+            row = (
+                await db.execute(
+                    update(VendorAction)
+                    .where(VendorAction.id == action_id, VendorAction.tenant_id == tid, VendorAction.status == "claimed")
+                    .values(status=body.status, result_message=body.message, finished_at=now)
+                    .returning(VendorAction.alert_id, VendorAction.action)
+                )
+            ).first()
+            if row is not None:
+                if body.status == "done" and row.action == "resolve":
+                    # The vendor accepted the resolution: mirror it now rather than waiting for the next closed-incident sweep. Same narrow rule as ``apply_closed``: never override an analyst's decision.
+                    await db.execute(
+                        update(Alert)
+                        .where(Alert.id == row.alert_id, Alert.tenant_id == tid, Alert.status == "new")
+                        .values(status="resolved", resolved_at=now, updated_at=now)
+                    )
+                break
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such claimed action")
-    if body.status == "done" and row.action == "resolve":
-        # The vendor accepted the resolution: mirror it now rather than waiting for the next closed-incident sweep. Same narrow rule as ``apply_closed``: never override an analyst's decision.
-        await db.execute(
-            update(Alert)
-            .where(Alert.id == row.alert_id, Alert.tenant_id == tenant_id, Alert.status == "new")
-            .values(status="resolved", resolved_at=now, updated_at=now)
-        )
     await db.commit()
     return ActionResultResponse(recorded=True)
 
@@ -410,3 +435,53 @@ async def report_core_feed_clients(tenant_token: str, body: ClientsReport, db: D
     )
     await db.commit()
     return ClientsResponse(new=created, linked=linked)
+
+
+class LinkedTicket(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    system: Literal["halopsa"] = "halopsa"
+    summary: str | None = Field(default=None, max_length=500)
+    status: str | None = Field(default=None, max_length=120)
+    client: str | None = Field(default=None, max_length=300)
+    url: str | None = Field(default=None, max_length=500, pattern=r"^https://")
+
+
+class TicketsItem(BaseModel):
+    uid: str = Field(min_length=1, max_length=200)
+    tickets: list[LinkedTicket] = Field(max_length=20)
+
+
+class TicketsReport(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    items: list[TicketsItem] = Field(max_length=500)
+
+
+class TicketsResponse(BaseModel):
+    updated: int
+
+
+async def apply_tickets(db: Any, tenant_id: Any, report: TicketsReport) -> int:
+    """Store the PSA tickets linked to each incident on its alert (``enrichment_data.tickets``), in ``tenant_id``. The caller owns the transaction."""
+    prefix = f"{report.vendor}:"
+    updated = 0
+    for item in report.items:
+        if not item.uid.startswith(prefix):
+            continue
+        value = {"tickets": [t.model_dump(exclude_none=True) for t in item.tickets]}
+        result = await db.execute(
+            update(Alert)
+            .where(Alert.tenant_id == tenant_id, Alert.raw_event["finding"]["uid"].astext == item.uid)
+            .values(enrichment_data=Alert.enrichment_data.op("||")(literal(value, type_=JSONB)))
+        )
+        updated += result.rowcount or 0
+    return updated
+
+
+@router.post("/core-feed/{tenant_token}/tickets", response_model=TicketsResponse)
+async def report_core_feed_tickets(tenant_token: str, body: TicketsReport, db: DBSession) -> TicketsResponse:
+    """Record the PSA (HaloPSA) tickets linked to open vendor incidents, so each alert shows its tickets."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    updated = sum(await _across(db, tenant_id, lambda tid: apply_tickets(db, tid, body)))
+    await db.commit()
+    return TicketsResponse(updated=updated)
