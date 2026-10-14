@@ -368,7 +368,7 @@ function Stat({
   );
 }
 
-function PopularTile({
+export function PopularTile({
   entry,
   onClick,
   connected,
@@ -384,37 +384,36 @@ function PopularTile({
   // connector is connected (the "Connected" badge is more useful at that
   // point) to avoid stacking two badges on a small tile.
   const supportsHostedOAuth = Boolean(entry.oauth?.supported_in_hosted);
+  // The badge sits on its own line UNDER the name. Beside it, the long "OAuth one-click" badge took most of a five-across tile and cut names
+  // short ("O…" for Okta, "Gi…" for GitHub); stacked, the whole name always shows (and wraps if it has to).
+  const badge = connected ? (
+    <span
+      className="mt-2 inline-flex self-start items-center text-[10px] uppercase tracking-wider text-green-300 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded"
+      title="You already have an instance of this connector"
+    >
+      Connected
+    </span>
+  ) : supportsHostedOAuth ? (
+    <span
+      className="mt-2 inline-flex self-start items-center text-[10px] uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded"
+      title="Click-and-connect via OAuth — no API tokens to paste"
+    >
+      OAuth one-click
+    </span>
+  ) : null;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group relative text-left rounded-xl border border-gray-800 bg-gray-900/60 hover:bg-gray-900 hover:border-blue-500/40 px-4 py-4 transition-colors"
+      className="group relative flex flex-col text-left rounded-xl border border-gray-800 bg-gray-900/60 hover:bg-gray-900 hover:border-blue-500/40 px-4 py-4 transition-colors"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-gray-100 truncate">
-            {entry.connector_name}
-          </div>
-          <div className="text-xs text-gray-500 mt-0.5 capitalize">
-            {CATEGORY_LABEL[entry.category] ?? entry.category}
-          </div>
-        </div>
-        {connected ? (
-          <span
-            className="shrink-0 inline-flex items-center text-[10px] uppercase tracking-wider text-green-300 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded"
-            title="You already have an instance of this connector"
-          >
-            Connected
-          </span>
-        ) : supportsHostedOAuth ? (
-          <span
-            className="shrink-0 inline-flex items-center text-[10px] uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded"
-            title="Click-and-connect via OAuth — no API tokens to paste"
-          >
-            OAuth one-click
-          </span>
-        ) : null}
+      <div data-testid="tile-name" className="text-sm font-medium text-gray-100 break-words">
+        {entry.connector_name}
       </div>
+      <div className="text-xs text-gray-500 mt-0.5 capitalize">
+        {CATEGORY_LABEL[entry.category] ?? entry.category}
+      </div>
+      {badge}
       {entry.description && (
         <p className="text-xs text-gray-500 mt-2 line-clamp-2">{entry.description}</p>
       )}
