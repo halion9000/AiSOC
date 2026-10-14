@@ -12,7 +12,6 @@ cannot write here. The report can only create or update this tenant's own ``core
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -164,16 +163,11 @@ class ClosedResponse(BaseModel):
     resolved: int
 
 
-def closed_uid_regex(uids: list[str]) -> str:
-    """A regular expression matching the record text that carries one of these incident ids as its ``"uid"``. Ids are escaped, so they can only match themselves."""
-    return r'"uid"\s*:\s*"(?:' + "|".join(re.escape(u) for u in uids) + ')"'
-
-
 async def apply_closed(db: Any, tenant_id: Any, report: ClosedReport, now: datetime | None = None) -> int:
     """Resolve this tenant's alerts whose incident the vendor has closed. The caller owns the transaction. Returns how many alerts changed.
 
     Deliberately narrow: only alerts still ``new`` (nobody has acted on them) are touched, so an analyst's own decision is never overridden; it can only CLOSE, never
-    reopen; and an alert is matched on the incident id inside its own original record, within this tenant. The vendor's state is kept on the alert (and as a tag).
+    reopen; and an alert is matched on the incident id the inbox template keeps at ``raw_event.finding.uid``, within this tenant. Alerts imported before that was kept have no id and are not matched. The vendor's state is kept on the alert (and as a tag).
     """
     now = now or datetime.now(UTC)
     prefix = f"{report.vendor}:"
@@ -194,7 +188,7 @@ async def apply_closed(db: Any, tenant_id: Any, report: ClosedReport, now: datet
             .where(
                 Alert.tenant_id == tenant_id,
                 Alert.status == "new",
-                Alert.raw_event["raw_data"].astext.op("~")(closed_uid_regex(chunk)),
+                Alert.raw_event["finding"]["uid"].astext.in_(chunk),
             )
             .values(
                 status="resolved",

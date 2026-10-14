@@ -632,7 +632,7 @@ async def list_alerts(
     """List alerts for the current tenant with filtering and pagination.
 
     `source` is the tool an alert came from as CORE names it (``huntress``, ``petra``, ``blumira``). Alerts forwarded by CORE arrive through the generic JSON inbox, so their
-    product is all "Generic JSON"; the tool is only in the original record, which is kept as text in ``raw_event.raw_data``. The match is on that record's `"source"` field.
+    product is all "Generic JSON"; the tool is the sender's own ``source`` field, which the inbox template keeps at ``raw_event.source``.
 
     `min_confidence` / `confidence_label` let the queue workbench (PR-5) and
     /alerts page filter on the fusion-emitted confidence signal (W3). Alerts
@@ -651,8 +651,7 @@ async def list_alerts(
     if assigned_to_me:
         filters.append(Alert.assigned_to_id == current_user.user_id)
     if source:
-        # The pattern on the parameter limits `source` to letters, digits, "_" and "-", so it is safe inside a regular expression.
-        filters.append(Alert.raw_event["raw_data"].astext.op("~")(f'"source"\\s*:\\s*"{source}"'))
+        filters.append(Alert.raw_event["source"].astext == source)
     if min_confidence is not None:
         filters.append(Alert.confidence >= min_confidence)
     if confidence_label is not None:

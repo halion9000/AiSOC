@@ -1,11 +1,10 @@
 """CORE's closed-incident report: which alerts it may resolve, and which it must leave alone."""
 
-import re
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from app.api.v1.endpoints.inbox_core_feed import ClosedItem, ClosedReport, apply_closed, closed_uid_regex
+from app.api.v1.endpoints.inbox_core_feed import ClosedItem, ClosedReport, apply_closed
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
@@ -29,19 +28,6 @@ def _sql(stmt) -> tuple[str, dict]:
     return str(compiled), compiled.params
 
 
-def test_the_regex_matches_only_the_exact_incident_ids():
-    pattern = closed_uid_regex(["huntress:4821", "huntress:7"])
-    assert re.search(pattern, '{"finding":{"uid":"huntress:4821","title":"x"}}')
-    assert re.search(pattern, '{"finding": {"uid": "huntress:7"}}')
-    assert not re.search(pattern, '{"finding":{"uid":"huntress:48210"}}'), "a longer id must not match"
-    assert not re.search(pattern, '{"finding":{"uid":"huntress:482"}}')
-    assert not re.search(pattern, '{"finding":{"uid":"petra:4821"}}')
-
-
-def test_dots_in_ids_are_literal_not_wildcards():
-    assert not re.search(closed_uid_regex(["petra:a.b"]), '{"uid":"petra:aXb"}')
-
-
 def test_a_report_rejects_ids_and_vendors_that_could_be_abused():
     with pytest.raises(ValidationError):
         ClosedItem(uid='huntress:1"|.*')
@@ -63,8 +49,10 @@ async def test_only_new_alerts_in_this_tenant_for_this_vendor_are_resolved():
     assert "tenant_id" in sql and "status = " in sql
     assert TENANT in params.values()
     assert "new" in params.values() and "resolved" in params.values()
-    pattern = next(v for v in params.values() if isinstance(v, str) and "huntress:1" in v)
-    assert "petra:9" not in pattern, "an id for another vendor is ignored"
+    assert "raw_event" in sql and " IN " in sql.upper(), sql
+    ids = [v for v in params.values() if isinstance(v, list | tuple)]
+    flat = {x for v in ids for x in v if str(x).startswith("huntress:")}
+    assert flat == {"huntress:1", "huntress:2"}, "only this vendor's incident ids are matched, and exactly (no pattern matching)"
 
 
 @pytest.mark.asyncio

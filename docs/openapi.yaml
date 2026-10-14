@@ -418,9 +418,8 @@ paths:
         ``blumira``). Alerts forwarded by CORE arrive through the generic JSON inbox,
         so their
 
-        product is all "Generic JSON"; the tool is only in the original record, which
-        is kept as text in ``raw_event.raw_data``. The match is on that record''s
-        `"source"` field.
+        product is all "Generic JSON"; the tool is the sender''s own ``source`` field,
+        which the inbox template keeps at ``raw_event.source``.
 
 
         `min_confidence` / `confidence_label` let the queue workbench (PR-5) and

@@ -19,6 +19,9 @@ field_map:
   url: url
   alert_id: finding.uid
   id: finding.uid
+  # Anything else a sender wants kept (CORE's forwarded records carry the vendor's client name and ids here) is stored under `unmapped`, the OCSF place for fields
+  # that have no standard home, so detections and Cipher can pivot on them.
+  context: unmapped.context
 severity_field: severity
 severity_map:
   info: 1
