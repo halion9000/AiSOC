@@ -14,6 +14,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from app.core.config import settings
 from app.models.alert import FusionDecision, RawAlert
 from app.services.alert_sink import AlertSink, PersistOutcome, PersistResult
+from app.services.client_routing import route_to_client_tenant
 from app.services.detection_engine import DetectionEngine
 from app.services.dlq import DeadLetter, DeadLetterQueue, LoggingDLQ, safe_record
 from app.services.event_schema import validate_event
@@ -31,6 +32,7 @@ _METRICS = {
     "correlated": 0,
     "new_incidents": 0,
     "promoted": 0,
+    "routed_to_client": 0,
     "not_promoted": 0,
     "persisted": 0,
     "persist_unavailable": 0,
@@ -256,6 +258,12 @@ class FusionWorker:
                 _METRICS["not_promoted"] += 1
                 return
             _METRICS["promoted"] += 1
+            # A client the MSSP has mapped gets its own alerts (see app/services/client_routing.py); anything else stays with the tenant that owns the feed.
+            if self._sink is not None:
+                routed = await route_to_client_tenant(alert.tenant_id, alert.raw_event, self._sink.child_tenant_for_client)
+                if routed != alert.tenant_id:
+                    alert.tenant_id = routed
+                    _METRICS["routed_to_client"] += 1
         else:
             try:
                 alert = RawAlert.model_validate(payload)

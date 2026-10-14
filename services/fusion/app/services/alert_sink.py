@@ -21,6 +21,7 @@ Design constraints:
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 
@@ -96,6 +97,16 @@ RETURNING id
 # every write. Pinning both uses to ::text makes the deduction unambiguous.
 
 
+# The mapping is only honoured when the chosen tenant really is a child of the tenant that owns the feed (a mapping row alone is not enough to move an alert into someone else's tenant).
+_CLIENT_TENANT_SQL = """
+SELECT a.child_tenant_id
+FROM client_aliases a
+JOIN tenants t ON t.id = a.child_tenant_id AND t.parent_tenant_id = a.tenant_id
+WHERE a.tenant_id = $1 AND a.vendor = $2 AND a.vendor_client_id = $3
+  AND a.ignored = FALSE AND a.child_tenant_id IS NOT NULL
+"""
+
+
 def _asyncpg_dsn(url: str) -> str:
     """Strip the SQLAlchemy driver suffix — asyncpg wants plain postgresql://."""
     return url.replace("postgresql+asyncpg://", "postgresql://", 1)
@@ -155,6 +166,15 @@ class AlertSink:
             # down (fast connect error) and self-healing when it returns.
             await self.start()
         return self._pool
+
+    async def child_tenant_for_client(self, tenant_id: uuid.UUID, vendor: str, vendor_client_id: str) -> uuid.UUID | None:
+        """The client tenant a vendor client is mapped to, or None (unmapped, ignored, not a real child of ``tenant_id``, or the DB is unreachable)."""
+        pool = await self._ensure_pool()
+        if pool is None:
+            return None
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(_CLIENT_TENANT_SQL, tenant_id, vendor, vendor_client_id)
+        return row["child_tenant_id"] if row else None
 
     async def persist(self, fused: FusedAlert) -> PersistResult:
         """Insert one fused alert, returning a structured :class:`PersistResult`.
