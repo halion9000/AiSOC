@@ -86,41 +86,10 @@ const NL_EXAMPLE_PILLS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'github', label: 'Any GitHub auth from a new device this week?' },
 ] as const;
 
-const STARTERS: Record<Lang, string> = {
-  kql:
-`// Find suspicious PowerShell with encoded payloads
-process where process.name == "powershell.exe"
-  and (process.command_line like~ "*-enc*"
-       or process.command_line like~ "*IEX*"
-       or process.command_line like~ "*DownloadString*")
-| extend host=host.name, user=user.name
-| project @timestamp, host, user, process.command_line
-| sort @timestamp desc`,
-  lucene:
-`process.name:"powershell.exe" AND
-  (process.command_line:*-enc* OR
-   process.command_line:*IEX* OR
-   process.command_line:*DownloadString*)`,
-  sql:
-`SELECT
-  event_time, host_name, user_name, command_line
-FROM events
-WHERE process_name = 'powershell.exe'
-  AND (command_line ILIKE '%-enc%'
-    OR command_line ILIKE '%IEX%'
-    OR command_line ILIKE '%DownloadString%')
-ORDER BY event_time DESC
-LIMIT 200`,
-  esql:
-`FROM events
-| WHERE process.name == "powershell.exe"
-  AND (process.command_line LIKE "*-enc*"
-    OR process.command_line LIKE "*IEX*"
-    OR process.command_line LIKE "*DownloadString*")
-| KEEP @timestamp, host.name, user.name, process.command_line
-| SORT @timestamp DESC
-| LIMIT 200`,
-};
+// Search runs over the alerts AiSOC holds: plain words, "quoted phrases", field:value (severity, status, source, host, user, ip, tag, title, client)
+// and a leading - for "not". The same text works whichever language is selected.
+const STARTER = 'severity:high';
+const STARTERS: Record<Lang, string> = { kql: STARTER, lucene: STARTER, sql: STARTER, esql: STARTER };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

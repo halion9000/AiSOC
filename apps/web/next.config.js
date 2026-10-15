@@ -180,7 +180,12 @@ const nextConfig = {
         source: '/api/v1/hunt/saved',
         destination: `${API_HOST}/api/v1/hunt/saved`,
       },
-      // Hunt search (singular /hunt, distinct from /hunts corpus)
+      // Hunt search runs over the alerts in the core API (the agents service has no event store and answered 501)
+      {
+        source: '/api/v1/hunt/search',
+        destination: `${API_HOST}/api/v1/hunt/search`,
+      },
+      // Other singular /hunt routes (distinct from /hunts corpus)
       {
         source: '/api/v1/hunt/:path*',
         destination: `${AGENTS_HOST}/api/v1/hunt/:path*`,

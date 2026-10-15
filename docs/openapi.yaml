@@ -11710,6 +11710,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/hunt/search:
+    post:
+      tags:
+      - hunt
+      summary: Hunt Search
+      description: Search the caller's alerts, and those of the caller's client tenants,
+        newest first.
+      operationId: hunt_search_api_v1_hunt_search_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HuntQuery'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__hunt_alert_search__HuntResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/phishing/submit:
     post:
       tags:
@@ -22344,6 +22373,38 @@ components:
       required:
       - hidden
       title: HiddenRequest
+    HuntHit:
+      properties:
+        id:
+          type: string
+          title: Id
+        timestamp:
+          type: string
+          title: Timestamp
+        source:
+          type: string
+          title: Source
+        severity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Severity
+        fields:
+          additionalProperties: true
+          type: object
+          title: Fields
+        highlight:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Highlight
+      type: object
+      required:
+      - id
+      - timestamp
+      - source
+      - fields
+      title: HuntHit
     HuntPreviewItem:
       properties:
         id:
@@ -22370,6 +22431,38 @@ components:
       - timestamp
       - source
       title: HuntPreviewItem
+    HuntQuery:
+      properties:
+        query:
+          type: string
+          maxLength: 2000
+          title: Query
+          default: ''
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        startTime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Starttime
+        endTime:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Endtime
+        limit:
+          type: integer
+          maximum: 500.0
+          minimum: 1.0
+          title: Limit
+          default: 100
+      type: object
+      title: HuntQuery
     HuntRequest:
       properties:
         rule_ids:
@@ -31694,6 +31787,25 @@ components:
       title: IndicatorOut
       description: The web console's ThreatIndicator (apps/web/src/lib/api.ts), plus
         the raw provider result.
+    app__api__v1__endpoints__hunt_alert_search__HuntResponse:
+      properties:
+        total:
+          type: integer
+          title: Total
+        took:
+          type: integer
+          title: Took
+        hits:
+          items:
+            $ref: '#/components/schemas/HuntHit'
+          type: array
+          title: Hits
+      type: object
+      required:
+      - total
+      - took
+      - hits
+      title: HuntResponse
     app__api__v1__endpoints__hunts__HuntResponse:
       properties:
         id:
