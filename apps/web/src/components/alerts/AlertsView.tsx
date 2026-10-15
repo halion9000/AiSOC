@@ -10,6 +10,7 @@ import { EntityRiskQueue } from './EntityRiskQueue';
 import { InvestigationRail } from './InvestigationRail';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
+import { CreateAlertModal } from './CreateAlertModal';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 
 // Wave 1 of the AiSOC v6 capability roadmap. The "entities" tab renders the
@@ -251,8 +252,9 @@ export function AlertsView() {
   // RBA work. Analysts can flip back to the raw alert grid for legacy
   // workflows or when triaging a specific alert ID.
   const [viewMode, setViewMode] = useState<ViewMode>('entities');
+  const [createOpen, setCreateOpen] = useState(false);
 
-  const { data, error, isLoading } = useSWR(
+  const { data, error, isLoading, mutate } = useSWR(
     ['alerts', filters],
     () => alertsApi.list(filters),
     {
@@ -273,6 +275,7 @@ export function AlertsView() {
 
   return (
     <div className="space-y-4">
+      <CreateAlertModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={() => void mutate()} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -320,15 +323,12 @@ export function AlertsView() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              disabled
-              title="Manual alert creation is planned for v1.1"
-              className="bg-gray-700 text-gray-400 text-sm px-4 py-2 rounded-lg cursor-not-allowed select-none"
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg transition-colors"
             >
               + Create Alert
             </button>
-            <span className="text-xs font-medium rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5">
-              Planned for v1.1
-            </span>
           </div>
         </div>
       </div>

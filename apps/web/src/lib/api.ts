@@ -943,6 +943,8 @@ export interface VendorActionRequest {
 }
 
 export const alertsApi = {
+  /** Enter one alert by hand (the same endpoint `aisoc submit` uses). */
+  create: (body: Record<string, unknown>) => request<{ id: string }>('/api/v1/alerts/submit', { method: 'POST', body: JSON.stringify(body) }),
   list: async (filters: AlertFilters = {}) => {
     const raw = await request<{
       items?: unknown[];
