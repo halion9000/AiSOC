@@ -212,7 +212,8 @@ export default function DevicesView() {
               <th className="px-3 py-2">Serial</th>
               <th className="px-3 py-2">OS</th>
               <th className="px-3 py-2">Fed by</th>
-              <th className="px-3 py-2">Last seen</th>
+              <th className="px-3 py-2">Last online</th>
+              <th className="px-3 py-2" title="When CORE last synced this device from its tools. Not when the device was online.">Last synced</th>
             </tr>
           </thead>
           <tbody>
@@ -221,7 +222,7 @@ export default function DevicesView() {
             ))}
             {!loading && data?.items.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
                   No devices match.
                 </td>
               </tr>
@@ -273,11 +274,12 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
             ))}
           </span>
         </td>
-        <td className="px-3 py-2 text-gray-400">{when(d.last_seen)}</td>
+        <td className="px-3 py-2 text-gray-400">{d.last_online ? when(d.last_online) : '—'}</td>
+        <td className="px-3 py-2 text-gray-500">{when(d.last_seen)}</td>
       </tr>
       {open && (
         <tr className="border-t border-gray-800 bg-gray-900/40">
-          <td colSpan={6} className="px-4 py-3 text-sm text-gray-300">
+          <td colSpan={7} className="px-4 py-3 text-sm text-gray-300">
             <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
               <Field label="Manufacturer" value={d.manufacturer} />
               <Field label="Model" value={d.model} />

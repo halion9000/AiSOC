@@ -16,6 +16,7 @@ from app.api.v1.endpoints.devices import (
     apply_devices,
     get_device,
     is_missing_from,
+    last_online_of,
     list_devices,
     put_settings,
 )
@@ -164,6 +165,22 @@ def test_missing_from_addigy_counts_macs_only_and_threatmate_counts_everything()
     assert not is_missing_from(_view("macOS", ["ninjaone", "addigy"]), "addigy")
     assert is_missing_from(windows, "threatmate") and is_missing_from(mac, "threatmate")
     assert not is_missing_from(_view("macOS", ["threatmate"]), "threatmate")
+
+
+def test_iphones_and_ipads_are_never_missing_from_the_rmm_or_threatmate_but_are_from_addigy():
+    for os_name in ("iOS", "iPadOS"):
+        phone = _view(os_name, ["addigy"])
+        assert not is_missing_from(phone, "threatmate")
+        assert not is_missing_from(phone, "ninjaone")
+    assert not is_missing_from(_view("iOS", []), "addigy")  # Addigy only counts Macs as missing, as before
+    assert is_missing_from(_view("Windows 11", ["addigy"]), "threatmate")  # ordinary machines still are
+
+
+def test_last_online_is_the_newest_time_a_tool_says_the_device_was_online_not_the_sync_time():
+    src = lambda **d: SimpleNamespace(details=d)  # noqa: E731
+    got = last_online_of([src(last_online="2026-10-14T10:00:00+00:00"), src(last_contact="2026-10-15T09:00:00Z"), src()])
+    assert got == datetime(2026, 10, 15, 9, tzinfo=UTC)
+    assert last_online_of([src(), src(last_online="garbage")]) is None
 
 
 async def test_missing_filter_and_summary_counts(world):

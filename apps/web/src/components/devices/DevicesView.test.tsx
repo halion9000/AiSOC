@@ -192,4 +192,17 @@ describe('missing-from-tool cards', () => {
     expect(screen.getByRole('link', { name: 'Disk space low' })).toHaveAttribute('href', '/alerts/a1');
     expect(screen.getByRole('link', { name: 'Patch failed' })).toBeInTheDocument();
   });
+
+  it('has a Last online column separate from Last synced, and shows a dash when no tool says', async () => {
+    listMock.mockResolvedValue(
+      list([device({ hostname: 'ONLINE-PC', last_online: '2020-01-02T03:04:05Z' }), device({ hostname: 'NO-IDEA' })]),
+    );
+    render(<DevicesView />);
+    await screen.findByText('ONLINE-PC');
+    expect(screen.getByRole('columnheader', { name: 'Last online' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Last synced' })).toBeInTheDocument();
+    const cells = (name: string) => within((screen.getByText(name).closest('tr')) as HTMLElement).getAllByRole('cell');
+    expect(cells('ONLINE-PC')[5].textContent).toMatch(/2020/);
+    expect(cells('NO-IDEA')[5]).toHaveTextContent('—');
+  });
 });

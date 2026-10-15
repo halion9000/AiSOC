@@ -14,7 +14,7 @@ import contextlib
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -67,6 +67,7 @@ class DeviceOut(BaseModel):
     model: str | None = None
     ip_addresses: list[str] = Field(default_factory=list)
     last_seen: datetime
+    last_online: datetime | None = None
     first_seen: datetime
     sources: list[DeviceSourceOut] = Field(default_factory=list)
     in_master: bool = True
@@ -98,12 +99,39 @@ class DeviceSettings(BaseModel):
 
 
 _APPLE_OS = re.compile(r"mac\s?os|os\s?x|darwin")
+# iPhones and iPads are managed in Addigy only: they never run the RMM or security agents, so they are not "missing" from those tools.
+_MOBILE = re.compile(r"\b(ios|ipados|iphone|ipad)\b")
+
+
+def is_mobile(d: Any) -> bool:
+    return bool(_MOBILE.search(f"{d.os or ''} {d.model or ''}".lower()))
+
+
+def last_online_of(sources: list[Any]) -> datetime | None:
+    """The newest time any tool says the device was actually online (Addigy ``last_online``, NinjaOne ``last_contact``). ``last_seen`` is only when CORE last synced it."""
+    best: datetime | None = None
+    for s in sources:
+        det = s.details or {}
+        raw = det.get("last_online") or det.get("last_contact")
+        if not isinstance(raw, str):
+            continue
+        try:
+            t = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=UTC)
+        if best is None or t > best:
+            best = t
+    return best
 
 
 def is_missing_from(d: DeviceOut, tool: str) -> bool:
     """True when ``tool`` should report this device but does not. Addigy manages Apple computers only, so a device is only missing from it when it is a Mac;
     ThreatMate covers every machine."""
     if any(s.vendor == tool for s in d.sources):
+        return False
+    if tool != "addigy" and is_mobile(d):
         return False
     if tool == "addigy":
         return bool(_APPLE_OS.search((d.os or "").lower()))
@@ -187,7 +215,8 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     last_seen=d.last_seen,
                     first_seen=d.first_seen,
                     sources=[DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}) for s in srcs],
-                    in_master=master is None or any(s.vendor == master for s in srcs),
+                    in_master=master is None or any(s.vendor == master for s in srcs) or is_mobile(d),
+                    last_online=last_online_of(srcs),
                     open_alerts=len(alerts.get(d.hostname.lower(), [])),
                     alerts=alerts.get(d.hostname.lower(), [])[:_ALERTS_PER_DEVICE],
                 )

@@ -518,7 +518,10 @@ export interface DeviceRow {
   manufacturer: string | null;
   model: string | null;
   ip_addresses: string[];
+  /** When CORE last synced this device (NOT when it was online). */
   last_seen: string;
+  /** When a tool last saw the device actually online (Addigy / NinjaOne); null when no tool says. */
+  last_online?: string | null;
   first_seen: string;
   sources: DeviceSourceRef[];
   /** False when a master tool is set and none of its feeds reports this device. */

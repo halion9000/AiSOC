@@ -21191,6 +21191,12 @@ components:
           type: string
           format: date-time
           title: Last Seen
+        last_online:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Online
         first_seen:
           type: string
           format: date-time
