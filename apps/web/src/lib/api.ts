@@ -2445,6 +2445,8 @@ function mapBackendConnector(row: BackendConnectorResponse): Connector {
     lastEventAt: row.last_event_at ?? undefined,
     lastEventKind: row.last_event_kind ?? undefined,
     freshness: row.freshness ?? undefined,
+    // CORE-fed connectors keep why the last run failed here; shown on the card so it doesn't have to be dug out of CORE's console.
+    errorMessage: typeof row.connector_config?.last_error === 'string' ? row.connector_config.last_error : undefined,
   };
 }
 

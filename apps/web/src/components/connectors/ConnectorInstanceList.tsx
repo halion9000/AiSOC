@@ -212,6 +212,12 @@ function ConnectorCard({
         <p className="text-xs text-gray-500 mb-4 line-clamp-2">{connector.description}</p>
       )}
 
+      {connector.errorMessage && (
+        <p role="alert" className="text-xs text-red-300/90 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5 mb-4 break-words">
+          Last run failed: {connector.errorMessage}
+        </p>
+      )}
+
       {/* Schema-drift, filter-drop, and freshness SLO badges. Only render
           when there is something to surface so a healthy, fresh connector
           keeps its clean look. */}

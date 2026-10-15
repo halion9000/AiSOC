@@ -55,6 +55,11 @@ class SourceReport(BaseModel):
     status: Literal["ok", "error"]
     fetched: int = Field(default=0, ge=0, le=1_000_000)
     sent: int = Field(default=0, ge=0, le=1_000_000, description="Records AiSOC accepted in this run.")
+    message: str | None = Field(
+        default=None,
+        max_length=300,
+        description="Why a run failed, in CORE's words (already stripped of tokens and URLs). Shown on the connector card.",
+    )
 
 
 class StatusReport(BaseModel):
@@ -135,6 +140,14 @@ async def apply_report(db: Any, tenant_id: Any, report: StatusReport, now: datet
             await db.flush()
 
         values: dict[str, Any] = {"last_health_check": now, "updated_at": now}
+        config = dict(row.connector_config or {})
+        if src.status == "error" and src.message and src.message.strip():
+            config.update(last_error=src.message.strip(), last_error_at=now.isoformat())
+        else:
+            config.pop("last_error", None)
+            config.pop("last_error_at", None)
+        if config != (row.connector_config or {}):
+            values["connector_config"] = config
         if src.status == "ok":
             values.update(
                 health_status="healthy",

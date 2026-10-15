@@ -28549,6 +28549,14 @@ components:
           title: Sent
           description: Records AiSOC accepted in this run.
           default: 0
+        message:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Message
+          description: Why a run failed, in CORE's words (already stripped of tokens
+            and URLs). Shown on the connector card.
       type: object
       required:
       - vendor

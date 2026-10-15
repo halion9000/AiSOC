@@ -24,3 +24,15 @@ describe('connectors that are set up in CORE', () => {
     expect(screen.queryByText('Managed in CORE')).not.toBeInTheDocument();
   });
 });
+
+describe('why a CORE-fed connector failed', () => {
+  it('shows the reason CORE reported on the card', () => {
+    renderList([{ ...feed, errorMessage: 'Huntress returned 401' } as Connector]);
+    expect(screen.getByRole('alert')).toHaveTextContent('Last run failed: Huntress returned 401');
+  });
+
+  it('shows nothing when there is no reason', () => {
+    renderList([feed]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});

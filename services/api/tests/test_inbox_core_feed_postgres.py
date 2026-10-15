@@ -206,3 +206,24 @@ def test_the_report_shape_refuses_a_vendor_id_that_could_be_abused():
         SourceReport(vendor="huntress", status="ok", sent=-1)
     with pytest.raises(ValueError):
         SourceReport(vendor="huntress", status="maybe")
+
+
+async def test_a_failure_reason_is_kept_for_the_card_and_cleared_on_recovery(world):
+    cfg = lambda: rows(world, world["a"])  # noqa: E731
+    await run(
+        world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="error", message="Huntress returned 401"))
+    )
+    (row,) = await cfg()
+    assert row.connector_config["last_error"] == "Huntress returned 401" and row.connector_config["vendor"] == "huntress"
+    assert row.connector_config["last_error_at"]
+
+    await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="error")))
+    (row,) = await cfg()
+    assert "last_error" not in row.connector_config, "an error with no reason does not keep (or invent) an old one"
+
+    await run(
+        world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="error", message="Huntress returned 429"))
+    )
+    await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="ok", sent=1)))
+    (row,) = await cfg()
+    assert row.connector_config == {"vendor": "huntress", "managed_by": "core"}, "recovery clears the reason"
