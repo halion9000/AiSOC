@@ -19,6 +19,7 @@ name: Postgres-backed tests
 #   test_inbox_core_feed_postgres.py              CORE's per-run report fills the Connectors rows (health, counts, errors) for the token's tenant only
 #   test_core_feed_cases_postgres.py               auto-opened cases for new high/critical CORE alerts: one linked case each, once, within look-back, right tenant
 #   test_dashboard_metrics_postgres.py             the dashboard KPI endpoint answers on real Postgres (it 500d on a GROUP BY over a JSON expression) and counts each CORE vendor
+#   test_devices_endpoints_postgres.py             devices land under the mapped client, the parent sees them across clients, the master tool flags coverage gaps
 #   test_device_upsert_postgres.py                 one device per machine per client: the same serial from two tools joins, junk serials and hostnames never merge
 #   test_alert_reroute_postgres.py                 alerts forwarded before a client was mapped move under that client (cases and vendor actions with them), once, leaving ignored/unmapped/duplicate ones
 #   test_core_feed_sla_postgres.py                 closing an incident in the vendor portal writes detected+resolved SLA events once, leaves analyst-handled alerts alone
@@ -206,6 +207,7 @@ jobs:
             tests/test_dashboard_metrics_postgres.py \
             tests/test_alert_reroute_postgres.py \
             tests/test_device_upsert_postgres.py \
+            tests/test_devices_endpoints_postgres.py \
             tests/test_core_feed_sla_postgres.py \
             tests/test_iocs_from_alerts_postgres.py \
             tests/test_service_migrations_postgres.py \

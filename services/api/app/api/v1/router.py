@@ -29,6 +29,7 @@ from app.api.v1.endpoints import (
     detection_proposals,
     detection_rules,
     detection_vendor,
+    devices,
     easm,
     effective_permissions,
     enrichment,
@@ -184,6 +185,8 @@ api_router.include_router(saved_views.router)
 
 # Wave 3 — operational maturity
 api_router.include_router(assets.router)
+api_router.include_router(devices.router)
+api_router.include_router(devices.ingest_router)
 api_router.include_router(mssp.router)
 api_router.include_router(mssp_clients.router)
 api_router.include_router(insider_threat.router)
