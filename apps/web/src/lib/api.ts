@@ -64,8 +64,25 @@ const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || ''; // WS handled separately b
  * SSR fallback: returns `''` so the resulting URL is path-only; nothing on
  * the server actually opens WebSockets.
  */
+export function resolveWsBase(wsBase: string, pageHostname: string): string {
+  // The bundle bakes ws://localhost:<port>. Opened from another computer that would point at the viewer's own machine, so keep the port and use the host the page was loaded from.
+  try {
+    const u = new URL(wsBase);
+    const loopback = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    if (loopback && pageHostname && pageHostname !== 'localhost' && pageHostname !== '127.0.0.1') {
+      u.hostname = pageHostname;
+      return u.toString().replace(/\/$/, '');
+    }
+  } catch {
+    // not an absolute URL — use as-is
+  }
+  return wsBase;
+}
+
 function wsOrigin(): string {
-  if (WS_BASE) return WS_BASE;
+  if (WS_BASE) {
+    return typeof window !== 'undefined' ? resolveWsBase(WS_BASE, window.location.hostname) : WS_BASE;
+  }
   if (typeof window !== 'undefined') {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${window.location.host}`;
