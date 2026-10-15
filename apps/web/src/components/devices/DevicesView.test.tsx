@@ -12,7 +12,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import DevicesView from './DevicesView';
+import DevicesView, { specs } from './DevicesView';
 
 const NOW = '2026-10-15T15:00:00Z';
 function device(over: Partial<DeviceRow> & { hostname: string }): DeviceRow {
@@ -115,5 +115,25 @@ describe('DevicesView', () => {
     render(<DevicesView />);
     await screen.findByText('A');
     expect(screen.queryByLabelText('Client')).toBeNull();
+  });
+});
+
+describe('specs', () => {
+  it('shows memory, processor and disks from the feed that reports them', () => {
+    const d = device({ hostname: 'H',
+      sources: [
+        { vendor: 'addigy', name: 'x', last_seen: NOW },
+        { vendor: 'ninjaone', name: 'x', last_seen: NOW, details: { memory_gb: 16, processor: 'Intel i7', cpu_cores: 4, disks: [{ name: 'C:', size_gb: 511, free_gb: 120 }] } },
+      ],
+    });
+    expect(specs(d)).toEqual([
+      ['Memory', '16 GB'],
+      ['Processor', 'Intel i7 (4 cores)'],
+      ['Disks', 'C: 511 GB (120 free)'],
+    ]);
+  });
+
+  it('shows nothing when no feed reports specs', () => {
+    expect(specs(device({ hostname: 'H' }))).toEqual([]);
   });
 });

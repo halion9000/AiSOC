@@ -41,6 +41,7 @@ class DeviceSourceOut(BaseModel):
     vendor: str
     name: str | None = None
     last_seen: datetime
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class DeviceOut(BaseModel):
@@ -123,7 +124,7 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     ip_addresses=list(d.ip_addresses or []),
                     last_seen=d.last_seen,
                     first_seen=d.first_seen,
-                    sources=[DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen) for s in srcs],
+                    sources=[DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}) for s in srcs],
                     in_master=master is None or any(s.vendor == master for s in srcs),
                 )
             )

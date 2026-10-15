@@ -21196,6 +21196,10 @@ components:
           type: string
           format: date-time
           title: Last Seen
+        details:
+          additionalProperties: true
+          type: object
+          title: Details
       type: object
       required:
       - vendor

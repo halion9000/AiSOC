@@ -252,6 +252,9 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
               <Field label="OS version" value={d.os_version} />
               <Field label="IP addresses" value={d.ip_addresses.join(', ')} />
               <Field label="First seen" value={when(d.first_seen)} />
+              {specs(d).map(([label, value]) => (
+                <Field key={label} label={label} value={value} />
+              ))}
             </dl>
             <h3 className="mb-1 mt-3 text-xs font-semibold uppercase text-gray-400">Feeding this device</h3>
             <ul className="space-y-1">
@@ -269,6 +272,27 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
       )}
     </>
   );
+}
+
+/** Memory, processor and disks from whichever feed reports them (first one wins), as label/value pairs. */
+export function specs(d: DeviceRow): [string, string][] {
+  const out: [string, string][] = [];
+  const pick = (key: string) => d.sources.map((s) => s.details?.[key]).find((v) => v !== undefined && v !== null);
+  const mem = pick('memory_gb');
+  if (typeof mem === 'number') out.push(['Memory', `${mem} GB`]);
+  const cpu = pick('processor');
+  const cores = pick('cpu_cores');
+  if (typeof cpu === 'string') out.push(['Processor', typeof cores === 'number' ? `${cpu} (${cores} cores)` : cpu]);
+  const disks = pick('disks');
+  if (Array.isArray(disks) && disks.length > 0) {
+    out.push([
+      'Disks',
+      disks
+        .map((x: { name?: string; size_gb?: number; free_gb?: number }) => `${x.name ?? 'disk'} ${x.size_gb} GB${typeof x.free_gb === 'number' ? ` (${x.free_gb} free)` : ''}`)
+        .join(', '),
+    ]);
+  }
+  return out;
 }
 
 function Field({ label, value }: { label: string; value: string | null }) {

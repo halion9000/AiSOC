@@ -503,6 +503,8 @@ export interface DeviceSourceRef {
   vendor: string;
   name: string | null;
   last_seen: string;
+  /** Facts that tool reports (specs, link back to the tool). */
+  details?: Record<string, unknown>;
 }
 
 export interface DeviceRow {

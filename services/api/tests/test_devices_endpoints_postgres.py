@@ -107,6 +107,17 @@ async def test_same_serial_from_ninja_and_addigy_is_one_device_in_the_client_vie
     assert sorted(s.vendor for s in listing.items[0].sources) == ["addigy", "ninjaone"]
 
 
+async def test_each_feeds_details_come_back_with_the_device(world):
+    p = world["parent"]
+    item = dev("ninjaone", "5", "1", "ACME-PC", "SER-SPEC-1")
+    item.details = {"memory_gb": 16, "processor": "Intel i7"}
+    await session(p, lambda db: apply_devices(db, p, DevicesReport(items=[item])))
+    listing = await session(
+        p, lambda db: list_devices(user(p), db, client_id=world["acme"], search=None, vendor=None, not_in_master=False, page=1, page_size=50)
+    )
+    assert listing.items[0].sources[0].details == {"memory_gb": 16, "processor": "Intel i7"}
+
+
 async def test_master_flags_devices_the_master_does_not_report(world):
     p = world["parent"]
     report = DevicesReport(
