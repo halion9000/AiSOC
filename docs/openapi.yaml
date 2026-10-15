@@ -3359,6 +3359,23 @@ paths:
                 $ref: '#/components/schemas/ConfidenceResponse'
       security:
       - HTTPBearer: []
+  /api/v1/detection/vendor-detections:
+    get:
+      tags:
+      - detection_rules
+      summary: List Vendor Detections
+      description: Detections the connected tools raised in the last 30 days, grouped
+        by tool and detection name, across this workspace and its clients.
+      operationId: list_vendor_detections_api_v1_detection_vendor_detections_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VendorDetectionsResponse'
+      security:
+      - HTTPBearer: []
   /api/v1/detection-proposals:
     get:
       tags:
@@ -31104,6 +31121,55 @@ components:
       - supported
       - actions
       title: VendorActionsResponse
+    VendorDetection:
+      properties:
+        source:
+          type: string
+          title: Source
+        name:
+          type: string
+          title: Name
+        count:
+          type: integer
+          title: Count
+        open:
+          type: integer
+          title: Open
+        severity:
+          type: string
+          title: Severity
+        clients:
+          type: integer
+          title: Clients
+        last_seen:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Seen
+      type: object
+      required:
+      - source
+      - name
+      - count
+      - open
+      - severity
+      - clients
+      title: VendorDetection
+    VendorDetectionsResponse:
+      properties:
+        window_days:
+          type: integer
+          title: Window Days
+        detections:
+          items:
+            $ref: '#/components/schemas/VendorDetection'
+          type: array
+          title: Detections
+      type: object
+      required:
+      - window_days
+      - detections
+      title: VendorDetectionsResponse
     ViewableTenant:
       properties:
         id:

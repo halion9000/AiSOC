@@ -28,6 +28,7 @@ from app.api.v1.endpoints import (
     detection_loop,
     detection_proposals,
     detection_rules,
+    detection_vendor,
     easm,
     effective_permissions,
     enrichment,
@@ -115,6 +116,7 @@ api_router.include_router(tenants.router)
 api_router.include_router(detection_rules.router)
 # Frontend-shape facade: /api/v1/detection/rules + /api/v1/detection/test
 api_router.include_router(detection_compat.router)
+api_router.include_router(detection_vendor.router)
 api_router.include_router(detection_proposals.router)
 # Detection rule tuning workbench — PR-6 (W8) v1.5 console plan.
 # /detection/tuning projects every rule into actionable suggestions
