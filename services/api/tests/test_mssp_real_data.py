@@ -17,11 +17,12 @@ from types import SimpleNamespace
 import pytest
 from app.api.v1.endpoints import mssp
 from app.db.database import Base
+from app.models.client_alias import ClientAlias
 from app.models.mssp import MSSPTenantMetrics
 from app.models.tenant import Tenant
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-TABLES = [m.__table__ for m in (Tenant, MSSPTenantMetrics)]
+TABLES = [m.__table__ for m in (Tenant, MSSPTenantMetrics, ClientAlias)]
 INVENTED = [
     "Acme Corp",
     "Globex Industries",
@@ -266,3 +267,39 @@ def test_the_routes_still_require_mssp_read(path):
     routes = [r for r in mssp.router.routes if isinstance(r, APIRoute) and r.path.endswith(path) and "GET" in r.methods]
     assert len(routes) == 1
     assert required_permissions(routes[0]) == ["mssp:read"]
+
+
+def test_each_tenant_lists_the_tools_whose_clients_are_mapped_to_it():
+    async def body(s):
+        parent = await tenant(s, "Parent MSSP")
+        both = await tenant(s, "Both Tools", parent.id)
+        one = await tenant(s, "One Tool", parent.id)
+        none = await tenant(s, "No Tool", parent.id)
+
+        def alias(vendor, child, ignored=False):
+            return ClientAlias(
+                id=uuid.uuid4(),
+                tenant_id=parent.id,
+                vendor=vendor,
+                vendor_client_id=uuid.uuid4().hex,
+                vendor_client_name=child.name,
+                normalized_name=child.name.lower(),
+                child_tenant_id=child.id,
+                ignored=ignored,
+                match_source="manual",
+            )
+
+        s.add_all(
+            [
+                alias("huntress", both),
+                alias("halopsa", both),
+                alias("huntress", both),
+                alias("petra", one),
+                alias("ninjaone", none, ignored=True),
+            ]
+        )
+        await s.commit()
+        rows = await mssp.list_managed_tenants(db=s, current_user=caller(parent))
+        return {r.name: r.sources for r in rows}
+
+    assert run(body) == {"Both Tools": ["halopsa", "huntress"], "No Tool": [], "One Tool": ["petra"]}

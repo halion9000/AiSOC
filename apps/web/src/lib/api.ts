@@ -469,6 +469,8 @@ export interface ManagedTenantRow {
   name: string;
   /** Hidden by the MSSP (a test client); only returned when hidden clients are asked for. */
   hidden?: boolean;
+  /** Tools (vendors) whose clients are mapped to this tenant. */
+  sources?: string[];
   has_metrics: boolean;
   snapshot_at: string | null;
   health_score: number | null;

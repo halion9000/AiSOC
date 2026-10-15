@@ -23878,6 +23878,12 @@ components:
           type: boolean
           title: Hidden
           default: false
+        sources:
+          items:
+            type: string
+          type: array
+          title: Sources
+          default: []
         has_metrics:
           type: boolean
           title: Has Metrics

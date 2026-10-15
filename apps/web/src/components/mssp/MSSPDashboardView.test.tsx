@@ -64,9 +64,9 @@ describe('real tenants', () => {
 
     const table = await screen.findByRole('table');
     const reportingRow = within(table).getByText('Reporting Co').closest('tr') as HTMLElement;
-    expect(within(reportingRow).getAllByRole('cell').map((c) => c.textContent).slice(1, 8)).toEqual(['12', '2', '4', '30', '1', '3', '80']);
+    expect(within(reportingRow).getAllByRole('cell').map((c) => c.textContent).slice(2, 9)).toEqual(['12', '2', '4', '30', '1', '3', '80']);
     const quietRow = within(table).getByText('Quiet Co').closest('tr') as HTMLElement;
-    expect(within(quietRow).getAllByRole('cell').map((c) => c.textContent).slice(1)).toEqual(['—', '—', '—', '—', '—', '—', '—', 'No data yet', 'Hide']);
+    expect(within(quietRow).getAllByRole('cell').map((c) => c.textContent).slice(1)).toEqual(['—', '—', '—', '—', '—', '—', '—', '—', 'No data yet', 'Hide']);
   });
 
   it('shows a real zero as 0 and an unreported figure as a dash: they are not the same thing', async () => {
@@ -74,8 +74,8 @@ describe('real tenants', () => {
     tenantsMock.mockResolvedValue([healthy, quiet]);
     render(<MSSPDashboardView />);
     const table = await screen.findByRole('table');
-    expect(within(within(table).getByText('Healthy Co').closest('tr') as HTMLElement).getAllByRole('cell')[1].textContent).toBe('0');
-    expect(within(within(table).getByText('Quiet Co').closest('tr') as HTMLElement).getAllByRole('cell')[1].textContent).toBe('—');
+    expect(within(within(table).getByText('Healthy Co').closest('tr') as HTMLElement).getAllByRole('cell')[2].textContent).toBe('0');
+    expect(within(within(table).getByText('Quiet Co').closest('tr') as HTMLElement).getAllByRole('cell')[2].textContent).toBe('—');
   });
 
   it('has no ARR or analyst-allocation columns (there is no source for either)', async () => {
@@ -247,5 +247,20 @@ describe('hiding test clients', () => {
     expect(await screen.findByText('Hal Test')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Show' }));
     expect(hiddenMock).toHaveBeenCalledWith('id-Hal Test', false);
+  });
+});
+
+describe('the Integrations column', () => {
+  it('shows a badge per tool a tenant is mapped from, and a dash when none', async () => {
+    overviewMock.mockResolvedValue({ ...none, total_tenants: 2 });
+    tenantsMock.mockResolvedValue([row({ name: 'Two Tools', sources: ['halopsa', 'huntress'] }), row({ name: 'No Tools' })]);
+    render(<MSSPDashboardView />);
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Integrations' })).toBeInTheDocument();
+    const two = within(table).getByText('Two Tools').closest('tr') as HTMLElement;
+    expect(within(two).getByRole('img', { name: 'HaloPSA' })).toBeInTheDocument();
+    expect(within(two).getByRole('img', { name: 'Huntress' })).toBeInTheDocument();
+    const none0 = within(table).getByText('No Tools').closest('tr') as HTMLElement;
+    expect(within(none0).queryByRole('img')).toBeNull();
   });
 });

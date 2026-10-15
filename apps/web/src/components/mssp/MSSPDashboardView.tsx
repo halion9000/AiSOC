@@ -1,5 +1,6 @@
 'use client';
 
+import VendorBadge from './VendorBadge';
 import { useCallback, useEffect, useState } from 'react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -259,6 +260,7 @@ export default function MSSPDashboardView() {
                   <thead>
                     <tr className="border-b border-gray-800/60 text-left text-gray-400">
                       <th className="px-5 py-3 font-medium">Tenant</th>
+                      <th className="px-5 py-3 font-medium">Integrations</th>
                       <th className="px-5 py-3 font-medium text-right">Open Alerts</th>
                       <th className="px-5 py-3 font-medium text-right">Critical</th>
                       <th className="px-5 py-3 font-medium text-right">Open Cases</th>
@@ -276,6 +278,15 @@ export default function MSSPDashboardView() {
                         <td className={clsx('px-5 py-3 font-medium', t.hidden ? 'text-gray-500' : 'text-white')}>
                           {t.name}
                           {t.hidden ? <span className="ml-2 text-xs font-normal text-gray-500">hidden</span> : null}
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className="flex gap-1" data-testid="sources">
+                            {(t.sources ?? []).length === 0 ? (
+                              <span className="text-gray-600">—</span>
+                            ) : (
+                              (t.sources ?? []).map((v) => <VendorBadge key={v} vendor={v} />)
+                            )}
+                          </span>
                         </td>
                         <td className="px-5 py-3 text-right text-gray-300">{figure(t.open_alerts)}</td>
                         <td className="px-5 py-3 text-right text-gray-300">{figure(t.critical_alerts)}</td>

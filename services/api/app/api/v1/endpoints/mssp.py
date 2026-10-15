@@ -731,6 +731,7 @@ class ManagedTenantRow(BaseModel):
     tenant_id: str
     name: str
     hidden: bool = False
+    sources: list[str] = []  # the tools (vendors) whose clients are mapped to this tenant, e.g. ["halopsa", "huntress"]
     has_metrics: bool
     snapshot_at: datetime | None = None
     health_score: float | None = None
@@ -815,6 +816,19 @@ async def list_managed_tenants(
     """The caller's real child tenants with their latest metrics snapshot. A tenant that is not an MSSP parent has no children: an empty list."""
     children = await _managed_children(db, current_user.tenant_id, include_hidden)
     snaps = await _latest_snapshots(db, [c.id for c in children])
+    sources: dict[uuid.UUID, set[str]] = {}
+    if children:
+        from app.models.client_alias import ClientAlias
+
+        linked = await db.execute(
+            select(ClientAlias.child_tenant_id, ClientAlias.vendor).where(
+                ClientAlias.tenant_id == current_user.tenant_id,
+                ClientAlias.child_tenant_id.in_([c.id for c in children]),
+                ClientAlias.ignored.is_(False),
+            )
+        )
+        for child_id, vendor in linked.all():
+            sources.setdefault(child_id, set()).add(vendor)
     rows: list[ManagedTenantRow] = []
     for child in children:
         snap = snaps.get(child.id)
@@ -823,6 +837,7 @@ async def list_managed_tenants(
                 tenant_id=str(child.id),
                 name=child.name,
                 hidden=tenant_hidden(child),
+                sources=sorted(sources.get(child.id, ())),
                 has_metrics=snap is not None,
                 snapshot_at=snap.snapshot_at.isoformat() if snap is not None and snap.snapshot_at else None,
                 health_score=snap.health_score if snap is not None else None,
