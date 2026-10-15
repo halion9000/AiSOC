@@ -30,6 +30,7 @@ from app.models.connector import Connector
 from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.client_mapping import IncomingClient, upsert_clients
+from app.services.core_feed_cases import open_cases_for_new_alerts
 from app.services.mssp_snapshots import snapshot_children_throttled
 from app.services.vendor_actions import CLAIMED_TTL, PENDING_TTL
 
@@ -165,6 +166,13 @@ async def report_core_feed_status(tenant_token: str, body: StatusReport, db: DBS
             await db.commit()
     except Exception:
         logger.exception("mssp.snapshot_refresh_failed")
+        await db.rollback()
+    # Open a case for each new high/critical alert that has none. Also best effort.
+    try:
+        if await open_cases_for_new_alerts(db, tenant_id):
+            await db.commit()
+    except Exception:
+        logger.exception("core_feed.auto_cases_failed")
         await db.rollback()
     return StatusResponse(updated=applied)
 

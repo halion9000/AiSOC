@@ -17,6 +17,7 @@ name: Postgres-backed tests
 #   test_load_builtin_detections_postgres.py      the shipped detection rules load per tenant, idempotently, as the restricted role with the switch on
 #   test_ensure_core_feed_token_postgres.py       the CORE feed push token is created once per tenant, reused, never a revoked or another label's one
 #   test_inbox_core_feed_postgres.py              CORE's per-run report fills the Connectors rows (health, counts, errors) for the token's tenant only
+#   test_core_feed_cases_postgres.py               auto-opened cases for new high/critical CORE alerts: one linked case each, once, within look-back, right tenant
 #   test_client_reset_postgres.py                  "Remove all client tenants": plain clients go; ones with worked alerts or tamper-proof audit records are kept, not a 500
 #   (services/actions) test_rls_platform_postgres.py   the actions service's own sessions keep working with the switch ON; separate step below
 #
@@ -196,6 +197,7 @@ jobs:
             tests/test_ensure_core_feed_token_postgres.py \
             tests/test_inbox_core_feed_postgres.py \
             tests/test_client_reset_postgres.py \
+            tests/test_core_feed_cases_postgres.py \
             tests/test_service_migrations_postgres.py \
             -v --tb=short -rs --junitxml=postgres-tests.junit.xml
 
