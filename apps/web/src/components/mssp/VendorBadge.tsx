@@ -10,7 +10,7 @@ const BADGES: Record<string, { text: string; className: string }> = {
   liongard: { text: 'L', className: 'bg-teal-600/80 text-white' },
 };
 
-const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra']);
+const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate']);
 
 /** A small badge for the tool a client came from; hover shows the full name. */
 export default function VendorBadge({ vendor }: { vendor: string }) {
