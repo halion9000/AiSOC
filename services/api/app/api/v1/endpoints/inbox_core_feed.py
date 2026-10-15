@@ -30,6 +30,7 @@ from app.models.connector import Connector
 from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.client_mapping import IncomingClient, upsert_clients
+from app.services.mssp_snapshots import snapshot_children_throttled
 from app.services.vendor_actions import CLAIMED_TTL, PENDING_TTL
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,13 @@ async def report_core_feed_status(tenant_token: str, body: StatusReport, db: DBS
     await adopt_tenant(db, tenant_id)
     applied = await apply_report(db, tenant_id, body)
     await db.commit()
+    # Refresh the per-client numbers the MSSP overview shows. Best effort: it must never fail the status report itself.
+    try:
+        if await snapshot_children_throttled(db, tenant_id):
+            await db.commit()
+    except Exception:
+        logger.exception("mssp.snapshot_refresh_failed")
+        await db.rollback()
     return StatusResponse(updated=applied)
 
 
