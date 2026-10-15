@@ -375,6 +375,25 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
       else next.delete(id);
       return next;
     });
+  // These tenants are one customer: point every other tenant in the group's tool clients at this one and hide the extras (nothing is deleted).
+  const keepOne = async (group: DuplicateGroup, keep: { tenant_id: string; name: string }) => {
+    const others = group.tenants.filter((t) => t.tenant_id !== keep.tenant_id);
+    if (!window.confirm(`Keep "${keep.name}" and merge ${others.map((t) => `"${t.name}"`).join(', ')} into it? Their tool clients will map to "${keep.name}" and the extras will be hidden. Alerts and cases already in them stay where they are, and showing a hidden client again undoes this.`)) return;
+    let moved = 0;
+    const failed: string[] = [];
+    for (const t of others) {
+      try {
+        moved += (await msspApi.mergeClient(t.tenant_id, keep.tenant_id)).remapped;
+      } catch {
+        failed.push(t.name);
+      }
+    }
+    if (failed.length) toast.error(`Could not merge: ${failed.join(', ')}`);
+    else toast.success(`Merged into ${keep.name}; ${moved} tool client${moved === 1 ? '' : 's'} re-pointed.`);
+    await load();
+    onChanged();
+  };
+
   const approveChecked = async () => {
     const todo = checkedRows.filter((c) => choices.current[c.id]);
     const skipped = checkedRows.length - todo.length;
@@ -443,7 +462,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
       {duplicates.length > 0 ? (
         <div className="px-5 py-4 border-b border-gray-800/60" role="region" aria-label="Possible duplicates">
           <h3 className="text-xs font-medium uppercase tracking-wider text-amber-400">Possible duplicates ({duplicates.length})</h3>
-          <p className="mt-1 text-xs text-gray-500">These client tenants have near-identical names. If they are one customer, map each tool&apos;s client to a single tenant and hide the extra.</p>
+          <p className="mt-1 text-xs text-gray-500">These client tenants have near-identical names. If they are one customer, pick the one to keep and the others are merged into it.</p>
           <ul className="mt-2 space-y-3">
             {duplicates.map((g) => (
               <li key={g.tenants.map((t) => t.tenant_id).join('-')} className="rounded-lg border border-gray-800/60 p-3">
@@ -451,6 +470,9 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
                   <div key={t.tenant_id} className="flex flex-wrap items-baseline gap-x-3 py-0.5">
                     <span className="font-medium text-white">{t.name}</span>
                     <span className="text-xs text-gray-400">{t.mapped_from.length > 0 ? t.mapped_from.join(' · ') : 'nothing mapped to it'}</span>
+                    <button type="button" onClick={() => void keepOne(g, t)} className="ml-auto rounded-md border border-gray-700 px-2 py-0.5 text-xs text-gray-200 hover:bg-gray-800">
+                      Keep this one
+                    </button>
                   </div>
                 ))}
               </li>

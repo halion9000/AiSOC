@@ -22,9 +22,11 @@ from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 from app.services.audit import emit_audit
 from app.services.client_mapping import (
+    MergeError,
     NameTaken,
     child_candidates,
     import_unmapped,
+    merge_clients,
     new_child,
     set_sync_vendors,
     set_tenant_hidden,
@@ -310,6 +312,39 @@ async def set_client_hidden(
         request=request,
     )
     await db.commit()
+
+
+class MergeOut(BaseModel):
+    source: str
+    target: str
+    remapped: int
+
+
+@router.post("/tenants/{source_id}/merge-into/{target_id}", response_model=MergeOut)
+async def merge_client(
+    source_id: uuid.UUID,
+    target_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> MergeOut:
+    """Two client tenants are one customer: point the source's tool clients at the target and hide the source. Nothing is deleted or moved; showing the source again undoes the hiding."""
+    try:
+        source, target, remapped = await merge_clients(db, current_user.tenant_id, source_id, target_id)
+    except MergeError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="mssp:client_merged",
+        resource="tenant",
+        resource_id=str(source.id),
+        changes={"source": source.name, "target": target.name, "target_id": str(target.id), "tool_clients_remapped": remapped},
+        request=request,
+    )
+    await db.commit()
+    return MergeOut(source=source.name, target=target.name, remapped=remapped)
 
 
 class RemoveOut(BaseModel):

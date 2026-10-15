@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ManagedTenantRow, VendorClient } from '@/lib/api';
 
@@ -12,6 +12,7 @@ const sourcesMock = vi.fn();
 const hiddenMock = vi.fn();
 const removeMock = vi.fn();
 const archiveMock = vi.fn();
+const mergeMock = vi.fn();
 const tenantsMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   msspApi: {
@@ -24,6 +25,7 @@ vi.mock('@/lib/api', () => ({
     setClientHidden: (...a: unknown[]) => hiddenMock(...a),
     removeClient: (...a: unknown[]) => removeMock(...a),
     archiveClient: (...a: unknown[]) => archiveMock(...a),
+    mergeClient: (...a: unknown[]) => mergeMock(...a),
     tenants: (...a: unknown[]) => tenantsMock(...a),
   },
 }));
@@ -233,6 +235,38 @@ describe('sorting and hiding', () => {
     expect(await screen.findByText('Gone')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Show' }));
     expect(hiddenMock).toHaveBeenCalledWith('t-Gone', false);
+  });
+});
+
+describe('merging possible duplicates', () => {
+  const dupes = {
+    clients: [client({ vendor_client_name: 'Acme' })],
+    unmapped: 1,
+    sync_vendors: [],
+    duplicates: [{ tenants: [{ tenant_id: 'a', name: 'Acme Dental', mapped_from: [] }, { tenant_id: 'b', name: 'Acme Dental LLC', mapped_from: [] }] }],
+  };
+
+  it('merges the other tenant into the one you keep, after confirming', async () => {
+    mergeMock.mockResolvedValue({ source: 'Acme Dental LLC', target: 'Acme Dental', remapped: 2 });
+    clientsMock.mockResolvedValue(dupes);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const panel = await screen.findByRole('region', { name: 'Possible duplicates' });
+    await user.click(within(panel).getAllByRole('button', { name: 'Keep this one' })[0]);
+    expect(mergeMock).toHaveBeenCalledTimes(1);
+    expect(mergeMock).toHaveBeenCalledWith('b', 'a');
+  });
+
+  it('does nothing when the confirmation is declined', async () => {
+    mergeMock.mockReset();
+    clientsMock.mockResolvedValue(dupes);
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const panel = await screen.findByRole('region', { name: 'Possible duplicates' });
+    await user.click(within(panel).getAllByRole('button', { name: 'Keep this one' })[1]);
+    expect(mergeMock).not.toHaveBeenCalled();
   });
 });
 

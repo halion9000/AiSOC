@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
@@ -179,3 +179,43 @@ async def import_unmapped(db: Any, parent_id: uuid.UUID, vendor: str, make_child
         alias.match_source = "manual"
     await db.flush()
     return created, linked
+
+
+class MergeError(Exception):
+    """A merge that cannot go ahead; ``status`` is the HTTP code to answer with."""
+
+    def __init__(self, message: str, status: int = 422) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+async def merge_clients(db: Any, parent_id: uuid.UUID, source_id: uuid.UUID, target_id: uuid.UUID) -> tuple[Tenant, Tenant, int]:
+    """Fold one client tenant into another that is the same customer. The caller audits and commits.
+
+    Every tool client mapped to ``source`` is mapped to ``target`` instead, so what CORE sends from now on lands there, and ``source`` is hidden with ``merged_into`` recording
+    where it went. Nothing is deleted and nothing is moved between tenants: alerts and cases already in ``source`` stay in it (tenant data is isolated, and audit records cannot be
+    moved), and un-hiding it brings it back. Returns ``(source, target, how many tool clients were re-pointed)``.
+    """
+    if source_id == target_id:
+        raise MergeError("Choose two different clients to merge.")
+    found = {
+        t.id: t
+        for t in (
+            await db.execute(select(Tenant).where(Tenant.id.in_([source_id, target_id]), Tenant.parent_tenant_id == parent_id))
+        ).scalars()
+    }
+    if source_id not in found or target_id not in found:
+        raise MergeError("Client not found", 404)
+    source, target = found[source_id], found[target_id]
+    if tenant_hidden(target):
+        raise MergeError("The client to keep is hidden; show it first or pick another.")
+    result = await db.execute(
+        update(ClientAlias)
+        .where(ClientAlias.tenant_id == parent_id, ClientAlias.child_tenant_id == source_id)
+        .values(child_tenant_id=target_id, ignored=False, match_source="manual")
+    )
+    set_tenant_hidden(source, True)
+    settings = dict(source.settings or {})
+    settings["merged_into"] = str(target_id)
+    source.settings = settings
+    return source, target, result.rowcount or 0

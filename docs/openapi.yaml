@@ -9811,6 +9811,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/tenants/{source_id}/merge-into/{target_id}:
+    post:
+      tags:
+      - mssp
+      summary: Merge Client
+      description: 'Two client tenants are one customer: point the source''s tool
+        clients at the target and hide the source. Nothing is deleted or moved; showing
+        the source again undoes the hiding.'
+      operationId: merge_client_api_v1_mssp_tenants__source_id__merge_into__target_id__post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Source Id
+      - name: target_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Target Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MergeOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/mssp/tenants/{tenant_id}/archive:
     post:
       tags:
@@ -24203,6 +24242,23 @@ components:
       - changed_at
       - created_at
       title: MaturityOut
+    MergeOut:
+      properties:
+        source:
+          type: string
+          title: Source
+        target:
+          type: string
+          title: Target
+        remapped:
+          type: integer
+          title: Remapped
+      type: object
+      required:
+      - source
+      - target
+      - remapped
+      title: MergeOut
     MetricsOut:
       properties:
         tenant_id:

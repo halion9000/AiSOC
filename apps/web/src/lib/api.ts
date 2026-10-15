@@ -521,6 +521,11 @@ export const msspApi = {
   async removeClient(tenantId: string): Promise<{ removed: boolean; name: string; reason: string | null }> {
     return request(`/api/v1/mssp/tenants/${tenantId}/remove`, { method: 'POST' });
   },
+  /** Two client tenants are one customer: the source's tool clients move to the target and the source is hidden. Nothing is deleted or moved between tenants. */
+  async mergeClient(sourceId: string, targetId: string): Promise<{ source: string; target: string; remapped: number }> {
+    return request(`/api/v1/mssp/tenants/${sourceId}/merge-into/${targetId}`, { method: 'POST' });
+  },
+
   /** Put a client away without deleting anything: hidden, renamed "<name> (archived)", its tool clients back in Unmapped. `removed` is true when it was archived. */
   async archiveClient(tenantId: string): Promise<{ removed: boolean; name: string; reason: string | null }> {
     return request(`/api/v1/mssp/tenants/${tenantId}/archive`, { method: 'POST' });
