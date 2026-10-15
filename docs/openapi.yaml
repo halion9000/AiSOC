@@ -9794,6 +9794,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/tenants/{tenant_id}/archive:
+    post:
+      tags:
+      - mssp
+      summary: Archive Client
+      description: 'Put a client away without deleting anything: hide it, rename it
+        "<name> (archived)" so a fresh import can reuse the name, and send its tool
+        clients back to Unmapped.
+
+
+        For a client that cannot be removed (it has audit records, cases, ...). Nothing
+        it owns is touched, and Show hidden + a rename brings it back.'
+      operationId: archive_client_api_v1_mssp_tenants__tenant_id__archive_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Tenant Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoveOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/mssp/tenants/{tenant_id}/remove:
     post:
       tags:

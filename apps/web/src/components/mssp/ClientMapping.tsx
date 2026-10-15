@@ -298,19 +298,21 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     await undo(() => msspApi.setClientHidden(c.child_tenant_id as string, hidden), hidden ? `Hid ${name} (from every tool)` : `Showing ${name}`);
   };
 
-  const startOver = async () => {
+  const startOver = async (mode: 'remove' | 'archive') => {
     setProgress({ done: 0, total: 0 });
     try {
-      await msspApi.setClientSources([]); // first, so nothing re-creates a client while they are being removed
-      const everyone = await msspApi.tenants(true);
+      await msspApi.setClientSources([]); // first, so nothing re-creates a client while they are being cleared
+      const everyone = (await msspApi.tenants(true)).filter((t) => mode === 'remove' || !t.hidden);
       setProgress({ done: 0, total: everyone.length });
-      const result = await removeClients(everyone, (id) => msspApi.removeClient(id), (done, total) => setProgress({ done, total }));
-      toast.success(`Removed ${result.removed} client tenant${result.removed === 1 ? '' : 's'}${keptSummary(result.kept)}`, { duration: result.kept.length > 0 ? 15000 : 4000 });
+      const work = (id: string) => (mode === 'remove' ? msspApi.removeClient(id) : msspApi.archiveClient(id));
+      const result = await removeClients(everyone, work, (done, total) => setProgress({ done, total }));
+      const verb = mode === 'remove' ? 'Removed' : 'Archived';
+      toast.success(`${verb} ${result.removed} client tenant${result.removed === 1 ? '' : 's'}${keptSummary(result.kept)}`, { duration: result.kept.length > 0 ? 15000 : 4000 });
       setConfirmReset(false);
       setTypedReset('');
       changed();
     } catch (err) {
-      toast.error(err instanceof Error && err.message ? err.message : 'Could not remove the client tenants.');
+      toast.error(err instanceof Error && err.message ? err.message : 'Could not clear the client tenants.');
     } finally {
       setProgress(null);
     }
@@ -371,10 +373,19 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
             <button
               type="button"
               disabled={typedReset.trim() !== 'REMOVE' || progress !== null}
-              onClick={() => void startOver()}
+              onClick={() => void startOver('remove')}
               className="rounded-lg bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-600 disabled:opacity-40 transition-colors"
             >
               {progress ? (progress.total > 0 ? `Removing ${progress.done} of ${progress.total}…` : 'Starting…') : 'Remove everything'}
+            </button>
+            <button
+              type="button"
+              disabled={typedReset.trim() !== 'REMOVE' || progress !== null}
+              onClick={() => void startOver('archive')}
+              title="Hides every client and renames it, deleting nothing. Use this for clients that cannot be removed."
+              className="rounded-lg border border-gray-600 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-40 transition-colors"
+            >
+              Archive instead (deletes nothing)
             </button>
             <button type="button" onClick={() => { setConfirmReset(false); setTypedReset(''); }} className="rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors">
               Cancel

@@ -163,7 +163,9 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
         .scalars()
         .all()
     )
-    candidates = await child_candidates(db, current_user.tenant_id)
+    candidates = await child_candidates(
+        db, current_user.tenant_id, include_hidden=True
+    )  # names of hidden tenants are still shown on rows mapped to them
     names = {c.tenant_id: c.name for c in candidates}
     hidden_ids = {
         str(t.id)
@@ -333,6 +335,47 @@ async def _blockers(db: TenantDBSession, tenant_id: uuid.UUID) -> list[str]:
             if (await db.execute(stmt, {"t": tenant_id})).scalar_one():
                 found.append(label)
     return found
+
+
+ARCHIVED_SUFFIX = " (archived)"
+
+
+@router.post("/tenants/{tenant_id}/archive", response_model=RemoveOut)
+async def archive_client(
+    tenant_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> RemoveOut:
+    """Put a client away without deleting anything: hide it, rename it "<name> (archived)" so a fresh import can reuse the name, and send its tool clients back to Unmapped.
+
+    For a client that cannot be removed (it has audit records, cases, ...). Nothing it owns is touched, and Show hidden + a rename brings it back.
+    """
+    child = (
+        await db.execute(select(Tenant).where(Tenant.id == tenant_id, Tenant.parent_tenant_id == current_user.tenant_id))
+    ).scalar_one_or_none()
+    if child is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not child.name.endswith(ARCHIVED_SUFFIX):
+        child.name = child.name + ARCHIVED_SUFFIX  # type: ignore[assignment]
+    set_tenant_hidden(child, True)
+    await db.execute(
+        update(ClientAlias)
+        .where(ClientAlias.tenant_id == current_user.tenant_id, ClientAlias.child_tenant_id == tenant_id)
+        .values(child_tenant_id=None, match_source="suggested")
+    )
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="mssp:client_archived",
+        resource="tenant",
+        resource_id=str(tenant_id),
+        changes={"name": child.name},
+        request=request,
+    )
+    await db.commit()
+    return RemoveOut(removed=True, name=child.name)
 
 
 @router.post("/tenants/{tenant_id}/remove", response_model=RemoveOut)

@@ -519,6 +519,10 @@ export const msspApi = {
   async removeClient(tenantId: string): Promise<{ removed: boolean; name: string; reason: string | null }> {
     return request(`/api/v1/mssp/tenants/${tenantId}/remove`, { method: 'POST' });
   },
+  /** Put a client away without deleting anything: hidden, renamed "<name> (archived)", its tool clients back in Unmapped. `removed` is true when it was archived. */
+  async archiveClient(tenantId: string): Promise<{ removed: boolean; name: string; reason: string | null }> {
+    return request(`/api/v1/mssp/tenants/${tenantId}/archive`, { method: 'POST' });
+  },
   async unmapClient(aliasId: string): Promise<void> {
     await request<void>(`/api/v1/mssp/clients/${aliasId}/unmap`, { method: 'POST' });
   },

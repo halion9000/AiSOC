@@ -66,9 +66,10 @@ def set_tenant_hidden(tenant: Any, hidden: bool) -> None:
     tenant.settings = settings  # a new dict, so the JSONB column is seen as changed
 
 
-async def child_candidates(db: Any, parent_id: uuid.UUID) -> list[Candidate]:
+async def child_candidates(db: Any, parent_id: uuid.UUID, include_hidden: bool = False) -> list[Candidate]:
+    """The client tenants a vendor client could be linked to. Hidden ones (test clients, archived ones) are left out unless asked for, so an import never re-links to one."""
     rows = (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == parent_id))).scalars().all()
-    return [Candidate(tenant_id=str(t.id), name=t.name) for t in rows]
+    return [Candidate(tenant_id=str(t.id), name=t.name) for t in rows if include_hidden or not tenant_hidden(t)]
 
 
 @dataclass(frozen=True)

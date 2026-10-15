@@ -378,6 +378,41 @@ async def test_remove_cannot_touch_a_tenant_that_is_not_your_client():
     assert e.value.status_code == 404 and db.sql == []
 
 
+@pytest.mark.asyncio
+async def test_archive_hides_renames_and_unmaps_without_deleting_anything(monkeypatch):
+    _no_rls(monkeypatch)
+    t = _tenant("Acme")
+    db = _reset_db([t])
+    out = await mc.archive_client(t.id, MagicMock(), USER, db)
+    assert (out.removed, out.name) == (True, "Acme (archived)") and t.name == "Acme (archived)" and cm.tenant_hidden(t)
+    kinds = [k for k, _ in db.sql]
+    assert kinds == ["UPDATE client_aliases SET"]  # no DELETE of any kind
+    db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_archiving_twice_does_not_stack_suffixes_and_a_foreign_tenant_is_404(monkeypatch):
+    _no_rls(monkeypatch)
+    t = _tenant("Acme (archived)")
+    await mc.archive_client(t.id, MagicMock(), USER, _reset_db([t]))
+    assert t.name == "Acme (archived)"
+    with pytest.raises(HTTPException) as e:
+        await mc.archive_client(uuid.uuid4(), MagicMock(), USER, _reset_db([]))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_an_import_never_links_to_a_hidden_tenant():
+    hidden, shown = _tenant("Acme Dental (archived)"), _tenant("Birch Law")
+    cm.set_tenant_hidden(hidden, True)
+    got = await cm.child_candidates(_db([hidden, shown]), PARENT)
+    assert [c.name for c in got] == ["Birch Law"]
+    assert [c.name for c in await cm.child_candidates(_db([hidden, shown]), PARENT, include_hidden=True)] == [
+        "Acme Dental (archived)",
+        "Birch Law",
+    ]
+
+
 # ---- who may -----------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -394,6 +429,7 @@ def test_reading_needs_mssp_read_and_every_change_needs_mssp_manage():
         ("POST", "/mssp/clients/{alias_id}/ignore"),
         ("PUT", "/mssp/tenants/{tenant_id}/hidden"),
         ("POST", "/mssp/tenants/{tenant_id}/remove"),
+        ("POST", "/mssp/tenants/{tenant_id}/archive"),
     ]:
         assert set(required_permissions(routes[(method, path)])) == {"mssp:manage"}, path
 

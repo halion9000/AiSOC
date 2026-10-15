@@ -11,6 +11,7 @@ const importMock = vi.fn();
 const sourcesMock = vi.fn();
 const hiddenMock = vi.fn();
 const removeMock = vi.fn();
+const archiveMock = vi.fn();
 const tenantsMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   msspApi: {
@@ -22,6 +23,7 @@ vi.mock('@/lib/api', () => ({
     setClientSources: (...a: unknown[]) => sourcesMock(...a),
     setClientHidden: (...a: unknown[]) => hiddenMock(...a),
     removeClient: (...a: unknown[]) => removeMock(...a),
+    archiveClient: (...a: unknown[]) => archiveMock(...a),
     tenants: (...a: unknown[]) => tenantsMock(...a),
   },
 }));
@@ -38,7 +40,8 @@ const tenant = (name: string): ManagedTenantRow => ({
 const tenants = [tenant('Acme Dental'), tenant('Birch Law')];
 
 beforeEach(() => {
-  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock, hiddenMock, removeMock, tenantsMock]) m.mockReset();
+  for (const m of [clientsMock, mapMock, unmapMock, ignoreMock, importMock, sourcesMock, hiddenMock, removeMock, archiveMock, tenantsMock]) m.mockReset();
+  archiveMock.mockImplementation(async (id: string) => ({ removed: true, name: id, reason: null }));
   tenantsMock.mockResolvedValue([tenant('Acme Dental'), tenant('Birch Law')]);
   removeMock.mockImplementation(async (id: string) => ({ removed: true, name: id, reason: null }));
   hiddenMock.mockResolvedValue(undefined);
@@ -326,6 +329,18 @@ describe('start over', () => {
     expect(removeMock.mock.calls.map((c) => c[0])).toEqual(['t-Acme Dental', 't-Birch Law']);
     expect(prompt).not.toHaveBeenCalled();
     prompt.mockRestore();
+  });
+
+  it('Archive instead hides every client without deleting, skips ones already hidden, and needs REMOVE typed too', async () => {
+    tenantsMock.mockResolvedValue([tenant('Acme Dental'), { ...tenant('Old Test'), hidden: true }, tenant('Birch Law')]);
+    const user = await open();
+    const archive = screen.getByRole('button', { name: /Archive instead/ });
+    expect(archive).toBeDisabled();
+    await user.type(screen.getByLabelText('Type REMOVE to confirm'), 'REMOVE');
+    await user.click(archive);
+    expect(sourcesMock).toHaveBeenCalledWith([]);
+    expect(archiveMock.mock.calls.map((c) => c[0])).toEqual(['t-Acme Dental', 't-Birch Law']);
+    expect(removeMock).not.toHaveBeenCalled();
   });
 
   it('Cancel closes the confirmation and removes nothing', async () => {
