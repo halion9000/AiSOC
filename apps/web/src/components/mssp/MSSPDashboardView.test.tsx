@@ -12,6 +12,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
+import { orderSources } from './VendorBadge';
 import MSSPDashboardView, { figure, matchesFilter, tenantsToCsv } from './MSSPDashboardView';
 
 // The page used to render six invented tenants ("Acme Financial", "GlobalRetail Corp", ...) with invented alert counts, ARR and analyst
@@ -262,5 +263,29 @@ describe('the Integrations column', () => {
     expect(within(two).getByRole('img', { name: 'Huntress' })).toBeInTheDocument();
     const none0 = within(table).getByText('No Tools').closest('tr') as HTMLElement;
     expect(within(none0).queryByRole('img')).toBeNull();
+  });
+});
+
+describe('the Integrations column order', () => {
+  it('renders Halo first then the others in a fixed order whatever order the API sends', async () => {
+    overviewMock.mockResolvedValue({ ...none, total_tenants: 1 });
+    tenantsMock.mockResolvedValue([row({ name: 'Mixed', sources: ['addigy', 'huntress', 'halopsa', 'ninjaone'] })]);
+    render(<MSSPDashboardView />);
+    const table = await screen.findByRole('table');
+    const tr = within(table).getByText('Mixed').closest('tr') as HTMLElement;
+    expect(within(tr).getAllByRole('img').map((i) => i.getAttribute('alt'))).toEqual(['HaloPSA', 'NinjaOne', 'Huntress', 'Addigy']);
+  });
+});
+
+describe('orderSources', () => {
+  it('puts halo first and keeps one fixed order for the rest', () => {
+    expect(orderSources(['addigy', 'huntress', 'zzz', 'halopsa', 'ninjaone', 'threatmate'])).toEqual([
+      'halopsa',
+      'ninjaone',
+      'huntress',
+      'threatmate',
+      'addigy',
+      'zzz',
+    ]);
   });
 });

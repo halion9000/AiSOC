@@ -12,6 +12,17 @@ const BADGES: Record<string, { text: string; className: string }> = {
 
 const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate']);
 
+/** Halo first, then the rest in one fixed order so every row lines up; tools not listed follow alphabetically. */
+export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira'];
+
+export function orderSources(sources: string[]): string[] {
+  const rank = (v: string) => {
+    const i = VENDOR_ORDER.indexOf(v);
+    return i === -1 ? VENDOR_ORDER.length : i;
+  };
+  return [...new Set(sources)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
 /** A small badge for the tool a client came from; hover shows the full name. */
 export default function VendorBadge({ vendor }: { vendor: string }) {
   const label = vendorLabel(vendor);
@@ -19,7 +30,7 @@ export default function VendorBadge({ vendor }: { vendor: string }) {
   if (LOGOS.has(vendor)) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={`/vendors/${vendor}.png`} alt={label} title={label} className="h-6 w-6 rounded-md bg-white/90 object-contain p-0.5" />
+      <img src={`/vendors/${vendor}.png`} alt={label} title={label} className="h-6 w-6 shrink-0 rounded-md bg-white/90 object-contain p-0.5" />
     );
   }
   return (

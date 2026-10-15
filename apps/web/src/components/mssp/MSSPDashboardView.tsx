@@ -1,6 +1,6 @@
 'use client';
 
-import VendorBadge from './VendorBadge';
+import VendorBadge, { orderSources } from './VendorBadge';
 import { useCallback, useEffect, useState } from 'react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -280,11 +280,11 @@ export default function MSSPDashboardView() {
                           {t.hidden ? <span className="ml-2 text-xs font-normal text-gray-500">hidden</span> : null}
                         </td>
                         <td className="px-5 py-3">
-                          <span className="flex gap-1" data-testid="sources">
+                          <span className="flex max-w-[12rem] flex-wrap gap-1" data-testid="sources">
                             {(t.sources ?? []).length === 0 ? (
                               <span className="text-gray-600">—</span>
                             ) : (
-                              (t.sources ?? []).map((v) => <VendorBadge key={v} vendor={v} />)
+                              orderSources(t.sources ?? []).map((v) => <VendorBadge key={v} vendor={v} />)
                             )}
                           </span>
                         </td>
