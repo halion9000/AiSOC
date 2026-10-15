@@ -31,6 +31,7 @@ from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.client_mapping import IncomingClient, upsert_clients
 from app.services.core_feed_cases import open_cases_for_new_alerts
+from app.services.core_feed_sla import record_closure_events
 from app.services.iocs_from_alerts import sync_children_throttled as sync_iocs_throttled
 from app.services.mssp_snapshots import snapshot_children_throttled
 from app.services.vendor_actions import CLAIMED_TTL, PENDING_TTL
@@ -251,7 +252,19 @@ async def report_core_feed_closed(tenant_token: str, body: ClosedReport, db: DBS
     """Mark alerts resolved when CORE reports their incidents closed in the vendor's own portal."""
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
-    resolved = sum(await _across(db, tenant_id, lambda tid: apply_closed(db, tid, body)))
+    now = datetime.now(UTC)
+    resolved = sum(await _across(db, tenant_id, lambda tid: apply_closed(db, tid, body, now)))
+    if resolved:
+        # Give the SLA page the timing for what was just closed. Best effort: it must never undo the closures themselves.
+        async def sla(tid: Any) -> int:
+            try:
+                async with db.begin_nested():
+                    return await record_closure_events(db, tid, body.vendor, now)
+            except Exception:
+                logger.exception("core_feed.sla_events_failed")
+                return 0
+
+        await _across(db, tenant_id, sla)
     await db.commit()
     return ClosedResponse(resolved=resolved)
 
