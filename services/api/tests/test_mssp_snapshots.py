@@ -88,8 +88,9 @@ def test_each_client_gets_its_own_counts_and_nothing_made_up():
     written, ra, rb = run(body)
     assert written == 2
     assert (ra.open_alerts, ra.critical_alerts, ra.open_cases, ra.sla_breaches, ra.connector_count) == (2, 1, 1, 1, 2)
-    assert ra.mttr_minutes == 120.0 and ra.health_score is None
+    assert ra.mttr_minutes == 120.0 and ra.health_score == 82  # 100 - 10 (1 critical) - 3 (1 high) - 5 (1 SLA breach)
     assert (rb.open_alerts, rb.critical_alerts, rb.open_cases, rb.mttr_minutes, rb.connector_count) == (1, 0, 0, None, 0)
+    assert rb.health_score is None  # no tool mapped: nothing is watching it, so no score is made up
 
 
 def test_a_recent_snapshot_is_refreshed_in_place_and_an_old_one_starts_a_new_row():
@@ -138,3 +139,10 @@ def test_one_clients_failure_does_not_stop_the_others():
 
     written, saved, good_id = run(body)
     assert written == 1 and saved == [good_id]
+
+
+def test_health_score_penalties_are_capped_and_absent_without_tools():
+    assert ms.health_score(0, 0, 0, 3) == 100
+    assert ms.health_score(1, 2, 1, 1) == 100 - 10 - 6 - 5
+    assert ms.health_score(99, 99, 99, 1) == 0  # every penalty at its cap: 50 + 20 + 30
+    assert ms.health_score(0, 0, 0, 0) is None
