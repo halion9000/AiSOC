@@ -18,6 +18,7 @@ name: Postgres-backed tests
 #   test_ensure_core_feed_token_postgres.py       the CORE feed push token is created once per tenant, reused, never a revoked or another label's one
 #   test_inbox_core_feed_postgres.py              CORE's per-run report fills the Connectors rows (health, counts, errors) for the token's tenant only
 #   test_core_feed_cases_postgres.py               auto-opened cases for new high/critical CORE alerts: one linked case each, once, within look-back, right tenant
+#   test_dashboard_metrics_postgres.py             the dashboard KPI endpoint answers on real Postgres (it 500d on a GROUP BY over a JSON expression) and counts each CORE vendor
 #   test_core_feed_sla_postgres.py                 closing an incident in the vendor portal writes detected+resolved SLA events once, leaves analyst-handled alerts alone
 #   test_iocs_from_alerts_postgres.py              public IPs and SHA-256 hashes on alerts become Threat Intel entries: once, right tenant, no private IPs or false positives
 #   test_client_reset_postgres.py                  "Remove all client tenants": plain clients go; ones with worked alerts or tamper-proof audit records are kept, not a 500
@@ -200,6 +201,7 @@ jobs:
             tests/test_inbox_core_feed_postgres.py \
             tests/test_client_reset_postgres.py \
             tests/test_core_feed_cases_postgres.py \
+            tests/test_dashboard_metrics_postgres.py \
             tests/test_core_feed_sla_postgres.py \
             tests/test_iocs_from_alerts_postgres.py \
             tests/test_service_migrations_postgres.py \

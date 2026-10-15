@@ -304,7 +304,9 @@ async def get_dashboard_metrics(
         await db.execute(
             select(Alert.raw_event["source"].astext.label("vendor"), func.count().label("cnt"))
             .where(Alert.tenant_id == tenant_id, Alert.raw_event["source"].astext.isnot(None))
-            .group_by(Alert.raw_event["source"].astext)
+            # Group by the label, not by a second copy of the expression: each copy binds its own "source" parameter, so Postgres sees two different expressions and
+            # refuses with "must appear in the GROUP BY clause". That made the whole dashboard answer 500.
+            .group_by("vendor")
         )
     ).all()
     vendor_count_map: dict[str, int] = {row.vendor: row.cnt for row in vendor_count_rows}
