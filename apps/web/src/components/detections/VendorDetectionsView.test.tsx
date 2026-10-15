@@ -24,7 +24,9 @@ function show() {
   );
 }
 
-beforeEach(() => api.vendorDetections.mockReset());
+beforeEach(() => {
+  api.vendorDetections.mockReset();
+});
 
 describe('VendorDetectionsView', () => {
   it('lists what each tool detected and filters by tool', async () => {

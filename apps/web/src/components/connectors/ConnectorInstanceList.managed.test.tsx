@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { Connector } from '@/lib/api';
 import { ConnectorInstanceList } from './ConnectorInstanceList';
 
@@ -34,5 +35,17 @@ describe('why a CORE-fed connector failed', () => {
   it('shows nothing when there is no reason', () => {
     renderList([feed]);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('the Configure button', () => {
+  it('opens the editor for that connector instead of being disabled as "planned"', async () => {
+    const onConfigure = vi.fn();
+    const { container } = render(<ConnectorInstanceList connectors={[okta]} onTest={vi.fn()} onAdd={vi.fn()} onConfigure={onConfigure} />);
+    const button = screen.getByRole('button', { name: 'Configure' });
+    expect(button).toBeEnabled();
+    expect(container.textContent).not.toMatch(/v1\.1/);
+    await userEvent.setup().click(button);
+    expect(onConfigure).toHaveBeenCalledWith(okta);
   });
 });

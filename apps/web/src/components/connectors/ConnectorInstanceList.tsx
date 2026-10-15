@@ -332,12 +332,11 @@ function ConnectorCard({
         ) : (
           <button
             type="button"
-            disabled
-            title="Connector editing UI is planned for v1.1"
-            className="flex-1 text-xs bg-gray-800/40 text-gray-500 px-3 py-2 rounded-lg border border-gray-700/40 cursor-not-allowed select-none"
+            onClick={() => onConfigure?.(connector)}
+            disabled={!onConfigure}
+            className="flex-1 text-xs bg-gray-800/60 text-gray-200 px-3 py-2 rounded-lg border border-gray-700/60 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Configure
-            <span className="ml-1.5 text-[10px] font-medium text-amber-400">v1.1</span>
           </button>
         )}
         {onDelete && (
