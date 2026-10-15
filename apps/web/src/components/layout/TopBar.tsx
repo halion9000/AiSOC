@@ -18,6 +18,7 @@ import { useTenant } from './TenantProvider';
 const ACRONYMS = new Set(['mssp', 'sla', 'siem', 'edr', 'soar', 'ueba', 'api', 'mttr', 'sso', 'ioc']);
 
 const routeLabels: Record<string, { title: string; description: string }> = {
+  '/detection/vendor': { title: 'Vendor Detections', description: 'What your connected tools have detected' },
   '/detection/catalog': { title: 'Detection Catalog', description: 'Curated rule packs and templates' },
   '/settings/rbac': { title: 'Roles & Permissions', description: 'Access control and team management' },
   '/dashboard': { title: 'Dashboard', description: 'SOC overview and metrics' },

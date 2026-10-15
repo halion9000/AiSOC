@@ -46,8 +46,20 @@ describe('which service answers /api/v1/hunt*', () => {
     expect(await serviceFor(path)).toBe('api');
   });
 
-  it.each(['/api/v1/hunt/search', '/api/v1/hunt'])('%s is still served by the agents service', async (path) => {
-    expect(await serviceFor(path)).toBe('agents');
+  it('/api/v1/hunt/search is served by the core API (it searches the tenant\'s own alerts; the agents service has no event store)', async () => {
+    expect(await serviceFor('/api/v1/hunt/search')).toBe('api');
+  });
+
+  it('/api/v1/hunt itself is still served by the agents service', async () => {
+    expect(await serviceFor('/api/v1/hunt')).toBe('agents');
+  });
+
+  it('the search rule sits ABOVE the generic agents hunt rule (first match wins)', async () => {
+    const all = await rules();
+    const search = all.findIndex((r) => r.source === '/api/v1/hunt/search');
+    const generic = all.findIndex((r) => r.source === '/api/v1/hunt/:path*');
+    expect(search).toBeGreaterThan(-1);
+    expect(search).toBeLessThan(generic);
   });
 
   it('the saved-search rules sit ABOVE the generic agents hunt rule (first match wins)', async () => {

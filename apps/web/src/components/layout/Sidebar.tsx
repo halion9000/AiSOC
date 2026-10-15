@@ -199,6 +199,11 @@ const navSections: NavSection[] = [
         icon: <SearchIcon />,
       },
       {
+        label: 'Vendor Detections',
+        href: '/detection/vendor',
+        icon: <EyeIcon />,
+      },
+      {
         label: 'MITRE Coverage',
         href: '/detection/coverage',
         icon: <ChartBarIcon />,

@@ -60,6 +60,17 @@ describe('the rule list', () => {
   });
 });
 
+describe('the empty state', () => {
+  it('has no disabled "planned" button, and links to what the connected tools detect', async () => {
+    api.list.mockResolvedValue({ rules: [], total: 0 });
+    const { container } = renderView();
+    expect(await screen.findByText('No detection rules yet')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/Planned for v1\.1|starter pack/i);
+    const links = screen.getAllByRole('link', { name: /what your tools detect/i });
+    expect(links[0]).toHaveAttribute('href', '/detection/vendor');
+  });
+});
+
 describe('toggling a rule', () => {
   it('calls the backend and confirms', async () => {
     api.update.mockResolvedValue({});

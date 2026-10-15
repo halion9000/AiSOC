@@ -20,7 +20,8 @@
  * a single entry point without duplicating those workbenches.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
   lakeApi,
@@ -64,8 +65,8 @@ const SOURCES: SourceDef[] = [
   {
     id: 'intel',
     label: 'Threat intel',
-    description: 'Look up an IOC across your enabled feeds.',
-    pivotHref: '/detection',
+    description: 'Look up an indicator across your threat intel, including IPs and file hashes seen on your alerts.',
+    pivotHref: '/threat-intel',
   },
 ];
 
@@ -135,7 +136,46 @@ function PivotCard({ source }: { source: SourceDef }) {
 
 // ─── Events explorer (interactive) ────────────────────────────────────────────
 
+type LakeState = 'checking' | 'up' | 'down';
+
+/** Whether the event lake answers. A failed schema call means queries can't run, so the page says so instead of failing on every click. */
+function useLakeState(): LakeState {
+  const [state, setState] = useState<LakeState>('checking');
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(lakeApi.schema()).then(
+      () => live && setState('up'),
+      () => live && setState('down'),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  return state;
+}
+
+function LakeDownNotice() {
+  return (
+    <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5">
+      <h2 className="text-base font-medium text-amber-200">The event lake isn&apos;t connected</h2>
+      <p className="mt-1 text-sm text-slate-300">
+        Plain-English questions and SQL run against the ClickHouse event lake, which isn&apos;t reachable right now, so they are switched off here. The
+        alerts your connected tools send are still searchable.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link href="/hunt" className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">
+          Search alerts in Hunt
+        </Link>
+        <Link href="/detection/vendor" className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:border-slate-400">
+          See vendor detections
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function EventsExplorer() {
+  const lake = useLakeState();
   const [question, setQuestion] = useState('');
   const [sql, setSql] = useState('SELECT event_time, severity, connector_type, user_name\nFROM raw_events\nORDER BY event_time DESC\nLIMIT 100');
   const [result, setResult] = useState<LakeQueryResponse | null>(null);
@@ -179,6 +219,8 @@ function EventsExplorer() {
     },
     [runSql, sql],
   );
+
+  if (lake === 'down') return <LakeDownNotice />;
 
   return (
     <div className="flex flex-col gap-4">

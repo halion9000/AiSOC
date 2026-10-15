@@ -19,10 +19,11 @@ import type { LakeQueryResponse } from '@/lib/api';
 const api = vi.hoisted(() => ({
   sql: vi.fn(),
   translate: vi.fn(),
+  schema: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
-  lakeApi: { sql: api.sql, schema: vi.fn() },
+  lakeApi: { sql: api.sql, schema: api.schema },
   nlQueryApi: { translate: api.translate },
 }));
 
@@ -48,6 +49,8 @@ const RESULT: LakeQueryResponse = {
 beforeEach(() => {
   api.sql.mockReset();
   api.translate.mockReset();
+  api.schema.mockReset();
+  api.schema.mockResolvedValue({ tables: [] });
 });
 
 describe('ExploreView', () => {
@@ -108,5 +111,21 @@ describe('ExploreView', () => {
     await user.click(screen.getByRole('button', { name: 'Run query' }));
     expect(await screen.findByText(/Query failed/i)).toBeInTheDocument();
     expect(screen.getByText(/rate limited/i)).toBeInTheDocument();
+  });
+
+  it('says so, and switches the query box off, when the lake is unreachable', async () => {
+    api.schema.mockRejectedValue(new Error('ClickHouse unavailable'));
+    render(<ExploreView />);
+    expect(await screen.findByText(/event lake isn.t connected/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Ask in plain English/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run query' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Search alerts in Hunt/i })).toHaveAttribute('href', '/hunt');
+  });
+
+  it('points the Threat intel source at the Threat Intel page', async () => {
+    const user = userEvent.setup();
+    render(<ExploreView />);
+    await user.click(screen.getByRole('button', { name: 'Threat intel' }));
+    expect(screen.getByRole('link', { name: /Open Threat intel/i })).toHaveAttribute('href', '/threat-intel');
   });
 });

@@ -3815,7 +3815,21 @@ export interface DetectionBacktestResult {
   error: string | null;
 }
 
+export interface VendorDetection {
+  source: string;
+  name: string;
+  count: number;
+  open: number;
+  severity: string;
+  clients: number;
+  last_seen: string | null;
+}
+
 export const detectionApi = {
+  /** Detections the connected tools have raised (from alerts), grouped by tool and name. */
+  vendorDetections: () =>
+    request<{ window_days: number; detections: VendorDetection[] }>('/api/v1/detection/vendor-detections'),
+
   list: () =>
     request<{ rules: DetectionRule[]; total: number }>(
       '/api/v1/detection/rules',
