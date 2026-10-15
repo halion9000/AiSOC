@@ -39,6 +39,8 @@ LEFT_OPEN = {
         "/alerts/{alert_id}/explain",
     ): "LLM explanation of an alert: spends model credit and sends alert data to the model provider (alerts:read): NOT YET NARROWED",
     ("POST", "/kb/query"): "LLM knowledge-base query: spends model credit (alerts:read): NOT YET NARROWED",
+    # A search over the caller's own alerts (and its clients'): a read (alerts:read) despite the POST. It changes nothing and calls no model.
+    ("POST", "/hunt/search"): "search the tenant's own alerts: alerts:read, a read despite the POST; no writes, no LLM",
     # Deliberate: a ticket opens the tenant's live alert and case streams, so it needs both alerts:read and cases:read (and the key holds
     # both).
     ("POST", "/realtime/ticket"): "mint a realtime stream ticket: needs alerts:read AND cases:read, deliberately",
