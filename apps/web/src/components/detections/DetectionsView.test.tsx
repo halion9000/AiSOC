@@ -67,7 +67,7 @@ describe('the empty state', () => {
     expect(await screen.findByText('No detection rules yet')).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/Planned for v1\.1|starter pack/i);
     const links = screen.getAllByRole('link', { name: /what your tools detect/i });
-    expect(links[0]).toHaveAttribute('href', '/detection/vendor');
+    expect(links[0]).toHaveAttribute('href', '/detection/vendor-detections');
   });
 });
 

@@ -286,7 +286,7 @@ export function DetectionsView() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/detection/vendor"
+            href="/detection/vendor-detections"
             className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-800"
           >
             Vendor detections
@@ -469,7 +469,7 @@ export function DetectionsView() {
                       Create a rule
                     </Link>
                     <Link
-                      href="/detection/vendor"
+                      href="/detection/vendor-detections"
                       className="rounded-md border border-gray-700 px-4 py-2 text-sm text-gray-200 hover:bg-gray-800"
                     >
                       See what your tools detect

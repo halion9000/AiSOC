@@ -200,7 +200,7 @@ const navSections: NavSection[] = [
       },
       {
         label: 'Vendor Detections',
-        href: '/detection/vendor',
+        href: '/detection/vendor-detections',
         icon: <EyeIcon />,
       },
       {

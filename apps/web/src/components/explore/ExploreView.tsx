@@ -166,7 +166,7 @@ function LakeDownNotice() {
         <Link href="/hunt" className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">
           Search alerts in Hunt
         </Link>
-        <Link href="/detection/vendor" className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:border-slate-400">
+        <Link href="/detection/vendor-detections" className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:border-slate-400">
           See vendor detections
         </Link>
       </div>
