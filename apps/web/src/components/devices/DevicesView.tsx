@@ -11,7 +11,9 @@ import { vendorLabel } from '@/components/mssp/ClientMapping';
  * each tool that feeds it. Pick a master tool (usually the RMM) and devices it does not report are flagged: a machine another tool sees that your RMM does not.
  */
 
-const MASTER_CHOICES = ['ninjaone', 'addigy'];
+const MASTER_CHOICES = ['ninjaone', 'addigy', 'threatmate'];
+
+type Missing = 'addigy' | 'threatmate';
 
 export function toolsOf(d: DeviceRow): string[] {
   return [...new Set(d.sources.map((s) => s.vendor))].sort();
@@ -32,19 +34,20 @@ export default function DevicesView() {
   const [clientId, setClientId] = useState('');
   const [vendor, setVendor] = useState('');
   const [gapsOnly, setGapsOnly] = useState(false);
+  const [missing, setMissing] = useState<Missing | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly }));
+      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load devices.');
     } finally {
       setLoading(false);
     }
-  }, [page, clientId, search, vendor, gapsOnly]);
+  }, [page, clientId, search, vendor, gapsOnly, missing]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), search ? 250 : 0);
@@ -98,7 +101,7 @@ export default function DevicesView() {
         </label>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+      <div className="grid grid-cols-2 gap-3 sm:max-w-3xl sm:grid-cols-4">
         <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-3">
           <div className="text-xs text-gray-400">Devices</div>
           <div className="text-2xl font-semibold text-white" data-testid="devices-total">
@@ -120,6 +123,30 @@ export default function DevicesView() {
             {master ? (data?.summary.not_in_master ?? '—') : '—'}
           </div>
         </button>
+        {(['addigy', 'threatmate'] as const).map((tool) => {
+          const count = data?.summary[tool === 'addigy' ? 'not_in_addigy' : 'not_in_threatmate'];
+          const on = missing === tool;
+          return (
+            <button
+              key={tool}
+              type="button"
+              onClick={() => {
+                setMissing(on ? null : tool);
+                setPage(1);
+              }}
+              aria-pressed={on}
+              className={`rounded-lg border p-3 text-left ${on ? 'border-amber-500 bg-amber-500/10' : 'border-gray-800 bg-gray-900/60'}`}
+            >
+              <div className="text-xs text-gray-400">
+                Not in {vendorLabel(tool)}
+                {tool === 'addigy' && <span className="text-gray-500"> (Macs)</span>}
+              </div>
+              <div className="text-2xl font-semibold text-amber-300" data-testid={`devices-missing-${tool}`}>
+                {count ?? '—'}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap gap-2">

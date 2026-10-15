@@ -9055,6 +9055,17 @@ paths:
           default: false
           title: Not In Master
         description: Only devices the master tool does not report.
+      - name: missing
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(addigy|threatmate)$
+          - type: 'null'
+          description: Only devices this tool should report but does not.
+          title: Missing
+        description: Only devices this tool should report but does not.
       responses:
         '200':
           description: Successful Response
@@ -21213,6 +21224,14 @@ components:
         not_in_master:
           type: integer
           title: Not In Master
+        not_in_addigy:
+          type: integer
+          title: Not In Addigy
+          default: 0
+        not_in_threatmate:
+          type: integer
+          title: Not In Threatmate
+          default: 0
       type: object
       required:
       - total

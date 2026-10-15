@@ -152,3 +152,20 @@ describe('facts', () => {
     expect(facts({ vendor: 'addigy', name: 'x', last_seen: NOW })).toEqual([]);
   });
 });
+
+describe('missing-from-tool cards', () => {
+  it('shows how many devices each tool is missing and filters to them when clicked', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'MAC-1' })], { summary: { total: 5, not_in_master: 0, not_in_addigy: 2, not_in_threatmate: 4 } }));
+    render(<DevicesView />);
+    await screen.findByText('MAC-1');
+    expect(screen.getByTestId('devices-missing-addigy')).toHaveTextContent('2');
+    expect(screen.getByTestId('devices-missing-threatmate')).toHaveTextContent('4');
+    expect(screen.getByText(/Not in Addigy/)).toHaveTextContent('Macs');
+
+    await userEvent.click(screen.getByRole('button', { name: /Not in ThreatMate/ }));
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: 'threatmate' })));
+
+    await userEvent.click(screen.getByRole('button', { name: /Not in ThreatMate/ }));
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: undefined })));
+  });
+});

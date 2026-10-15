@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Any
@@ -64,6 +65,9 @@ class DeviceOut(BaseModel):
 class DeviceSummary(BaseModel):
     total: int
     not_in_master: int
+    # Devices a tool should be covering but does not report (Addigy: Macs only, so Windows machines are never counted).
+    not_in_addigy: int = 0
+    not_in_threatmate: int = 0
 
 
 class DeviceListOut(BaseModel):
@@ -78,6 +82,19 @@ class DeviceListOut(BaseModel):
 
 class DeviceSettings(BaseModel):
     master_vendor: str | None = Field(default=None, pattern=_VENDOR)
+
+
+_APPLE_OS = re.compile(r"mac\s?os|os\s?x|darwin")
+
+
+def is_missing_from(d: DeviceOut, tool: str) -> bool:
+    """True when ``tool`` should report this device but does not. Addigy manages Apple computers only, so a device is only missing from it when it is a Mac;
+    ThreatMate covers every machine."""
+    if any(s.vendor == tool for s in d.sources):
+        return False
+    if tool == "addigy":
+        return bool(_APPLE_OS.search((d.os or "").lower()))
+    return True
 
 
 # ---- reading ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -165,12 +182,20 @@ async def list_devices(
     search: str | None = Query(default=None, max_length=100),
     vendor: str | None = Query(default=None, pattern=_VENDOR, description="Only devices this tool reports."),
     not_in_master: bool = Query(default=False, description="Only devices the master tool does not report."),
+    missing: str | None = Query(
+        default=None, pattern="^(addigy|threatmate)$", description="Only devices this tool should report but does not."
+    ),
 ) -> DeviceListOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
     master = _master_of(await db.get(Tenant, owner))
     everything = await _load(db, owner, scope, clients, master)
-    summary = DeviceSummary(total=len(everything), not_in_master=sum(1 for d in everything if not d.in_master))
+    summary = DeviceSummary(
+        total=len(everything),
+        not_in_master=sum(1 for d in everything if not d.in_master),
+        not_in_addigy=sum(1 for d in everything if is_missing_from(d, "addigy")),
+        not_in_threatmate=sum(1 for d in everything if is_missing_from(d, "threatmate")),
+    )
 
     rows = everything
     if search:
@@ -184,6 +209,8 @@ async def list_devices(
         rows = [d for d in rows if any(s.vendor == vendor for s in d.sources)]
     if not_in_master:
         rows = [d for d in rows if not d.in_master]
+    if missing:
+        rows = [d for d in rows if is_missing_from(d, missing)]
     rows.sort(key=lambda d: (d.client_name or "", d.hostname.lower()))
     total = len(rows)
     start = (page - 1) * page_size

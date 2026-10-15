@@ -527,7 +527,7 @@ export interface DeviceRow {
 
 export interface DeviceList {
   master_vendor: string | null;
-  summary: { total: number; not_in_master: number };
+  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number };
   items: DeviceRow[];
   total: number;
   page: number;
@@ -542,6 +542,8 @@ export interface DeviceQuery {
   search?: string;
   vendor?: string;
   notInMaster?: boolean;
+  /** Only devices this tool should report but does not (Addigy counts Macs only). */
+  missing?: 'addigy' | 'threatmate';
 }
 
 export const devicesApi = {
@@ -553,6 +555,7 @@ export const devicesApi = {
     if (q.search?.trim()) p.set('search', q.search.trim());
     if (q.vendor) p.set('vendor', q.vendor);
     if (q.notInMaster) p.set('not_in_master', 'true');
+    if (q.missing) p.set('missing', q.missing);
     const qs = p.toString();
     return request<DeviceList>(`/api/v1/devices${qs ? `?${qs}` : ''}`);
   },
