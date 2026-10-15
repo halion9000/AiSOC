@@ -31,6 +31,7 @@ from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.client_mapping import IncomingClient, upsert_clients
 from app.services.core_feed_cases import open_cases_for_new_alerts
+from app.services.iocs_from_alerts import sync_children_throttled as sync_iocs_throttled
 from app.services.mssp_snapshots import snapshot_children_throttled
 from app.services.vendor_actions import CLAIMED_TTL, PENDING_TTL
 
@@ -173,6 +174,13 @@ async def report_core_feed_status(tenant_token: str, body: StatusReport, db: DBS
             await db.commit()
     except Exception:
         logger.exception("core_feed.auto_cases_failed")
+        await db.rollback()
+    # Record public IPs and file hashes seen on alerts as Threat Intel indicators. Also best effort.
+    try:
+        if await sync_iocs_throttled(db, tenant_id):
+            await db.commit()
+    except Exception:
+        logger.exception("core_feed.iocs_from_alerts_failed")
         await db.rollback()
     return StatusResponse(updated=applied)
 

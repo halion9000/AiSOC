@@ -2925,7 +2925,8 @@ export const threatIntelApi = {
     // B4 fix: backend serves /iocs (flat IOCOut[]). Map fields to ThreatIndicator.
     // Backend has no server-side tag/q filter, so we apply them client-side.
     const params: Record<string, string> = {};
-    if (filters.type) params.ioc_type = filters.type;
+    // The backend stores hashes as file_hash_md5/sha1/sha256; the page groups them as 'hash', so that filter is applied below.
+    if (filters.type && filters.type !== 'hash') params.ioc_type = filters.type;
     const rawItems = await request<Array<{
       id: string;
       ioc_type: string;
@@ -2952,7 +2953,7 @@ export const threatIntelApi = {
 
     const mapped: ThreatIndicator[] = rawItems.map((ioc) => ({
       id: ioc.id,
-      type: ioc.ioc_type as IndicatorType,
+      type: (ioc.ioc_type.startsWith('file_hash') ? 'hash' : ioc.ioc_type) as IndicatorType,
       value: ioc.value,
       confidence: ioc.confidence,
       severity: ioc.severity as AlertSeverity,
@@ -2966,7 +2967,7 @@ export const threatIntelApi = {
     }));
 
     // Client-side filtering for tag and q since backend doesn't support them
-    let filtered = mapped;
+    let filtered = filters.type === 'hash' ? mapped.filter((i) => i.type === 'hash') : mapped;
     if (filters.tag) {
       filtered = filtered.filter((i) => i.tags?.includes(filters.tag!));
     }
