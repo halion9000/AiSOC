@@ -8,10 +8,18 @@ const BADGES: Record<string, { text: string; className: string }> = {
   blumira: { text: 'B', className: 'bg-cyan-600/80 text-white' },
 };
 
+const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra']);
+
 /** A small badge for the tool a client came from; hover shows the full name. */
 export default function VendorBadge({ vendor }: { vendor: string }) {
   const label = vendorLabel(vendor);
   const b = BADGES[vendor] ?? { text: label.charAt(0).toUpperCase(), className: 'bg-gray-600 text-white' };
+  if (LOGOS.has(vendor)) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={`/vendors/${vendor}.png`} alt={label} title={label} className="h-6 w-6 rounded-md bg-white/90 object-contain p-0.5" />
+    );
+  }
   return (
     <span
       title={label}
