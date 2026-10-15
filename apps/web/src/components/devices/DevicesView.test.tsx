@@ -49,7 +49,7 @@ describe('DevicesView', () => {
     const row = (await screen.findByText('FRONT-DESK')).closest('tr') as HTMLElement;
     expect(within(row).getByText('SER-1')).toBeInTheDocument();
     expect(within(row).getByAltText('NinjaOne')).toBeInTheDocument();
-    expect(within(row).getByLabelText('Addigy')).toBeInTheDocument();
+    expect(within(row).getByAltText('Addigy')).toBeInTheDocument();
     expect(screen.getByTestId('devices-total')).toHaveTextContent('1');
   });
 
