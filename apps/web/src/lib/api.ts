@@ -523,6 +523,19 @@ export interface DeviceRow {
   sources: DeviceSourceRef[];
   /** False when a master tool is set and none of its feeds reports this device. */
   in_master: boolean;
+  /** Open alerts that name this device (by hostname). */
+  open_alerts?: number;
+  /** The most severe few of those, newest first within a severity. */
+  alerts?: DeviceAlert[];
+}
+
+export interface DeviceAlert {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+  source: string | null;
+  created_at: string;
 }
 
 export interface DeviceList {

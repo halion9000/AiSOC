@@ -20999,6 +20999,41 @@ components:
       - created_at
       - updated_at
       title: DetectionRuleResponse
+    DeviceAlertOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        title:
+          type: string
+          title: Title
+        severity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Severity
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Created At
+      type: object
+      required:
+      - id
+      - title
+      title: DeviceAlertOut
     DeviceIn:
       properties:
         vendor:
@@ -21169,6 +21204,15 @@ components:
           type: boolean
           title: In Master
           default: true
+        open_alerts:
+          type: integer
+          title: Open Alerts
+          default: 0
+        alerts:
+          items:
+            $ref: '#/components/schemas/DeviceAlertOut'
+          type: array
+          title: Alerts
       type: object
       required:
       - id

@@ -254,6 +254,11 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
       <tr onClick={onToggle} className="cursor-pointer border-t border-gray-800 hover:bg-gray-900/60">
         <td className="px-3 py-2 font-medium text-white">
           {d.hostname}
+          {(d.open_alerts ?? 0) > 0 && (
+            <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[11px] text-red-300">
+              {d.open_alerts} open alert{d.open_alerts === 1 ? '' : 's'}
+            </span>
+          )}
           {!d.in_master && master && (
             <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-300">Not in {vendorLabel(master)}</span>
           )}
@@ -283,6 +288,22 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
                 <Field key={label} label={label} value={value} />
               ))}
             </dl>
+            {(d.alerts ?? []).length > 0 && (
+              <>
+                <h3 className="mb-1 mt-3 text-xs font-semibold uppercase text-gray-400">Open alerts on this device</h3>
+                <ul className="space-y-1">
+                  {(d.alerts ?? []).map((a) => (
+                    <li key={a.id} className="flex items-center gap-2">
+                      <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[11px] uppercase text-gray-300">{a.severity}</span>
+                      <a href={`/alerts/${a.id}`} className="text-blue-300 hover:underline" onClick={(e) => e.stopPropagation()}>
+                        {a.title}
+                      </a>
+                      <span className="ml-auto text-xs text-gray-500">{when(a.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
             <h3 className="mb-1 mt-3 text-xs font-semibold uppercase text-gray-400">Feeding this device</h3>
             <ul className="space-y-1">
               {d.sources.map((s) => (

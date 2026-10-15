@@ -19,12 +19,13 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.api.v1.endpoints.inbox_core_feed import _verify_core_feed_token
 from app.db.rls_scope import acting_as_tenant
 from app.db.rls_sessions import adopt_tenant
+from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
 from app.models.device import Device, DeviceSource
 from app.models.tenant import Tenant
@@ -45,6 +46,15 @@ class DeviceSourceOut(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class DeviceAlertOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    severity: str | None = None
+    status: str | None = None
+    source: str | None = None
+    created_at: datetime | None = None
+
+
 class DeviceOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -60,6 +70,9 @@ class DeviceOut(BaseModel):
     first_seen: datetime
     sources: list[DeviceSourceOut] = Field(default_factory=list)
     in_master: bool = True
+    # Open alerts whose record names this device (NinjaOne, ThreatMate, Addigy... send the device name). Counted by hostname within the client; the newest few are listed.
+    open_alerts: int = 0
+    alerts: list[DeviceAlertOut] = Field(default_factory=list)
 
 
 class DeviceSummary(BaseModel):
@@ -116,12 +129,44 @@ def _as(db: Any, owner: uuid.UUID, tid: uuid.UUID) -> Any:
     return contextlib.nullcontext() if tid == owner else acting_as_tenant(db, tid)
 
 
+_CLOSED = ("resolved", "false_positive", "fp", "closed")
+_ALERTS_PER_DEVICE = 5
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+async def _alerts_by_host(db: Any, tid: uuid.UUID) -> dict[str, list[DeviceAlertOut]]:
+    """This tenant's open alerts that name a device, grouped by lower-cased device name, worst severity then newest first. The caller has put ``db`` in the tenant's scope."""
+    host = func.lower(Alert.raw_event["unmapped"]["context"]["device_name"].astext)
+    rows = (
+        await db.execute(
+            select(
+                Alert.id,
+                Alert.title,
+                Alert.severity,
+                Alert.status,
+                Alert.created_at,
+                Alert.raw_event["source"].astext.label("source"),
+                host.label("host"),
+            ).where(Alert.tenant_id == tid, host.isnot(None), Alert.status.notin_(_CLOSED))
+        )
+    ).all()
+    grouped: dict[str, list[DeviceAlertOut]] = {}
+    for r in rows:
+        grouped.setdefault(r.host, []).append(
+            DeviceAlertOut(id=r.id, title=r.title, severity=r.severity, status=r.status, source=r.source, created_at=r.created_at)
+        )
+    for items in grouped.values():
+        items.sort(key=lambda a: (_SEVERITY_RANK.get((a.severity or "").lower(), 5), -(a.created_at.timestamp() if a.created_at else 0)))
+    return grouped
+
+
 async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[uuid.UUID, str], master: str | None) -> list[DeviceOut]:
     out: list[DeviceOut] = []
     for tid in tids:
         async with _as(db, owner, tid):
             devices = (await db.execute(select(Device).where(Device.tenant_id == tid))).scalars().all()
             sources = (await db.execute(select(DeviceSource).where(DeviceSource.tenant_id == tid))).scalars().all()
+            alerts = await _alerts_by_host(db, tid)
         by_device: dict[uuid.UUID, list[DeviceSource]] = {}
         for s in sources:
             by_device.setdefault(s.device_id, []).append(s)
@@ -143,6 +188,8 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     first_seen=d.first_seen,
                     sources=[DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}) for s in srcs],
                     in_master=master is None or any(s.vendor == master for s in srcs),
+                    open_alerts=len(alerts.get(d.hostname.lower(), [])),
+                    alerts=alerts.get(d.hostname.lower(), [])[:_ALERTS_PER_DEVICE],
                 )
             )
     return out

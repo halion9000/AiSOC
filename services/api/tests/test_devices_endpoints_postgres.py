@@ -1,5 +1,6 @@
 """Devices as CORE posts them and an MSSP parent reads them, against a REAL Postgres (AISOC_TEST_PG_URL / AISOC_TEST_PG_APP_URL, a disposable fully migrated database)."""
 
+import json
 import os
 import uuid
 from datetime import UTC, datetime
@@ -287,3 +288,54 @@ async def test_search_and_tool_filter(world):
         ),
     )
     assert [d.hostname for d in by_tool.items] == ["MAC-STUDIO"]
+
+
+async def test_open_alerts_naming_a_device_show_on_that_device_only(world):
+    p, a = world["parent"], world["acme"]
+    await session(
+        p,
+        lambda db: apply_devices(
+            db,
+            p,
+            DevicesReport(items=[dev("ninjaone", "5", "1", "ACME-PC", "SER-AL-1"), dev("ninjaone", "5", "2", "ACME-OTHER", "SER-AL-2")]),
+        ),
+    )
+
+    async def seed(db):
+        for title, sev, status, host in [
+            ("Disk almost full", "high", "new", "acme-pc"),  # lower-case in the alert, upper in the device: still the same device
+            ("CPU hot", "critical", "triaging", "ACME-PC"),
+            ("Old one", "high", "resolved", "ACME-PC"),  # closed: not counted
+            ("Elsewhere", "low", "new", "SOME-OTHER-BOX"),  # another device
+        ]:
+            await db.execute(
+                text("insert into alerts (tenant_id, title, severity, status, raw_event) values (:t, :ti, :s, :st, cast(:r as jsonb))"),
+                {
+                    "t": a,
+                    "ti": title,
+                    "s": sev,
+                    "st": status,
+                    "r": json.dumps({"source": "ninjaone", "unmapped": {"context": {"device_name": host}}}),
+                },
+            )
+
+    await session(a, seed)
+    try:
+        listing = await session(
+            p,
+            lambda db: list_devices(
+                user(p), db, client_id=a, search=None, vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+            ),
+        )
+        by_host = {d.hostname: d for d in listing.items}
+        pc = by_host["ACME-PC"]
+        assert pc.open_alerts == 2
+        assert [x.title for x in pc.alerts] == ["CPU hot", "Disk almost full"]  # worst severity first
+        assert pc.alerts[0].source == "ninjaone"
+        assert by_host["ACME-OTHER"].open_alerts == 0
+    finally:
+        owner = create_async_engine(PG_URL)
+        async with owner.begin() as conn:
+            await conn.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
+            await conn.execute(text("delete from alerts where tenant_id = :t"), {"t": a})
+        await owner.dispose()

@@ -168,4 +168,28 @@ describe('missing-from-tool cards', () => {
     await userEvent.click(screen.getByRole('button', { name: /Not in ThreatMate/ }));
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: undefined })));
   });
+
+  it('shows how many open alerts name a device, and lists them when the row is opened', async () => {
+    listMock.mockResolvedValue(
+      list([
+        device({
+          hostname: 'FRONT-DESK',
+          open_alerts: 2,
+          alerts: [
+            { id: 'a1', title: 'Disk space low', severity: 'high', status: 'new', source: 'ninjaone', created_at: NOW },
+            { id: 'a2', title: 'Patch failed', severity: 'low', status: 'new', source: 'ninjaone', created_at: NOW },
+          ],
+        }),
+        device({ hostname: 'QUIET-PC' }),
+      ]),
+    );
+    render(<DevicesView />);
+    const row = (await screen.findByText('FRONT-DESK')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('2 open alerts')).toBeInTheDocument();
+    const quiet = screen.getByText('QUIET-PC').closest('tr') as HTMLElement;
+    expect(within(quiet).queryByText(/open alert/)).not.toBeInTheDocument();
+    await userEvent.setup().click(row);
+    expect(screen.getByRole('link', { name: 'Disk space low' })).toHaveAttribute('href', '/alerts/a1');
+    expect(screen.getByRole('link', { name: 'Patch failed' })).toBeInTheDocument();
+  });
 });
