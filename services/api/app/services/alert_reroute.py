@@ -22,7 +22,12 @@ from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 
 # vendor -> the key in the record's context that holds that vendor's client id. Keep in step with services/fusion/app/services/client_routing.py.
-CLIENT_ID_FIELD: dict[str, str] = {"huntress": "organization_id", "petra": "petra_tenant_id", "ninjaone": "organization_id"}
+CLIENT_ID_FIELD: dict[str, str] = {
+    "huntress": "organization_id",
+    "petra": "petra_tenant_id",
+    "ninjaone": "organization_id",
+    "threatmate": "threatmate_client_id",
+}
 
 _MATCH = (
     "a.tenant_id = :parent AND a.raw_event->>'source' = :vendor "
