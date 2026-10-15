@@ -630,6 +630,22 @@ def _build_coverage(rules: list[DetectionRule], *, now: datetime | None = None) 
     )
 
 
+def _add_observed_gaps(coverage: CoverageResponse, observed: dict[str, dict[str, Any]]) -> CoverageResponse:
+    """Add a zero-rule cell for each technique seen on alerts that no rule covers. Existing cells are left as they are."""
+    known = {c.techniqueId for c in coverage.cells}
+    extra = [
+        CoverageCell(techniqueId=tid, tactic=cell.get("tactic"), totalRules=0, activeRules=0, inactiveRules=0)
+        for tid, cell in sorted(observed.items())
+        if tid not in known
+    ]
+    if not extra:
+        return coverage
+    cells = sorted([*coverage.cells, *extra], key=lambda c: (c.tactic or "zzz-unmapped", c.techniqueId))
+    tactics = sorted({*coverage.tactics, *(c.tactic for c in extra if c.tactic)})
+    summary = coverage.summary.model_copy(update={"techniques": len(cells)})
+    return coverage.model_copy(update={"cells": cells, "tactics": tactics, "summary": summary})
+
+
 def _build_drift(
     rules: list[DetectionRule],
     *,
@@ -913,7 +929,12 @@ async def get_detection_coverage(
         )
     )
     rules = (await db.execute(stmt)).scalars().all()
-    return _build_coverage(list(rules))
+    coverage = _build_coverage(list(rules))
+
+    # Techniques seen on real alerts that no rule maps to appear as gaps (0 rules), so blind spots are visible.
+    from app.services.mitre_from_alerts import observed_techniques
+
+    return _add_observed_gaps(coverage, await observed_techniques(db, tid))
 
 
 @router.post("/rules/bulk-toggle", response_model=BulkToggleResponse)

@@ -428,6 +428,7 @@ async def get_mitre_coverage(
     dependencies=[Depends(require_permission("alerts:read"))],
 )
 async def get_mitre_coverage_compat(
+    db: DBSession,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> MitreCoverageResponse:
     """Aggregated MITRE coverage in the shape the analyst console expects.
@@ -441,22 +442,28 @@ async def get_mitre_coverage_compat(
     from datetime import UTC as _UTC
     from datetime import datetime as _dt
 
+    records: list[dict[str, Any]] = []
     try:
         records = await graph_service.get_mitre_coverage(
             tenant_id=str(current_user.tenant_id),
         )
     except Exception as exc:
-        if _is_graph_unavailable(exc):
-            logger.info(
-                "MITRE coverage (compat): graph backend unavailable; empty",
-                exc_info=False,
-            )
-            return MitreCoverageResponse(
-                tactics=[],
-                cells=[],
-                generatedAt=_dt.now(_UTC).isoformat(),
-            )
-        raise _query_failed(exc) from exc
+        if not _is_graph_unavailable(exc):
+            raise _query_failed(exc) from exc
+        logger.info(
+            "MITRE coverage (compat): graph backend unavailable; using alerts",
+            exc_info=False,
+        )
+
+    if not records:
+        # No graph (or nothing in it): fall back to the techniques the alerts themselves carry.
+        from app.services.mitre_from_alerts import observed_techniques
+
+        observed = await observed_techniques(db, current_user.tenant_id)
+        records = [
+            {"technique_id": tid, "name": tid, "tactic": cell["tactic"], "alert_count": cell["alerts"]}
+            for tid, cell in sorted(observed.items())
+        ]
 
     cells: list[MitreCoverageCell] = []
     tactics: set[str] = set()
