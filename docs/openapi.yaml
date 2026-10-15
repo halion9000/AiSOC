@@ -411,7 +411,15 @@ paths:
       tags:
       - alerts
       summary: List Alerts
-      description: 'List alerts for the current tenant with filtering and pagination.
+      description: 'List alerts for the current tenant and its client tenants, with
+        filtering and pagination.
+
+
+        An MSSP parent sees its own alerts plus those of its client tenants (each
+        row carries ``client_name``); ``client_id`` narrows the list to
+
+        one tenant (the caller''s own or one of its clients). A tenant with no clients
+        sees only its own alerts, as before.
 
 
         `source` is the tool an alert came from as CORE names it (``huntress``, ``petra``,
@@ -519,6 +527,15 @@ paths:
             pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
           - type: 'null'
           title: Source
+      - name: client_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Client Id
       responses:
         '200':
           description: Successful Response
@@ -16310,6 +16327,11 @@ components:
           type: string
           format: date-time
           title: Updated At
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
         narrative:
           anyOf:
           - type: string
@@ -16551,6 +16573,10 @@ components:
       title: AlertLinkOut
     AlertListResponse:
       properties:
+        summary:
+          anyOf:
+          - $ref: '#/components/schemas/AlertSummary'
+          - type: 'null'
         items:
           items:
             $ref: '#/components/schemas/AlertResponse'
@@ -16817,6 +16843,11 @@ components:
           type: string
           format: date-time
           title: Updated At
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
       type: object
       required:
       - id
@@ -16953,6 +16984,29 @@ components:
         This deliberately bypasses the Kafka detection/correlation pipeline\n(which\
         \ fresh clones don't run by default) so the documented \"alert in\nseconds\"\
         \ promise in the quickstart actually holds."
+    AlertSummary:
+      properties:
+        total:
+          type: integer
+          title: Total
+        critical:
+          type: integer
+          title: Critical
+        high:
+          type: integer
+          title: High
+        unresolved:
+          type: integer
+          title: Unresolved
+      type: object
+      required:
+      - total
+      - critical
+      - high
+      - unresolved
+      title: AlertSummary
+      description: 'The tally above the alerts list: counts over the whole scope (own
+        + clients, or the one client chosen), ignoring the severity / status filters.'
     AlertUpdateRequest:
       properties:
         status:

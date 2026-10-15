@@ -45,4 +45,25 @@ describe('alertsApi.list', () => {
     const out = await alertsApi.list();
     expect(out.alerts.map((a) => a.source)).toEqual(['ninjaone', 'okta']);
   });
+
+  it('sends the client and page size under the API\'s snake_case names and keeps the client name', async () => {
+    let url = '';
+    vi.stubGlobal('fetch', async (u: string) => {
+      url = String(u);
+      return json({ items: [{ id: 'k1', title: 'x', severity: 'low', status: 'new', client_name: 'Setpoint', created_at: '2026-10-13T00:00:00Z' }], total: 1 });
+    });
+    const out = await alertsApi.list({ clientId: 'abc-123', pageSize: 50, severity: 'high' });
+    expect(url).toContain('client_id=abc-123');
+    expect(url).toContain('page_size=50');
+    expect(url).toContain('severity=high');
+    expect(url).not.toContain('clientId');
+    expect(out.alerts[0].clientName).toBe('Setpoint');
+  });
+
+  it('passes the server tally through', async () => {
+    vi.stubGlobal('fetch', async () => json({ summary: { total: 540, critical: 26, high: 21, unresolved: 255 }, items: [], total: 21 }));
+    const out = await alertsApi.list({ severity: 'high' });
+    expect(out.summary).toEqual({ total: 540, critical: 26, high: 21, unresolved: 255 });
+    expect(out.total).toBe(21);
+  });
 });

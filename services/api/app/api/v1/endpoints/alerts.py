@@ -13,7 +13,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.db.rls import TenantDBSession
+from app.db.rls_scope import acting_as_tenant
 from app.models.alert import Alert
+from app.models.tenant import Tenant
 from app.services.alert_queue import (
     AlertAlreadyClaimedError,
     AlertNotFoundError,
@@ -98,6 +100,8 @@ class AlertResponse(BaseModel):
     snoozed_by_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
+    # Set by the list when the alert belongs to one of the caller's client tenants (an MSSP parent's view).
+    client_name: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -135,7 +139,20 @@ class AlertSnoozeRequest(BaseModel):
     reason: str | None = None
 
 
+class AlertSummary(BaseModel):
+    """The tally above the alerts list: counts over the whole scope (own + clients, or the one client chosen), ignoring the severity / status filters."""
+
+    total: int
+    critical: int
+    high: int
+    unresolved: int
+
+
+_UNRESOLVED = {"new", "triaging", "in_progress", "investigating"}
+
+
 class AlertListResponse(BaseModel):
+    summary: AlertSummary | None = None
     items: list[AlertResponse]
     total: int
     page: int
@@ -628,8 +645,12 @@ async def list_alerts(
     min_confidence: int | None = Query(default=None, ge=0, le=100),
     confidence_label: str | None = Query(default=None),
     source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$"),
+    client_id: uuid.UUID | None = Query(default=None),
 ) -> AlertListResponse:
-    """List alerts for the current tenant with filtering and pagination.
+    """List alerts for the current tenant and its client tenants, with filtering and pagination.
+
+    An MSSP parent sees its own alerts plus those of its client tenants (each row carries ``client_name``); ``client_id`` narrows the list to
+    one tenant (the caller's own or one of its clients). A tenant with no clients sees only its own alerts, as before.
 
     `source` is the tool an alert came from as CORE names it (``huntress``, ``petra``, ``blumira``). Alerts forwarded by CORE arrive through the generic JSON inbox, so their
     product is all "Generic JSON"; the tool is the sender's own ``source`` field, which the inbox template keeps at ``raw_event.source``.
@@ -640,45 +661,82 @@ async def list_alerts(
     match either filter — that's intentional; analysts who care about
     confidence should only see alerts that actually carry the signal.
     """
-    filters = [Alert.tenant_id == current_user.tenant_id]
+    if confidence_label is not None and confidence_label not in {"high", "medium", "low"}:
+        # NOTE: the local `status` query parameter shadows the `fastapi.status` module here, so use the literal 400.
+        raise HTTPException(status_code=400, detail="confidence_label must be one of: high, medium, low")
 
-    if severity:
-        filters.append(Alert.severity == severity)
-    if status:
-        filters.append(Alert.status == status)
-    if category:
-        filters.append(Alert.category == category)
-    if assigned_to_me:
-        filters.append(Alert.assigned_to_id == current_user.user_id)
-    if source:
-        filters.append(Alert.raw_event["source"].astext == source)
-    if min_confidence is not None:
-        filters.append(Alert.confidence >= min_confidence)
-    if confidence_label is not None:
-        if confidence_label not in {"high", "medium", "low"}:
-            # NOTE: the local `status` query parameter shadows the
-            # `fastapi.status` module here, so use the literal 400.
-            raise HTTPException(
-                status_code=400,
-                detail="confidence_label must be one of: high, medium, low",
-            )
-        filters.append(Alert.confidence_label == confidence_label)
+    def filters_for(tenant_id: uuid.UUID) -> list:
+        filters = [Alert.tenant_id == tenant_id]
+        if severity:
+            filters.append(Alert.severity == severity)
+        if status:
+            filters.append(Alert.status == status)
+        if category:
+            filters.append(Alert.category == category)
+        if assigned_to_me:
+            filters.append(Alert.assigned_to_id == current_user.user_id)
+        if source:
+            filters.append(Alert.raw_event["source"].astext == source)
+        if min_confidence is not None:
+            filters.append(Alert.confidence >= min_confidence)
+        if confidence_label is not None:
+            filters.append(Alert.confidence_label == confidence_label)
+        return filters
 
-    # Count
-    count_result = await db.execute(select(func.count()).select_from(Alert).where(and_(*filters)))
-    total = count_result.scalar_one()
+    # The caller's client tenants (empty for an ordinary tenant).
+    clients = {
+        row.id: row.name
+        for row in (await db.execute(select(Tenant.id, Tenant.name).where(Tenant.parent_tenant_id == current_user.tenant_id))).all()
+    }
+    if client_id is not None and client_id != current_user.tenant_id and client_id not in clients:
+        raise HTTPException(status_code=404, detail="Client not found")
+    scope = [client_id] if client_id is not None else [current_user.tenant_id, *clients]
 
-    # Fetch
     offset = (page - 1) * page_size
-    result = await db.execute(select(Alert).where(and_(*filters)).order_by(Alert.created_at.desc()).offset(offset).limit(page_size))
-    alerts = result.scalars().all()
+    if len(scope) == 1 and scope[0] == current_user.tenant_id:
+        # The common case: one tenant, one paginated query.
+        flt = and_(*filters_for(scope[0]))
+        total = (await db.execute(select(func.count()).select_from(Alert).where(flt))).scalar_one()
+        rows = (
+            (await db.execute(select(Alert).where(flt).order_by(Alert.created_at.desc()).offset(offset).limit(page_size))).scalars().all()
+        )
+    else:
+        # Several tenants: each is read as itself (row-level security keeps every read inside one tenant), then merged newest first.
+        total = 0
+        merged: list[Alert] = []
+        for tid in scope:
+            flt = and_(*filters_for(tid))
+            async with acting_as_tenant(db, tid):
+                total += (await db.execute(select(func.count()).select_from(Alert).where(flt))).scalar_one()
+                merged.extend(
+                    (await db.execute(select(Alert).where(flt).order_by(Alert.created_at.desc()).limit(offset + page_size))).scalars().all()
+                )
+        merged.sort(key=lambda a: a.created_at if a.created_at.tzinfo else a.created_at.replace(tzinfo=UTC), reverse=True)
+        rows = merged[offset : offset + page_size]
 
+    # The tally covers the whole scope, so it doesn't change as the severity / status buttons are used.
+    tally = {"total": 0, "critical": 0, "high": 0, "unresolved": 0}
+    for tid in scope:
+        base = and_(Alert.tenant_id == tid, Alert.raw_event["source"].astext == source) if source else Alert.tenant_id == tid
+        query = select(Alert.severity, Alert.status, func.count()).where(base).group_by(Alert.severity, Alert.status)
+        if len(scope) == 1 and scope[0] == current_user.tenant_id:
+            grouped = (await db.execute(query)).all()
+        else:
+            async with acting_as_tenant(db, tid):
+                grouped = (await db.execute(query)).all()
+        for sev, st, n in grouped:
+            tally["total"] += n
+            tally["critical"] += n if sev == "critical" else 0
+            tally["high"] += n if sev == "high" else 0
+            tally["unresolved"] += n if st in _UNRESOLVED else 0
+
+    items = []
+    for a in rows:
+        item = AlertResponse.model_validate(a)
+        item.client_name = clients.get(a.tenant_id)
+        items.append(item)
     return AlertListResponse(
-        items=[AlertResponse.model_validate(a) for a in alerts],
-        total=total,
-        page=page,
-        page_size=page_size,
-        pages=(total + page_size - 1) // page_size,
+        summary=AlertSummary(**tally), items=items, total=total, page=page, page_size=page_size, pages=(total + page_size - 1) // page_size
     )
 
 

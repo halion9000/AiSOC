@@ -662,6 +662,8 @@ export interface Alert {
   source: string;
   sourceRef?: string;
   tenantId: string;
+  /** The client tenant the alert belongs to, when the list is an MSSP parent's. */
+  clientName?: string;
   riskScore: number;
   mitreAttack?: MitreAttack[];
   iocs?: AlertIOC[];
@@ -852,6 +854,7 @@ function normalizeAlert(raw: unknown): Alert {
       'unknown',
     sourceRef: pickStr('source_ref', 'sourceRef'),
     tenantId: pickStr('tenant_id', 'tenantId') ?? '',
+    clientName: pickStr('client_name', 'clientName'),
     riskScore,
     mitreAttack,
     iocs: pickArr<AlertIOC>('iocs', 'iocs'),
@@ -888,6 +891,8 @@ function normalizeAlert(raw: unknown): Alert {
 
 export interface AlertsResponse {
   alerts: Alert[];
+  /** Counts over the whole scope (all clients, or the one chosen), not just this page or the severity / status filter. */
+  summary?: { total: number; critical: number; high: number; unresolved: number };
   total: number;
   page: number;
   pageSize: number;
@@ -904,6 +909,8 @@ export interface AlertFilters {
   page?: number;
   pageSize?: number;
   tenantId?: string;
+  /** Narrow an MSSP parent's list to one client tenant. */
+  clientId?: string;
 }
 
 export interface VendorRemediation {
@@ -963,6 +970,7 @@ export const alertsApi = {
   create: (body: Record<string, unknown>) => request<{ id: string }>('/api/v1/alerts/submit', { method: 'POST', body: JSON.stringify(body) }),
   list: async (filters: AlertFilters = {}) => {
     const raw = await request<{
+      summary?: { total?: number; critical?: number; high?: number; unresolved?: number };
       items?: unknown[];
       alerts?: unknown[];
       total?: number;
@@ -970,11 +978,23 @@ export const alertsApi = {
       page_size?: number;
       pageSize?: number;
     }>('/api/v1/alerts', {
-      params: filters as Record<string, string>,
+      // The API's query names are snake_case; `pageSize` and `clientId` would otherwise be ignored.
+      params: (() => {
+        const { pageSize, clientId, ...rest } = filters;
+        return { ...rest, page_size: pageSize, client_id: clientId } as unknown as Record<string, string>;
+      })(),
     });
     return {
       // The API sends the rows as `items` (AlertListResponse). Reading only `alerts` showed the right total over an empty list. `alerts` is still accepted.
       alerts: (Array.isArray(raw.items) ? raw.items : Array.isArray(raw.alerts) ? raw.alerts : []).map(normalizeAlert),
+      summary: raw.summary
+        ? {
+            total: raw.summary.total ?? 0,
+            critical: raw.summary.critical ?? 0,
+            high: raw.summary.high ?? 0,
+            unresolved: raw.summary.unresolved ?? 0,
+          }
+        : undefined,
       total: typeof raw.total === 'number' ? raw.total : 0,
       page: typeof raw.page === 'number' ? raw.page : 1,
       pageSize:

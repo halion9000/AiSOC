@@ -271,6 +271,7 @@ _LIST_ALERTS_DEFAULTS: dict[str, Any] = {
     "min_confidence": None,
     "confidence_label": None,
     "source": None,
+    "client_id": None,
 }
 
 
@@ -278,8 +279,8 @@ _LIST_ALERTS_DEFAULTS: dict[str, Any] = {
 async def test_list_alerts_scopes_by_tenant() -> None:
     """Both the count and the SELECT for /alerts must filter on tenant_id."""
     user = _user()
-    # ``list_alerts`` runs two queries: count (scalar_one int) + select.
-    db = _mk_db([3, [_alert(user.tenant_id), _alert(user.tenant_id), _alert(user.tenant_id)]])
+    # ``list_alerts`` runs three queries: the caller's client tenants (none here), then count (scalar_one int) + select.
+    db = _mk_db([[], 3, [_alert(user.tenant_id), _alert(user.tenant_id), _alert(user.tenant_id)]])  # clients, count, rows
     response = await list_alerts(current_user=user, db=db, **_LIST_ALERTS_DEFAULTS)
     assert response.total == 3
     assert len(response.items) == 3
@@ -290,7 +291,7 @@ async def test_list_alerts_scopes_by_tenant() -> None:
 async def test_list_alerts_with_filters_keeps_tenant_scope() -> None:
     """Severity/status/category/min_confidence filters must not relax tenant scope."""
     user = _user()
-    db = _mk_db([0, []])
+    db = _mk_db([[], 0, []])
     kwargs = {
         **_LIST_ALERTS_DEFAULTS,
         "severity": "critical",
@@ -314,10 +315,10 @@ async def test_list_alerts_with_filters_keeps_tenant_scope() -> None:
 async def test_list_alerts_source_filter_matches_the_records_source_and_keeps_tenant_scope() -> None:
     """Filtering by tool ("huntress") narrows on the original record's source field, still inside the caller's tenant."""
     user = _user()
-    db = _mk_db([0, []])
+    db = _mk_db([[], 0, []])
     await list_alerts(current_user=user, db=db, **{**_LIST_ALERTS_DEFAULTS, "source": "huntress"})
     _assert_tenant_scoped(db.executed, user.tenant_id)
-    sql, params = db.executed[0]
+    sql, params = next(e for e in db.executed if "raw_event" in e[0])
     assert "raw_event" in sql and "=" in sql
     assert "source" in params.values() and "huntress" in params.values(), params
 
@@ -325,7 +326,7 @@ async def test_list_alerts_source_filter_matches_the_records_source_and_keeps_te
 @pytest.mark.asyncio
 async def test_list_alerts_without_a_source_does_not_filter_on_raw_data() -> None:
     user = _user()
-    db = _mk_db([0, []])
+    db = _mk_db([[], 0, []])
     await list_alerts(current_user=user, db=db, **_LIST_ALERTS_DEFAULTS)
     assert all("huntress" not in str(params.values()) for _, params in db.executed)
 

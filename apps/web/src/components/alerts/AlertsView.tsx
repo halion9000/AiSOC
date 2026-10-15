@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { alertsApi, connectorsApi, type Alert, type AlertFilters, type ConfidenceLabel } from '@/lib/api';
+import { alertsApi, connectorsApi, msspApi, type Alert, type AlertFilters, type ConfidenceLabel } from '@/lib/api';
 import { clsx } from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
 import { EntityRiskQueue } from './EntityRiskQueue';
@@ -115,6 +115,9 @@ function FiltersBar({
   // The tools CORE forwards from (Huntress, Petra, ...), so alerts can be narrowed to one of them. Hidden when there are none.
   const { data: connectorData } = useSWR('alert-source-options', () => connectorsApi.list(), { shouldRetryOnError: false });
   const sources = sourceOptions(connectorData?.connectors ?? []);
+  // An MSSP parent's client tenants, so the list can be narrowed to one client. Hidden when there are none.
+  const { data: clientData } = useSWR('alert-client-options', () => msspApi.listChildren(), { shouldRetryOnError: false });
+  const clients = Array.isArray(clientData) ? [...clientData].sort((a, b) => a.name.localeCompare(b.name)) : [];
   const severities = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
   const statuses = ['all', 'new', 'investigating', 'resolved', 'false_positive'] as const;
 
@@ -171,6 +174,24 @@ function FiltersBar({
           </select>
         </>
       )}
+      {clients.length > 0 && (
+        <>
+          <div className="w-px h-4 bg-gray-700" />
+          <select
+            aria-label="Client"
+            value={filters.clientId ?? ''}
+            onChange={(e) => onChange({ ...filters, clientId: e.target.value || undefined, page: 1 })}
+            className="text-xs bg-gray-900 border border-gray-700 text-gray-300 rounded-lg px-2 py-1"
+          >
+            <option value="">All clients</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
       <span className="ml-auto text-xs text-gray-600">{total} total</span>
     </div>
   );
@@ -222,6 +243,12 @@ function AlertRow({
           )}
         </div>
         <div className="flex items-center gap-2 mt-0.5">
+          {alert.clientName && (
+            <>
+              <span className="text-xs text-blue-400/80">{alert.clientName}</span>
+              <span className="text-gray-700">·</span>
+            </>
+          )}
           <span className="text-xs text-gray-600">{alert.source}</span>
           {alert.assignee && (
             <>
@@ -268,10 +295,12 @@ export function AlertsView() {
 
   const alerts = data?.alerts || [];
   const total = data?.total || 0;
+  const scopeTotal = data?.summary?.total ?? total;
 
-  const critCount = alerts.filter((a) => a.severity === 'critical').length;
-  const highCount = alerts.filter((a) => a.severity === 'high').length;
-  const newCount = alerts.filter((a) => a.status === 'new').length;
+  // The tally comes from the server and covers every alert in scope; counting the rows on this page would change with the filters and the page size.
+  const critCount = data?.summary?.critical ?? alerts.filter((a) => a.severity === 'critical').length;
+  const highCount = data?.summary?.high ?? alerts.filter((a) => a.severity === 'high').length;
+  const newCount = data?.summary?.unresolved ?? alerts.filter((a) => a.status === 'new').length;
 
   return (
     <div className="space-y-4">
@@ -339,6 +368,7 @@ export function AlertsView() {
         <AlertsTable
           alerts={alerts}
           total={total}
+          scopeTotal={scopeTotal}
           critCount={critCount}
           highCount={highCount}
           newCount={newCount}
@@ -357,6 +387,7 @@ export function AlertsView() {
 function AlertsTable({
   alerts,
   total,
+  scopeTotal,
   critCount,
   highCount,
   newCount,
@@ -367,6 +398,7 @@ function AlertsTable({
 }: {
   alerts: Alert[];
   total: number;
+  scopeTotal: number;
   critCount: number;
   highCount: number;
   newCount: number;
@@ -386,7 +418,7 @@ function AlertsTable({
       {/* Stats strip (full width) */}
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: 'Total', value: total, color: 'text-gray-200' },
+          { label: 'Total', value: scopeTotal, color: 'text-gray-200' },
           { label: 'Critical', value: critCount, color: 'text-red-400' },
           { label: 'High', value: highCount, color: 'text-orange-400' },
           { label: 'Unresolved', value: newCount, color: 'text-purple-400' },
@@ -504,7 +536,7 @@ function AlertsTableGrid({
             filter-aware copy is the difference between an analyst thinking
             "the system is broken" and "I should clear my filters".
           */}
-          {filters.severity || filters.status || filters.source ? (
+          {filters.severity || filters.status || filters.source || filters.clientId ? (
             <EmptyState
               icon={EmptyStateIcons.search}
               title="No alerts match these filters"
