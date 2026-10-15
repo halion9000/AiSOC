@@ -32,6 +32,7 @@ from app.api.v1.endpoints.insights import (
     MANUAL_INVESTIGATION_MINUTES,
     SOCInsightsResponse,
     _delta_pct,
+    _merge_parts,
     _window_to_timedelta,
     get_soc_insights,
 )
@@ -239,3 +240,55 @@ async def test_get_soc_insights_zero_state_renders_without_500() -> None:
         # Both current and previous are zero, so delta is undefined.
         assert tile.value == 0 or tile.value == 0.0
         assert tile.delta_pct is None
+
+
+def _part(alerts: int, mtta: tuple[float, int], fp: tuple[int, int], spark: float) -> dict:
+    out: dict = {}
+    for tag in ("", "prev_"):
+        out[tag + "mtta"] = mtta
+        out[tag + "mttr"] = (0.0, 0)
+        out[tag + "fp"] = fp
+        out[tag + "alerts"] = alerts
+        out[tag + "cases"] = 0
+        out[tag + "runs"] = 0
+        out[tag + "cost"] = 0.0
+        out[tag + "auto_closed"] = 0
+    out["alert_spark"] = [spark] * 24
+    out["case_spark"] = [0.0] * 24
+    out["cost_spark"] = [0.0] * 24
+    return out
+
+
+def test_merge_parts_rolls_clients_into_parent() -> None:
+    """Parent has nothing; clients hold the alerts — totals must include them."""
+    parent = _part(0, (0.0, 0), (0, 0), 0.0)
+    a = _part(20, (1.0, 10), (1, 4), 1.0)
+    b = _part(8, (4.0, 30), (3, 4), 2.0)
+
+    total = _merge_parts([parent, a, b])
+
+    assert total["alerts"] == 28
+    # weighted by sample size: (1*10 + 4*30) / 40 = 3.25, not the plain 2.5
+    assert total["mtta"] == 3.25
+    assert total["fp"] == 0.5  # 4 false positives of 8 dispositioned
+    assert total["alert_spark"] == [3.0] * 24
+    assert total["mttr"] == 0.0  # no samples anywhere: zero, not a divide error
+
+
+@pytest.mark.asyncio
+async def test_get_soc_insights_includes_child_tenants() -> None:
+    """Every client tenant under the caller is queried, not just the caller."""
+    child_ids = [uuid.uuid4(), uuid.uuid4()]
+    db = _seeded_db(scalar_value=2)
+
+    async def _execute(stmt, *_a, **_k):
+        if "parent_tenant_id" in str(stmt):
+            return _FakeResult(rows=[(c,) for c in child_ids])
+        return _FakeResult()
+
+    db.execute = AsyncMock(side_effect=_execute)
+    response = await get_soc_insights(user=_stub_user(), db=db, window="7d")
+
+    alerts_tile = next(t for t in response.tiles if t.key == "alerts_per_day")
+    # 3 tenants x 2 alerts each / 7 days
+    assert alerts_tile.value == round(6 / 7, 2)

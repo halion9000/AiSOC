@@ -57,7 +57,9 @@ from sqlalchemy import and_, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
+from app.db.rls_scope import acting_as_tenant
 from app.models.alert import Alert
+from app.models.tenant import Tenant
 from app.services import case_metrics
 
 logger = logging.getLogger(__name__)
@@ -117,7 +119,7 @@ class InsightTile(BaseModel):
         )
     )
     previous_value: float = Field(
-        description=("Value of the same metric over the immediately preceding " "window of equal length. Used to compute the delta.")
+        description=("Value of the same metric over the immediately preceding window of equal length. Used to compute the delta.")
     )
     delta_pct: float | None = Field(
         default=None,
@@ -366,6 +368,56 @@ async def _llm_cost_sparkline(
     return buckets
 
 
+async def _mean_parts(db, tenant_id, start, end, *, start_col, end_col) -> tuple[float, int]:
+    """``(mean_hours, sample_count)`` so means from several tenants can be weighted."""
+    mean = await _mean_hours(db, tenant_id, start, end, start_col=start_col, end_col=end_col)
+    n = await _count(db, Alert, tenant_id, start, end, start_col.isnot(None), end_col.isnot(None))
+    return mean, n
+
+
+async def _fp_parts(db, tenant_id, start, end) -> tuple[int, int]:
+    """``(false_positives, dispositioned)`` for one tenant."""
+    base = [Alert.tenant_id == tenant_id, Alert.created_at >= start, Alert.created_at < end]
+    total = int(await db.scalar(select(func.count()).where(and_(*base, Alert.disposition.isnot(None)))) or 0)
+    fp = int(await db.scalar(select(func.count()).where(and_(*base, Alert.disposition == "false_positive"))) or 0) if total else 0
+    return fp, total
+
+
+async def _tenant_parts(db, tid, start, now, prev_start) -> dict:
+    """Raw, mergeable numbers for one tenant (means carry their sample size)."""
+    out: dict = {}
+    for tag, (a, b) in (("", (start, now)), ("prev_", (prev_start, start))):
+        out[tag + "mtta"] = await _mean_parts(db, tid, a, b, start_col=Alert.created_at, end_col=Alert.first_seen_at)
+        out[tag + "mttr"] = await _mean_parts(db, tid, a, b, start_col=Alert.created_at, end_col=Alert.resolved_at)
+        out[tag + "fp"] = await _fp_parts(db, tid, a, b)
+        out[tag + "alerts"] = await _count(db, Alert, tid, a, b)
+        out[tag + "cases"] = await case_metrics.count_created(db, tid, a, b)
+        cost, runs = await _llm_cost_aggregate(db, tid, a, b)
+        out[tag + "cost"], out[tag + "runs"] = cost, runs
+        out[tag + "auto_closed"] = await case_metrics.count_created(db, tid, a, b, statuses=case_metrics.FINISHED)
+    out["alert_spark"] = await _alert_sparkline(db, tid, start, now)
+    out["case_spark"] = await _case_sparkline(db, tid, start, now)
+    out["cost_spark"] = await _llm_cost_sparkline(db, tid, start, now)
+    return out
+
+
+def _merge_parts(parts: list[dict]) -> dict:
+    """Sum counts and sparklines; weight means by sample size; FP rate over all dispositioned alerts."""
+    m: dict = {}
+    for tag in ("", "prev_"):
+        for k in ("mtta", "mttr"):
+            n = sum(p[tag + k][1] for p in parts)
+            m[tag + k] = round(sum(p[tag + k][0] * p[tag + k][1] for p in parts) / n, 2) if n else 0.0
+        fp, tot = sum(p[tag + "fp"][0] for p in parts), sum(p[tag + "fp"][1] for p in parts)
+        m[tag + "fp"] = round(fp / tot, 4) if tot else 0.0
+        for k in ("alerts", "cases", "runs", "auto_closed"):
+            m[tag + k] = sum(p[tag + k] for p in parts)
+        m[tag + "cost"] = sum(p[tag + "cost"] for p in parts)
+    for k in ("alert_spark", "case_spark", "cost_spark"):
+        m[k] = [sum(col) for col in zip(*[p[k] for p in parts], strict=True)]
+    return m
+
+
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
@@ -398,53 +450,30 @@ async def get_soc_insights(
     prev_start = start - delta
     window_days = max(_VALID_WINDOWS[window], 1)
 
-    # ── Window-current values ─────────────────────────────────────────────
-    mtta_hours = await _mean_hours(
-        db,
-        tenant_id,
-        start,
-        now,
-        start_col=Alert.created_at,
-        end_col=Alert.first_seen_at,
-    )
-    mttr_hours = await _mean_hours(
-        db,
-        tenant_id,
-        start,
-        now,
-        start_col=Alert.created_at,
-        end_col=Alert.resolved_at,
-    )
-    fp_rate = await _fp_rate(db, tenant_id, start, now)
-    alert_count = await _count(db, Alert, tenant_id, start, now)
-    case_count = await case_metrics.count_created(db, tenant_id, start, now)
-    cost_total, run_count = await _llm_cost_aggregate(db, tenant_id, start, now)
-    auto_closed = await case_metrics.count_created(db, tenant_id, start, now, statuses=case_metrics.FINISHED)
+    # An MSSP parent's own tenant holds few or no alerts: the CORE feeds land
+    # in the child client tenants. Roll the parent and every client up, one
+    # tenant at a time (row-level security only shows one tenant per scope).
+    child_rows = (await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == tenant_id))).all()
+    scope_ids = [tenant_id, *[r[0] for r in child_rows]]
+    parts = []
+    for tid in scope_ids:
+        if tid == tenant_id:
+            parts.append(await _tenant_parts(db, tid, start, now, prev_start))
+        else:
+            async with acting_as_tenant(db, tid):
+                parts.append(await _tenant_parts(db, tid, start, now, prev_start))
+    total = _merge_parts(parts)
 
-    # ── Previous-window comparisons for delta ─────────────────────────────
-    prev_mtta = await _mean_hours(
-        db,
-        tenant_id,
-        prev_start,
-        start,
-        start_col=Alert.created_at,
-        end_col=Alert.first_seen_at,
-    )
-    prev_mttr = await _mean_hours(
-        db,
-        tenant_id,
-        prev_start,
-        start,
-        start_col=Alert.created_at,
-        end_col=Alert.resolved_at,
-    )
-    prev_fp_rate = await _fp_rate(db, tenant_id, prev_start, start)
-    prev_alert_count = await _count(db, Alert, tenant_id, prev_start, start)
-    prev_case_count = await case_metrics.count_created(db, tenant_id, prev_start, start)
-    prev_cost_total, prev_run_count = await _llm_cost_aggregate(db, tenant_id, prev_start, start)
-    prev_auto_closed = await case_metrics.count_created(db, tenant_id, prev_start, start, statuses=case_metrics.FINISHED)
+    mtta_hours, prev_mtta = total["mtta"], total["prev_mtta"]
+    mttr_hours, prev_mttr = total["mttr"], total["prev_mttr"]
+    fp_rate, prev_fp_rate = total["fp"], total["prev_fp"]
+    alert_count, prev_alert_count = total["alerts"], total["prev_alerts"]
+    case_count, prev_case_count = total["cases"], total["prev_cases"]
+    cost_total, run_count = total["cost"], total["runs"]
+    prev_cost_total, prev_run_count = total["prev_cost"], total["prev_runs"]
+    auto_closed, prev_auto_closed = total["auto_closed"], total["prev_auto_closed"]
+    alert_spark, case_spark, cost_spark = total["alert_spark"], total["case_spark"], total["cost_spark"]
 
-    # ── Derived ───────────────────────────────────────────────────────────
     alerts_per_day = round(alert_count / window_days, 2)
     cases_per_day = round(case_count / window_days, 2)
     prev_alerts_per_day = round(prev_alert_count / window_days, 2)
@@ -455,11 +484,6 @@ async def get_soc_insights(
 
     hours_saved = round((auto_closed * MANUAL_INVESTIGATION_MINUTES) / 60.0, 2)
     prev_hours_saved = round((prev_auto_closed * MANUAL_INVESTIGATION_MINUTES) / 60.0, 2)
-
-    # ── Sparklines ────────────────────────────────────────────────────────
-    alert_spark = await _alert_sparkline(db, tenant_id, start, now)
-    case_spark = await _case_sparkline(db, tenant_id, start, now)
-    cost_spark = await _llm_cost_sparkline(db, tenant_id, start, now)
 
     tiles: list[InsightTile] = [
         InsightTile(
