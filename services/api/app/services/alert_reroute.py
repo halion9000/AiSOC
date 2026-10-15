@@ -27,6 +27,7 @@ CLIENT_ID_FIELD: dict[str, str] = {
     "petra": "petra_tenant_id",
     "ninjaone": "organization_id",
     "threatmate": "threatmate_client_id",
+    "addigy": "addigy_client_id",
 }
 
 _MATCH = (

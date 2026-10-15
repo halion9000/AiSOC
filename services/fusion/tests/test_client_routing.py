@@ -38,6 +38,7 @@ def test_each_vendor_names_its_client_in_its_own_field():
     assert client_key(_event("petra", petra_tenant_id="p-1")) == ("petra", "p-1")
     assert client_key(_event("ninjaone", organization_id="12")) == ("ninjaone", "12")
     assert client_key(_event("threatmate", threatmate_client_id="2")) == ("threatmate", "2")
+    assert client_key(_event("addigy", addigy_client_id="pol-1")) == ("addigy", "pol-1")
 
 
 @pytest.mark.parametrize(
