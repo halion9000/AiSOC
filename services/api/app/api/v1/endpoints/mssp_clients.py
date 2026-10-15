@@ -22,6 +22,7 @@ from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
 from app.services.audit import emit_audit
 from app.services.client_mapping import (
+    NameTaken,
     child_candidates,
     import_unmapped,
     new_child,
@@ -96,6 +97,7 @@ class ImportRequest(BaseModel):
 class ImportOut(BaseModel):
     created: int
     linked: int
+    skipped: list[str] = []  # names left unmapped because a hidden/archived client already uses that exact name
 
 
 class IgnoreRequest(BaseModel):
@@ -439,9 +441,15 @@ async def import_clients(
     """Add every unmapped client from one tool as a client tenant (or link it to the tenant you already have by that name)."""
 
     async def make(name: str) -> Tenant:
-        return await _make_child(db, current_user, name)
+        try:
+            return await _make_child(db, current_user, name)
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                raise NameTaken(name) from exc
+            raise
 
-    created, linked = await import_unmapped(db, current_user.tenant_id, body.vendor, make)
+    skipped: list[str] = []
+    created, linked = await import_unmapped(db, current_user.tenant_id, body.vendor, make, skipped)
     await emit_audit(
         db=db,
         tenant_id=current_user.tenant_id,
@@ -449,11 +457,11 @@ async def import_clients(
         action="mssp:clients_imported",
         resource="client_alias",
         resource_id=body.vendor,
-        changes={"vendor": body.vendor, "created": created, "linked": linked},
+        changes={"vendor": body.vendor, "created": created, "linked": linked, "skipped": len(skipped)},
         request=request,
     )
     await db.commit()
-    return ImportOut(created=created, linked=linked)
+    return ImportOut(created=created, linked=linked, skipped=skipped[:20])
 
 
 class SourcesRequest(BaseModel):
@@ -478,7 +486,12 @@ async def set_client_sources(
     created = linked = 0
 
     async def make(name: str) -> Tenant:
-        return await _make_child(db, current_user, name)
+        try:
+            return await _make_child(db, current_user, name)
+        except HTTPException as exc:
+            if exc.status_code == 409:
+                raise NameTaken(name) from exc
+            raise
 
     for vendor in sorted(set(chosen) - before):
         c, linked_now = await import_unmapped(db, current_user.tenant_id, vendor, make)

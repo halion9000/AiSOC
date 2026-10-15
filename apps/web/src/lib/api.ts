@@ -508,7 +508,7 @@ export const msspApi = {
     return request<VendorClient>(`/api/v1/mssp/clients/${aliasId}/map`, { method: 'POST', body: JSON.stringify(body) });
   },
   /** Add every unmapped client from one tool as a client tenant (or link it to the tenant you already have by that name). */
-  async importClients(vendor: string): Promise<{ created: number; linked: number }> {
+  async importClients(vendor: string): Promise<{ created: number; linked: number; skipped?: string[] }> {
     return request('/api/v1/mssp/clients/import', { method: 'POST', body: JSON.stringify({ vendor }) });
   },
   /** Choose which tools add their clients as client tenants automatically. A tool newly chosen is imported right away. */

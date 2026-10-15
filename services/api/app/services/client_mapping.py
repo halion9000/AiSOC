@@ -130,11 +130,16 @@ def suggestions_for(alias: ClientAlias, candidates: list[Candidate]) -> list[Sug
     return suggest(alias.vendor_client_name, candidates)
 
 
-async def import_unmapped(db: Any, parent_id: uuid.UUID, vendor: str, make_child: Any) -> tuple[int, int]:
+class NameTaken(Exception):
+    """A tenant already uses this exact name but is not a link candidate (for example a hidden one)."""
+
+
+async def import_unmapped(db: Any, parent_id: uuid.UUID, vendor: str, make_child: Any, skipped: list[str] | None = None) -> tuple[int, int]:
     """Give every unmapped, not-ignored client of one vendor a tenant. Returns (new tenants created, clients linked to a tenant that already existed).
 
     A client whose name matches a tenant you already have (after normalization: "ACME Dental, LLC" = "Acme Dental"), including one created a moment ago for the same
-    customer from another tool, is linked to it instead of getting a duplicate. ``make_child(name)`` creates the tenant.
+    customer from another tool, is linked to it instead of getting a duplicate. ``make_child(name)`` creates the tenant; if it raises ``NameTaken`` the client is left unmapped
+    and its name is added to ``skipped`` (one such client must not fail the whole import).
     """
     candidates = await child_candidates(db, parent_id)
     pending = (
@@ -162,7 +167,12 @@ async def import_unmapped(db: Any, parent_id: uuid.UUID, vendor: str, make_child
         elif len(same) > 1:
             continue  # two tenants share this name: a person has to choose
         else:
-            child = await make_child(alias.vendor_client_name)
+            try:
+                child = await make_child(alias.vendor_client_name)
+            except NameTaken:
+                if skipped is not None:
+                    skipped.append(alias.vendor_client_name)
+                continue
             candidates.append(Candidate(tenant_id=str(child.id), name=child.name))
             alias.child_tenant_id = child.id
             created += 1

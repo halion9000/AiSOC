@@ -22707,6 +22707,12 @@ components:
         linked:
           type: integer
           title: Linked
+        skipped:
+          items:
+            type: string
+          type: array
+          title: Skipped
+          default: []
       type: object
       required:
       - created

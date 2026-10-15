@@ -456,3 +456,16 @@ describe('approving several checked rows', () => {
     expect(screen.getByRole('button', { name: 'Approve all checked (3)' })).toBeEnabled();
   });
 });
+
+describe('import all with a name clash', () => {
+  it('says which clients were left for hand mapping', async () => {
+    clientsMock.mockResolvedValue({ clients: [client({ vendor_client_name: 'Hidden Co' })], unmapped: 1 });
+    importMock.mockResolvedValue({ created: 0, linked: 0, skipped: ['Hidden Co'] });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'Import all 1 from Petra' }));
+    expect(importMock).toHaveBeenCalledWith('petra');
+    confirm.mockRestore();
+  });
+});

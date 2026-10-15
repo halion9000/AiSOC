@@ -567,3 +567,19 @@ def test_choosing_sources_needs_mssp_manage_and_a_bad_tool_name_is_refused():
     assert set(required_permissions(routes[("PUT", "/mssp/clients/sources")])) == {"mssp:manage"}
     with pytest.raises(ValueError):
         mc.SourcesRequest(vendors=["Petra!"])
+
+
+@pytest.mark.asyncio
+async def test_import_skips_a_client_whose_exact_name_is_taken_and_carries_on():
+    a, b = _alias("Hidden Co"), _alias("Fresh Co")
+    a.normalized_name, b.normalized_name = "hidden co", "fresh co"
+
+    async def make(name):
+        if name == "Hidden Co":
+            raise cm.NameTaken(name)
+        return _tenant(name)
+
+    skipped: list[str] = []
+    created, linked = await cm.import_unmapped(_db([], [a, b]), PARENT, "petra", make, skipped)
+    assert (created, linked) == (1, 0)
+    assert skipped == ["Hidden Co"] and a.child_tenant_id is None and b.child_tenant_id is not None

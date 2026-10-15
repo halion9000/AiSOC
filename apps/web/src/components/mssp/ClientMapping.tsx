@@ -420,7 +420,9 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     if (!window.confirm(`Add ${count} ${label} client${count === 1 ? '' : 's'} as client tenants? A client whose name matches one you already have is linked to it instead.`)) return;
     try {
       const result = await msspApi.importClients(vendor);
-      toast.success(`${label}: ${result.created} added, ${result.linked} linked to existing clients`);
+      const skipped = result.skipped ?? [];
+      const note = skipped.length ? `; ${skipped.length} left for you to map by hand because a hidden client already has that name (${skipped.slice(0, 3).join(', ')})` : '';
+      toast.success(`${label}: ${result.created} added, ${result.linked} linked to existing clients${note}`, { duration: skipped.length ? 12000 : 4000 });
       changed();
     } catch (err) {
       toast.error(err instanceof Error && err.message ? err.message : 'Could not import those clients.');
