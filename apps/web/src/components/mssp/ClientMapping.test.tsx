@@ -13,6 +13,7 @@ const hiddenMock = vi.fn();
 const removeMock = vi.fn();
 const archiveMock = vi.fn();
 const mergeMock = vi.fn();
+const dismissMock = vi.fn();
 const rerouteMock = vi.fn();
 const tenantsMock = vi.fn();
 vi.mock('@/lib/api', () => ({
@@ -27,6 +28,7 @@ vi.mock('@/lib/api', () => ({
     removeClient: (...a: unknown[]) => removeMock(...a),
     archiveClient: (...a: unknown[]) => archiveMock(...a),
     mergeClient: (...a: unknown[]) => mergeMock(...a),
+    dismissDuplicates: (...a: unknown[]) => dismissMock(...a),
     rerouteAlerts: (...a: unknown[]) => rerouteMock(...a),
     tenants: (...a: unknown[]) => tenantsMock(...a),
   },
@@ -285,6 +287,42 @@ describe('merging possible duplicates', () => {
     const panel = await screen.findByRole('region', { name: 'Possible duplicates' });
     await user.click(within(panel).getAllByRole('button', { name: 'Keep this one' })[1]);
     expect(mergeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('duplicates the matcher got wrong or missed', () => {
+  const dupes = {
+    clients: [client({ vendor_client_name: 'Acme' })],
+    unmapped: 1,
+    sync_vendors: [],
+    duplicates: [{ tenants: [{ tenant_id: 'a', name: 'Acme Dental', mapped_from: [] }, { tenant_id: 'b', name: 'Acme Dental LLC', mapped_from: [] }] }],
+  };
+
+  it('"Not a duplicate" tells the server which tenants, then reloads the list', async () => {
+    dismissMock.mockReset().mockResolvedValue(undefined);
+    clientsMock.mockResolvedValue(dupes);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const panel = await screen.findByRole('region', { name: 'Possible duplicates' });
+    const loads = clientsMock.mock.calls.length;
+    await user.click(within(panel).getByRole('button', { name: 'Not a duplicate' }));
+    expect(dismissMock).toHaveBeenCalledWith(['a', 'b']);
+    expect(clientsMock.mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it('merges any two clients you pick, keeping the first and merging the second into it, after confirming', async () => {
+    mergeMock.mockReset().mockResolvedValue({ source: 'Birch Law', target: 'Acme Dental', remapped: 1 });
+    clientsMock.mockResolvedValue({ clients: [], unmapped: 0, sync_vendors: [], duplicates: [] });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const panel = await screen.findByRole('region', { name: 'Merge two clients' });
+    const merge = within(panel).getByRole('button', { name: 'Merge' });
+    expect(merge).toBeDisabled();
+    await user.selectOptions(within(panel).getByLabelText('Client to keep'), 'Acme Dental');
+    await user.selectOptions(within(panel).getByLabelText('Client to merge into it'), 'Birch Law');
+    await user.click(merge);
+    expect(mergeMock).toHaveBeenCalledWith('t-Birch Law', 't-Acme Dental');
   });
 });
 

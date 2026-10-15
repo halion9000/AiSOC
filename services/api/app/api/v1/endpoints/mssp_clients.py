@@ -26,6 +26,7 @@ from app.services.client_mapping import (
     MergeError,
     NameTaken,
     child_candidates,
+    dismiss_duplicate_group,
     import_unmapped,
     merge_clients,
     new_child,
@@ -34,6 +35,7 @@ from app.services.client_mapping import (
     suggestions_for,
     sync_vendors,
     tenant_hidden,
+    without_dismissed,
 )
 from app.services.client_matching import duplicate_groups
 
@@ -203,7 +205,7 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
                 DuplicateTenantOut(tenant_id=c.tenant_id, name=c.name, mapped_from=sorted(sources.get(c.tenant_id, []))) for c in group
             ]
         )
-        for group in duplicate_groups(candidates)
+        for group in without_dismissed(duplicate_groups(candidates), await db.get(Tenant, current_user.tenant_id))
     ]
     return ClientsOut(
         clients=out,
@@ -310,6 +312,45 @@ async def set_client_hidden(
         resource="tenant",
         resource_id=str(child.id),
         changes={"name": child.name},
+        request=request,
+    )
+    await db.commit()
+
+
+class DismissRequest(BaseModel):
+    tenant_ids: list[uuid.UUID] = Field(min_length=2, max_length=50)
+
+
+@router.post("/clients/duplicates/dismiss", status_code=204)
+async def dismiss_duplicates(
+    body: DismissRequest,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> None:
+    """These client tenants are different customers: stop listing them as possible duplicates. Shown again if a new lookalike joins the group."""
+    ids = sorted({str(i) for i in body.tenant_ids})
+    rows = (
+        (
+            await db.execute(
+                select(Tenant).where(Tenant.parent_tenant_id == current_user.tenant_id, Tenant.id.in_([uuid.UUID(i) for i in ids]))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(ids) < 2 or len(rows) != len(ids):
+        raise HTTPException(status_code=404, detail="Client not found")
+    parent = await db.get(Tenant, current_user.tenant_id)
+    dismiss_duplicate_group(parent, ids)
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="mssp:duplicates_dismissed",
+        resource="tenant",
+        resource_id=str(current_user.tenant_id),
+        changes={"tenants": sorted(t.name for t in rows)},
         request=request,
     )
     await db.commit()

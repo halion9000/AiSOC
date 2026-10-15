@@ -10014,6 +10014,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/clients/duplicates/dismiss:
+    post:
+      tags:
+      - mssp
+      summary: Dismiss Duplicates
+      description: 'These client tenants are different customers: stop listing them
+        as possible duplicates. Shown again if a new lookalike joins the group.'
+      operationId: dismiss_duplicates_api_v1_mssp_clients_duplicates_dismiss_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DismissRequest'
+        required: true
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/mssp/tenants/{source_id}/merge-into/{target_id}:
     post:
       tags:
@@ -21317,6 +21342,20 @@ components:
       required:
       - discovered
       title: DiscoverResponse
+    DismissRequest:
+      properties:
+        tenant_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          maxItems: 50
+          minItems: 2
+          title: Tenant Ids
+      type: object
+      required:
+      - tenant_ids
+      title: DismissRequest
     DismissTuningRequest:
       properties:
         reason:

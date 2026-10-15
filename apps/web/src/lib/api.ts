@@ -625,6 +625,11 @@ export const msspApi = {
     return request(`/api/v1/mssp/tenants/${sourceId}/merge-into/${targetId}`, { method: 'POST' });
   },
 
+  /** These client tenants are different customers: stop listing them as possible duplicates (shown again if a new lookalike joins). */
+  async dismissDuplicates(tenantIds: string[]): Promise<void> {
+    await request<void>('/api/v1/mssp/clients/duplicates/dismiss', { method: 'POST', body: JSON.stringify({ tenant_ids: tenantIds }) });
+  },
+
   /** Move alerts that arrived before their client was mapped under that client's tenant (new alerts are routed on arrival). Safe to repeat. */
   async rerouteAlerts(): Promise<{ moved: number; left_duplicates: number; cases_moved: number; by_client: Record<string, number> }> {
     return request('/api/v1/mssp/alerts/reroute', { method: 'POST' });

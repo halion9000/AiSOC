@@ -270,6 +270,38 @@ async def test_listing_reports_possible_duplicate_tenants_with_the_tool_clients_
     ]
 
 
+def _parent():
+    return Tenant(id=PARENT, name="MSP", slug="msp", settings={})
+
+
+@pytest.mark.asyncio
+async def test_a_dismissed_group_is_not_listed_but_comes_back_when_a_new_lookalike_joins(monkeypatch):
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+    a, b = _tenant("Acme Dental"), _tenant("Acme Dental LLC")
+    parent = _parent()
+    # dismiss: the endpoint checks both are this MSSP's clients, then records the pair
+    await mc.dismiss_duplicates(mc.DismissRequest(tenant_ids=[a.id, b.id]), MagicMock(), USER, _db([a, b], get={PARENT: parent}))
+    assert cm.dismissed_duplicate_sets(parent) == {frozenset({str(a.id), str(b.id)})}
+    # listing: gone
+    out = await mc.list_clients(USER, _db([], [a, b], [a, b], get={PARENT: parent}))
+    assert out.duplicates == []
+    # a third lookalike joins: the group is a different set, so it is shown again
+    c = _tenant("ACME Dental Group")
+    out = await mc.list_clients(USER, _db([], [a, b, c], [a, b, c], get={PARENT: parent}))
+    assert len(out.duplicates) == 1 and len(out.duplicates[0].tenants) == 3
+
+
+@pytest.mark.asyncio
+async def test_dismissing_refuses_tenants_that_are_not_this_msps_clients(monkeypatch):
+    monkeypatch.setattr(mc, "emit_audit", AsyncMock())
+    a, stranger_id = _tenant("Acme Dental"), uuid.uuid4()
+    parent = _parent()
+    with pytest.raises(HTTPException) as err:
+        await mc.dismiss_duplicates(mc.DismissRequest(tenant_ids=[a.id, stranger_id]), MagicMock(), USER, _db([a], get={PARENT: parent}))
+    assert err.value.status_code == 404
+    assert cm.dismissed_duplicate_sets(parent) == set()
+
+
 # ---- start over ---------------------------------------------------------------------------------------------------------------------------------------
 
 

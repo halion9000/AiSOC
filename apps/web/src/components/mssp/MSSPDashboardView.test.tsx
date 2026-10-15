@@ -96,16 +96,16 @@ describe('filters', () => {
     tenantsMock.mockResolvedValue([reporting, quiet, healthy]);
     render(<MSSPDashboardView />);
     const user = userEvent.setup();
-    await screen.findByRole('table');
+    const table = await screen.findByRole('table'); // the table only: the merge picker below lists every client, filtered or not
 
     await user.click(screen.getByRole('button', { name: 'Breaching SLA' }));
-    expect(screen.getByText('Reporting Co')).toBeInTheDocument();
-    expect(screen.queryByText('Healthy Co')).not.toBeInTheDocument();
-    expect(screen.queryByText('Quiet Co')).not.toBeInTheDocument();
+    expect(within(table).getByText('Reporting Co')).toBeInTheDocument();
+    expect(within(table).queryByText('Healthy Co')).not.toBeInTheDocument();
+    expect(within(table).queryByText('Quiet Co')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'No data yet' }));
-    expect(screen.getByText('Quiet Co')).toBeInTheDocument();
-    expect(screen.queryByText('Reporting Co')).not.toBeInTheDocument();
+    expect(within(table).getByText('Quiet Co')).toBeInTheDocument();
+    expect(within(table).queryByText('Reporting Co')).not.toBeInTheDocument();
   });
 
   it('offers a way back when a filter matches nothing', async () => {

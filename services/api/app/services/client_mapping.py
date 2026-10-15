@@ -46,6 +46,31 @@ async def set_sync_vendors(db: Any, parent_id: uuid.UUID, vendors: list[str]) ->
     return chosen
 
 
+DISMISSED_KEY = "dismissed_duplicates"
+
+
+def dismissed_duplicate_sets(parent: Any) -> set[frozenset[str]]:
+    """Groups of client tenants the MSSP said are NOT the same customer (a setting of the MSSP tenant). Each is the exact set of tenant ids."""
+    found = (getattr(parent, "settings", None) or {}).get(DISMISSED_KEY)
+    if not isinstance(found, list):
+        return set()
+    return {frozenset(x for x in g if isinstance(x, str)) for g in found if isinstance(g, list)}
+
+
+def dismiss_duplicate_group(parent: Any, tenant_ids: list[str]) -> None:
+    sets = dismissed_duplicate_sets(parent) | {frozenset(tenant_ids)}
+    parent.settings = {
+        **(parent.settings or {}),
+        DISMISSED_KEY: sorted(sorted(g) for g in sets),
+    }  # a new dict, so the JSONB column is seen as changed
+
+
+def without_dismissed(groups: list[list[Candidate]], parent: Any) -> list[list[Candidate]]:
+    """Drop the groups that were dismissed. Only an identical set of tenants stays hidden: when a new lookalike joins, the group is shown again."""
+    dismissed = dismissed_duplicate_sets(parent)
+    return [g for g in groups if frozenset(c.tenant_id for c in g) not in dismissed]
+
+
 def make_slug(name: str) -> str:
     """A unique, URL-safe tenant slug for a new client: its name plus a random suffix, so two clients called the same thing never collide."""
     base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")[:80] or "client"

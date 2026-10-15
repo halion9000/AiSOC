@@ -272,6 +272,8 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const [synced, setSynced] = useState<string[]>([]);
   const [moving, setMoving] = useState(false);
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
+  const [pairKeep, setPairKeep] = useState('');
+  const [pairMerge, setPairMerge] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [tab, setTab] = useState<string | null>(null);
@@ -410,6 +412,33 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     onChanged();
   };
 
+  const notDuplicate = async (group: DuplicateGroup) => {
+    try {
+      await msspApi.dismissDuplicates(group.tenants.map((t) => t.tenant_id));
+      toast.success('Got it. They will not be listed as duplicates again.');
+    } catch {
+      toast.error('Could not save that.');
+    }
+    await load();
+  };
+
+  const mergePair = async () => {
+    const keep = tenants.find((t) => t.tenant_id === pairKeep);
+    const merge = tenants.find((t) => t.tenant_id === pairMerge);
+    if (!keep || !merge || keep.tenant_id === merge.tenant_id) return;
+    if (!window.confirm(`Keep "${keep.name}" and merge "${merge.name}" into it? Its tool clients will map to "${keep.name}" and "${merge.name}" will be hidden. Alerts and cases already in it stay where they are, and showing a hidden client again undoes this.`)) return;
+    try {
+      const r = await msspApi.mergeClient(merge.tenant_id, keep.tenant_id);
+      toast.success(`Merged into ${keep.name}; ${r.remapped} tool client${r.remapped === 1 ? '' : 's'} re-pointed.`);
+      setPairKeep('');
+      setPairMerge('');
+    } catch {
+      toast.error(`Could not merge ${merge.name}.`);
+    }
+    await load();
+    onChanged();
+  };
+
   const approveChecked = async () => {
     const todo = checkedRows.filter((c) => choices.current[c.id]);
     const skipped = checkedRows.length - todo.length;
@@ -482,6 +511,11 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
           <ul className="mt-2 space-y-3">
             {duplicates.map((g) => (
               <li key={g.tenants.map((t) => t.tenant_id).join('-')} className="rounded-lg border border-gray-800/60 p-3">
+                <div className="flex justify-end">
+                  <button type="button" onClick={() => void notDuplicate(g)} className="rounded-md px-2 py-0.5 text-xs text-gray-400 hover:bg-gray-800 hover:text-gray-200">
+                    Not a duplicate
+                  </button>
+                </div>
                 {g.tenants.map((t) => (
                   <div key={t.tenant_id} className="flex flex-wrap items-baseline gap-x-3 py-0.5">
                     <span className="font-medium text-white">{t.name}</span>
@@ -494,6 +528,39 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {tenants.length > 1 ? (
+        <div className="px-5 py-3 border-b border-gray-800/60" role="region" aria-label="Merge two clients">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-gray-400">Merge two clients</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-300">
+            <label className="flex items-center gap-2">
+              Keep
+              <select aria-label="Client to keep" value={pairKeep} onChange={(e) => setPairKeep(e.target.value)} className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200">
+                <option value="">Choose…</option>
+                {tenants.map((t) => (
+                  <option key={t.tenant_id} value={t.tenant_id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              and merge
+              <select aria-label="Client to merge into it" value={pairMerge} onChange={(e) => setPairMerge(e.target.value)} className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200">
+                <option value="">Choose…</option>
+                {tenants.filter((t) => t.tenant_id !== pairKeep).map((t) => (
+                  <option key={t.tenant_id} value={t.tenant_id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" disabled={!pairKeep || !pairMerge || pairKeep === pairMerge} onClick={() => void mergePair()} className="rounded-lg border border-gray-700 px-3 py-1 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-40">
+              Merge
+            </button>
+          </div>
         </div>
       ) : null}
 
