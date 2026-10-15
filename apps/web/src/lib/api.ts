@@ -499,6 +499,67 @@ export interface ManagedTenantRow {
   connector_count: number | null;
 }
 
+export interface DeviceSourceRef {
+  vendor: string;
+  name: string | null;
+  last_seen: string;
+}
+
+export interface DeviceRow {
+  id: string;
+  tenant_id: string;
+  client_name: string | null;
+  hostname: string;
+  serial_number: string | null;
+  os: string | null;
+  os_version: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  ip_addresses: string[];
+  last_seen: string;
+  first_seen: string;
+  sources: DeviceSourceRef[];
+  /** False when a master tool is set and none of its feeds reports this device. */
+  in_master: boolean;
+}
+
+export interface DeviceList {
+  master_vendor: string | null;
+  summary: { total: number; not_in_master: number };
+  items: DeviceRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export interface DeviceQuery {
+  page?: number;
+  pageSize?: number;
+  clientId?: string;
+  search?: string;
+  vendor?: string;
+  notInMaster?: boolean;
+}
+
+export const devicesApi = {
+  async list(q: DeviceQuery = {}): Promise<DeviceList> {
+    const p = new URLSearchParams();
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('page_size', String(q.pageSize));
+    if (q.clientId) p.set('client_id', q.clientId);
+    if (q.search?.trim()) p.set('search', q.search.trim());
+    if (q.vendor) p.set('vendor', q.vendor);
+    if (q.notInMaster) p.set('not_in_master', 'true');
+    const qs = p.toString();
+    return request<DeviceList>(`/api/v1/devices${qs ? `?${qs}` : ''}`);
+  },
+  /** Name the tool whose device list is the master (null for none). Devices it does not report are flagged. */
+  async setMaster(vendor: string | null): Promise<{ master_vendor: string | null }> {
+    return request('/api/v1/devices/settings', { method: 'PUT', body: JSON.stringify({ master_vendor: vendor }) });
+  },
+};
+
 export const msspApi = {
   async listChildren(): Promise<ChildTenant[]> {
     return request<ChildTenant[]>('/api/v1/mssp/children');

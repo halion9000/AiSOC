@@ -6,6 +6,8 @@ const BADGES: Record<string, { text: string; className: string }> = {
   huntress: { text: 'Hu', className: 'bg-orange-600/80 text-white' },
   petra: { text: 'P', className: 'bg-sky-600/80 text-white' },
   blumira: { text: 'B', className: 'bg-cyan-600/80 text-white' },
+  addigy: { text: 'A', className: 'bg-indigo-600/80 text-white' },
+  liongard: { text: 'L', className: 'bg-teal-600/80 text-white' },
 };
 
 const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra']);

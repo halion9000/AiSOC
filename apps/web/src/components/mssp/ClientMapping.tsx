@@ -97,7 +97,7 @@ export function sourceChoices(clients: VendorClient[], synced: string[]): { vend
   return [...vendors].sort().map((vendor) => ({ vendor, on: synced.includes(vendor) }));
 }
 
-const VENDOR_NAMES: Record<string, string> = { halopsa: 'HaloPSA', ninjaone: 'NinjaOne', petra: 'Petra', huntress: 'Huntress', blumira: 'Blumira' };
+const VENDOR_NAMES: Record<string, string> = { halopsa: 'HaloPSA', ninjaone: 'NinjaOne', petra: 'Petra', huntress: 'Huntress', blumira: 'Blumira', addigy: 'Addigy', liongard: 'Liongard' };
 
 /** "halopsa" -> "HaloPSA", "petra" -> "Petra"; a tool it doesn't know is capitalized. */
 export function vendorLabel(vendor: string): string {
