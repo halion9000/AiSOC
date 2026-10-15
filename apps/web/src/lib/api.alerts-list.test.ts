@@ -31,4 +31,18 @@ describe('alertsApi.list', () => {
     const out = await alertsApi.list();
     expect(out.alerts.map((a) => a.id)).toEqual(['old1']);
   });
+
+  it("labels CORE-forwarded alerts by the tool, not 'Generic Generic JSON'", async () => {
+    vi.stubGlobal('fetch', async () =>
+      json({
+        items: [
+          { id: 'c1', title: 'x', severity: 'low', status: 'new', connector_type: 'Generic Generic JSON', raw_event: { source: 'ninjaone' }, created_at: '2026-10-13T00:00:00Z' },
+          { id: 'c2', title: 'y', severity: 'low', status: 'new', connector_type: 'okta', raw_event: {}, created_at: '2026-10-13T00:00:00Z' },
+        ],
+        total: 2,
+      }),
+    );
+    const out = await alertsApi.list();
+    expect(out.alerts.map((a) => a.source)).toEqual(['ninjaone', 'okta']);
+  });
 });

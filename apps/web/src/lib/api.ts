@@ -704,6 +704,13 @@ export interface Alert {
  * Unknown / missing keys are tolerated — older API builds simply
  * don't carry the new fields and the rail renders empty sections.
  */
+/** The tool CORE says an alert came from (raw_event.source), when it is a plain lowercase name. */
+function coreToolName(rawEvent: unknown): string | undefined {
+  if (!rawEvent || typeof rawEvent !== 'object') return undefined;
+  const v = (rawEvent as Record<string, unknown>).source;
+  return typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,39}$/.test(v) ? v : undefined;
+}
+
 function normalizeAlert(raw: unknown): Alert {
   const r = (raw ?? {}) as Record<string, unknown>;
 
@@ -837,6 +844,10 @@ function normalizeAlert(raw: unknown): Alert {
     status: ((r.status as string) ?? 'new') as AlertStatus,
     source:
       pickStr('source', 'source') ??
+      // Alerts forwarded by CORE all arrive through the generic JSON inbox, so
+      // connector_type is just "Generic Generic JSON"; the sender's own
+      // `source` (huntress, petra, blumira...) is the useful label.
+      coreToolName(r.raw_event ?? r.rawEvent) ??
       pickStr('connector_type', 'connectorType') ??
       'unknown',
     sourceRef: pickStr('source_ref', 'sourceRef'),
