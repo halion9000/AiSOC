@@ -351,9 +351,12 @@ export function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // A link is active when it is the most specific one that matches: /detection/vendor-detections must not also light up /detection.
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard';
-    return pathname.startsWith(href);
+    if (!pathname.startsWith(href)) return false;
+    const better = navSections.some((sec) => sec.items.some((it) => it.href.length > href.length && pathname.startsWith(it.href)));
+    return !better;
   };
 
   return (

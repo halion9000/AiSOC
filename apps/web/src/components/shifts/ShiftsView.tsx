@@ -12,7 +12,7 @@ const SHIFT_END = '2026-05-07T18:00:00Z';
 
 interface HandoffItem {
   id: string;
-  priority: 'critical' | 'high' | 'medium' | 'low';
+  priority: 'critical' | 'high' | 'medium' | 'low' | 'info';
   title: string;
   type: 'alert' | 'case';
   status: string;
@@ -25,7 +25,13 @@ const PRIORITY_CONFIG = {
   high: { label: 'High', className: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
   medium: { label: 'Medium', className: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' },
   low: { label: 'Low', className: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+  info: { label: 'Info', className: 'text-gray-400 bg-gray-500/10 border-gray-500/20' },
 };
+
+/** Alerts can carry any severity (including `info`), so an unknown value must still render rather than crash the page. */
+export function priorityStyle(priority: string) {
+  return PRIORITY_CONFIG[priority as keyof typeof PRIORITY_CONFIG] ?? PRIORITY_CONFIG.info;
+}
 
 // Hal, 2026-09-21: "might as well build it out now" — real endpoint now
 // exists at GET /shifts/handoff-items (services/api/app/api/v1/endpoints/
@@ -48,9 +54,9 @@ export function ShiftsView() {
     'shifts:handoff-items',
     () => shiftsApi.handoffItems(),
   );
-  const items: HandoffItem[] = (rawItems ?? []).map((r) => ({
+  const items: HandoffItem[] = (Array.isArray(rawItems) ? rawItems : []).map((r) => ({
     id: r.id,
-    priority: (r.priority as HandoffItem['priority']) ?? 'low',
+    priority: ((r.priority || 'low') as HandoffItem['priority']),
     title: r.title,
     type: r.type as HandoffItem['type'],
     status: r.status,
@@ -135,7 +141,7 @@ export function ShiftsView() {
             <p className="text-xs text-gray-500 mt-0.5">{filteredItems.length} items require attention from the incoming shift</p>
           </div>
           <div className="flex gap-2">
-            {(['all', 'critical', 'high', 'medium', 'low'] as const).map((f) => (
+            {(['all', 'critical', 'high', 'medium', 'low', 'info'] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setPriorityFilter(f)}
@@ -198,7 +204,7 @@ export function ShiftsView() {
                 </tr>
               ) : (
                 filteredItems.map((item) => {
-                  const prio = PRIORITY_CONFIG[item.priority];
+                  const prio = priorityStyle(item.priority);
                   return (
                     <tr key={item.id} className="border-b border-gray-800/30 hover:bg-gray-800/30 transition-colors">
                       <td className="px-5 py-3">
