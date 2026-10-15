@@ -190,7 +190,10 @@ def _mock_session(*, alert: Any) -> MagicMock:
     empty_result.scalar_one_or_none.return_value = None
 
     session = MagicMock()
-    session.execute = AsyncMock(side_effect=[alert_result, empty_result, empty_result, empty_result])
+    # The scope probe comes first: is the alert in the caller's own tenant? (yes)
+    probe = MagicMock()
+    probe.first.return_value = (1,)
+    session.execute = AsyncMock(side_effect=[probe, alert_result, empty_result, empty_result, empty_result])
     session.commit = AsyncMock(return_value=None)
     return session
 
@@ -464,9 +467,9 @@ class TestGetAlertEndpoint:
         assert len(builder_calls) == 1
         # commit() awaited (so the lazy-fill is durable).
         assert session.commit.await_count == 1
-        # Two execute calls: SELECT alert, then UPDATE narrative.
+        # Three execute calls: scope probe, SELECT alert, then UPDATE narrative.
         # (build_rail_envelope is mocked out.)
-        assert session.execute.await_count == 2
+        assert session.execute.await_count == 3
 
     @pytest.mark.asyncio
     async def test_does_not_persist_empty_narrative(
@@ -506,8 +509,8 @@ class TestGetAlertEndpoint:
         assert alert.narrative is None
         # commit() must NOT have been awaited.
         assert session.commit.await_count == 0
-        # Only the SELECT happened.
-        assert session.execute.await_count == 1
+        # Only the scope probe and the SELECT happened.
+        assert session.execute.await_count == 2
 
     @pytest.mark.asyncio
     async def test_returns_alert_when_narrative_builder_raises(

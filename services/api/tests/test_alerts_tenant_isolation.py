@@ -413,7 +413,7 @@ async def test_get_alert_same_tenant_returns_row(monkeypatch: pytest.MonkeyPatch
     """Same-tenant read returns the alert (positive control with rail mocked)."""
     user = _user()
     alert = _alert(user.tenant_id, narrative="already filled")  # skip lazy-fill branch.
-    db = _mk_db([alert])
+    db = _mk_db([alert, alert])  # the scope probe, then the read
 
     # The rail envelope hits the audit log; stub it for this isolation
     # test — the rail's own DB scope is covered by its dedicated tests.
@@ -455,7 +455,7 @@ async def test_update_alert_same_tenant_scopes_select() -> None:
     """PATCH against your own alert: SELECT must scope by tenant before UPDATE."""
     user = _user()
     alert = _alert(user.tenant_id)
-    db = _mk_db([alert, None])  # SELECT returns row, UPDATE returns nothing.
+    db = _mk_db([alert, alert, None])  # SELECT returns row, UPDATE returns nothing.
     resp = await update_alert(
         alert_id=alert.id,
         request=AlertUpdateRequest(status="resolved", tags=["triaged"]),
@@ -492,7 +492,7 @@ async def test_escalate_alert_same_tenant_scopes_select() -> None:
     """Same-tenant escalate: the bounding SELECT must include tenant_id."""
     user = _user()
     alert = _alert(user.tenant_id, severity="medium")
-    db = _mk_db([alert, None])
+    db = _mk_db([alert, alert, None])
     resp = await escalate_alert(alert_id=alert.id, current_user=user, db=db)
     assert resp.id == alert.id
     _assert_tenant_scoped(db.executed, user.tenant_id)
@@ -541,7 +541,7 @@ async def test_snooze_alert_same_tenant_scopes_select() -> None:
     """Same-tenant snooze: the bounding SELECT must include tenant_id."""
     user = _user()
     alert = _alert(user.tenant_id)
-    db = _mk_db([alert, None])
+    db = _mk_db([alert, alert, None])
     resp = await snooze_alert(
         alert_id=alert.id,
         body=AlertSnoozeRequest(duration_minutes=30),

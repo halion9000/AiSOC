@@ -77,7 +77,14 @@ def _alert(source="huntress", state=OPEN_PLAN, uid="huntress:7"):
 
 def _db(alert, in_flight=()):
     db = MagicMock()
+    # First the scope probe (is the alert in the caller's own tenant? when not: any client tenants?), then the alert read, then the in-flight check.
+    probe = (
+        [MagicMock(first=MagicMock(return_value=(1,)))]
+        if alert is not None
+        else [MagicMock(first=MagicMock(return_value=None)), MagicMock(all=MagicMock(return_value=[]))]
+    )
     results = [
+        *probe,
         MagicMock(scalar_one_or_none=MagicMock(return_value=alert)),
         MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=list(in_flight))))),
     ]

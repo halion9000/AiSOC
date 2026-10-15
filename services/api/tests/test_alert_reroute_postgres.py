@@ -162,3 +162,24 @@ async def test_a_role_that_cannot_rewrite_tenant_gets_a_clear_error_and_nothing_
     finally:
         await app.dispose()
     assert await owner_of(owner, a["h_acme"]) == ids["parent"]
+
+
+async def test_a_parent_finds_a_client_alert_even_as_the_restricted_role(world):
+    from app.services.alert_scope import find_alert_tenant
+
+    ids, a, case_ids, owner = world
+    async with async_sessionmaker(owner, expire_on_commit=False)() as s:
+        await s.execute(text("select set_config('app.rls_fail_closed', 'off', false)"))
+        await reroute_alerts(s, ids["parent"])
+        await s.commit()  # h_acme is now stored under the client
+    app = create_async_engine(APP_URL, poolclass=NullPool, connect_args={"server_settings": {"app.rls_fail_closed": "on"}})
+    try:
+        async with async_sessionmaker(app, expire_on_commit=False)() as s:
+            await set_rls_context(s, ids["parent"])
+            assert (
+                await find_alert_tenant(s, ids["parent"], a["h_acme"]) == ids["acme"]
+            )  # row-level security hides it from the parent; asking as the client finds it
+            assert await find_alert_tenant(s, ids["parent"], a["h_unmapped"]) == ids["parent"]
+            assert await find_alert_tenant(s, ids["parent"], a["h_other_parents"]) is None  # another MSSP's alert
+    finally:
+        await app.dispose()

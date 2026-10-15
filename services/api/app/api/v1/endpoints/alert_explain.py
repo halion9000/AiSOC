@@ -50,6 +50,7 @@ from app.services.alert_explain import (
     AlertExplanation,
     generate_alert_explanation,
 )
+from app.services.alert_scope import alert_scope
 from app.services.audit import emit_audit
 from app.services.explain_rate_limit import (
     ExplainRateLimitDecision,
@@ -154,41 +155,43 @@ async def explain_alert(
     # but we add a redundant ``tenant_id`` filter on the alert lookup
     # so the 404 we return is not "row hidden by RLS" — it really is
     # "no such alert in your tenant". Defence in depth.
-    result = await db.execute(
-        select(Alert).where(
-            Alert.id == alert_id,
-            Alert.tenant_id == current_user.tenant_id,
+    # The alert may be a client tenant's (an MSSP parent opens those from its own list), so look in the caller's tenant and its clients.
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        result = await db.execute(
+            select(Alert).where(
+                Alert.id == alert_id,
+                Alert.tenant_id == tid,
+            )
         )
-    )
-    alert = result.scalar_one_or_none()
-    if alert is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Alert not found",
-        )
+        alert = result.scalar_one_or_none()
+        if alert is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Alert not found",
+            )
 
-    try:
-        explanation = await generate_alert_explanation(db, alert=alert)
-    except Exception as exc:  # noqa: BLE001
-        # The explain pipeline is defensive — it falls back to a
-        # deterministic summary on LLM failure, swallows cost-tracking
-        # errors, etc. — so reaching this branch means something
-        # unexpected (e.g. database read failure mid-explain) blew up.
-        # Log loudly and return a 502 so the client can retry; we do
-        # *not* expose the exception text to the caller. Tenant/alert
-        # IDs are UUIDs in practice but they originate from the request,
-        # so we route them through ``safe_log_value`` to neutralise any
-        # CR/LF injection attempt before they hit the log stream
-        # (CWE-117 / CodeQL ``py/log-injection``).
-        logger.exception(
-            "explain.failed tenant=%s alert=%s",
-            safe_log_value(current_user.tenant_id),
-            safe_log_value(alert_id),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="failed to generate explanation",
-        ) from exc
+        try:
+            explanation = await generate_alert_explanation(db, alert=alert)
+        except Exception as exc:  # noqa: BLE001
+            # The explain pipeline is defensive — it falls back to a
+            # deterministic summary on LLM failure, swallows cost-tracking
+            # errors, etc. — so reaching this branch means something
+            # unexpected (e.g. database read failure mid-explain) blew up.
+            # Log loudly and return a 502 so the client can retry; we do
+            # *not* expose the exception text to the caller. Tenant/alert
+            # IDs are UUIDs in practice but they originate from the request,
+            # so we route them through ``safe_log_value`` to neutralise any
+            # CR/LF injection attempt before they hit the log stream
+            # (CWE-117 / CodeQL ``py/log-injection``).
+            logger.exception(
+                "explain.failed tenant=%s alert=%s",
+                safe_log_value(current_user.tenant_id),
+                safe_log_value(alert_id),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="failed to generate explanation",
+            ) from exc
 
     # Audit *after* the explain succeeds so failures don't pollute
     # the audit stream with phantom events. We log enough context for

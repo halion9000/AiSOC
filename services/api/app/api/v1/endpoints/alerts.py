@@ -29,6 +29,7 @@ from app.services.alert_rail import (
     RelatedEntity,
     build_rail_envelope,
 )
+from app.services.alert_scope import alert_scope
 from app.services.event_sanitiser import (
     SubmitPayloadTooLarge,
     sanitise_event_batch,
@@ -102,6 +103,8 @@ class AlertResponse(BaseModel):
     updated_at: datetime
     # Set by the list when the alert belongs to one of the caller's client tenants (an MSSP parent's view).
     client_name: str | None = None
+    # The tool CORE says the alert came from (raw_event.source: huntress, petra, ninjaone...). connector_type is just the generic JSON inbox for all of them.
+    source: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -137,6 +140,12 @@ class AlertSnoozeRequest(BaseModel):
     duration_minutes: int | None = None
     until: datetime | None = None
     reason: str | None = None
+
+
+def _tool_of(alert: Alert) -> str | None:
+    raw = alert.raw_event if isinstance(alert.raw_event, dict) else {}
+    value = raw.get("source")
+    return value if isinstance(value, str) and value else None
 
 
 class AlertSummary(BaseModel):
@@ -734,6 +743,7 @@ async def list_alerts(
     for a in rows:
         item = AlertResponse.model_validate(a)
         item.client_name = clients.get(a.tenant_id)
+        item.source = _tool_of(a)
         items.append(item)
     return AlertListResponse(
         summary=AlertSummary(**tally), items=items, total=total, page=page, page_size=page_size, pages=(total + page_size - 1) // page_size
@@ -839,45 +849,53 @@ async def get_alert(
     we log and return the alert with ``narrative=None`` so the page
     keeps rendering. The frontend already handles the null case.
     """
-    result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == current_user.tenant_id))
-    alert = result.scalar_one_or_none()
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == tid))
+        alert = result.scalar_one_or_none()
+        if alert is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
-    # ── Lazy-fill narrative for legacy rows ─────────────────────────────
-    # New alerts get a narrative at fusion time. Older rows predate that
-    # column being populated; the first detail-view read materialises
-    # and persists one so we only pay the cost once per row.
-    if not alert.narrative:
-        try:
-            inputs = project_alert_to_narrative_inputs(alert)
-            narrative_text = build_narrative(inputs)
-            if narrative_text:
-                alert.narrative = narrative_text
-                await db.execute(update(Alert).where(Alert.id == alert.id).values(narrative=narrative_text, updated_at=datetime.now(UTC)))
-                await db.commit()
-        except Exception:  # noqa: BLE001 — never let narrative kill a detail view
-            logger.warning(
-                "narrative lazy-fill failed for alert %s; serving without narrative",
-                alert.id,
-                exc_info=True,
-            )
+        # ── Lazy-fill narrative for legacy rows ─────────────────────────────
+        # New alerts get a narrative at fusion time. Older rows predate that
+        # column being populated; the first detail-view read materialises
+        # and persists one so we only pay the cost once per row.
+        if not alert.narrative:
+            try:
+                inputs = project_alert_to_narrative_inputs(alert)
+                narrative_text = build_narrative(inputs)
+                if narrative_text:
+                    alert.narrative = narrative_text
+                    await db.execute(
+                        update(Alert).where(Alert.id == alert.id).values(narrative=narrative_text, updated_at=datetime.now(UTC))
+                    )
+                    await db.commit()
+            except Exception:  # noqa: BLE001 — never let narrative kill a detail view
+                logger.warning(
+                    "narrative lazy-fill failed for alert %s; serving without narrative",
+                    alert.id,
+                    exc_info=True,
+                )
 
-    envelope = await build_rail_envelope(db, alert)
+        envelope = await build_rail_envelope(db, alert)
 
-    # ``model_validate`` against the parent class to inherit field
-    # coercion, then merge the rail fields. We don't add the rail data
-    # to the ORM model — keeping the envelope construction in the view
-    # layer means the rail can evolve without migrations.
-    payload = AlertDetailResponse.model_validate(alert)
-    return payload.model_copy(
-        update={
-            "narrative": alert.narrative,
-            "related_entities": envelope.related_entities,
-            "mini_timeline": envelope.mini_timeline,
-            "recommended_actions": envelope.recommended_actions,
-        }
-    )
+        # ``model_validate`` against the parent class to inherit field
+        # coercion, then merge the rail fields. We don't add the rail data
+        # to the ORM model — keeping the envelope construction in the view
+        # layer means the rail can evolve without migrations.
+        payload = AlertDetailResponse.model_validate(alert)
+        client_name = None
+        if tid != current_user.tenant_id:
+            client_name = (await db.execute(select(Tenant.name).where(Tenant.id == tid))).scalar_one_or_none()
+        return payload.model_copy(
+            update={
+                "source": _tool_of(alert),
+                "client_name": client_name,
+                "narrative": alert.narrative,
+                "related_entities": envelope.related_entities,
+                "mini_timeline": envelope.mini_timeline,
+                "recommended_actions": envelope.recommended_actions,
+            }
+        )
 
 
 @router.patch("/{alert_id}", response_model=AlertResponse)
@@ -888,33 +906,34 @@ async def update_alert(
     db: DBSession,
 ) -> AlertResponse:
     """Update alert status, priority, tags, assignment, or case link."""
-    result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == current_user.tenant_id))
-    alert = result.scalar_one_or_none()
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == tid))
+        alert = result.scalar_one_or_none()
+        if alert is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
-    updates: dict = {}
-    if request.status is not None:
-        updates["status"] = request.status
-        if request.status in ("resolved", "false_positive", "closed"):
-            updates["resolved_at"] = datetime.now(UTC)
-    if request.priority is not None:
-        updates["priority"] = request.priority
-    if request.tags is not None:
-        updates["tags"] = request.tags
-    if request.assigned_to_id is not None:
-        updates["assigned_to_id"] = request.assigned_to_id
-        updates["assigned_at"] = datetime.now(UTC)
-    if request.case_id is not None:
-        updates["case_id"] = request.case_id
+        updates: dict = {}
+        if request.status is not None:
+            updates["status"] = request.status
+            if request.status in ("resolved", "false_positive", "closed"):
+                updates["resolved_at"] = datetime.now(UTC)
+        if request.priority is not None:
+            updates["priority"] = request.priority
+        if request.tags is not None:
+            updates["tags"] = request.tags
+        if request.assigned_to_id is not None:
+            updates["assigned_to_id"] = request.assigned_to_id
+            updates["assigned_at"] = datetime.now(UTC)
+        if request.case_id is not None:
+            updates["case_id"] = request.case_id
 
-    if updates:
-        updates["updated_at"] = datetime.now(UTC)
-        await db.execute(update(Alert).where(Alert.id == alert_id).values(**updates))
-        await db.commit()
-        await db.refresh(alert)
+        if updates:
+            updates["updated_at"] = datetime.now(UTC)
+            await db.execute(update(Alert).where(Alert.id == alert_id).values(**updates))
+            await db.commit()
+            await db.refresh(alert)
 
-    return AlertResponse.model_validate(alert)
+        return AlertResponse.model_validate(alert)
 
 
 @router.post("/{alert_id}/escalate", response_model=AlertResponse)
@@ -926,19 +945,20 @@ async def escalate_alert(
     """Escalate an alert (raises severity by one level)."""
     severity_ladder = ["info", "low", "medium", "high", "critical"]
 
-    result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == current_user.tenant_id))
-    alert = result.scalar_one_or_none()
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == tid))
+        alert = result.scalar_one_or_none()
+        if alert is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
-    current_idx = severity_ladder.index(alert.severity) if alert.severity in severity_ladder else 2
-    new_severity = severity_ladder[min(current_idx + 1, len(severity_ladder) - 1)]
+        current_idx = severity_ladder.index(alert.severity) if alert.severity in severity_ladder else 2
+        new_severity = severity_ladder[min(current_idx + 1, len(severity_ladder) - 1)]
 
-    await db.execute(update(Alert).where(Alert.id == alert_id).values(severity=new_severity, updated_at=datetime.now(UTC)))
-    await db.commit()
-    await db.refresh(alert)
+        await db.execute(update(Alert).where(Alert.id == alert_id).values(severity=new_severity, updated_at=datetime.now(UTC)))
+        await db.commit()
+        await db.refresh(alert)
 
-    return AlertResponse.model_validate(alert)
+        return AlertResponse.model_validate(alert)
 
 
 @router.post("/{alert_id}/claim", response_model=AlertResponse)
@@ -954,12 +974,13 @@ async def claim_alert_endpoint(
     analysts racing for the same alert never both win.
     """
     try:
-        alert = await claim_alert(
-            db,
-            alert_id=alert_id,
-            tenant_id=current_user.tenant_id,
-            user_id=current_user.user_id,
-        )
+        async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+            alert = await claim_alert(
+                db,
+                alert_id=alert_id,
+                tenant_id=tid,
+                user_id=current_user.user_id,
+            )
     except AlertNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AlertAlreadyClaimedError as exc:
@@ -998,21 +1019,22 @@ async def snooze_alert(
             )
         snoozed_until = datetime.now(UTC) + timedelta(minutes=body.duration_minutes or 0)
 
-    result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == current_user.tenant_id))
-    alert = result.scalar_one_or_none()
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        result = await db.execute(select(Alert).where(Alert.id == alert_id, Alert.tenant_id == tid))
+        alert = result.scalar_one_or_none()
+        if alert is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
-    await db.execute(
-        update(Alert)
-        .where(Alert.id == alert_id)
-        .values(
-            snoozed_until=snoozed_until,
-            snoozed_by_id=current_user.user_id,
-            updated_at=datetime.now(UTC),
+        await db.execute(
+            update(Alert)
+            .where(Alert.id == alert_id)
+            .values(
+                snoozed_until=snoozed_until,
+                snoozed_by_id=current_user.user_id,
+                updated_at=datetime.now(UTC),
+            )
         )
-    )
-    await db.commit()
-    await db.refresh(alert)
+        await db.commit()
+        await db.refresh(alert)
 
     return AlertResponse.model_validate(alert)

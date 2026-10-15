@@ -12,6 +12,7 @@ from app.db.database import Base
 from app.models.alert import Alert
 from app.models.tenant import Tenant
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
@@ -178,5 +179,48 @@ def test_summary_counts_the_whole_scope_whatever_the_severity_and_status_filters
         assert out.summary.model_dump() == {"total": 7, "critical": 1, "high": 2, "unresolved": 6}
         narrowed = await call(s, parent.id, client_id=b.id)
         assert narrowed.summary.model_dump() == {"total": 3, "critical": 0, "high": 2, "unresolved": 2}
+
+    run(go)
+
+
+def test_a_parent_can_open_and_update_a_client_alert_but_not_a_strangers():
+    from app.services.alert_scope import alert_scope, find_alert_tenant
+
+    async def go(s):
+        parent, a, b, other = await seed(s)
+        rows = {r.title: r for r in (await s.execute(select(Alert))).scalars()}
+        assert await find_alert_tenant(s, parent.id, rows["own"].id) == parent.id
+        assert await find_alert_tenant(s, parent.id, rows["setpoint-new"].id) == a.id
+        assert await find_alert_tenant(s, parent.id, rows["secret"].id) is None  # someone else's tenant
+        assert await find_alert_tenant(s, a.id, rows["tecovas"].id) is None  # a client cannot see a sibling's alert
+        async with alert_scope(s, parent.id, rows["setpoint-new"].id) as tid:
+            assert tid == a.id
+        with pytest.raises(HTTPException) as e:
+            async with alert_scope(s, parent.id, rows["secret"].id):
+                pass
+        assert e.value.status_code == 404
+
+        # PATCH from the parent changes the client's alert
+        from app.api.v1.endpoints.alerts import AlertUpdateRequest, update_alert
+
+        user = SimpleNamespace(tenant_id=parent.id, user_id=uuid.uuid4())
+        out = await update_alert(rows["setpoint-new"].id, AlertUpdateRequest(status="resolved"), user, s)
+        assert out.status == "resolved"
+
+    run(go)
+
+
+def test_the_list_names_the_tool_not_the_generic_inbox():
+    async def go(s):
+        parent, a, b, other = await seed(s)
+        s.add(alert(a, "from-ninja"))
+        await s.commit()
+        row = (await s.execute(select(Alert).where(Alert.title == "from-ninja"))).scalar_one()
+        row.raw_event = {"source": "ninjaone"}
+        await s.commit()
+        out = await call(s, parent.id)
+        by = {i.title: i.source for i in out.items}
+        assert by["from-ninja"] == "ninjaone"
+        assert by["own"] is None  # no tool recorded: the page falls back to the connector type
 
     run(go)

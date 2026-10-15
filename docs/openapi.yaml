@@ -16350,6 +16350,11 @@ components:
           - type: string
           - type: 'null'
           title: Client Name
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
         narrative:
           anyOf:
           - type: string
@@ -16866,6 +16871,11 @@ components:
           - type: string
           - type: 'null'
           title: Client Name
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
       type: object
       required:
       - id

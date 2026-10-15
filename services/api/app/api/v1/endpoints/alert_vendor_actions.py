@@ -20,6 +20,7 @@ from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
 from app.models.alert import Alert
 from app.models.vendor_action import VendorAction
+from app.services.alert_scope import alert_scope
 from app.services.audit import emit_audit
 from app.services.vendor_actions import (
     PENDING_TTL,
@@ -94,33 +95,34 @@ async def list_vendor_actions(
     db: TenantDBSession,
 ) -> VendorActionsResponse:
     """The incident's last reported vendor state (remediation plan) and the actions asked for so far. ``supported`` is false for alerts this does not apply to."""
-    alert = await _alert(db, alert_id, current_user.tenant_id)
-    uid = alert_incident_uid(alert.raw_event)
-    tickets = linked_tickets(alert.enrichment_data)
-    if uid is None:
-        return VendorActionsResponse(supported=False, actions=[], tickets=tickets)
-    rows = (
-        (
-            await db.execute(
-                select(VendorAction)
-                .where(VendorAction.alert_id == alert.id, VendorAction.tenant_id == current_user.tenant_id)
-                .order_by(VendorAction.created_at.desc())
-                .limit(20)
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        alert = await _alert(db, alert_id, tid)
+        uid = alert_incident_uid(alert.raw_event)
+        tickets = linked_tickets(alert.enrichment_data)
+        if uid is None:
+            return VendorActionsResponse(supported=False, actions=[], tickets=tickets)
+        rows = (
+            (
+                await db.execute(
+                    select(VendorAction)
+                    .where(VendorAction.alert_id == alert.id, VendorAction.tenant_id == tid)
+                    .order_by(VendorAction.created_at.desc())
+                    .limit(20)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    now = datetime.now(UTC)
-    state = (alert.enrichment_data or {}).get("vendor_state")
-    return VendorActionsResponse(
-        supported=True,
-        vendor=SUPPORTED_VENDOR,
-        incident_uid=uid,
-        vendor_state=state if isinstance(state, dict) else None,
-        actions=[_item(r, now) for r in rows],
-        tickets=tickets,
-    )
+        now = datetime.now(UTC)
+        state = (alert.enrichment_data or {}).get("vendor_state")
+        return VendorActionsResponse(
+            supported=True,
+            vendor=SUPPORTED_VENDOR,
+            incident_uid=uid,
+            vendor_state=state if isinstance(state, dict) else None,
+            actions=[_item(r, now) for r in rows],
+            tickets=tickets,
+        )
 
 
 @router.post("/{alert_id}/vendor-actions", response_model=VendorActionItem, status_code=status.HTTP_202_ACCEPTED)
@@ -132,67 +134,68 @@ async def request_vendor_action(
     db: TenantDBSession,
 ) -> VendorActionItem:
     """Queue an approve / reject / resolve for CORE to carry out at Huntress. Returns 202: nothing has happened at the vendor yet."""
-    alert = await _alert(db, alert_id, current_user.tenant_id)
-    uid = alert_incident_uid(alert.raw_event)
-    if uid is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only a Huntress alert that carries its incident id supports this."
-        )
-    state = (alert.enrichment_data or {}).get("vendor_state")
-    problem = problem_with_request(body.action, state)
-    if problem:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=problem)
-    if body.action == "reject" and not (body.comment or "").strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Say why the plan is being rejected; Huntress's SOC reads it."
-        )
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        alert = await _alert(db, alert_id, tid)
+        uid = alert_incident_uid(alert.raw_event)
+        if uid is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only a Huntress alert that carries its incident id supports this."
+            )
+        state = (alert.enrichment_data or {}).get("vendor_state")
+        problem = problem_with_request(body.action, state)
+        if problem:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=problem)
+        if body.action == "reject" and not (body.comment or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Say why the plan is being rejected; Huntress's SOC reads it."
+            )
 
-    now = datetime.now(UTC)
-    in_flight = (
-        (
-            await db.execute(
-                select(VendorAction).where(
-                    VendorAction.alert_id == alert.id,
-                    VendorAction.tenant_id == current_user.tenant_id,
-                    VendorAction.status.in_(("pending", "claimed")),
-                    VendorAction.created_at > now - PENDING_TTL,
+        now = datetime.now(UTC)
+        in_flight = (
+            (
+                await db.execute(
+                    select(VendorAction).where(
+                        VendorAction.alert_id == alert.id,
+                        VendorAction.tenant_id == tid,
+                        VendorAction.status.in_(("pending", "claimed")),
+                        VendorAction.created_at > now - PENDING_TTL,
+                    )
                 )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
-    if in_flight:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="An action for this incident is already waiting for CORE; let it finish first."
-        )
+        if in_flight:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="An action for this incident is already waiting for CORE; let it finish first."
+            )
 
-    params: dict[str, Any] = {}
-    if body.action == "reject":
-        params = {"comment": (body.comment or "").strip(), "reason": body.reason, "useful": body.useful}
-    row = VendorAction(
-        id=uuid.uuid4(),
-        tenant_id=current_user.tenant_id,
-        alert_id=alert.id,
-        vendor=SUPPORTED_VENDOR,
-        incident_uid=uid,
-        action=body.action,
-        params=params,
-        status="pending",
-        requested_by=current_user.user_id,
-        created_at=now,
-    )
-    db.add(row)
-    await db.flush()
-    await emit_audit(
-        db=db,
-        tenant_id=current_user.tenant_id,
-        actor_id=current_user.user_id,
-        action="alerts:vendor_action_requested",
-        resource="alert",
-        resource_id=str(alert.id),
-        changes={"vendor": SUPPORTED_VENDOR, "incident": uid, "action": body.action, "vendor_action_id": str(row.id)},
-        request=request,
-    )
-    await db.commit()
-    return _item(row, now)
+        params: dict[str, Any] = {}
+        if body.action == "reject":
+            params = {"comment": (body.comment or "").strip(), "reason": body.reason, "useful": body.useful}
+        row = VendorAction(
+            id=uuid.uuid4(),
+            tenant_id=tid,
+            alert_id=alert.id,
+            vendor=SUPPORTED_VENDOR,
+            incident_uid=uid,
+            action=body.action,
+            params=params,
+            status="pending",
+            requested_by=current_user.user_id,
+            created_at=now,
+        )
+        db.add(row)
+        await db.flush()
+        await emit_audit(
+            db=db,
+            tenant_id=tid,
+            actor_id=current_user.user_id,
+            action="alerts:vendor_action_requested",
+            resource="alert",
+            resource_id=str(alert.id),
+            changes={"vendor": SUPPORTED_VENDOR, "incident": uid, "action": body.action, "vendor_action_id": str(row.id)},
+            request=request,
+        )
+        await db.commit()
+        return _item(row, now)
