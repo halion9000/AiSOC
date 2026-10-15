@@ -264,6 +264,19 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
                   <span>{vendorLabel(s.vendor)}</span>
                   {s.name && <span className="text-gray-400">as “{s.name}”</span>}
                   <span className="ml-auto text-xs text-gray-500">seen {when(s.last_seen)}</span>
+                  {facts(s).length > 0 && (
+                    <details className="basis-full pl-8 text-xs text-gray-400">
+                      <summary className="cursor-pointer text-gray-300">All details from {vendorLabel(s.vendor)}</summary>
+                      <dl className="mt-1 grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
+                        {facts(s).map(([k, v]) => (
+                          <div key={k} className="flex gap-2">
+                            <dt className="w-44 shrink-0 text-gray-500">{k}</dt>
+                            <dd className="break-all">{v}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </details>
+                  )}
                 </li>
               ))}
             </ul>
@@ -293,6 +306,19 @@ export function specs(d: DeviceRow): [string, string][] {
     ]);
   }
   return out;
+}
+
+/** Every fact a feed reported, as label/value pairs: ``os.buildNumber`` becomes "Os build number". */
+export function facts(s: DeviceRow['sources'][number]): [string, string][] {
+  const raw = s.details?.facts;
+  if (raw === null || typeof raw !== 'object') return [];
+  return Object.entries(raw as Record<string, unknown>).map(([k, v]) => {
+    const words = k
+      .replace(/\./g, ' ')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .toLowerCase();
+    return [words.charAt(0).toUpperCase() + words.slice(1), String(v)];
+  });
 }
 
 function Field({ label, value }: { label: string; value: string | null }) {

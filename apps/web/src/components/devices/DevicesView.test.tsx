@@ -12,7 +12,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import DevicesView, { specs } from './DevicesView';
+import DevicesView, { facts, specs } from './DevicesView';
 
 const NOW = '2026-10-15T15:00:00Z';
 function device(over: Partial<DeviceRow> & { hostname: string }): DeviceRow {
@@ -135,5 +135,20 @@ describe('specs', () => {
 
   it('shows nothing when no feed reports specs', () => {
     expect(specs(device({ hostname: 'H' }))).toEqual([]);
+  });
+});
+
+describe('facts', () => {
+  it('turns reported fields into readable labels and values', () => {
+    const src = { vendor: 'ninjaone', name: 'x', last_seen: NOW, details: { facts: { nodeClass: 'WINDOWS_LAPTOP', 'os.buildNumber': 26300, offline: false } } };
+    expect(facts(src)).toEqual([
+      ['Node class', 'WINDOWS_LAPTOP'],
+      ['Os build number', '26300'],
+      ['Offline', 'false'],
+    ]);
+  });
+
+  it('is empty when the feed sent no facts', () => {
+    expect(facts({ vendor: 'addigy', name: 'x', last_seen: NOW })).toEqual([]);
   });
 });
