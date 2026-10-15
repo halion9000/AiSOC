@@ -13,6 +13,7 @@ from app.models.copilot_conversation import CopilotConversation
 from app.models.detection_proposal import DetectionEvalBaseline, DetectionRuleProposal
 from app.models.detection_rule import DetectionRule
 from app.models.detection_suggestion import DetectionSuggestion
+from app.models.device import Device, DeviceMergeDismissal, DeviceSource
 from app.models.easm import ExternalAsset, ExternalAssetDrift
 from app.models.identity_graph import AlertIdentityLink, IdentityEdge, IdentityNode
 from app.models.inbox import TenantInboxToken
@@ -59,6 +60,9 @@ from app.models.vendor_action import VendorAction
 
 __all__ = [
     "ClientAlias",
+    "Device",
+    "DeviceMergeDismissal",
+    "DeviceSource",
     "VendorAction",
     "Base",
     "Tenant",
