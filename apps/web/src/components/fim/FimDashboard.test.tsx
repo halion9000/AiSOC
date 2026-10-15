@@ -158,3 +158,12 @@ describe('the time window', () => {
     await waitFor(() => expect(lastEvents().page).toBe(1));
   });
 });
+
+// The rest of the app is dark; this page was built with light-theme colours and showed up as a white slab.
+describe('the file integrity view matches the dark theme', () => {
+  it('renders with no light-theme backgrounds', async () => {
+    const { container } = renderDashboard();
+    expect(await screen.findByText('/etc/hosts')).toBeInTheDocument();
+    expect(container.querySelectorAll('.bg-white, .bg-gray-50, .bg-gray-100, .border-gray-200').length).toBe(0);
+  });
+});

@@ -117,7 +117,7 @@ export function FimDashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-bold text-gray-900">
+        <h1 className="text-xl font-bold text-white">
           File Integrity Monitoring
         </h1>
         <p className="text-sm text-gray-500">
@@ -127,7 +127,7 @@ export function FimDashboard() {
       </div>
 
       {/* Filter bar */}
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-800 bg-gray-900/60 p-4 shadow-sm">
         <TenantScopePicker tone="light" value={tenantId} onChange={handleTenantChange} />
 
         {/* Time window */}
@@ -136,7 +136,7 @@ export function FimDashboard() {
           <select
             value={since}
             onChange={(e) => handleSinceChange(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="rounded-md border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
             {SINCE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -152,7 +152,7 @@ export function FimDashboard() {
           <select
             value={action}
             onChange={(e) => handleActionChange(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="rounded-md border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
             {ACTION_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -172,7 +172,7 @@ export function FimDashboard() {
             value={pathPrefix}
             onChange={(e) => handlePathChange(e.target.value)}
             placeholder="/etc/, /home/, C:\\…"
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="rounded-md border border-gray-700 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
       </div>
@@ -188,7 +188,7 @@ export function FimDashboard() {
 
       {/* Events table */}
       <div>
-        <h2 className="mb-3 text-sm font-semibold text-gray-700">
+        <h2 className="mb-3 text-sm font-semibold text-gray-300">
           Event Log
         </h2>
         {eventsError ? (
@@ -211,7 +211,7 @@ export function FimDashboard() {
 
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+    <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
       {message}
     </div>
   );
@@ -223,7 +223,7 @@ function SkeletonCards() {
       {[...Array(4)].map((_, i) => (
         <div
           key={i}
-          className="h-20 rounded-xl border border-gray-200 bg-gray-100"
+          className="h-20 rounded-xl border border-gray-800 bg-gray-800"
         />
       ))}
     </div>
@@ -233,9 +233,9 @@ function SkeletonCards() {
 function SkeletonTable() {
   return (
     <div className="animate-pulse space-y-2">
-      <div className="h-10 rounded-lg bg-gray-100" />
+      <div className="h-10 rounded-lg bg-gray-800" />
       {[...Array(6)].map((_, i) => (
-        <div key={i} className="h-8 rounded bg-gray-50" />
+        <div key={i} className="h-8 rounded bg-gray-900/40" />
       ))}
     </div>
   );

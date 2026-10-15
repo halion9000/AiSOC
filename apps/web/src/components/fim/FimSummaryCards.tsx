@@ -9,8 +9,8 @@ interface Props {
 
 const ACTION_STYLES: Record<string, string> = {
   CREATED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  DELETED: 'bg-red-50 text-red-700 border-red-200',
-  UPDATED: 'bg-amber-50 text-amber-700 border-amber-200',
+  DELETED: 'bg-red-500/10 text-red-300 border-red-500/30',
+  UPDATED: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
   ATTRIBUTES_MODIFIED: 'bg-sky-50 text-sky-700 border-sky-200',
 };
 
@@ -44,11 +44,11 @@ export function FimSummaryCards({ summary }: Props) {
                 key={a.action}
                 className={clsx(
                   'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium',
-                  ACTION_STYLES[a.action] ?? 'bg-gray-50 text-gray-700 border-gray-200',
+                  ACTION_STYLES[a.action] ?? 'bg-gray-900/40 text-gray-300 border-gray-800',
                 )}
               >
                 {a.action}
-                <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-xs font-bold">
+                <span className="rounded-full bg-gray-900/60 px-1.5 py-0.5 text-xs font-bold">
                   {a.count.toLocaleString()}
                 </span>
               </span>
@@ -63,17 +63,17 @@ export function FimSummaryCards({ summary }: Props) {
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
             Top File Paths
           </h3>
-          <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          <div className="overflow-hidden rounded-lg border border-gray-800 bg-gray-900/60">
             {summary.top_paths.map((p, i) => (
               <div
                 key={p.target_path}
                 className={clsx(
                   'flex items-center justify-between px-3 py-2 text-sm',
-                  i !== summary.top_paths.length - 1 && 'border-b border-gray-100',
+                  i !== summary.top_paths.length - 1 && 'border-b border-gray-800/60',
                 )}
               >
-                <span className="truncate font-mono text-xs text-gray-700">{p.target_path}</span>
-                <span className="ml-4 shrink-0 rounded bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+                <span className="truncate font-mono text-xs text-gray-300">{p.target_path}</span>
+                <span className="ml-4 shrink-0 rounded bg-gray-800 px-2 py-0.5 text-xs font-semibold text-gray-400">
                   {p.count.toLocaleString()}
                 </span>
               </div>
@@ -95,9 +95,9 @@ function KpiCard({
   note?: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+    <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-4 py-3 shadow-sm">
       <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-gray-900">{value}</p>
+      <p className="mt-1 text-2xl font-bold text-white">{value}</p>
       {note && <p className="mt-0.5 text-xs text-gray-400">{note}</p>}
     </div>
   );
