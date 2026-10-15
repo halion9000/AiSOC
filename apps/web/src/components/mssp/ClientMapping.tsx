@@ -270,6 +270,7 @@ function SimpleRow({
 export default function ClientMapping({ tenants, onChanged }: { tenants: ManagedTenantRow[]; onChanged: () => void }) {
   const [clients, setClients] = useState<VendorClient[] | null>(null);
   const [synced, setSynced] = useState<string[]>([]);
+  const [moving, setMoving] = useState(false);
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('name');
@@ -338,6 +339,21 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
       changed();
     } catch (err) {
       toast.error(err instanceof Error && err.message ? err.message : 'Could not save that.');
+    }
+  };
+
+  const moveExistingAlerts = async () => {
+    if (!window.confirm('Move the alerts already received from your tools under the client each one belongs to? Alerts, their cases and actions are moved, not copied or deleted. It is safe to run again.')) return;
+    setMoving(true);
+    try {
+      const r = await msspApi.rerouteAlerts();
+      const dup = r.left_duplicates > 0 ? ` ${r.left_duplicates} already existed under their client and were left alone.` : '';
+      toast.success(r.moved === 0 ? `Nothing to move.${dup}` : `Moved ${r.moved} alert${r.moved === 1 ? '' : 's'} and ${r.cases_moved} case${r.cases_moved === 1 ? '' : 's'} to ${Object.keys(r.by_client).length} client${Object.keys(r.by_client).length === 1 ? '' : 's'}.${dup}`);
+      changed();
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : 'Could not move the alerts.');
+    } finally {
+      setMoving(false);
     }
   };
 
@@ -581,6 +597,17 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
             ))}
           </div>
           <p className="mt-2 text-xs text-gray-500">Pick the tool that is your master client list. Its clients become client tenants; clients from the other tools are mapped to them below.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={moving}
+              onClick={() => void moveExistingAlerts()}
+              className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50 transition-colors"
+            >
+              {moving ? 'Moving…' : 'Move existing alerts to their clients'}
+            </button>
+            <span className="text-xs text-gray-500">New alerts go to the right client automatically; this files the ones that arrived before the mapping.</span>
+          </div>
         </fieldset>
       ) : null}
 

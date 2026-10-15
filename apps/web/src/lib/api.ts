@@ -526,6 +526,11 @@ export const msspApi = {
     return request(`/api/v1/mssp/tenants/${sourceId}/merge-into/${targetId}`, { method: 'POST' });
   },
 
+  /** Move alerts that arrived before their client was mapped under that client's tenant (new alerts are routed on arrival). Safe to repeat. */
+  async rerouteAlerts(): Promise<{ moved: number; left_duplicates: number; cases_moved: number; by_client: Record<string, number> }> {
+    return request('/api/v1/mssp/alerts/reroute', { method: 'POST' });
+  },
+
   /** Put a client away without deleting anything: hidden, renamed "<name> (archived)", its tool clients back in Unmapped. `removed` is true when it was archived. */
   async archiveClient(tenantId: string): Promise<{ removed: boolean; name: string; reason: string | null }> {
     return request(`/api/v1/mssp/tenants/${tenantId}/archive`, { method: 'POST' });

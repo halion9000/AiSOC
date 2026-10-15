@@ -9867,6 +9867,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/mssp/alerts/reroute:
+    post:
+      tags:
+      - mssp
+      summary: Reroute Existing Alerts
+      description: Move alerts that arrived before their client was mapped under that
+        client's tenant (new alerts are routed on arrival). Safe to run again; it
+        only moves what is still under the parent.
+      operationId: reroute_existing_alerts_api_v1_mssp_alerts_reroute_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RerouteOut'
+      security:
+      - HTTPBearer: []
   /api/v1/mssp/tenants/{tenant_id}/archive:
     post:
       tags:
@@ -26925,6 +26943,29 @@ components:
       required:
       - name
       title: ReportDefinitionBody
+    RerouteOut:
+      properties:
+        moved:
+          type: integer
+          title: Moved
+        left_duplicates:
+          type: integer
+          title: Left Duplicates
+        cases_moved:
+          type: integer
+          title: Cases Moved
+        by_client:
+          additionalProperties:
+            type: integer
+          type: object
+          title: By Client
+      type: object
+      required:
+      - moved
+      - left_duplicates
+      - cases_moved
+      - by_client
+      title: RerouteOut
     RetentionOut:
       properties:
         raw_events_days:

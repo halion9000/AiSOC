@@ -20,6 +20,7 @@ from app.db.rls_scope import acting_as_tenant
 from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
 from app.models.tenant import Tenant
+from app.services.alert_reroute import RerouteError, reroute_alerts
 from app.services.audit import emit_audit
 from app.services.client_mapping import (
     MergeError,
@@ -345,6 +346,45 @@ async def merge_client(
     )
     await db.commit()
     return MergeOut(source=source.name, target=target.name, remapped=remapped)
+
+
+class RerouteOut(BaseModel):
+    moved: int
+    left_duplicates: int
+    cases_moved: int
+    by_client: dict[str, int]
+
+
+@router.post("/alerts/reroute", response_model=RerouteOut)
+async def reroute_existing_alerts(
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))],
+    db: TenantDBSession,
+) -> RerouteOut:
+    """Move alerts that arrived before their client was mapped under that client's tenant (new alerts are routed on arrival). Safe to run again; it only moves what is still under the parent."""
+    try:
+        result = await reroute_alerts(db, current_user.tenant_id)
+    except RerouteError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="mssp:alerts_rerouted",
+        resource="tenant",
+        resource_id=str(current_user.tenant_id),
+        changes={
+            "moved": result.moved,
+            "left_duplicates": result.left_duplicates,
+            "cases_moved": result.cases_moved,
+            "by_client": result.by_client,
+        },
+        request=request,
+    )
+    await db.commit()
+    return RerouteOut(
+        moved=result.moved, left_duplicates=result.left_duplicates, cases_moved=result.cases_moved, by_client=result.by_client
+    )
 
 
 class RemoveOut(BaseModel):

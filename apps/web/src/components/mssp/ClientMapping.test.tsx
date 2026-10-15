@@ -13,6 +13,7 @@ const hiddenMock = vi.fn();
 const removeMock = vi.fn();
 const archiveMock = vi.fn();
 const mergeMock = vi.fn();
+const rerouteMock = vi.fn();
 const tenantsMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   msspApi: {
@@ -26,6 +27,7 @@ vi.mock('@/lib/api', () => ({
     removeClient: (...a: unknown[]) => removeMock(...a),
     archiveClient: (...a: unknown[]) => archiveMock(...a),
     mergeClient: (...a: unknown[]) => mergeMock(...a),
+    rerouteAlerts: (...a: unknown[]) => rerouteMock(...a),
     tenants: (...a: unknown[]) => tenantsMock(...a),
   },
 }));
@@ -66,6 +68,22 @@ describe('grouping', () => {
     expect(vendorLabel('halopsa')).toBe('HaloPSA');
     expect(vendorLabel('ninjaone')).toBe('NinjaOne');
     expect(vendorLabel('acme')).toBe('Acme');
+  });
+});
+
+describe('moving existing alerts', () => {
+  it('asks first, then moves them and reports what happened', async () => {
+    clientsMock.mockResolvedValue({ clients: [client({ vendor_client_name: 'A' })], unmapped: 1 });
+    rerouteMock.mockResolvedValue({ moved: 12, left_duplicates: 1, cases_moved: 2, by_client: { Acme: 12 } });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const button = await screen.findByRole('button', { name: 'Move existing alerts to their clients' });
+    await user.click(button);
+    expect(rerouteMock).not.toHaveBeenCalled(); // declined
+    await user.click(button);
+    expect(rerouteMock).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledTimes(2);
   });
 });
 
