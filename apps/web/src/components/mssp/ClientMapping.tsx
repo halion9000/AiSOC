@@ -104,12 +104,39 @@ export function vendorLabel(vendor: string): string {
   return VENDOR_NAMES[vendor] ?? vendor.charAt(0).toUpperCase() + vendor.slice(1);
 }
 
+/**
+ * The best suggested client for each of one tool's unmapped rows (id -> tenant id).
+ * Rows with no suggestion are left out, and nothing is saved: this only fills in the dropdowns.
+ */
+export function suggestedChoices(unmapped: VendorClient[], vendor: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const c of unmapped) {
+    const best = c.suggestions[0]?.tenant_id;
+    if (c.vendor === vendor && c.child_tenant_id === null && !c.ignored && best) out[c.id] = best;
+  }
+  return out;
+}
+
 const NEW_CLIENT = '__new__';
 
-function UnmappedRow({ client, tenants, onChanged }: { client: VendorClient; tenants: ManagedTenantRow[]; onChanged: () => void }) {
+function UnmappedRow({
+  client,
+  tenants,
+  onChanged,
+  prefill,
+}: {
+  client: VendorClient;
+  tenants: ManagedTenantRow[];
+  onChanged: () => void;
+  prefill?: { tenantId: string; n: number };
+}) {
   const best = client.suggestions[0]?.tenant_id ?? '';
   const [choice, setChoice] = useState<string>(best);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (prefill) setChoice(prefill.tenantId);
+  }, [prefill]);
 
   const run = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -234,6 +261,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const [typedReset, setTypedReset] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const [prefills, setPrefills] = useState<Record<string, { tenantId: string; n: number }>>({});
 
   const load = useCallback(async () => {
     try {
@@ -316,6 +344,19 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     } finally {
       setProgress(null);
     }
+  };
+
+  const suggestFor = (vendor: string) => {
+    const picks = suggestedChoices(groups.unmapped, vendor);
+    const total = groups.unmapped.filter((c) => c.vendor === vendor).length;
+    const found = Object.keys(picks).length;
+    if (found === 0) {
+      toast.error(`No close matches found for ${vendorLabel(vendor)}. Pick clients by hand, or import them as new.`);
+      return;
+    }
+    const n = Date.now();
+    setPrefills((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(picks).map(([id, tenantId]) => [id, { tenantId, n }])) }));
+    toast.success(`Suggested a client for ${found} of ${total} ${vendorLabel(vendor)} rows. Review each one, then click Map. Nothing is saved yet.`);
   };
 
   const importAll = async (vendor: string, count: number) => {
@@ -473,14 +514,22 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
           {groups.unmapped.length > 0 ? (
             <div className="flex flex-wrap gap-2 px-5 pt-3">
               {unmappedByVendor(groups.unmapped).map(({ vendor, count }) => (
-                <button
-                  key={vendor}
-                  type="button"
-                  onClick={() => void importAll(vendor, count)}
-                  className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-                >
-                  Import all {count} from {vendorLabel(vendor)}
-                </button>
+                <span key={vendor} className="inline-flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => suggestFor(vendor)}
+                    className="rounded-lg border border-blue-500/40 px-3 py-1.5 text-sm text-blue-300 hover:bg-blue-500/10 transition-colors"
+                  >
+                    Suggest mappings for {vendorLabel(vendor)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void importAll(vendor, count)}
+                    className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                  >
+                    Import all {count} from {vendorLabel(vendor)}
+                  </button>
+                </span>
               ))}
             </div>
           ) : null}
@@ -489,7 +538,7 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
           ) : (
             <ul>
               {groups.unmapped.map((c) => (
-                <UnmappedRow key={c.id} client={c} tenants={tenants} onChanged={changed} />
+                <UnmappedRow key={c.id} client={c} tenants={tenants} onChanged={changed} prefill={prefills[c.id]} />
               ))}
             </ul>
           )}

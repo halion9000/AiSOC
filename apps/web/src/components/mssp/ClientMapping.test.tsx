@@ -29,7 +29,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import ClientMapping, { removeClients, keptSummary, filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel } from './ClientMapping';
+import ClientMapping, { removeClients, keptSummary, filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel, suggestedChoices } from './ClientMapping';
 
 function client(over: Partial<VendorClient> & { vendor_client_name: string }): VendorClient {
   return { id: `a-${over.vendor_client_name}`, vendor: 'petra', vendor_client_id: '1', child_tenant_id: null, child_tenant_name: null, ignored: false, match_source: 'suggested', suggestions: [], ...over };
@@ -380,5 +380,33 @@ describe('removeClients', () => {
     expect(calls).toEqual(['a', 'b', 'c']);
     expect(progress).toEqual([1, 2, 3]);
     expect(out).toEqual({ removed: 1, kept: [{ name: 'B', reason: 'it has audit records' }, { name: 'C', reason: 'API 500' }] });
+  });
+});
+
+describe('suggesting mappings for one tool', () => {
+  const sug = (name: string) => [{ tenant_id: `t-${name}`, name, score: 0.9 }];
+  const rows = [
+    client({ vendor_client_name: 'Acme Dental Group', vendor: 'huntress', suggestions: sug('Birch Law') }),
+    client({ vendor_client_name: 'No Match Inc', vendor: 'huntress' }),
+    client({ vendor_client_name: 'Other Tool Co', vendor: 'petra', suggestions: sug('Birch Law') }),
+    client({ vendor_client_name: 'Done Already', vendor: 'huntress', child_tenant_id: 't-x', suggestions: sug('Birch Law') }),
+  ];
+
+  it('picks the top suggestion for that tool only, skipping rows with none or already mapped', () => {
+    expect(suggestedChoices(rows, 'huntress')).toEqual({ 'a-Acme Dental Group': 't-Birch Law' });
+  });
+
+  it('fills the dropdown, even after it was changed by hand, and saves nothing', async () => {
+    clientsMock.mockResolvedValue({ clients: [rows[0], rows[1]], unmapped: 2 });
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const select = (await screen.findByLabelText('Client for Acme Dental Group')) as HTMLSelectElement;
+    await user.selectOptions(select, '');
+    expect(select.value).toBe('');
+
+    await user.click(screen.getByRole('button', { name: 'Suggest mappings for Huntress' }));
+    expect(select.value).toBe('t-Birch Law');
+    expect(((await screen.findByLabelText('Client for No Match Inc')) as HTMLSelectElement).value).toBe('');
+    expect(mapMock).not.toHaveBeenCalled();
   });
 });
