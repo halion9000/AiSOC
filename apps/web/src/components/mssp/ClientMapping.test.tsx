@@ -410,3 +410,49 @@ describe('suggesting mappings for one tool', () => {
     expect(mapMock).not.toHaveBeenCalled();
   });
 });
+
+describe('approving several checked rows', () => {
+  const sug = (name: string) => [{ tenant_id: `t-${name}`, name, score: 0.9 }];
+  const three = [
+    client({ vendor_client_name: 'Acme Dental Group', suggestions: sug('Birch Law') }),
+    client({ vendor_client_name: 'Zed Co', suggestions: sug('Birch Law') }),
+    client({ vendor_client_name: 'No Pick Inc' }),
+  ];
+
+  it('maps only the checked rows to their chosen clients, skipping ones with no choice', async () => {
+    clientsMock.mockResolvedValue({ clients: three, unmapped: 3 });
+    mapMock.mockResolvedValue({});
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+
+    const approve = await screen.findByRole('button', { name: 'Approve all checked (0)' });
+    expect(approve).toBeDisabled();
+    await user.click(screen.getByLabelText('Select Acme Dental Group'));
+    await user.click(screen.getByLabelText('Select No Pick Inc'));
+    await user.click(screen.getByRole('button', { name: 'Approve all checked (2)' }));
+
+    expect(mapMock).toHaveBeenCalledTimes(1);
+    expect(mapMock).toHaveBeenCalledWith('a-Acme Dental Group', { childTenantId: 't-Birch Law' });
+    confirm.mockRestore();
+  });
+
+  it('maps nothing when the confirmation is declined', async () => {
+    clientsMock.mockResolvedValue({ clients: three, unmapped: 3 });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await user.click(await screen.findByLabelText('Select Zed Co'));
+    await user.click(screen.getByRole('button', { name: 'Approve all checked (1)' }));
+    expect(mapMock).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('select all checks every shown row', async () => {
+    clientsMock.mockResolvedValue({ clients: three, unmapped: 3 });
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await user.click(await screen.findByLabelText('Select all shown'));
+    expect(screen.getByRole('button', { name: 'Approve all checked (3)' })).toBeEnabled();
+  });
+});

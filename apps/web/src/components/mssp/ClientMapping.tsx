@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { msspApi, type DuplicateGroup, type ManagedTenantRow, type VendorClient } from '@/lib/api';
 
@@ -124,11 +124,17 @@ function UnmappedRow({
   tenants,
   onChanged,
   prefill,
+  checked,
+  onCheck,
+  onChoice,
 }: {
   client: VendorClient;
   tenants: ManagedTenantRow[];
   onChanged: () => void;
   prefill?: { tenantId: string; n: number };
+  checked: boolean;
+  onCheck: (checked: boolean) => void;
+  onChoice: (choice: string) => void;
 }) {
   const best = client.suggestions[0]?.tenant_id ?? '';
   const [choice, setChoice] = useState<string>(best);
@@ -137,6 +143,11 @@ function UnmappedRow({
   useEffect(() => {
     if (prefill) setChoice(prefill.tenantId);
   }, [prefill]);
+
+  useEffect(() => {
+    onChoice(choice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choice]);
 
   const run = async (work: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -161,6 +172,13 @@ function UnmappedRow({
 
   return (
     <li className="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-gray-800/40">
+      <input
+        type="checkbox"
+        aria-label={`Select ${client.vendor_client_name}`}
+        checked={checked}
+        onChange={(e) => onCheck(e.target.checked)}
+        className="h-4 w-4 rounded border-gray-600"
+      />
       <div className="min-w-[14rem] flex-1">
         <p className="font-medium text-white">{client.vendor_client_name}</p>
         <p className="text-xs text-gray-500">{vendorLabel(client.vendor)}</p>
@@ -261,6 +279,9 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const [typedReset, setTypedReset] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const choices = useRef<Record<string, string>>({});
+  const [approving, setApproving] = useState(false);
   const [prefills, setPrefills] = useState<Record<string, { tenantId: string; n: number }>>({});
 
   const load = useCallback(async () => {
@@ -344,6 +365,41 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     } finally {
       setProgress(null);
     }
+  };
+
+  const checkedRows = groups.unmapped.filter((c) => checked.has(c.id));
+  const toggle = (id: string, on: boolean) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const approveChecked = async () => {
+    const todo = checkedRows.filter((c) => choices.current[c.id]);
+    const skipped = checkedRows.length - todo.length;
+    if (todo.length === 0) {
+      toast.error('Choose a client for each checked row first.');
+      return;
+    }
+    if (!window.confirm(`Map ${todo.length} checked client${todo.length === 1 ? '' : 's'} to the clients chosen in their dropdowns?`)) return;
+    setApproving(true);
+    let done = 0;
+    const failed: string[] = [];
+    for (const c of todo) {
+      const choice = choices.current[c.id];
+      try {
+        await msspApi.mapClient(c.id, choice === NEW_CLIENT ? { newTenantName: c.vendor_client_name } : { childTenantId: choice });
+        done += 1;
+      } catch {
+        failed.push(c.vendor_client_name);
+      }
+    }
+    setApproving(false);
+    setChecked(new Set());
+    const extra = `${skipped ? `, ${skipped} skipped (no client chosen)` : ''}${failed.length ? `, ${failed.length} failed: ${failed.slice(0, 3).join(', ')}` : ''}`;
+    (failed.length ? toast.error : toast.success)(`Mapped ${done} of ${checkedRows.length}${extra}`);
+    changed();
   };
 
   const suggestFor = (vendor: string) => {
@@ -533,12 +589,40 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
               ))}
             </div>
           ) : null}
+          {groups.unmapped.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-3 px-5 pt-3">
+              <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input
+                  type="checkbox"
+                  aria-label="Select all shown"
+                  checked={checkedRows.length === groups.unmapped.length}
+                  onChange={(e) => setChecked(e.target.checked ? new Set(groups.unmapped.map((c) => c.id)) : new Set())}
+                  className="h-4 w-4 rounded border-gray-600"
+                />
+                Select all shown
+              </label>
+              <button
+                type="button"
+                disabled={approving || checkedRows.length === 0}
+                onClick={() => void approveChecked()}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500 disabled:opacity-40 disabled:hover:bg-blue-600 transition-colors"
+              >
+                Approve all checked ({checkedRows.length})
+              </button>
+            </div>
+          ) : null}
           {groups.unmapped.length === 0 ? (
             <p className="px-5 py-3 text-sm text-gray-400">Everything is mapped.</p>
           ) : (
             <ul>
               {groups.unmapped.map((c) => (
-                <UnmappedRow key={c.id} client={c} tenants={tenants} onChanged={changed} prefill={prefills[c.id]} />
+                <UnmappedRow key={c.id} client={c} tenants={tenants} onChanged={changed} prefill={prefills[c.id]}
+                  checked={checked.has(c.id)}
+                  onCheck={(on) => toggle(c.id, on)}
+                  onChoice={(v) => {
+                    choices.current[c.id] = v;
+                  }}
+                />
               ))}
             </ul>
           )}
