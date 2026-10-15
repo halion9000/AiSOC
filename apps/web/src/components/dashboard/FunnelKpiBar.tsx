@@ -69,7 +69,7 @@ function formatPercent(ratio: number): string {
 
 function formatDelta(delta: number | null): string {
   if (delta === null || !Number.isFinite(delta)) return '—';
-  const pct = delta * 100;
+  const pct = delta; // the API already sends a percentage (12.5 = +12.5%), unlike the ratios above
   const rounded = Math.abs(pct) >= 10 ? Math.round(pct) : pct.toFixed(1);
   const sign = pct > 0 ? '+' : pct < 0 ? '−' : '';
   return `${sign}${Math.abs(Number(rounded))}%`;

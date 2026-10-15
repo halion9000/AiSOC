@@ -71,12 +71,12 @@ const SAMPLE_FUNNEL = {
   alert_yield: 0.034,
   mitre_coverage: { covered: 42, total: 201, ratio: 0.209 },
   deltas: {
-    events_of_interest: 0.12,
-    correlation_instances: 0.05,
-    alerts_generated: -0.08,
-    signal_to_noise: 0.02,
-    mttd_seconds: -0.15,
-    analyst_queue_depth: 0.2,
+    events_of_interest: 12,
+    correlation_instances: 5,
+    alerts_generated: -8,
+    signal_to_noise: 2,
+    mttd_seconds: -15,
+    analyst_queue_depth: 20,
   },
   generated_at: '2026-05-13T10:00:00Z',
 };
@@ -116,6 +116,13 @@ describe('FunnelKpiBar', () => {
     // Positive Δ on EOI / alerts means up; negative on alerts is shown with a minus.
     expect(screen.getByText('+12%')).toBeInTheDocument();
     expect(screen.getByText('−8%')).toBeInTheDocument();
+  });
+
+  it('shows the API percentage as is: -31.92 is −32%, not −3192%', () => {
+    swrData.set(FUNNEL_KEY, { ...SAMPLE_FUNNEL, deltas: { ...SAMPLE_FUNNEL.deltas, events_of_interest: -31.92, alerts_generated: -31.92 } });
+    render(<FunnelKpiBar period="24h" />);
+    expect(screen.getAllByText('−32%').length).toBe(2);
+    expect(screen.queryByText(/3192/)).toBeNull();
   });
 
   it('shows skeleton tiles while loading', () => {

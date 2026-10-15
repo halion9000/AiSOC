@@ -2178,7 +2178,7 @@ export interface FunnelMetrics {
   /** Alerts produced per event-of-interest, clamped to [0, 1]. */
   alert_yield: number;
   mitre_coverage: { covered: number; total: number; ratio: number };
-  /** Period-over-period deltas (fraction, e.g. 0.05 = +5%). */
+  /** Period-over-period deltas as PERCENTAGES (5 = +5%); 0 when the previous window was empty. */
   deltas: {
     events_of_interest: number;
     correlation_instances: number;
