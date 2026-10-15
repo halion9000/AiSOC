@@ -30,10 +30,12 @@ from sqlalchemy import and_, func, select, text
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.config import settings
+from app.db.rls_scope import cross_tenant_reads
 from app.models.alert import Alert
 from app.models.connector import Connector
 from app.models.detection_rule import DetectionRule
 from app.models.remediation import RemediationGateLog
+from app.models.tenant import Tenant
 from app.services import case_metrics as case_counts  # not `case_metrics`: get_dashboard_metrics has a local variable of that name
 
 logger = logging.getLogger(__name__)
@@ -219,28 +221,49 @@ class PipelineHealth(BaseModel):
     generated_at: datetime
 
 
+async def _rollup_ids(db, tenant_id) -> list:
+    """The caller's tenant plus every client tenant under it (an MSSP parent sees its clients' totals)."""
+    rows = (await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == tenant_id))).all()
+    return [tenant_id, *[r[0] for r in rows]]
+
+
+async def _sum_cases(fn, db, tenant_ids, *args) -> int:
+    """Run a per-tenant case-count helper for each tenant in scope and add the results."""
+    return sum([int(await fn(db, tid, *args) or 0) for tid in tenant_ids])
+
+
 @router.get("/dashboard", response_model=DashboardMetrics, dependencies=[Depends(require_permission("alerts:read"))])
 async def get_dashboard_metrics(
     user: AuthUser,
     db: DBSession,
 ) -> DashboardMetrics:
+    tenant_ids = await _rollup_ids(db, user.tenant_id)
+    async with cross_tenant_reads(db):
+        return await _get_dashboard_metrics_impl(user, db, tenant_ids)
+
+
+async def _get_dashboard_metrics_impl(
+    user: AuthUser,
+    db: DBSession,
+    tenant_ids: list,
+) -> DashboardMetrics:
     """Return aggregated KPI metrics for the dashboard overview tiles."""
-    tenant_id = user.tenant_id
+    tenant_id = user.tenant_id  # noqa: F841 - kept for helpers that read one tenant
     now = datetime.now(UTC)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = now - timedelta(days=7)
 
     # ── Alert counts ──────────────────────────────────────────────────────────
-    total_q = await db.scalar(select(func.count()).where(Alert.tenant_id == tenant_id))
-    new_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id == tenant_id, Alert.status == "new")))
-    critical_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id == tenant_id, Alert.severity == "critical")))
-    high_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id == tenant_id, Alert.severity == "high")))
-    medium_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id == tenant_id, Alert.severity == "medium")))
-    low_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id == tenant_id, Alert.severity == "low")))
+    total_q = await db.scalar(select(func.count()).where(Alert.tenant_id.in_(tenant_ids)))
+    new_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.status == "new")))
+    critical_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "critical")))
+    high_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "high")))
+    medium_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "medium")))
+    low_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "low")))
     resolved_today_q = await db.scalar(
         select(func.count()).where(
             and_(
-                Alert.tenant_id == tenant_id,
+                Alert.tenant_id.in_(tenant_ids),
                 Alert.status == "resolved",
                 Alert.updated_at >= today_start,
             )
@@ -251,7 +274,7 @@ async def get_dashboard_metrics(
     mttr_dashboard_q = await db.scalar(
         select(func.avg(func.extract("epoch", Alert.resolved_at - Alert.created_at) / 3600)).where(
             and_(
-                Alert.tenant_id == tenant_id,
+                Alert.tenant_id.in_(tenant_ids),
                 Alert.resolved_at.isnot(None),
                 Alert.created_at >= week_start,
             )
@@ -271,9 +294,9 @@ async def get_dashboard_metrics(
 
     # ── Case counts ───────────────────────────────────────────────────────────
     # Read from aisoc_cases with its real statuses (see app.services.case_metrics): this counted the old `cases` table and the words 'open' / 'in_progress', so it always showed zero.
-    open_cases_q = await case_counts.count_with_status(db, tenant_id, case_counts.OPEN)
-    in_progress_q = await case_counts.count_with_status(db, tenant_id, case_counts.IN_PROGRESS)
-    resolved_week_q = await case_counts.count_finished_since(db, tenant_id, week_start)
+    open_cases_q = await _sum_cases(case_counts.count_with_status, db, tenant_ids, case_counts.OPEN)
+    in_progress_q = await _sum_cases(case_counts.count_with_status, db, tenant_ids, case_counts.IN_PROGRESS)
+    resolved_week_q = await _sum_cases(case_counts.count_finished_since, db, tenant_ids, week_start)
 
     case_metrics = CaseMetrics(
         open=open_cases_q or 0,
@@ -285,7 +308,7 @@ async def get_dashboard_metrics(
     connectors_rows = (
         await db.execute(
             select(Connector.name, Connector.connector_type, Connector.health_status, Connector.connector_config).where(
-                Connector.tenant_id == tenant_id
+                Connector.tenant_id.in_(tenant_ids)
             )
         )
     ).all()
@@ -293,7 +316,7 @@ async def get_dashboard_metrics(
     # Count alerts per connector_type
     source_counts_rows = (
         await db.execute(
-            select(Alert.connector_type, func.count().label("cnt")).where(Alert.tenant_id == tenant_id).group_by(Alert.connector_type)
+            select(Alert.connector_type, func.count().label("cnt")).where(Alert.tenant_id.in_(tenant_ids)).group_by(Alert.connector_type)
         )
     ).all()
     source_count_map: dict[str, int] = {row.connector_type: row.cnt for row in source_counts_rows if row.connector_type}
@@ -303,7 +326,7 @@ async def get_dashboard_metrics(
     vendor_count_rows = (
         await db.execute(
             select(Alert.raw_event["source"].astext.label("vendor"), func.count().label("cnt"))
-            .where(Alert.tenant_id == tenant_id, Alert.raw_event["source"].astext.isnot(None))
+            .where(Alert.tenant_id.in_(tenant_ids), Alert.raw_event["source"].astext.isnot(None))
             # Group by the label, not by a second copy of the expression: each copy binds its own "source" parameter, so Postgres sees two different expressions and
             # refuses with "must appear in the GROUP BY clause". That made the whole dashboard answer 500.
             .group_by("vendor")
@@ -320,7 +343,7 @@ async def get_dashboard_metrics(
     # jsonb_array_elements_text + GROUP BY in the same SELECT 500s on some
     # Postgres builds.
     tactic_rows = (
-        await db.execute(select(Alert.mitre_tactics).where(and_(Alert.tenant_id == tenant_id, Alert.mitre_tactics.isnot(None))))
+        await db.execute(select(Alert.mitre_tactics).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.mitre_tactics.isnot(None))))
     ).all()
 
     tactic_counts: dict[str, int] = {}
@@ -346,7 +369,7 @@ async def get_dashboard_metrics(
             )
             .where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.created_at >= trend_start,
                 )
             )
@@ -421,6 +444,16 @@ async def get_soc_metrics(
     user: AuthUser,
     db: DBSession,
 ) -> SOCMetrics:
+    tenant_ids = await _rollup_ids(db, user.tenant_id)
+    async with cross_tenant_reads(db):
+        return await _get_soc_metrics_impl(user, db, tenant_ids)
+
+
+async def _get_soc_metrics_impl(
+    user: AuthUser,
+    db: DBSession,
+    tenant_ids: list,
+) -> SOCMetrics:
     """Return SOC-level KPIs, ATT&CK heatmap, and confidence calibration curve.
 
     Tier 1.4 metrics:
@@ -428,7 +461,7 @@ async def get_soc_metrics(
       - ATT&CK technique × tactic heatmap
       - Confidence calibration over time (reliability curve)
     """
-    tenant_id = user.tenant_id
+    tenant_id = user.tenant_id  # noqa: F841 - kept for helpers that read one tenant
     now = datetime.now(UTC)
     week_start = now - timedelta(days=7)
 
@@ -437,7 +470,7 @@ async def get_soc_metrics(
     mttd_q = await db.scalar(
         select(func.avg(func.extract("epoch", Alert.first_seen_at - Alert.created_at) / 3600)).where(
             and_(
-                Alert.tenant_id == tenant_id,
+                Alert.tenant_id.in_(tenant_ids),
                 Alert.first_seen_at.isnot(None),
                 Alert.created_at >= week_start,
             )
@@ -450,7 +483,7 @@ async def get_soc_metrics(
     mttr_q = await db.scalar(
         select(func.avg(func.extract("epoch", Alert.resolved_at - Alert.created_at) / 3600)).where(
             and_(
-                Alert.tenant_id == tenant_id,
+                Alert.tenant_id.in_(tenant_ids),
                 Alert.resolved_at.isnot(None),
                 Alert.created_at >= week_start,
             )
@@ -464,7 +497,7 @@ async def get_soc_metrics(
     mttc_q = await db.scalar(
         select(func.avg(func.extract("epoch", Alert.resolved_at - Alert.created_at) / 3600)).where(
             and_(
-                Alert.tenant_id == tenant_id,
+                Alert.tenant_id.in_(tenant_ids),
                 Alert.resolved_at.isnot(None),
                 Alert.disposition == "true_positive",
                 Alert.created_at >= week_start,
@@ -479,7 +512,7 @@ async def get_soc_metrics(
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.disposition.isnot(None),
                     Alert.created_at >= week_start,
                 )
@@ -491,7 +524,7 @@ async def get_soc_metrics(
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.disposition == "false_positive",
                     Alert.created_at >= week_start,
                 )
@@ -508,7 +541,7 @@ async def get_soc_metrics(
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    RemediationGateLog.tenant_id == tenant_id,
+                    RemediationGateLog.tenant_id.in_(tenant_ids),
                     RemediationGateLog.created_at >= week_start,
                 )
             )
@@ -519,7 +552,7 @@ async def get_soc_metrics(
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    RemediationGateLog.tenant_id == tenant_id,
+                    RemediationGateLog.tenant_id.in_(tenant_ids),
                     RemediationGateLog.created_at >= week_start,
                     RemediationGateLog.decision.in_(escalation_decisions),
                 )
@@ -530,9 +563,9 @@ async def get_soc_metrics(
     escalation_rate = escalated_count / total_decisions if total_decisions > 0 else 0.0
 
     # ── Volume / case counts ──────────────────────────────────────────────────
-    alert_vol = await db.scalar(select(func.count()).where(and_(Alert.tenant_id == tenant_id, Alert.created_at >= week_start))) or 0
-    cases_opened = await case_counts.count_created(db, tenant_id, week_start)
-    cases_closed = await case_counts.count_finished_since(db, tenant_id, week_start)
+    alert_vol = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.created_at >= week_start))) or 0
+    cases_opened = await _sum_cases(case_counts.count_created, db, tenant_ids, week_start)
+    cases_closed = await _sum_cases(case_counts.count_finished_since, db, tenant_ids, week_start)
 
     # ── Analyst overrides (7d) ────────────────────────────────────────────────
     # Any alert with a disposition set in the last 7 days = analyst weighed in.
@@ -540,7 +573,7 @@ async def get_soc_metrics(
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.disposition.isnot(None),
                     Alert.updated_at >= week_start,
                 )
@@ -571,7 +604,7 @@ async def get_soc_metrics(
         await db.execute(
             select(Alert.mitre_tactics, Alert.mitre_techniques).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.mitre_tactics.isnot(None),
                     Alert.mitre_techniques.isnot(None),
                 )
@@ -608,7 +641,7 @@ async def get_soc_metrics(
         bucket_total_q = await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.ai_score.isnot(None),
                     Alert.ai_score >= lower,
                     Alert.ai_score < upper,
@@ -623,7 +656,7 @@ async def get_soc_metrics(
         bucket_tp_q = await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.ai_score.isnot(None),
                     Alert.ai_score >= lower,
                     Alert.ai_score < upper,
@@ -657,6 +690,17 @@ async def get_alert_trend(
     db: DBSession,
     period: str = "24h",
 ) -> dict:
+    tenant_ids = await _rollup_ids(db, user.tenant_id)
+    async with cross_tenant_reads(db):
+        return await _get_alert_trend_impl(user, db, tenant_ids, period)
+
+
+async def _get_alert_trend_impl(
+    user: AuthUser,
+    db: DBSession,
+    tenant_ids: list,
+    period: str = "24h",
+) -> dict:
     """Return alert count trend data bucketed by time period."""
     now = datetime.now(UTC)
     period_map = {
@@ -676,7 +720,7 @@ async def get_alert_trend(
             )
             .where(
                 and_(
-                    Alert.tenant_id == user.tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.created_at >= start,
                 )
             )
@@ -772,15 +816,16 @@ async def _events_of_interest(db, tenant_id, start, end) -> int:
         return 0
 
 
-async def _events_of_interest_from_alerts(db, tenant_id, start, end) -> int:
+async def _events_of_interest_from_alerts(db, tenant_id, start, end, tenant_ids=None) -> int:
     """Fallback EOI: sum of ``jsonb_array_length(source_event_ids)`` across
     alerts in the window. Conservative — only counts events that already
     correlated into an alert — but never lies in air-gapped deployments.
     """
+    tenant_ids = tenant_ids or [tenant_id]
     val = await db.scalar(
         select(func.coalesce(func.sum(func.jsonb_array_length(Alert.source_event_ids)), 0)).where(
             and_(
-                Alert.tenant_id == tenant_id,
+                Alert.tenant_id.in_(tenant_ids),
                 Alert.created_at >= start,
                 Alert.created_at < end,
             )
@@ -808,9 +853,12 @@ async def _repeat_alerts_suppressed(db, tenant_id, start, end) -> int:
         return 0
 
 
-async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict:
+async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int, tenant_ids=None) -> dict:
     """Compute the funnel for a single [start, end) window."""
-    events_of_interest = await _events_of_interest(db, tenant_id, start, end)
+    tenant_ids = tenant_ids or [tenant_id]
+    events_of_interest = 0
+    for _tid in tenant_ids:
+        events_of_interest += await _events_of_interest(db, _tid, start, end)
 
     # Correlation instances = alerts whose source_event_ids has >= 2 events
     # (i.e. multiple raw events fused into a single alert). Single-event
@@ -820,7 +868,7 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.created_at >= start,
                     Alert.created_at < end,
                     func.jsonb_array_length(Alert.source_event_ids) >= 2,
@@ -834,7 +882,7 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.created_at >= start,
                     Alert.created_at < end,
                 )
@@ -851,7 +899,7 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.created_at >= start,
                     Alert.created_at < end,
                     Alert.disposition.in_(("true_positive", "false_positive", "benign", "duplicate")),
@@ -864,7 +912,7 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.created_at >= start,
                     Alert.created_at < end,
                     Alert.disposition == "true_positive",
@@ -879,7 +927,7 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
     mttd_seconds_raw = await db.scalar(
         select(func.avg(func.extract("epoch", Alert.first_seen_at - Alert.created_at))).where(
             and_(
-                Alert.tenant_id == tenant_id,
+                Alert.tenant_id.in_(tenant_ids),
                 Alert.first_seen_at.isnot(None),
                 Alert.created_at >= start,
                 Alert.created_at < end,
@@ -895,7 +943,7 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
         await db.scalar(
             select(func.count()).where(
                 and_(
-                    Alert.tenant_id == tenant_id,
+                    Alert.tenant_id.in_(tenant_ids),
                     Alert.status.in_(("new", "triaging", "in_progress")),
                     Alert.disposition.is_(None),
                 )
@@ -923,11 +971,13 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
     # MITRE coverage: union of distinct techniques across (a) alerts in the
     # window and (b) enabled detection rules visible to the tenant (platform
     # rules + tenant rules).
-    covered = await _mitre_covered(db, tenant_id, start, end)
+    covered = await _mitre_covered(db, tenant_id, start, end, tenant_ids)
     ratio = round(min(covered / mitre_total, 1.0), 4) if mitre_total > 0 else 0.0
     coverage = MitreCoverage(covered=covered, total=mitre_total, ratio=ratio)
 
-    suppressed = await _repeat_alerts_suppressed(db, tenant_id, start, end)
+    suppressed = 0
+    for _tid in tenant_ids:
+        suppressed += await _repeat_alerts_suppressed(db, _tid, start, end)
     # Compounding reduction: of everything the loop *could* have queued
     # (generated + suppressed), what share did prior outcomes suppress?
     denom = alerts_generated + suppressed
@@ -948,7 +998,7 @@ async def _funnel_window(db, tenant_id, start, end, *, mitre_total: int) -> dict
     }
 
 
-async def _mitre_covered(db, tenant_id, start, end) -> int:
+async def _mitre_covered(db, tenant_id, start, end, tenant_ids=None) -> int:
     """Count distinct MITRE techniques visible to this tenant.
 
     Union of:
@@ -956,12 +1006,13 @@ async def _mitre_covered(db, tenant_id, start, end) -> int:
       * techniques referenced by enabled detection rules (tenant-scoped or
         platform-wide where ``tenant_id IS NULL``)
     """
+    tenant_ids = tenant_ids or [tenant_id]
     alert_techs = (
         (
             await db.execute(
                 select(func.distinct(func.jsonb_array_elements_text(Alert.mitre_techniques))).where(
                     and_(
-                        Alert.tenant_id == tenant_id,
+                        Alert.tenant_id.in_(tenant_ids),
                         Alert.created_at >= start,
                         Alert.created_at < end,
                     )
@@ -1016,8 +1067,10 @@ async def get_funnel_metrics(
 
     mitre_total = int(getattr(settings, "AISOC_FUNNEL_MITRE_TOTAL", 201)) or 201
 
-    current = await _funnel_window(db, user.tenant_id, start, end, mitre_total=mitre_total)
-    previous = await _funnel_window(db, user.tenant_id, prev_start, prev_end, mitre_total=mitre_total)
+    tenant_ids = await _rollup_ids(db, user.tenant_id)
+    async with cross_tenant_reads(db):
+        current = await _funnel_window(db, user.tenant_id, start, end, mitre_total=mitre_total, tenant_ids=tenant_ids)
+        previous = await _funnel_window(db, user.tenant_id, prev_start, prev_end, mitre_total=mitre_total, tenant_ids=tenant_ids)
 
     deltas = FunnelDeltas(
         events_of_interest=_pct_delta(current["events_of_interest"], previous["events_of_interest"]),

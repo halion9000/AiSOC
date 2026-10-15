@@ -368,9 +368,15 @@ class TestGetFunnelMetrics:
             "mitre_coverage": MitreCoverage(covered=20, total=201, ratio=0.0995),
         }
 
-        with patch(
-            "app.api.v1.endpoints.metrics._funnel_window",
-            new=AsyncMock(side_effect=[current, previous]),
+        with (
+            patch(
+                "app.api.v1.endpoints.metrics._funnel_window",
+                new=AsyncMock(side_effect=[current, previous]),
+            ),
+            patch(
+                "app.api.v1.endpoints.metrics._rollup_ids",
+                new=AsyncMock(return_value=[user.tenant_id]),
+            ),
         ):
             payload = await get_funnel_metrics(user=user, db=MagicMock(), period="24h")
 
@@ -1000,3 +1006,18 @@ class TestGetPipelineHealth:
         ):
             payload = await get_pipeline_health(user=_user(), db=MagicMock())
         assert payload.overall_status == "red"
+
+
+@pytest.mark.asyncio
+async def test_sum_cases_adds_every_tenant_in_scope() -> None:
+    """The dashboard case tiles total the parent and its clients."""
+    from app.api.v1.endpoints.metrics import _sum_cases
+
+    seen: list = []
+
+    async def fn(db, tid, *args):
+        seen.append((tid, args))
+        return 3
+
+    assert await _sum_cases(fn, None, ["a", "b", "c"], "x") == 9
+    assert [t for t, _ in seen] == ["a", "b", "c"]

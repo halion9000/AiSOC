@@ -6789,7 +6789,6 @@ paths:
       tags:
       - metrics
       summary: Get Dashboard Metrics
-      description: Return aggregated KPI metrics for the dashboard overview tiles.
       operationId: get_dashboard_metrics_api_v1_metrics_dashboard_get
       responses:
         '200':
@@ -6805,10 +6804,6 @@ paths:
       tags:
       - metrics
       summary: Get Soc Metrics
-      description: "Return SOC-level KPIs, ATT&CK heatmap, and confidence calibration\
-        \ curve.\n\nTier 1.4 metrics:\n  - MTTD, MTTR, MTTC, FPR, escalation rate,\
-        \ analyst overrides\n  - ATT&CK technique × tactic heatmap\n  - Confidence\
-        \ calibration over time (reliability curve)"
       operationId: get_soc_metrics_api_v1_metrics_soc_get
       responses:
         '200':
@@ -6824,7 +6819,6 @@ paths:
       tags:
       - metrics
       summary: Get Alert Trend
-      description: Return alert count trend data bucketed by time period.
       operationId: get_alert_trend_api_v1_metrics_alerts_trend_get
       security:
       - HTTPBearer: []
