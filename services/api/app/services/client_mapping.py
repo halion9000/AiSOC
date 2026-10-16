@@ -57,8 +57,11 @@ def dismissed_duplicate_sets(parent: Any) -> set[frozenset[str]]:
     return {frozenset(x for x in g if isinstance(x, str)) for g in found if isinstance(g, list)}
 
 
-def dismiss_duplicate_group(parent: Any, tenant_ids: list[str]) -> None:
+def dismiss_duplicate_group(parent: Any, tenant_ids: list[str], existing_ids: set[str] | None = None) -> None:
+    """Record a dismissed group. When ``existing_ids`` (the MSSP's current client tenants) is given, groups that mention a tenant that no longer exists are dropped, so the setting does not grow forever."""
     sets = dismissed_duplicate_sets(parent) | {frozenset(tenant_ids)}
+    if existing_ids is not None:
+        sets = {g for g in sets if g <= existing_ids}
     parent.settings = {
         **(parent.settings or {}),
         DISMISSED_KEY: sorted(sorted(g) for g in sets),

@@ -280,7 +280,7 @@ async def test_a_dismissed_group_is_not_listed_but_comes_back_when_a_new_lookali
     a, b = _tenant("Acme Dental"), _tenant("Acme Dental LLC")
     parent = _parent()
     # dismiss: the endpoint checks both are this MSSP's clients, then records the pair
-    await mc.dismiss_duplicates(mc.DismissRequest(tenant_ids=[a.id, b.id]), MagicMock(), USER, _db([a, b], get={PARENT: parent}))
+    await mc.dismiss_duplicates(mc.DismissRequest(tenant_ids=[a.id, b.id]), MagicMock(), USER, _db([a, b], [a, b], get={PARENT: parent}))
     assert cm.dismissed_duplicate_sets(parent) == {frozenset({str(a.id), str(b.id)})}
     # listing: gone
     out = await mc.list_clients(USER, _db([], [a, b], [a, b], get={PARENT: parent}))
@@ -289,6 +289,15 @@ async def test_a_dismissed_group_is_not_listed_but_comes_back_when_a_new_lookali
     c = _tenant("ACME Dental Group")
     out = await mc.list_clients(USER, _db([], [a, b, c], [a, b, c], get={PARENT: parent}))
     assert len(out.duplicates) == 1 and len(out.duplicates[0].tenants) == 3
+
+
+def test_dismissed_groups_naming_tenants_that_no_longer_exist_are_dropped_when_the_next_is_recorded():
+    parent = _parent()
+    cm.dismiss_duplicate_group(parent, ["a", "b"])
+    cm.dismiss_duplicate_group(parent, ["c", "d"], existing_ids={"c", "d", "e"})  # a and b are gone
+    assert cm.dismissed_duplicate_sets(parent) == {frozenset({"c", "d"})}
+    cm.dismiss_duplicate_group(parent, ["e", "c"], existing_ids={"c", "d", "e"})
+    assert cm.dismissed_duplicate_sets(parent) == {frozenset({"c", "d"}), frozenset({"c", "e"})}
 
 
 @pytest.mark.asyncio

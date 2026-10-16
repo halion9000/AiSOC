@@ -342,7 +342,10 @@ async def dismiss_duplicates(
     if len(ids) < 2 or len(rows) != len(ids):
         raise HTTPException(status_code=404, detail="Client not found")
     parent = await db.get(Tenant, current_user.tenant_id)
-    dismiss_duplicate_group(parent, ids)
+    current = {
+        str(t.id) for t in (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == current_user.tenant_id))).scalars().all()
+    }
+    dismiss_duplicate_group(parent, ids, current)
     await emit_audit(
         db=db,
         tenant_id=current_user.tenant_id,
