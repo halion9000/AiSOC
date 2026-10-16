@@ -29258,6 +29258,7 @@ components:
           type: string
           enum:
           - ok
+          - warning
           - error
           title: Status
         fetched:

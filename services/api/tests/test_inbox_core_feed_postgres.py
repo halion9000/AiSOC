@@ -140,9 +140,9 @@ async def test_recovery_makes_it_healthy_again_and_clears_the_outage(world):
     await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="error")))
     await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="ok", sent=1)))
     (row,) = await rows(world, world["a"])
-    assert (
-        row.health_status == "healthy" and row.last_outage_at is None and row.error_count == 1
-    ), "the error count is history; the outage is over"
+    assert row.health_status == "healthy" and row.last_outage_at is None and row.error_count == 1, (
+        "the error count is history; the outage is over"
+    )
 
 
 async def test_two_sources_in_one_report_become_two_rows(world):
@@ -177,9 +177,9 @@ async def test_a_report_never_touches_a_connector_that_is_not_a_core_feed_row(wo
         )
     await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="ok", sent=9)))
     by_name = {r.name: r for r in await rows(world, world["a"])}
-    assert (
-        by_name["Real Huntress"].events_ingested == 0 and by_name["Real Huntress"].health_status == "unknown"
-    ), "a different connector type is left alone"
+    assert by_name["Real Huntress"].events_ingested == 0 and by_name["Real Huntress"].health_status == "unknown", (
+        "a different connector type is left alone"
+    )
     assert by_name["Huntress (via CORE)"].events_ingested == 9
 
 
@@ -227,3 +227,20 @@ async def test_a_failure_reason_is_kept_for_the_card_and_cleared_on_recovery(wor
     await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="ok", sent=1)))
     (row,) = await cfg()
     assert row.connector_config == {"vendor": "huntress", "managed_by": "core"}, "recovery clears the reason"
+
+
+async def test_a_warning_counts_the_alerts_that_arrived_keeps_the_reason_and_is_not_an_error(world):
+    cfg = lambda: rows(world, world["a"])  # noqa: E731
+    await run(
+        world,
+        world["feed_token"],
+        report(
+            SourceReport(vendor="addigy", category="edr", status="warning", sent=4, message="Alerts are flowing, but addigy devices: 500")
+        ),
+    )
+    (row,) = await cfg()
+    assert row.health_status == "degraded" and row.events_ingested == 4 and row.error_count == 0 and row.last_outage_at is None
+    assert row.connector_config["last_error"].endswith("addigy devices: 500")
+    await run(world, world["feed_token"], report(SourceReport(vendor="addigy", category="edr", status="ok", sent=1)))
+    (row,) = await cfg()
+    assert row.health_status == "healthy" and "last_error" not in row.connector_config, "the next clean run clears the warning"

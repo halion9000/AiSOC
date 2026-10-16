@@ -2376,6 +2376,7 @@ export type ConnectorStatus =
   | 'active'
   | 'inactive'
   | 'error'
+  | 'warning'
   | 'configuring';
 
 export interface Connector {
@@ -2554,7 +2555,7 @@ export interface ConnectorHealthSummary {
 }
 
 /**
- * Map the backend ``health_status`` enum (``healthy``/``unhealthy``/``unknown``)
+ * Map the backend ``health_status`` enum (``healthy``/``degraded``/``unhealthy``/``unknown``)
  * to the frontend ``ConnectorStatus`` (``active``/``inactive``/``error``/
  * ``configuring``). The mapping also folds in ``is_enabled`` because a disabled
  * connector should always render as ``inactive`` in the UI regardless of its
@@ -2565,6 +2566,8 @@ function deriveConnectorStatus(row: BackendConnectorResponse): ConnectorStatus {
   switch (row.health_status) {
     case 'healthy':
       return 'active';
+    case 'degraded':
+      return 'warning';
     case 'unhealthy':
     case 'error':
       return 'error';

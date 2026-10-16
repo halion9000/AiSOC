@@ -32,6 +32,13 @@ describe('why a CORE-fed connector failed', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Last run failed: Huntress returned 401');
   });
 
+  it('a warning (alerts fine, a side job failed) is amber and says needs attention, not failed', () => {
+    renderList([{ ...feed, status: 'warning', errorMessage: 'Alerts are flowing, but addigy devices: 500' } as Connector]);
+    expect(screen.getByRole('alert')).toHaveTextContent('Needs attention: Alerts are flowing, but addigy devices: 500');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('failed');
+    expect(screen.getByText('Warning')).toBeInTheDocument();
+  });
+
   it('shows nothing when there is no reason', () => {
     renderList([feed]);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

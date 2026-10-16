@@ -56,6 +56,11 @@ const STATUS_CONFIG: Record<
     color: 'text-red-400 bg-red-500/10 border-red-500/20',
     dot: 'bg-red-400',
   },
+  warning: {
+    label: 'Warning',
+    color: 'text-amber-300 bg-amber-500/10 border-amber-500/20',
+    dot: 'bg-amber-400',
+  },
   configuring: {
     label: 'Configuring',
     color: 'text-amber-300 bg-amber-500/10 border-amber-500/20',
@@ -213,8 +218,14 @@ function ConnectorCard({
       )}
 
       {connector.errorMessage && (
-        <p role="alert" className="text-xs text-red-300/90 bg-red-500/10 border border-red-500/20 rounded-md px-2 py-1.5 mb-4 break-words">
-          Last run failed: {connector.errorMessage}
+        <p
+          role="alert"
+          className={clsx(
+            'text-xs rounded-md px-2 py-1.5 mb-4 break-words border',
+            connector.status === 'warning' ? 'text-amber-200/90 bg-amber-500/10 border-amber-500/20' : 'text-red-300/90 bg-red-500/10 border-red-500/20',
+          )}
+        >
+          {connector.status === 'warning' ? 'Needs attention' : 'Last run failed'}: {connector.errorMessage}
         </p>
       )}
 

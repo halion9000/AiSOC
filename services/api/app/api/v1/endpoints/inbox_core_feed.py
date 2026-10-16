@@ -52,7 +52,8 @@ class SourceReport(BaseModel):
     vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="CORE's id for the source, e.g. ``huntress``.")
     name: str | None = Field(default=None, max_length=120, description="Display name for a new row; ignored for an existing one.")
     category: Literal["siem", "edr", "cloud", "iam", "saas", "audit", "vcs", "ndr", "network"] = "saas"
-    status: Literal["ok", "error"]
+    # "warning": the alerts came through, but a side job (devices, clients, ticket links) failed; ``message`` says which.
+    status: Literal["ok", "warning", "error"]
     fetched: int = Field(default=0, ge=0, le=1_000_000)
     sent: int = Field(default=0, ge=0, le=1_000_000, description="Records AiSOC accepted in this run.")
     message: str | None = Field(
@@ -141,16 +142,16 @@ async def apply_report(db: Any, tenant_id: Any, report: StatusReport, now: datet
 
         values: dict[str, Any] = {"last_health_check": now, "updated_at": now}
         config = dict(row.connector_config or {})
-        if src.status == "error" and src.message and src.message.strip():
+        if src.status in ("error", "warning") and src.message and src.message.strip():
             config.update(last_error=src.message.strip(), last_error_at=now.isoformat())
         else:
             config.pop("last_error", None)
             config.pop("last_error_at", None)
         if config != (row.connector_config or {}):
             values["connector_config"] = config
-        if src.status == "ok":
+        if src.status in ("ok", "warning"):
             values.update(
-                health_status="healthy",
+                health_status="healthy" if src.status == "ok" else "degraded",
                 last_sync=now,
                 events_ingested=Connector.events_ingested + src.sent,
                 last_outage_at=None,

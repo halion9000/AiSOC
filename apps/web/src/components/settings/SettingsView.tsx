@@ -150,6 +150,7 @@ const STATUS_PILL: Record<ConnectorStatus, string> = {
   active: 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/40',
   inactive: 'bg-gray-500/10 text-gray-400 ring-gray-500/30',
   error: 'bg-red-500/10 text-red-300 ring-red-500/40',
+  warning: 'bg-amber-500/10 text-amber-300 ring-amber-500/40',
   configuring: 'bg-amber-500/10 text-amber-300 ring-amber-500/40',
 };
 
@@ -157,6 +158,7 @@ const STATUS_LABEL: Record<ConnectorStatus, string> = {
   active: 'Active',
   inactive: 'Disabled',
   error: 'Error',
+  warning: 'Warning',
   configuring: 'Configuring',
 };
 
@@ -607,7 +609,7 @@ function IntegrationsPanel() {
   const connectors = data?.connectors ?? [];
 
   const counts = useMemo(() => {
-    const c = { active: 0, error: 0, inactive: 0, configuring: 0 };
+    const c = { active: 0, error: 0, warning: 0, inactive: 0, configuring: 0 };
     for (const x of connectors) {
       c[x.status] = (c[x.status] ?? 0) + 1;
     }
