@@ -418,7 +418,7 @@ async def report_core_feed_state(tenant_token: str, body: StateReport, db: DBSes
 
 
 class ClaimRequest(BaseModel):
-    vendor: Literal["huntress"]
+    vendor: Literal["huntress", "blumira", "fieldeffect"]
 
 
 class ClaimedAction(BaseModel):

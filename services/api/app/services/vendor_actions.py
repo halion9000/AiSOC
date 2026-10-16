@@ -14,6 +14,10 @@ from typing import Any
 
 SUPPORTED_VENDOR = "huntress"
 ACTIONS = ("approve", "reject", "resolve")
+# Vendors whose incident can only be RESOLVED from AiSOC (no remediation plan to approve first). Blumira: POST .../findings/{id}/resolve with a ``resolution`` code;
+# Field Effect: POST /v1/aros/{id}/transition to status Closed / resolution Resolved. Both bodies are from the vendors' own API docs.
+RESOLVE_ONLY_VENDORS = ("blumira", "fieldeffect")
+BLUMIRA_RESOLUTIONS = {10: "Valid", 20: "False Positive", 30: "No Action Needed", 40: "Risk Accepted"}
 
 # A queued action nobody collected within this long is treated as expired: an approval clicked while CORE was off must not fire hours later.
 PENDING_TTL = timedelta(minutes=30)
@@ -37,6 +41,7 @@ REJECT_REASONS = (
 )
 
 _UID = re.compile(r"^huntress:([0-9]{1,12})$")
+_RESOLVE_ONLY_UID = re.compile(r"^(blumira|fieldeffect):[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$")
 # Remediation statuses from Huntress's list endpoint; only ``unapproved`` can still be approved or rejected.
 _OPEN_REMEDIATION = "unapproved"
 
@@ -56,6 +61,43 @@ def alert_incident_uid(raw_event: Any) -> str | None:
     finding = raw_event.get("finding")
     uid = finding.get("uid") if isinstance(finding, dict) else None
     return uid if huntress_incident_id(uid) is not None else None
+
+
+def alert_vendor_and_uid(raw_event: Any) -> tuple[str, str] | None:
+    """(vendor, finding uid) of an alert AiSOC can act on: a Huntress incident, or a Blumira finding / Field Effect ARO (resolve only). None for anything else."""
+    huntress = alert_incident_uid(raw_event)
+    if huntress is not None:
+        return SUPPORTED_VENDOR, huntress
+    if not isinstance(raw_event, dict):
+        return None
+    source = raw_event.get("source")
+    finding = raw_event.get("finding")
+    uid = finding.get("uid") if isinstance(finding, dict) else None
+    if source in RESOLVE_ONLY_VENDORS and isinstance(uid, str) and uid.startswith(f"{source}:") and _RESOLVE_ONLY_UID.match(uid):
+        return source, uid
+    return None
+
+
+def vendor_account_id(raw_event: Any) -> str | None:
+    """The Blumira account (client) id an alert came from, kept in the record's context; needed to resolve through an MSP key. None when absent."""
+    ctx = (
+        raw_event.get("unmapped", {}).get("context")
+        if isinstance(raw_event, dict) and isinstance(raw_event.get("unmapped"), dict)
+        else None
+    )
+    value = ctx.get("blumira_account_id") if isinstance(ctx, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def problem_with_resolve_only(vendor: str, action: str, resolution: int | None, alert_status: str) -> str | None:
+    """Why a Blumira / Field Effect alert cannot be resolved from AiSOC right now, or None."""
+    if action != "resolve":
+        return f"Only resolving is supported for {vendor}; there is no remediation plan to approve or reject."
+    if alert_status == "resolved":
+        return "This alert is already resolved."
+    if vendor == "blumira" and resolution not in BLUMIRA_RESOLUTIONS:
+        return "Pick how Blumira should record it: " + ", ".join(f"{k} {v}" for k, v in BLUMIRA_RESOLUTIONS.items()) + "."
+    return None
 
 
 def _remediations(vendor_state: Any) -> list[dict[str, Any]]:

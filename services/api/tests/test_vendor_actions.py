@@ -66,11 +66,15 @@ def test_a_pending_action_expires_and_an_unanswered_claim_fails():
 # ---- queueing (analyst side) -----------------------------------------------------------------------------------------------------------------------------
 
 
-def _alert(source="huntress", state=OPEN_PLAN, uid="huntress:7"):
+def _alert(source="huntress", state=OPEN_PLAN, uid="huntress:7", status="new", context=None):
+    raw = {"source": source, "finding": {"uid": uid}}
+    if context is not None:
+        raw["unmapped"] = {"context": context}
     return SimpleNamespace(
         id=ALERT_ID,
         tenant_id=TENANT,
-        raw_event={"source": source, "finding": {"uid": uid}},
+        status=status,
+        raw_event=raw,
         enrichment_data={"vendor_state": state} if state is not None else {},
     )
 
@@ -300,3 +304,81 @@ async def test_a_bad_core_feed_token_gets_401_on_every_new_route(monkeypatch, ca
             await cf.report_core_feed_action_result("bad", uuid.uuid4(), cf.ActionResult(status="done"), db)
     assert e.value.status_code == 401
     assert db.executed == []
+
+
+# ---- Blumira and Field Effect: resolve only -------------------------------------------------------------------------------------------------------------
+
+
+def test_blumira_and_field_effect_alerts_qualify_by_their_own_uid_and_nothing_else_does():
+    assert rules.alert_vendor_and_uid({"source": "huntress", "finding": {"uid": "huntress:7"}}) == ("huntress", "huntress:7")
+    assert rules.alert_vendor_and_uid({"source": "blumira", "finding": {"uid": "blumira:0f8e-12"}}) == ("blumira", "blumira:0f8e-12")
+    assert rules.alert_vendor_and_uid({"source": "fieldeffect", "finding": {"uid": "fieldeffect:abc123"}}) == (
+        "fieldeffect",
+        "fieldeffect:abc123",
+    )
+    # a uid of one vendor on another vendor's record, a path trick, or no id at all
+    assert rules.alert_vendor_and_uid({"source": "blumira", "finding": {"uid": "fieldeffect:abc"}}) is None
+    assert rules.alert_vendor_and_uid({"source": "blumira", "finding": {"uid": "blumira:a/../b"}}) is None
+    assert rules.alert_vendor_and_uid({"source": "ninjaone", "finding": {"uid": "ninjaone:5"}}) is None
+    assert rules.alert_vendor_and_uid({"source": "blumira", "finding": {}}) is None
+    assert rules.alert_vendor_and_uid(None) is None
+
+
+def test_resolve_only_rules():
+    assert rules.problem_with_resolve_only("blumira", "resolve", 30, "new") is None
+    assert rules.problem_with_resolve_only("blumira", "resolve", None, "new") is not None
+    assert rules.problem_with_resolve_only("blumira", "resolve", 99, "new") is not None
+    assert rules.problem_with_resolve_only("fieldeffect", "resolve", None, "new") is None
+    assert rules.problem_with_resolve_only("fieldeffect", "approve", None, "new") is not None
+    assert rules.problem_with_resolve_only("blumira", "resolve", 10, "resolved") is not None
+
+
+def test_the_blumira_account_id_comes_from_the_records_context():
+    assert rules.vendor_account_id({"unmapped": {"context": {"blumira_account_id": " acc-1 "}}}) == "acc-1"
+    assert rules.vendor_account_id({"unmapped": {"context": {}}}) is None
+    assert rules.vendor_account_id({"unmapped": "x"}) is None
+    assert rules.vendor_account_id(None) is None
+
+
+@pytest.mark.asyncio
+async def test_a_blumira_resolve_is_queued_with_its_resolution_note_and_account():
+    alert = _alert(source="blumira", uid="blumira:f1", state=None, context={"blumira_account_id": "acc-9"})
+    db = _db(alert)
+    await _request(db, action="resolve", resolution=30, comment="  patched  ")
+    row = db.add.call_args.args[0]
+    assert (row.vendor, row.action, row.incident_uid, row.status) == ("blumira", "resolve", "blumira:f1", "pending")
+    assert row.params == {"resolution": 30, "notes": "patched", "account_id": "acc-9"}
+
+
+@pytest.mark.asyncio
+async def test_a_field_effect_resolve_is_queued_with_its_comment():
+    db = _db(_alert(source="fieldeffect", uid="fieldeffect:aro1", state=None))
+    await _request(db, action="resolve", comment="done")
+    row = db.add.call_args.args[0]
+    assert (row.vendor, row.incident_uid, row.params) == ("fieldeffect", "fieldeffect:aro1", {"comment": "done"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "alert, body",
+    [
+        (_alert(source="blumira", uid="blumira:f1", state=None), {"action": "resolve"}),  # no resolution picked
+        (_alert(source="blumira", uid="blumira:f1", state=None), {"action": "resolve", "resolution": 5}),
+        (_alert(source="blumira", uid="blumira:f1", state=None), {"action": "approve"}),
+        (_alert(source="fieldeffect", uid="fieldeffect:a", state=None), {"action": "reject", "comment": "x"}),
+        (_alert(source="fieldeffect", uid="fieldeffect:a", state=None, status="resolved"), {"action": "resolve"}),
+    ],
+)
+async def test_resolve_only_requests_that_make_no_sense_queue_nothing(alert, body):
+    db = _db(alert)
+    with pytest.raises(HTTPException) as e:
+        await _request(db, **body)
+    assert e.value.status_code == 409
+    db.add.assert_not_called()
+
+
+def test_core_may_claim_for_blumira_and_field_effect_but_not_for_any_other_vendor():
+    for vendor in ("huntress", "blumira", "fieldeffect"):
+        assert cf.ClaimRequest(vendor=vendor).vendor == vendor
+    with pytest.raises(ValidationError):
+        cf.ClaimRequest(vendor="ninjaone")

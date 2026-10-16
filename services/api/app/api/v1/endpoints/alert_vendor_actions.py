@@ -26,9 +26,11 @@ from app.services.vendor_actions import (
     PENDING_TTL,
     REJECT_REASONS,
     SUPPORTED_VENDOR,
-    alert_incident_uid,
+    alert_vendor_and_uid,
     effective_status,
     problem_with_request,
+    problem_with_resolve_only,
+    vendor_account_id,
 )
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -43,6 +45,10 @@ class VendorActionRequest(BaseModel):
     )
     reason: _RejectReason = "unspecified"
     useful: bool = Field(default=True, description="``reject`` only: whether the remediation plan was useful.")
+    resolution: int | None = Field(
+        default=None,
+        description="Blumira only: how to record the resolution (10 Valid, 20 False Positive, 30 No Action Needed, 40 Risk Accepted). ``comment`` is sent as its note.",
+    )
 
 
 class VendorActionItem(BaseModel):
@@ -97,10 +103,11 @@ async def list_vendor_actions(
     """The incident's last reported vendor state (remediation plan) and the actions asked for so far. ``supported`` is false for alerts this does not apply to."""
     async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
         alert = await _alert(db, alert_id, tid)
-        uid = alert_incident_uid(alert.raw_event)
+        found = alert_vendor_and_uid(alert.raw_event)
         tickets = linked_tickets(alert.enrichment_data)
-        if uid is None:
+        if found is None:
             return VendorActionsResponse(supported=False, actions=[], tickets=tickets)
+        vendor, uid = found
         rows = (
             (
                 await db.execute(
@@ -117,7 +124,7 @@ async def list_vendor_actions(
         state = (alert.enrichment_data or {}).get("vendor_state")
         return VendorActionsResponse(
             supported=True,
-            vendor=SUPPORTED_VENDOR,
+            vendor=vendor,
             incident_uid=uid,
             vendor_state=state if isinstance(state, dict) else None,
             actions=[_item(r, now) for r in rows],
@@ -133,16 +140,20 @@ async def request_vendor_action(
     current_user: Annotated[AuthUser, Depends(require_permission("connectors:write"))],
     db: TenantDBSession,
 ) -> VendorActionItem:
-    """Queue an approve / reject / resolve for CORE to carry out at Huntress. Returns 202: nothing has happened at the vendor yet."""
+    """Queue an approve / reject / resolve for CORE to carry out at the vendor (Blumira and Field Effect: resolve only). Returns 202: nothing has happened at the vendor yet."""
     async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
         alert = await _alert(db, alert_id, tid)
-        uid = alert_incident_uid(alert.raw_event)
-        if uid is None:
+        found = alert_vendor_and_uid(alert.raw_event)
+        if found is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only a Huntress alert that carries its incident id supports this."
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Only a Huntress, Blumira or Field Effect alert that carries its incident id supports this.",
             )
-        state = (alert.enrichment_data or {}).get("vendor_state")
-        problem = problem_with_request(body.action, state)
+        vendor, uid = found
+        if vendor == SUPPORTED_VENDOR:
+            problem = problem_with_request(body.action, (alert.enrichment_data or {}).get("vendor_state"))
+        else:
+            problem = problem_with_resolve_only(vendor, body.action, body.resolution, alert.status)
         if problem:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=problem)
         if body.action == "reject" and not (body.comment or "").strip():
@@ -173,11 +184,18 @@ async def request_vendor_action(
         params: dict[str, Any] = {}
         if body.action == "reject":
             params = {"comment": (body.comment or "").strip(), "reason": body.reason, "useful": body.useful}
+        elif vendor == "blumira":
+            params = {"resolution": body.resolution, "notes": (body.comment or "").strip()}
+            account = vendor_account_id(alert.raw_event)
+            if account:
+                params["account_id"] = account
+        elif vendor == "fieldeffect":
+            params = {"comment": (body.comment or "").strip()}
         row = VendorAction(
             id=uuid.uuid4(),
             tenant_id=tid,
             alert_id=alert.id,
-            vendor=SUPPORTED_VENDOR,
+            vendor=vendor,
             incident_uid=uid,
             action=body.action,
             params=params,
@@ -194,7 +212,7 @@ async def request_vendor_action(
             action="alerts:vendor_action_requested",
             resource="alert",
             resource_id=str(alert.id),
-            changes={"vendor": SUPPORTED_VENDOR, "incident": uid, "action": body.action, "vendor_action_id": str(row.id)},
+            changes={"vendor": vendor, "incident": uid, "action": body.action, "vendor_action_id": str(row.id)},
             request=request,
         )
         await db.commit()
