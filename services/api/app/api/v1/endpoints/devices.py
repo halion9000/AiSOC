@@ -474,9 +474,21 @@ class DevicesReport(BaseModel):
     items: list[DeviceIn] = Field(max_length=1000)
 
 
+class UnmappedClient(BaseModel):
+    """A tool's client that devices belong to but that is not mapped to a client here (``name`` is None when the tool's client list has not reached AiSOC yet)."""
+
+    vendor_client_id: str
+    name: str | None = None
+    devices: int
+
+
 class DevicesResponse(BaseModel):
     accepted: int
     unmapped: int
+    # Devices of clients someone chose to ignore: skipped on purpose, so they are not "unmapped" and need no attention.
+    ignored: int = 0
+    # The unmapped clients with the most devices, so the feed's card can name them.
+    unmapped_clients: list[UnmappedClient] = Field(default_factory=list)
 
 
 async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> DevicesResponse:
@@ -484,30 +496,32 @@ async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> Dev
 
     A device whose client is not mapped yet (or ignored) is counted and skipped, not guessed at: it arrives again on the next run, after the mapping. A device with no client id at all belongs to
     the feed's own tenant (an organisation with no clients)."""
-    aliases = {
-        (a.vendor, a.vendor_client_id): a.child_tenant_id
-        for a in (
-            await db.execute(
-                select(ClientAlias).where(
-                    ClientAlias.tenant_id == owner, ClientAlias.ignored.is_(False), ClientAlias.child_tenant_id.is_not(None)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    }
+    rows = (await db.execute(select(ClientAlias).where(ClientAlias.tenant_id == owner))).scalars().all()
+    known = {(a.vendor, a.vendor_client_id): a for a in rows}
     children = set((await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == owner))).scalars().all())
     by_tenant: dict[uuid.UUID, list[DeviceIn]] = {}
+    waiting: dict[tuple[str, str], int] = {}
     unmapped = 0
+    ignored = 0
     for item in report.items:
         if item.vendor_client_id:
-            target = aliases.get((item.vendor, item.vendor_client_id))
+            alias = known.get((item.vendor, item.vendor_client_id))
+            if alias is not None and alias.ignored:
+                ignored += 1
+                continue
+            target = alias.child_tenant_id if alias is not None else None
             if target is None or target not in children:
                 unmapped += 1
+                key = (item.vendor, item.vendor_client_id)
+                waiting[key] = waiting.get(key, 0) + 1
                 continue
         else:
             target = owner
         by_tenant.setdefault(target, []).append(item)
+    unmapped_clients = [
+        UnmappedClient(vendor_client_id=vid, name=known[(vendor, vid)].vendor_client_name if (vendor, vid) in known else None, devices=n)
+        for (vendor, vid), n in sorted(waiting.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
+    ]
     accepted = 0
     for tid, items in by_tenant.items():
         async with acting_as_tenant(db, tid):
@@ -529,7 +543,7 @@ async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> Dev
                     ),
                 )
                 accepted += 1
-    return DevicesResponse(accepted=accepted, unmapped=unmapped)
+    return DevicesResponse(accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=unmapped_clients)
 
 
 @ingest_router.post("/core-feed/{tenant_token}/devices", response_model=DevicesResponse)

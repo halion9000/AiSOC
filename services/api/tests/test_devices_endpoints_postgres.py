@@ -107,7 +107,8 @@ async def test_devices_land_under_their_mapped_client_and_unmapped_ones_are_coun
         ]
     )
     res = await session(p, lambda db: apply_devices(db, p, report))
-    assert (res.accepted, res.unmapped) == (2, 2)
+    assert (res.accepted, res.unmapped, res.ignored) == (2, 1, 1)
+    assert [(c.vendor_client_id, c.name, c.devices) for c in res.unmapped_clients] == [("999", None, 1)]
     listing = await session(
         p,
         lambda db: list_devices(
@@ -628,3 +629,25 @@ async def test_merging_two_machines_with_different_serials_is_refused_with_a_rea
     with pytest.raises(HTTPException) as err:
         await session(p, lambda db: merge_duplicate(MergeIn(keep=both[0].id, remove=both[1].id), user(p), db))
     assert err.value.status_code == 400 and "serial" in err.value.detail
+
+
+async def test_the_report_names_the_unmapped_clients_busiest_first_and_leaves_ignored_ones_out(world):
+    p = world["parent"]
+
+    async def add_unmapped(db):
+        await db.execute(
+            text(
+                "insert into client_aliases (tenant_id, vendor, vendor_client_id, vendor_client_name, normalized_name, child_tenant_id, ignored, match_source) "
+                "values (:p, 'ninjaone', '77', 'Cedar Dental', 'cedar dental', null, false, 'suggested')"
+            ),
+            {"p": p},
+        )
+
+    await session(p, add_unmapped)
+    items = [dev("ninjaone", "77", f"c{i}", f"CEDAR-{i}") for i in range(3)] + [
+        dev("ninjaone", "999", "x", "NOBODY"),
+        dev("addigy", "ig", "y", "IGNORED"),
+    ]
+    res = await session(p, lambda db: apply_devices(db, p, DevicesReport(items=items)))
+    assert (res.unmapped, res.ignored) == (4, 1)
+    assert [(c.vendor_client_id, c.name, c.devices) for c in res.unmapped_clients] == [("77", "Cedar Dental", 3), ("999", None, 1)]
