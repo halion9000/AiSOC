@@ -522,6 +522,8 @@ export interface DeviceRow {
   last_seen: string;
   /** When a tool last saw the device actually online (Addigy / NinjaOne); null when no tool says. */
   last_online?: string | null;
+  /** Whether the tools say it is online now (as of the last sync); null when no tool says. */
+  online?: boolean | null;
   /** Whole days since a tool last saw it online, once that is a week or more. */
   offline_days?: number | null;
   first_seen: string;

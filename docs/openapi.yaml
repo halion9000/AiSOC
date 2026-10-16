@@ -21240,6 +21240,11 @@ components:
             format: date-time
           - type: 'null'
           title: Last Online
+        online:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Online
         offline_days:
           anyOf:
           - type: integer

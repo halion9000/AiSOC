@@ -221,4 +221,13 @@ describe('missing-from-tool cards', () => {
     await user.click(screen.getByRole('button', { name: /With open alerts/ }));
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ offline: true, hasAlerts: true })));
   });
+
+  it('shows a dot for online or offline when a tool says, and none when no tool does', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'UP-PC', online: true }), device({ hostname: 'DOWN-PC', online: false }), device({ hostname: 'UNKNOWN-PC' })]));
+    render(<DevicesView />);
+    const row = async (name: string) => (await screen.findByText(name)).closest('tr') as HTMLElement;
+    expect(within(await row('UP-PC')).getByRole('img', { name: 'Online' })).toBeInTheDocument();
+    expect(within(await row('DOWN-PC')).getByRole('img', { name: 'Offline' })).toBeInTheDocument();
+    expect(within(await row('UNKNOWN-PC')).queryByRole('img', { name: /line/ })).toBeNull();
+  });
 });

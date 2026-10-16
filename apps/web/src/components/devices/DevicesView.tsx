@@ -276,6 +276,14 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
     <>
       <tr onClick={onToggle} className="cursor-pointer border-t border-gray-800 hover:bg-gray-900/60">
         <td className="px-3 py-2 font-medium text-white">
+          {d.online != null && (
+            <span
+              role="img"
+              aria-label={d.online ? 'Online' : 'Offline'}
+              title={d.online ? 'Online as of the last sync' : 'Offline as of the last sync'}
+              className={`mr-2 inline-block h-2 w-2 rounded-full ${d.online ? 'bg-green-500' : 'bg-gray-500'}`}
+            />
+          )}
           {d.hostname}
           {(d.open_alerts ?? 0) > 0 && (
             <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[11px] text-red-300">

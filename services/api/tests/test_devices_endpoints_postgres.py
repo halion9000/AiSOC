@@ -19,6 +19,7 @@ from app.api.v1.endpoints.devices import (
     last_online_of,
     list_devices,
     offline_days_of,
+    online_now_of,
     put_settings,
 )
 from app.db.rls import set_rls_context
@@ -212,6 +213,18 @@ def test_last_online_is_the_newest_time_a_tool_says_the_device_was_online_not_th
     got = last_online_of([src(last_online="2026-10-14T10:00:00+00:00"), src(last_contact="2026-10-15T09:00:00Z"), src()])
     assert got == datetime(2026, 10, 15, 9, tzinfo=UTC)
     assert last_online_of([src(), src(last_online="garbage")]) is None
+
+
+def test_online_now_reads_addigy_online_and_ninja_offline_and_is_unknown_when_no_tool_says():
+    src = lambda **d: SimpleNamespace(details=d)  # noqa: E731
+    assert online_now_of([src(online=True)]) is True
+    assert online_now_of([src(online=False)]) is False
+    assert online_now_of([src(offline=False)]) is True
+    assert online_now_of([src(offline=True)]) is False
+    assert online_now_of([src(offline=True), src(online=True)]) is True, "any tool seeing it online wins"
+    assert online_now_of([src(offline=True), src(online=False)]) is False
+    assert online_now_of([src(), src(online=None, offline=None)]) is None
+    assert online_now_of([src(online="yes")]) is None, "only real booleans count"
 
 
 async def test_missing_filter_and_summary_counts(world):

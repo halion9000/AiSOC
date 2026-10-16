@@ -68,6 +68,8 @@ class DeviceOut(BaseModel):
     ip_addresses: list[str] = Field(default_factory=list)
     last_seen: datetime
     last_online: datetime | None = None
+    # Whether the tools say it is online now (as of the last sync); None when no tool says.
+    online: bool | None = None
     # Whole days since a tool last saw it online, when that is OFFLINE_AFTER_DAYS or more; None when it is recent or no tool says.
     offline_days: int | None = None
     first_seen: datetime
@@ -140,6 +142,21 @@ def last_online_of(sources: list[Any]) -> datetime | None:
         if best is None or t > best:
             best = t
     return best
+
+
+def online_now_of(sources: list[Any]) -> bool | None:
+    """Whether the tools say the device is online right now (as of the last sync): True if any says so, False if every tool that says anything says offline, None if none says.
+    Addigy sends ``online``; NinjaOne sends ``offline``."""
+    flags: list[bool] = []
+    for s in sources:
+        det = s.details or {}
+        if isinstance(det.get("online"), bool):
+            flags.append(det["online"])
+        elif isinstance(det.get("offline"), bool):
+            flags.append(not det["offline"])
+    if not flags:
+        return None
+    return any(flags)
 
 
 def is_missing_from(d: DeviceOut, tool: str) -> bool:
