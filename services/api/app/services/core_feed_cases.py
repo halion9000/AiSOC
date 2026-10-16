@@ -1,7 +1,7 @@
-"""Open a case for each new high/critical alert CORE forwards, so the Cases, Team Analytics and SLA pages have something to show.
+"""Open a case for each new alert CORE forwards (any severity, from every tool it feeds), so the Cases, Team Analytics and SLA pages have something to show.
 
 CORE only pushes alerts; nothing opened cases from them, so those pages stayed empty. Each run looks at the workspace and its client tenants for recent
-high/critical alerts from CORE's tools that no case holds yet, and opens one case per alert, linked both ways (the same shape ``POST /cases`` writes).
+alerts from CORE's tools that no case holds yet, and opens one case per alert, linked both ways (the same shape ``POST /cases`` writes).
 A kill switch (``AISOC_AUTO_CASES=false``), a 24-hour look-back and a per-run cap keep a first run from opening a case for every old alert.
 """
 
@@ -21,8 +21,9 @@ from app.db.rls_scope import acting_as_tenant
 
 logger = logging.getLogger(__name__)
 
-SEVERITIES = ("high", "critical")
-VENDORS = ("huntress", "petra", "blumira", "ninjaone")
+SEVERITIES = ("critical", "high", "medium", "low", "info")
+# Every tool CORE forwards alerts from (CORE's FEED_ADAPTERS). An alert a tool has already closed is not 'new', so it never gets a case.
+VENDORS = ("huntress", "petra", "blumira", "ninjaone", "fieldeffect", "threatmate", "addigy")
 LOOK_BACK = timedelta(hours=24)
 PER_RUN_CAP = 50
 

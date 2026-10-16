@@ -53,6 +53,21 @@ describe('DevicesView', () => {
     expect(screen.getByTestId('devices-total')).toHaveTextContent('1');
   });
 
+  it('marks a device ThreatMate only found by scanning the network, and no other', async () => {
+    listMock.mockResolvedValue(
+      list([
+        device({ hostname: 'NUC-ASP-PRKNG', sources: [{ vendor: 'threatmate', name: 'NUC-ASP-PRKNG', last_seen: NOW, details: { discovery_source: 'network', discovered_on_network: true } }] }),
+        device({ hostname: 'MANAGED-PC', sources: [{ vendor: 'threatmate', name: 'MANAGED-PC', last_seen: NOW, details: { discovery_source: 'agent', discovered_on_network: false } }] }),
+        device({ hostname: 'NO-TAG' }),
+      ]),
+    );
+    render(<DevicesView />);
+    const found = (await screen.findByText('NUC-ASP-PRKNG')).closest('tr') as HTMLElement;
+    expect(within(found).getByText('Discovered on network')).toBeInTheDocument();
+    expect(within(screen.getByText('MANAGED-PC').closest('tr') as HTMLElement).queryByText('Discovered on network')).not.toBeInTheDocument();
+    expect(within(screen.getByText('NO-TAG').closest('tr') as HTMLElement).queryByText('Discovered on network')).not.toBeInTheDocument();
+  });
+
   it('flags a device the master tool does not report, and the tally counts it', async () => {
     listMock.mockResolvedValue(
       list([device({ hostname: 'ONLY-ADDIGY', in_master: false, sources: [{ vendor: 'addigy', name: 'x', last_seen: NOW }] })], {

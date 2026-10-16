@@ -293,6 +293,14 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
               {d.open_alerts} open alert{d.open_alerts === 1 ? '' : 's'}
             </span>
           )}
+          {discoveredOnNetwork(d) && (
+            <span
+              title="ThreatMate found this device by scanning the network. It has no management agent reporting in."
+              className="ml-2 rounded bg-sky-500/20 px-1.5 py-0.5 text-[11px] text-sky-300"
+            >
+              Discovered on network
+            </span>
+          )}
           {!d.in_master && master && (
             <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-300">Not in {vendorLabel(master)}</span>
           )}
@@ -371,6 +379,11 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
       )}
     </>
   );
+}
+
+/** True when a tool says it only found this device by scanning the network (ThreatMate's asset source), not through an agent. */
+export function discoveredOnNetwork(d: DeviceRow): boolean {
+  return d.sources.some((s) => s.details?.discovered_on_network === true);
 }
 
 /** Memory, processor and disks from whichever feed reports them (first one wins), as label/value pairs. */

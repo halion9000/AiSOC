@@ -22,6 +22,11 @@ field_map:
   # Anything else a sender wants kept (CORE's forwarded records carry the vendor's client name and ids here) is stored under `unmapped`, the OCSF place for fields
   # that have no standard home, so detections and Cipher can pivot on them.
   context: unmapped.context
+  # The machine, person and address the alert is about (CORE sends them at the top of each record). Fusion reads the entity pages' users, hosts and IPs from exactly these OCSF
+  # fields (device.name, actor.user.name, src_endpoint.ip); with none of them an alert has no entity and the Entities page stays empty.
+  hostname: device.name
+  username: actor.user.name
+  src_ip: src_endpoint.ip
 severity_field: severity
 severity_map:
   info: 1

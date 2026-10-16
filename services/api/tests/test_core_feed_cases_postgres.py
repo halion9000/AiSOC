@@ -48,6 +48,7 @@ async def world():
                 ("crit_child", "child", "critical", "new", "huntress", 1),
                 ("high_parent", "parent", "high", "new", "petra", 2),
                 ("low", "child", "low", "new", "huntress", 1),
+                ("fe_medium", "parent", "medium", "new", "fieldeffect", 1),
                 ("old", "child", "critical", "new", "huntress", 48),
                 ("worked", "child", "critical", "resolved", "huntress", 1),
                 ("manual", "child", "critical", "new", "aisoc-submit-api", 1),
@@ -90,8 +91,10 @@ async def _run(world):
     return opened
 
 
-async def test_opens_one_linked_case_per_new_high_or_critical_alert_and_only_once(world):
-    assert await _run(world) == 2  # the critical alert in the client tenant and the high one in the workspace
+async def test_opens_one_linked_case_per_new_alert_of_any_severity_and_only_once(world):
+    assert (
+        await _run(world) == 4
+    )  # the critical and low alerts in the client tenant, and the high and the Field Effect medium ones in the workspace
     assert await _run(world) == 0  # nothing new the second time
 
     async with world["owner"].connect() as conn:
@@ -114,8 +117,10 @@ async def test_opens_one_linked_case_per_new_high_or_critical_alert_and_only_onc
         }
     assert [(c[0], c[1], c[2], c[4]) for c in cases] == [
         (world["child"], "alert crit_child", "critical", "huntress"),
+        (world["parent"], "alert fe_medium", "medium", "fieldeffect"),
         (world["parent"], "alert high_parent", "high", "petra"),
+        (world["child"], "alert low", "low", "huntress"),
     ]
-    assert cases[0][3] == [world["alerts"]["crit_child"]] and cases[1][3] == [world["alerts"]["high_parent"]]
+    assert cases[0][3] == [world["alerts"]["crit_child"]] and cases[2][3] == [world["alerts"]["high_parent"]]
     got = {name: linked[aid] is not None for name, aid in world["alerts"].items()}
-    assert got == {"crit_child": True, "high_parent": True, "low": False, "old": False, "worked": False, "manual": False}
+    assert got == {"crit_child": True, "high_parent": True, "low": True, "fe_medium": True, "old": False, "worked": False, "manual": False}
