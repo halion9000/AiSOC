@@ -1114,7 +1114,7 @@ export const alertsApi = {
       page_size?: number;
       pageSize?: number;
     }>('/api/v1/alerts', {
-      // The API's query names are snake_case; `pageSize` and `clientId` would otherwise be ignored.
+      // The API query names are snake_case; pageSize and clientId would otherwise be ignored. (No apostrophes or backticks in comments inside a call: the B11 parser reads them as quotes.)
       params: (() => {
         const { pageSize, clientId, ...rest } = filters;
         return { ...rest, page_size: pageSize, client_id: clientId } as unknown as Record<string, string>;
@@ -2752,6 +2752,31 @@ export const connectorsApi = {
       },
     );
     return mapBackendConnector(row);
+  },
+
+  /**
+   * Ask CORE to run a CORE-fed connector's tool now, then wait for CORE's report.
+   *
+   * Resolves ``reported: true`` once the connector's ``last_health_check`` moves past the request (CORE reports success and failure alike), or ``reported: false`` if CORE did
+   * not answer within ``timeoutMs`` (CORE stopped, or the tool is slow). Either way the caller then reads the verdict with ``test``.
+   */
+  syncNow: async (
+    id: string,
+    opts: { intervalMs?: number; timeoutMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  ): Promise<{ reported: boolean }> => {
+    const { intervalMs = 3000, timeoutMs = 60000, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)) } = opts;
+    const { requested_at } = await request<{ requested_at: string; vendor: string | null }>(
+      `/api/v1/connectors/${id}/sync`,
+      { method: 'POST' },
+    );
+    const asked = Date.parse(requested_at);
+    for (let waited = 0; waited < timeoutMs; waited += intervalMs) {
+      await sleep(intervalMs);
+      const row = await request<BackendConnectorResponse>(`/api/v1/connectors/${id}`);
+      const checked = row.last_health_check ? Date.parse(row.last_health_check) : NaN;
+      if (!Number.isNaN(checked) && checked >= asked) return { reported: true };
+    }
+    return { reported: false };
   },
 
   /** Run "Test connection" against a saved instance. */

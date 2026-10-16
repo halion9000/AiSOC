@@ -56,3 +56,19 @@ describe('the Configure button', () => {
     expect(onConfigure).toHaveBeenCalledWith(okta);
   });
 });
+
+describe('the button on a connector card', () => {
+  it('is Sync on a CORE-fed card and calls onTest with its id', async () => {
+    const onTest = vi.fn();
+    render(<ConnectorInstanceList connectors={[feed]} onTest={onTest} onAdd={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Sync' }));
+    expect(onTest).toHaveBeenCalledWith('f1');
+  });
+
+  it('stays Test on any other connector', () => {
+    renderList([okta]);
+    expect(screen.getByRole('button', { name: 'Test' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sync' })).not.toBeInTheDocument();
+  });
+});

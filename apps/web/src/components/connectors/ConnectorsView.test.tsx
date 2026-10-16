@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SWRConfig } from 'swr';
 
-const api = vi.hoisted(() => ({ list: vi.fn(), health: vi.fn(), catalog: vi.fn(), test: vi.fn(), delete: vi.fn() }));
+const api = vi.hoisted(() => ({ list: vi.fn(), health: vi.fn(), catalog: vi.fn(), test: vi.fn(), syncNow: vi.fn(), delete: vi.fn() }));
 vi.mock('@/lib/api', () => ({ connectorsApi: api }));
 vi.mock('react-hot-toast', () => ({ __esModule: true, default: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }) }));
 // Exposes the view's onCreated callback, which re-fetches the list: the way these tests trigger a real refresh.
@@ -11,13 +11,21 @@ vi.mock('./AddConnectorModal', () => ({ AddConnectorModal: ({ onCreated }: { onC
 vi.mock('./EditConnectorModal', () => ({ EditConnectorModal: () => null }));
 vi.mock('./InboxTokensPanel', () => ({ InboxTokensPanel: () => null }));
 vi.mock('./ConnectorInstanceList', () => ({
-  ConnectorInstanceList: ({ connectors }: { connectors: { id: string; name: string }[] }) => (
+  ConnectorInstanceList: ({ connectors, onTest }: { connectors: { id: string; name: string }[]; onTest: (id: string) => void }) => (
     <div data-testid="instance-list">
-      {connectors.length === 0 ? <span>no instances</span> : connectors.map((c) => <span key={c.id}>{c.name}</span>)}
+      {connectors.length === 0
+        ? <span>no instances</span>
+        : connectors.map((c) => (
+            <span key={c.id}>
+              {c.name}
+              <button onClick={() => onTest(c.id)}>test-{c.id}</button>
+            </span>
+          ))}
     </div>
   ),
 }));
 
+import toast from 'react-hot-toast';
 import { ConnectorsView } from './ConnectorsView';
 
 const connectors = [
@@ -114,5 +122,50 @@ describe('when a later refresh fails', () => {
     expect(screen.getByText('Okta production')).toBeInTheDocument(); // still there
     expect(screen.queryByText("Couldn't load connectors")).not.toBeInTheDocument(); // this is not the first-load failure
     expect(tile('Errors')).toBe('1Errors'); // and the figures were not zeroed
+  });
+});
+
+// "Test" on a card CORE feeds has nothing to call from here, so it asks CORE to run that tool and then reads what CORE reported.
+describe('Test on a connector', () => {
+  const feed = { id: 'f1', name: 'NinjaOne (via CORE)', type: 'core_feed', status: 'active', alertCount: 3 };
+  beforeEach(() => {
+    api.list.mockResolvedValue({ connectors: [...connectors, feed] });
+    api.test.mockResolvedValue({ success: true, message: 'CORE reported this feed healthy on its last run.' });
+  });
+
+  it('asks CORE to sync a CORE-fed card first, and only then reads its verdict', async () => {
+    const order: string[] = [];
+    api.syncNow.mockImplementation(async () => { order.push('sync'); return { reported: true }; });
+    api.test.mockImplementation(async () => { order.push('test'); return { success: true, message: 'ok from CORE' }; });
+    renderView();
+    await userEvent.click(await screen.findByText('test-f1'));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('ok from CORE'));
+    expect(order).toEqual(['sync', 'test']);
+    expect(api.syncNow).toHaveBeenCalledWith('f1');
+  });
+
+  it('says so when CORE does not answer, and still shows its last report', async () => {
+    api.syncNow.mockResolvedValue({ reported: false });
+    renderView();
+    await userEvent.click(await screen.findByText('test-f1'));
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const msg = vi.mocked(toast.success).mock.calls.at(-1)![0] as string;
+    expect(msg).toMatch(/CORE didn't answer within a minute/);
+    expect(msg).toMatch(/CORE reported this feed healthy/);
+  });
+
+  it('shows a failed verdict as an error', async () => {
+    api.syncNow.mockResolvedValue({ reported: true });
+    api.test.mockResolvedValue({ success: false, error: 'Blumira returned 401' });
+    renderView();
+    await userEvent.click(await screen.findByText('test-f1'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Blumira returned 401'));
+  });
+
+  it('a connector CORE does not feed is tested directly, with no sync', async () => {
+    renderView();
+    await userEvent.click(await screen.findByText('test-c1'));
+    await waitFor(() => expect(api.test).toHaveBeenCalledWith('c1'));
+    expect(api.syncNow).not.toHaveBeenCalled();
   });
 });

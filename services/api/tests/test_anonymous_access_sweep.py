@@ -69,6 +69,9 @@ PUBLIC = {
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/actions/claim"): (
         "CORE collects the vendor actions analysts queued: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); only that tenant's pending actions, each handed out once (the 422 here is the empty body)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/sync-requests/claim"): (
+        "CORE collects the Sync requests analysts made on the Connectors page: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); only that tenant's own pending requests, each handed out once (the 422 here is the empty body)"
+    ),
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/actions/{action_id}/result"): (
         "CORE reports how a claimed vendor action went: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); only a claimed action of that tenant can be answered (the 422 here is the empty body)"
     ),

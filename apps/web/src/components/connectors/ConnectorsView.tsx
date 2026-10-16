@@ -115,12 +115,19 @@ export function ConnectorsView() {
     setTestingId(id);
     setTestResults((prev) => ({ ...prev, [id]: undefined }));
     try {
+      // A CORE-fed card has nothing to test from here, so "Test" asks CORE to run that tool now and shows what it reports.
+      let note = '';
+      if (connectors.find((c) => c.id === id)?.type === 'core_feed') {
+        const { reported } = await connectorsApi.syncNow(id);
+        if (!reported) note = "CORE didn't answer within a minute (is it running?). Showing its last report. ";
+        mutate();
+      }
       const result = await connectorsApi.test(id);
       setTestResults((prev) => ({ ...prev, [id]: result.success }));
       if (result.success) {
-        toast.success(result.message ?? 'Connection test passed');
+        toast.success(note + (result.message ?? 'Connection test passed'));
       } else {
-        toast.error(result.error ?? result.message ?? 'Connection test failed');
+        toast.error(note + (result.error ?? result.message ?? 'Connection test failed'));
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Test request failed';

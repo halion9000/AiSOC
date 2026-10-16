@@ -348,12 +348,13 @@ function ConnectorCard({
           type="button"
           onClick={() => onTest(connector.id)}
           disabled={testing}
+          title={connector.type === 'core_feed' ? 'Ask CORE to run this tool now and report back' : undefined}
           className="flex-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-2 rounded-lg transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
         >
           {testing && (
             <span className="animate-spin w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full" />
           )}
-          Test
+          {connector.type === 'core_feed' ? (testing ? 'Syncing…' : 'Sync') : 'Test'}
         </button>
         {vendor && hasUnmappedClients(connector.errorMessage) && (
           <Link

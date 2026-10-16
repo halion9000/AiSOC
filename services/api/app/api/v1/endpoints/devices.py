@@ -296,7 +296,7 @@ async def put_settings(
 async def list_devices(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
     db: DBSession,
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=50, ge=1, le=200),
     client_id: uuid.UUID | None = Query(default=None),
     search: str | None = Query(default=None, max_length=100),

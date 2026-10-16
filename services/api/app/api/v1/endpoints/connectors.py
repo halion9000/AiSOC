@@ -70,7 +70,8 @@ def _safe_connector_type(value: str) -> str:
 import httpx  # noqa: E402
 from fastapi import APIRouter, Depends, HTTPException, Query, status  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
-from sqlalchemy import select, update  # noqa: E402
+from sqlalchemy import Text, cast, func, select, update  # noqa: E402
+from sqlalchemy.dialects.postgresql import ARRAY  # noqa: E402
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission  # noqa: E402
 from app.core.config import settings  # noqa: E402
@@ -901,6 +902,43 @@ def core_feed_verdict(connector: Connector, now: datetime | None = None) -> dict
     if connector.health_status == "degraded" and last_error:
         return {"success": True, "message": last_error, "details": {"source": "core-report"}}
     return {"success": True, "message": "CORE reported this feed healthy on its last run.", "details": {"source": "core-report"}}
+
+
+@router.post("/{connector_id}/sync", status_code=status.HTTP_202_ACCEPTED)
+async def request_core_feed_sync(
+    connector_id: uuid.UUID,
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:write"))],
+    db: DBSession,
+) -> dict[str, Any]:
+    """Ask CORE to run this feed now instead of at its next five-minute run.
+
+    Only a CORE-fed connector has anything to sync from here. This just leaves a request on the connector; CORE collects it within about 15 seconds, runs that one tool, and reports back
+    as it always does (``last_health_check`` moves), which is what the page waits for. Nothing here reaches the vendor.
+    """
+    connector = (
+        await db.execute(select(Connector).where(Connector.id == connector_id, Connector.tenant_id == current_user.tenant_id))
+    ).scalar_one_or_none()
+    if connector is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found")
+    if connector.connector_type != "core_feed":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only a connector fed by CORE can be synced from here.")
+    now = datetime.now(UTC)
+    vendor = (connector.connector_config or {}).get("vendor")  # read now: the update below expires the loaded row
+    # One atomic JSON update, so it cannot overwrite a status report that lands at the same moment (or be overwritten by one).
+    await db.execute(
+        update(Connector)
+        .where(Connector.id == connector.id)
+        .values(
+            connector_config=func.jsonb_set(
+                Connector.connector_config,
+                cast(["sync_requested_at"], ARRAY(Text)),
+                func.to_jsonb(cast(now.isoformat(), Text)),
+                True,
+            )
+        )
+    )
+    await db.commit()
+    return {"requested_at": now.isoformat(), "vendor": vendor}
 
 
 @router.post("/{connector_id}/test", status_code=status.HTTP_200_OK)

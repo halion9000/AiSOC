@@ -106,6 +106,10 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
     ): "CORE collects queued vendor actions: authenticated by the core-feed token in the path, checked in the handler (401 without it); only that tenant's pending actions, each handed out once",
     (
         "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/sync-requests/claim",
+    ): "CORE collects Sync requests made on the Connectors page: authenticated by the core-feed token in the path, checked in the handler (401 without it); only that tenant's pending requests, each handed out once",
+    (
+        "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/actions/{action_id}/result",
     ): "CORE reports a claimed vendor action's outcome: authenticated by the core-feed token in the path, checked in the handler (401 without it); only a claimed action of that tenant can be answered",
 }

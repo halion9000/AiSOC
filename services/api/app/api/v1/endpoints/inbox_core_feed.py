@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -210,6 +210,55 @@ async def report_core_feed_status(tenant_token: str, body: StatusReport, db: DBS
         logger.exception("core_feed.iocs_from_alerts_failed")
         await db.rollback()
     return StatusResponse(updated=applied)
+
+
+# ---- Sync pressed on a connector card ---------------------------------------------------------------------------------------------------------------------------------
+
+# A request nobody collected (CORE was off) goes stale instead of firing hours later, when the person has long stopped waiting.
+SYNC_REQUEST_TTL = timedelta(minutes=10)
+
+
+class SyncClaimResponse(BaseModel):
+    vendors: list[str]
+
+
+async def claim_sync_requests_for(db: Any, tenant_id: Any, now: datetime | None = None) -> list[str]:
+    """The tools whose Sync button was pressed recently, handed over once: the request is cleared as it is collected, so the next check finds nothing. The caller owns the transaction."""
+    now = now or datetime.now(UTC)
+    rows = (
+        await db.execute(
+            select(Connector.id, Connector.connector_config).where(
+                Connector.tenant_id == tenant_id,
+                Connector.connector_type == CORE_FEED_TYPE,
+                Connector.connector_config.has_key("sync_requested_at"),  # noqa: W601
+            )
+        )
+    ).all()
+    vendors: list[str] = []
+    for row in rows:
+        config = row.connector_config or {}
+        try:
+            asked = datetime.fromisoformat(str(config.get("sync_requested_at")))
+        except ValueError:
+            asked = None
+        if asked is not None and asked.tzinfo is None:
+            asked = asked.replace(tzinfo=UTC)
+        if asked is not None and now - asked <= SYNC_REQUEST_TTL and isinstance(config.get("vendor"), str):
+            vendors.append(config["vendor"])
+        await db.execute(
+            update(Connector).where(Connector.id == row.id).values(connector_config=Connector.connector_config.op("-")("sync_requested_at"))
+        )
+    return sorted(set(vendors))
+
+
+@router.post("/core-feed/{tenant_token}/sync-requests/claim", response_model=SyncClaimResponse)
+async def claim_core_feed_sync_requests(tenant_token: str, db: DBSession) -> SyncClaimResponse:
+    """CORE asks, about every 15 seconds, which tools to sync now."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    vendors = await claim_sync_requests_for(db, tenant_id)
+    await db.commit()
+    return SyncClaimResponse(vendors=vendors)
 
 
 # ---- closed in the vendor's own portal --------------------------------------------------------------------------------------------------------------------------------

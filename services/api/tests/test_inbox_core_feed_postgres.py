@@ -7,9 +7,17 @@ Opt in with AISOC_TEST_PG_URL (owner) and AISOC_TEST_PG_APP_URL (aisoc_app), as 
 
 import os
 import uuid
+from types import SimpleNamespace
 
 import pytest
-from app.api.v1.endpoints.inbox_core_feed import SourceReport, StatusReport, _verify_core_feed_token, apply_report
+from app.api.v1.endpoints.connectors import request_core_feed_sync
+from app.api.v1.endpoints.inbox_core_feed import (
+    SourceReport,
+    StatusReport,
+    _verify_core_feed_token,
+    apply_report,
+    claim_sync_requests_for,
+)
 from app.db.rls_sessions import adopt_tenant
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -307,3 +315,115 @@ async def test_one_tenant_cannot_read_another_tenants_log_even_by_asking_for_its
             await session.execute(text("select count(*) from connector_run_log where connector_id = :c"), {"c": connector_id})
         ).scalar_one()
     assert seen == 1
+
+
+# ---- the Sync button: request on the card, collected by CORE ---------------------------------------------------------------------------------------------------------
+
+
+async def connector_id(world, tenant, vendor="ninjaone"):
+    async with world["owner"].connect() as conn:
+        return (
+            await conn.execute(
+                text("select id from connectors where tenant_id = :t and connector_config->>'vendor' = :v"), {"t": tenant, "v": vendor}
+            )
+        ).scalar_one()
+
+
+async def press_sync(world, tenant, cid):
+    async with world["factory"]() as session:
+        await adopt_tenant(session, tenant)
+        return await request_core_feed_sync(cid, SimpleNamespace(tenant_id=tenant), session)
+
+
+async def claim(world, token):
+    """What CORE's check does: resolve the token, adopt its tenant, collect, commit."""
+    async with world["factory"]() as session:
+        tenant = await _verify_core_feed_token(session, token)
+        await adopt_tenant(session, tenant)
+        vendors = await claim_sync_requests_for(session, tenant)
+        await session.commit()
+    return vendors
+
+
+async def test_a_pressed_sync_is_handed_to_core_once(world):
+    await run(world, world["feed_token"], ninja("ok", sent=1))
+    answer = await press_sync(world, world["a"], await connector_id(world, world["a"]))
+    assert answer["vendor"] == "ninjaone" and answer["requested_at"]
+    (pending,) = await rows(world, world["a"])
+    assert pending.connector_config["sync_requested_at"] == answer["requested_at"], (
+        "the request is left on the connector for CORE to collect"
+    )
+    assert await claim(world, world["feed_token"]) == ["ninjaone"]
+    assert await claim(world, world["feed_token"]) == [], "collected means cleared: CORE does not run it again on its next check"
+    (row,) = await rows(world, world["a"])
+    assert "sync_requested_at" not in row.connector_config
+
+
+async def test_with_no_button_pressed_there_is_nothing_to_collect(world):
+    await run(world, world["feed_token"], ninja("ok", sent=1))
+    assert await claim(world, world["feed_token"]) == []
+
+
+async def test_a_request_nobody_collected_for_ten_minutes_goes_stale_and_is_cleared_not_run(world):
+    await run(world, world["feed_token"], ninja("ok", sent=1))
+    cid = await connector_id(world, world["a"])
+    async with world["owner"].begin() as conn:
+        await conn.execute(
+            text("update connectors set connector_config = connector_config || cast(:c as jsonb) where id = :i"),
+            {"c": '{"sync_requested_at": "2020-01-01T00:00:00+00:00"}', "i": cid},
+        )
+    assert await claim(world, world["feed_token"]) == []
+    (row,) = await rows(world, world["a"])
+    assert "sync_requested_at" not in row.connector_config
+
+
+async def test_a_request_does_not_erase_the_reason_on_the_card_and_a_report_does_not_erase_the_request(world):
+    await run(world, world["feed_token"], ninja("error", "Blumira returned 403"))
+    cid = await connector_id(world, world["a"])
+    await press_sync(world, world["a"], cid)
+    (row,) = await rows(world, world["a"])
+    assert row.connector_config["last_error"] == "Blumira returned 403" and row.connector_config["vendor"] == "ninjaone"
+    await run(world, world["feed_token"], ninja("error", "Blumira returned 403 again"))  # a report lands before CORE collects
+    assert await claim(world, world["feed_token"]) == ["ninjaone"]
+
+
+async def test_one_tenants_sync_is_never_collected_by_or_pressed_for_another(world):
+    await run(world, world["feed_token"], ninja("ok", sent=1))
+    await run(world, world["b_feed_token"], ninja("ok", sent=1))
+    a_card = await connector_id(world, world["a"])
+    with pytest.raises(HTTPException) as err:
+        await press_sync(world, world["b"], a_card)
+    assert err.value.status_code == 404
+    assert await claim(world, world["b_feed_token"]) == []
+    await press_sync(world, world["a"], a_card)
+    assert await claim(world, world["b_feed_token"]) == [], "B's CORE cannot collect A's request"
+    assert await claim(world, world["feed_token"]) == ["ninjaone"]
+
+
+async def test_only_a_connector_fed_by_core_can_be_synced(world):
+    other = uuid.uuid4()
+    async with world["owner"].begin() as conn:
+        await conn.execute(
+            text(
+                "insert into connectors (id, tenant_id, name, connector_type, category, is_enabled, connector_config) "
+                "values (:i, :t, 'Okta production', 'okta', 'iam', true, '{}')"
+            ),
+            {"i": other, "t": world["a"]},
+        )
+    with pytest.raises(HTTPException) as err:
+        await press_sync(world, world["a"], other)
+    assert err.value.status_code == 400
+    assert await claim(world, world["feed_token"]) == []
+
+
+async def test_the_collection_filters_by_tenant_itself_even_without_row_level_security(world):
+    """Row-level security already keeps tenants apart; this proves the query's own tenant filter would too (defence in depth)."""
+    await run(world, world["feed_token"], ninja("ok", sent=1))
+    await run(world, world["b_feed_token"], report(SourceReport(vendor="huntress", category="edr", status="ok", sent=1)))
+    await press_sync(world, world["a"], await connector_id(world, world["a"]))
+    await press_sync(world, world["b"], await connector_id(world, world["b"], "huntress"))
+    async with async_sessionmaker(
+        world["owner"], expire_on_commit=False
+    )() as session:  # the table owner: not subject to row-level security
+        assert await claim_sync_requests_for(session, world["a"]) == ["ninjaone"]
+        assert await claim_sync_requests_for(session, world["b"]) == ["huntress"]
