@@ -283,6 +283,37 @@
     }
   },
   {
+    "tool": "aisoc_list_devices",
+    "method": "GET",
+    "path": "/devices",
+    "query": [
+      "client_id",
+      "search",
+      "missing",
+      "not_in_master",
+      "offline",
+      "has_alerts",
+      "page_size",
+      "page"
+    ],
+    "enums": {
+      "missing": [
+        "addigy",
+        "threatmate"
+      ]
+    },
+    "numbers": {
+      "page_size": {
+        "min": 1,
+        "max": 100
+      },
+      "page": {
+        "min": 1,
+        "max": 10000
+      }
+    }
+  },
+  {
     "tool": "aisoc_get_asset",
     "method": "GET",
     "path": "/assets/{asset_id}",

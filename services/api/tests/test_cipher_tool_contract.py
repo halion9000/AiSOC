@@ -1,5 +1,5 @@
-"""Cipher (CORE's agent) operates AiSOC through 49 tools: 17 written out by hand and 32 read-only tools (12 detection engineering, 5
-hunting, 5 threat intelligence, 10 estate: assets, vulnerabilities, cloud posture, identity graph) declared as a table in CORE
+"""Cipher (CORE's agent) operates AiSOC through 50 tools: 17 written out by hand and 33 read-only tools (12 detection engineering, 5
+hunting, 5 threat intelligence, 11 estate: assets, vulnerabilities, cloud posture, identity graph, client devices) declared as a table in CORE
 (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
 
 CORE builds the requests in hud/src/aisoc-requests.ts and pins them in hud/src/aisoc-requests.test.ts. Comparing every call with this API's own
@@ -96,6 +96,14 @@ CIPHER_CALLS = [
     # The estate (permission alerts:read, which CORE's key already holds: no new scope). NOT here on purpose: /insider-threat (per-employee
     # risk scores, indicators and watchlists: HR-sensitive), /compliance (needs reports:read, and GET /compliance/report writes a record)
     # and the effective-permissions resolver.
+    (
+        "aisoc_list_devices",
+        "GET",
+        "/devices",
+        ["client_id", "search", "missing", "not_in_master", "offline", "has_alerts", "page_size", "page"],
+        None,
+        False,
+    ),
     ("aisoc_list_assets", "GET", "/assets", ["asset_type", "criticality", "limit", "offset"], None, False),
     ("aisoc_get_asset", "GET", "/assets/{asset_id}", [], None, False),
     ("aisoc_list_vulnerabilities", "GET", "/assets/vulnerabilities", ["severity", "is_exploited", "limit", "offset"], None, False),
@@ -237,9 +245,9 @@ def test_the_page_size_cap_is_at_least_what_core_sends(path):
     assert page_size["schema"].get("maximum", 10**9) >= MAX_PAGE_SIZE_CORE_SENDS
 
 
-def test_the_table_covers_all_forty_nine_tools():
+def test_the_table_covers_all_fifty_tools():
     tools = {re.sub(r" \(.*\)$", "", name) for name in CALL_IDS}
-    assert len(tools) == 49, sorted(tools)
+    assert len(tools) == 50, sorted(tools)
 
 
 READ_ONLY_TOOLS = [c for c in CIPHER_CALLS if c[1] == "GET"]
@@ -310,7 +318,7 @@ def test_every_tool_in_the_contract_is_a_get():
 
 def test_the_contract_has_no_tool_listed_twice():
     names = [r["tool"] for r in CONTRACT]
-    assert len(names) == len(set(names)) == 32
+    assert len(names) == len(set(names)) == 33
 
 
 def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_to_this_repo():
@@ -327,17 +335,34 @@ def _query_parameters(row) -> dict:
     return {p["name"]: p for p in _operation(row["method"], row["path"]).get("parameters", []) if p["in"] == "query"}
 
 
+_SIMPLE_ALTERNATION = re.compile(r"^\^\(([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)\)\$$")
+
+
+def _allowed_values(schema):
+    """The values the API accepts for a parameter: an OpenAPI enum, or a pattern that is exactly a list of alternatives (^(a|b)$), which
+    is how a FastAPI query parameter written with `pattern=` shows up. Anything more elaborate is None (open text)."""
+    schema = _resolve(schema)
+    if "enum" in schema:
+        return set(schema["enum"])
+    for option in schema.get("anyOf", []):
+        found = _allowed_values(option)
+        if found is not None:
+            return found
+    match = _SIMPLE_ALTERNATION.match(schema.get("pattern", ""))
+    return set(match.group(1).split("|")) if match else None
+
+
 @pytest.mark.parametrize("row", CONTRACT, ids=[r["tool"] for r in CONTRACT])
 def test_the_values_a_tool_allows_are_exactly_the_values_the_api_accepts(row):
     """A tool that offers free text for a parameter the API restricts to a set only finds out at AiSOC (a 422); one that allows a different
     set is wrong either way."""
     params = _query_parameters(row)
     for name, values in row["enums"].items():
-        api_enum = _resolve(params[name]["schema"]).get("enum")
+        api_enum = _allowed_values(params[name]["schema"])
         assert api_enum is not None, f"{row['tool']}.{name} is restricted to {values} by the tool, but {row['path']} accepts any value"
         assert set(api_enum) == set(values), f"{row['tool']}.{name}: the tool allows {sorted(values)}, the API accepts {sorted(api_enum)}"
     for name in row["query"]:
-        api_enum = _resolve(params[name]["schema"]).get("enum")
+        api_enum = _allowed_values(params[name]["schema"])
         if api_enum is not None:
             assert (
                 name in row["enums"]
@@ -458,13 +483,14 @@ ESTATE_TOOLS = [
     "aisoc_get_posture_finding",
     "aisoc_list_posture_scans",
     "aisoc_list_identity_nodes",
-    "aisoc_get_identity_node",  # noqa: E501
+    "aisoc_get_identity_node",
+    "aisoc_list_devices",  # noqa: E501
 ]
 
 
 @pytest.mark.parametrize("name", ESTATE_TOOLS)
 def test_an_estate_tool_is_a_get_that_needs_exactly_alerts_read_which_the_key_already_holds(name):
-    """Assets, vulnerabilities, cloud posture and the identity graph are all alerts:read, so these ten tools add NO scope and NO width to
+    """Assets, vulnerabilities, cloud posture and the identity graph are all alerts:read, so these eleven tools add NO scope and NO width to
     CORE's key."""
     _tool, method, path, *_ = _case(name)
     assert method == "GET" and set(required_permissions(_route(method, path))) == {"alerts:read"}, f"{name}: {method} {path}"
@@ -494,3 +520,26 @@ def test_the_sensitive_areas_have_no_tool_and_say_why_in_the_table():
         assert not path.startswith(("/insider-threat", "/compliance", "/identity/")), path
     source = Path(__file__).read_text(encoding="utf-8")
     assert "HR-sensitive" in source and "writes a record" in source
+
+
+def test_allowed_values_reads_an_enum_a_pattern_of_alternatives_and_an_optional_pattern():
+    assert _allowed_values({"enum": ["a", "b"]}) == {"a", "b"}
+    assert _allowed_values({"type": "string", "pattern": "^(addigy|threatmate)$"}) == {"addigy", "threatmate"}
+    assert _allowed_values({"anyOf": [{"type": "string", "pattern": "^(x|y-z)$"}, {"type": "null"}]}) == {"x", "y-z"}
+
+
+def test_allowed_values_treats_anything_more_elaborate_as_open_text():
+    for schema in (
+        {"type": "string"},
+        {"type": "string", "pattern": "^[a-z]+$"},
+        {"type": "string", "pattern": "^(a|b.*)$"},
+        {"type": "string", "pattern": "(a|b)"},
+        {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+    ):
+        assert _allowed_values(schema) is None, schema
+
+
+def test_the_devices_filter_values_are_the_ones_the_endpoint_really_accepts():
+    row = next(r for r in CONTRACT if r["tool"] == "aisoc_list_devices")
+    assert row["enums"] == {"missing": ["addigy", "threatmate"]}
+    assert _allowed_values(_query_parameters(row)["missing"]["schema"]) == {"addigy", "threatmate"}
