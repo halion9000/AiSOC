@@ -618,9 +618,16 @@ function IntegrationsPanel() {
 
   const onTest = async (connector: Connector) => {
     try {
+      // A CORE-fed tool has nothing to test from here, so ask CORE to run it now first (same as the Connectors page).
+      let note = '';
+      if (connector.type === 'core_feed') {
+        const { reported } = await connectorsApi.syncNow(connector.id);
+        if (!reported) note = " (CORE didn't answer; showing its last report)";
+        mutate();
+      }
       const result = await connectorsApi.test(connector.id);
       toast.success(
-        `${connector.name}: ${result.success ? 'OK' : 'Failed'} • ${result.latencyMs}ms`,
+        `${connector.name}: ${result.success ? 'OK' : 'Failed'} • ${result.latencyMs}ms${note}`,
       );
     } catch {
       toast.error('Test request failed');
