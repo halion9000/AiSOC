@@ -31,7 +31,7 @@ R, W, D = "alerts:read", "alerts:write", "alerts:delete"
 
 
 def m(perm, *names):
-    return {n: perm for n in names}
+    return dict.fromkeys(names, perm)
 
 
 INTENDED = {

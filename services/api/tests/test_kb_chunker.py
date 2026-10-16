@@ -82,7 +82,7 @@ def test_long_paragraph_no_sentences():
     for c in chunks:
         assert len(c) <= 801
 
-
+    sentences = [f"Step {i}: investigate alert before closing. " for i in range(50)]
 def test_overlap_adds_total_chars():
     sentences = ["Step %d: investigate alert before closing. " % i for i in range(50)]
     text = " ".join(sentences)
