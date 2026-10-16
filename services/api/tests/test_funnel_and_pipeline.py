@@ -54,6 +54,8 @@ def _connector_row(
     health_status: str = "healthy",
     is_enabled: bool = True,
     connector_config: dict | None = None,
+    connector_type: str = "generic",
+    last_sync: datetime | None = None,
 ) -> SimpleNamespace:
     """Stand-in for a row returned by the ingest-stage query.
 
@@ -68,6 +70,8 @@ def _connector_row(
         health_status=health_status,
         is_enabled=is_enabled,
         connector_config=connector_config or {},
+        connector_type=connector_type,
+        last_sync=last_sync,
     )
 
 
@@ -556,6 +560,41 @@ class TestIngestStage:
         assert stage.status == "green"
         assert stage.backlog == 0
         assert stage.error_rate == 0.0
+
+    @pytest.mark.asyncio
+    async def test_a_core_feed_connector_that_synced_recently_is_fresh_even_with_no_new_events(self) -> None:
+        from app.api.v1.endpoints.health import _ingest_stage
+
+        now = datetime.now(UTC)
+        quiet_but_synced = _connector_row(
+            category="edr", connector_type="core_feed", last_event_at=now - timedelta(hours=5), last_sync=now - timedelta(minutes=2)
+        )
+        never_had_events = _connector_row(
+            category="edr", connector_type="core_feed", last_event_at=None, last_sync=now - timedelta(minutes=2)
+        )
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=_execute_result_all([quiet_but_synced, never_had_events]))
+        stage = await _ingest_stage(db, uuid.uuid4(), now=now)
+        assert stage.status == "green"
+        assert stage.backlog == 0
+
+    @pytest.mark.asyncio
+    async def test_a_core_feed_connector_that_stopped_syncing_is_still_stale_and_other_types_ignore_last_sync(self) -> None:
+        from app.api.v1.endpoints.health import _ingest_stage
+
+        now = datetime.now(UTC)
+        stopped = _connector_row(
+            category="edr", connector_type="core_feed", last_event_at=now - timedelta(hours=5), last_sync=now - timedelta(hours=4)
+        )
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=_execute_result_all([stopped]))
+        assert (await _ingest_stage(db, uuid.uuid4(), now=now)).backlog == 1
+        # a connector of any other type is judged by its last EVENT, whatever its last sync says
+        other = _connector_row(
+            category="edr", connector_type="generic", last_event_at=now - timedelta(hours=5), last_sync=now - timedelta(minutes=1)
+        )
+        db.execute = AsyncMock(return_value=_execute_result_all([other]))
+        assert (await _ingest_stage(db, uuid.uuid4(), now=now)).backlog == 1
 
     @pytest.mark.asyncio
     async def test_one_stale_connector_pushes_red(self) -> None:

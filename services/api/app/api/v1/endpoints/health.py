@@ -170,6 +170,8 @@ async def _ingest_stage(db, tenant_id, *, now: datetime) -> PipelineStage:
         await db.execute(
             select(
                 Connector.category,
+                Connector.connector_type,
+                Connector.last_sync,
                 Connector.last_event_at,
                 Connector.health_status,
                 Connector.is_enabled,
@@ -200,9 +202,14 @@ async def _ingest_stage(db, tenant_id, *, now: datetime) -> PipelineStage:
             raw_override = r.connector_config.get("expected_cadence_seconds")
             if isinstance(raw_override, int | float) and raw_override > 0:
                 override = int(raw_override)
+        # A connector CORE feeds is fresh when CORE last synced it OK, even if that sync found nothing new: "no alerts" is not "stale".
+        seen = r.last_event_at
+        last_sync = getattr(r, "last_sync", None)
+        if getattr(r, "connector_type", None) == "core_feed" and last_sync is not None and (seen is None or last_sync > seen):
+            seen = last_sync
         verdict = compute_freshness(
             category=r.category,
-            last_event_at=r.last_event_at,
+            last_event_at=seen,
             now=now,
             override_seconds=override,
         )
