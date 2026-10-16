@@ -102,6 +102,9 @@ export function VendorActionsSection({ alertId }: { alertId: string }) {
   const [problem, setProblem] = useState('');
 
   if (!data || !data.supported) return null;
+  if (data.vendor === 'blumira' || data.vendor === 'fieldeffect') {
+    return <ResolveOnlyPanel alertId={alertId} vendor={data.vendor} actions={data.actions} onChanged={() => void mutate()} />;
+  }
 
   const busy = inFlight(data.actions);
   const avail = availableActions(data.vendor_state, busy);
@@ -272,5 +275,156 @@ function RemediationRow({ r }: { r: VendorRemediation }) {
         </p>
       ))}
     </li>
+  );
+}
+
+export const BLUMIRA_RESOLUTIONS: { value: number; label: string }[] = [
+  { value: 10, label: 'Valid (a real threat, and it was handled)' },
+  { value: 20, label: 'False positive' },
+  { value: 30, label: 'No action needed' },
+  { value: 40, label: 'Risk accepted' },
+];
+
+const VENDOR_NAME: Record<'blumira' | 'fieldeffect', string> = { blumira: 'Blumira', fieldeffect: 'Field Effect' };
+
+/**
+ * Blumira findings and Field Effect AROs can only be resolved from here (no remediation plan to approve first). Same path as the Huntress actions: queued in AiSOC,
+ * carried out by CORE, result shown below. Blumira needs the reason it is closed (its own list of four); Field Effect just takes an optional comment.
+ */
+export function ResolveOnlyPanel({
+  alertId,
+  vendor,
+  actions,
+  onChanged,
+}: {
+  alertId: string;
+  vendor: 'blumira' | 'fieldeffect';
+  actions: VendorActionItem[];
+  onChanged: () => void;
+}) {
+  const name = VENDOR_NAME[vendor];
+  const [asking, setAsking] = useState(false);
+  const [resolution, setResolution] = useState<number | ''>('');
+  const [comment, setComment] = useState('');
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState('');
+  const busy = inFlight(actions);
+  const done = actions.some((a) => a.action === 'resolve' && a.status === 'done');
+  const ready = vendor === 'fieldeffect' || resolution !== '';
+
+  const send = async () => {
+    setSending(true);
+    setProblem('');
+    try {
+      await alertsApi.requestVendorAction(alertId, {
+        action: 'resolve',
+        ...(comment.trim() ? { comment: comment.trim() } : {}),
+        ...(vendor === 'blumira' && resolution !== '' ? { resolution } : {}),
+      });
+      setAsking(false);
+      setComment('');
+      onChanged();
+    } catch (e) {
+      let msg = e instanceof Error ? e.message : 'Request failed.';
+      if (e instanceof ApiError) {
+        try {
+          const detail = (JSON.parse(e.body) as { detail?: unknown }).detail;
+          if (typeof detail === 'string') msg = detail;
+        } catch {
+          // keep the generic message
+        }
+        if (e.status === 403) msg = 'Your role can’t change connectors, which this needs.';
+      }
+      setProblem(msg);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section className="px-4 py-4 border-b border-gray-800/40" aria-label={`${name} resolve`}>
+      <h3 className="mb-2 text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{name}</h3>
+      <button
+        type="button"
+        disabled={busy || sending || done}
+        title={busy ? 'An action for this alert is already waiting for CORE.' : done ? 'Already resolved.' : undefined}
+        onClick={() => {
+          setProblem('');
+          setAsking(true);
+        }}
+        className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800/60 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Resolve in {name}
+      </button>
+
+      {asking && (
+        <div className="mt-3 rounded-lg border border-gray-700 bg-gray-900/60 p-3 text-xs text-gray-300" role="group" aria-label={`Confirm resolve in ${name}`}>
+          <p>Close this alert in {name}? It changes a live security tool.</p>
+          <div className="mt-2 space-y-2">
+            {vendor === 'blumira' && (
+              <label className="block">
+                <span className="text-gray-500">Why it is closed (required)</span>
+                <select
+                  value={resolution}
+                  onChange={(e) => setResolution(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="mt-1 w-full rounded bg-gray-950 border border-gray-700 px-2 py-1 text-gray-200"
+                >
+                  <option value="">Choose…</option>
+                  {BLUMIRA_RESOLUTIONS.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="block">
+              <span className="text-gray-500">Note (optional)</span>
+              <textarea
+                value={comment}
+                maxLength={2048}
+                onChange={(e) => setComment(e.target.value)}
+                rows={2}
+                className="mt-1 w-full rounded bg-gray-950 border border-gray-700 px-2 py-1 text-gray-200"
+              />
+            </label>
+          </div>
+          <p className="mt-2 text-gray-500">AiSOC doesn&apos;t talk to {name} itself. CORE carries this out within about a minute.</p>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={sending || !ready}
+              onClick={() => void send()}
+              className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {sending ? 'Sending…' : `Confirm: resolve in ${name}`}
+            </button>
+            <button type="button" disabled={sending} onClick={() => setAsking(false)} className="px-2.5 py-1.5 rounded-lg border border-gray-700 text-gray-300">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {problem && (
+        <p role="alert" className="mt-2 text-xs text-red-300">
+          {problem}
+        </p>
+      )}
+
+      {actions.length > 0 && (
+        <ul className="mt-3 space-y-1.5" aria-label="Requested actions">
+          {actions.slice(0, 5).map((a) => (
+            <li key={a.id} className="text-xs text-gray-400">
+              <span className={clsx('inline-block mr-2 px-1.5 py-0.5 rounded border text-[10px] uppercase tracking-wider', STATUS_STYLE[a.status] ?? STATUS_STYLE.pending)}>
+                {STATUS_LABEL[a.status] ?? a.status}
+              </span>
+              Resolve in {name}
+              <span className="text-gray-600"> · {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}</span>
+              {a.result_message && <p className="mt-0.5 ml-1 text-gray-500">{a.result_message}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

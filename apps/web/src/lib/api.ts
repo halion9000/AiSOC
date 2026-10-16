@@ -1099,6 +1099,8 @@ export interface VendorActionRequest {
   comment?: string;
   reason?: string;
   useful?: boolean;
+  /** Blumira only: 10 Valid, 20 False Positive, 30 No Action Needed, 40 Risk Accepted. `comment` is sent as its note. */
+  resolution?: number;
 }
 
 export const alertsApi = {

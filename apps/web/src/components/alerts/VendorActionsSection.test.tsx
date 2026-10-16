@@ -131,3 +131,61 @@ describe('VendorActionsSection', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('There are no unapproved remediations to approve or reject.');
   });
 });
+
+describe('Blumira and Field Effect: resolve only', () => {
+  const queued = { id: 'x', action: 'resolve' as const, status: 'pending', result_message: null, created_at: '2026-10-14T12:00:00Z', finished_at: null };
+  const resolveOnly = (vendor: 'blumira' | 'fieldeffect', over: Partial<VendorActions> = {}) =>
+    payload({ vendor, incident_uid: `${vendor}:abc`, vendor_state: null, ...over });
+
+  it('offers only a resolve button, never the Huntress plan actions', async () => {
+    api.vendorActions.mockResolvedValue(resolveOnly('blumira'));
+    show();
+    expect(await screen.findByRole('button', { name: 'Resolve in Blumira' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve plan' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reject plan' })).not.toBeInTheDocument();
+  });
+
+  it('Blumira: will not send until a reason is chosen, then sends the code and the note', async () => {
+    api.vendorActions.mockResolvedValue(resolveOnly('blumira'));
+    api.requestVendorAction.mockResolvedValue(queued);
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolve in Blumira' }));
+    expect(api.requestVendorAction).not.toHaveBeenCalled();
+    const confirm = screen.getByRole('button', { name: /Confirm: resolve in Blumira/ });
+    expect(confirm).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText(/Why it is closed/), '30');
+    await userEvent.type(screen.getByLabelText(/Note/), 'patched');
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+    await waitFor(() => expect(api.requestVendorAction).toHaveBeenCalledWith('alert-1', { action: 'resolve', comment: 'patched', resolution: 30 }));
+  });
+
+  it('Field Effect: no reason to pick, and an empty note is not sent', async () => {
+    api.vendorActions.mockResolvedValue(resolveOnly('fieldeffect'));
+    api.requestVendorAction.mockResolvedValue(queued);
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolve in Field Effect' }));
+    expect(screen.queryByLabelText(/Why it is closed/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Confirm: resolve in Field Effect/ }));
+    await waitFor(() => expect(api.requestVendorAction).toHaveBeenCalledWith('alert-1', { action: 'resolve' }));
+  });
+
+  it('is disabled while an action waits, shows its progress, and shows the server refusal', async () => {
+    api.vendorActions.mockResolvedValue(
+      resolveOnly('fieldeffect', { actions: [{ ...queued, id: '1', created_at: new Date().toISOString() }] })
+    );
+    show();
+    expect(await screen.findByText('Waiting for CORE')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resolve in Field Effect' })).toBeDisabled();
+  });
+
+  it("shows the server's reason when the request is refused", async () => {
+    const { ApiError } = await import('@/lib/api');
+    api.vendorActions.mockResolvedValue(resolveOnly('fieldeffect'));
+    api.requestVendorAction.mockRejectedValue(new ApiError('409', 409, JSON.stringify({ detail: 'This alert is already resolved.' })));
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolve in Field Effect' }));
+    await userEvent.click(screen.getByRole('button', { name: /Confirm: resolve in Field Effect/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('This alert is already resolved.');
+  });
+});
