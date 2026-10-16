@@ -522,6 +522,8 @@ export interface DeviceRow {
   last_seen: string;
   /** When a tool last saw the device actually online (Addigy / NinjaOne); null when no tool says. */
   last_online?: string | null;
+  /** Whole days since a tool last saw it online, once that is a week or more. */
+  offline_days?: number | null;
   first_seen: string;
   sources: DeviceSourceRef[];
   /** False when a master tool is set and none of its feeds reports this device. */
@@ -543,7 +545,7 @@ export interface DeviceAlert {
 
 export interface DeviceList {
   master_vendor: string | null;
-  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number };
+  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; offline?: number; with_alerts?: number };
   items: DeviceRow[];
   total: number;
   page: number;
@@ -560,6 +562,10 @@ export interface DeviceQuery {
   notInMaster?: boolean;
   /** Only devices this tool should report but does not (Addigy counts Macs only). */
   missing?: 'addigy' | 'threatmate';
+  /** Only devices no tool has seen online for a week or more. */
+  offline?: boolean;
+  /** Only devices with at least one open alert. */
+  hasAlerts?: boolean;
 }
 
 export const devicesApi = {
@@ -572,6 +578,8 @@ export const devicesApi = {
     if (q.vendor) p.set('vendor', q.vendor);
     if (q.notInMaster) p.set('not_in_master', 'true');
     if (q.missing) p.set('missing', q.missing);
+    if (q.offline) p.set('offline', 'true');
+    if (q.hasAlerts) p.set('has_alerts', 'true');
     const qs = p.toString();
     return request<DeviceList>(`/api/v1/devices${qs ? `?${qs}` : ''}`);
   },

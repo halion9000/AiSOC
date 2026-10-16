@@ -35,19 +35,21 @@ export default function DevicesView() {
   const [vendor, setVendor] = useState('');
   const [gapsOnly, setGapsOnly] = useState(false);
   const [missing, setMissing] = useState<Missing | null>(null);
+  const [offlineOnly, setOfflineOnly] = useState(false);
+  const [alertsOnly, setAlertsOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined }));
+      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load devices.');
     } finally {
       setLoading(false);
     }
-  }, [page, clientId, search, vendor, gapsOnly, missing]);
+  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), search ? 250 : 0);
@@ -101,7 +103,7 @@ export default function DevicesView() {
         </label>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:max-w-3xl sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:max-w-5xl sm:grid-cols-6">
         <div className="rounded-lg border border-gray-800 bg-gray-900/60 p-3">
           <div className="text-xs text-gray-400">Devices</div>
           <div className="text-2xl font-semibold text-white" data-testid="devices-total">
@@ -147,6 +149,26 @@ export default function DevicesView() {
             </button>
           );
         })}
+        {([
+          ['offline', 'Offline 7+ days', offlineOnly, () => setOfflineOnly((v) => !v), data?.summary.offline],
+          ['alerts', 'With open alerts', alertsOnly, () => setAlertsOnly((v) => !v), data?.summary.with_alerts],
+        ] as const).map(([key, label, on, toggle, count]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => {
+              toggle();
+              setPage(1);
+            }}
+            aria-pressed={on}
+            className={`rounded-lg border p-3 text-left ${on ? 'border-amber-500 bg-amber-500/10' : 'border-gray-800 bg-gray-900/60'}`}
+          >
+            <div className="text-xs text-gray-400">{label}</div>
+            <div className="text-2xl font-semibold text-amber-300" data-testid={`devices-${key}`}>
+              {count ?? '—'}
+            </div>
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -274,7 +296,10 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
             ))}
           </span>
         </td>
-        <td className="px-3 py-2 text-gray-400">{d.last_online ? when(d.last_online) : '—'}</td>
+        <td className="px-3 py-2 text-gray-400">
+          {d.last_online ? when(d.last_online) : '—'}
+          {d.offline_days != null && <span className="ml-2 rounded bg-gray-700/60 px-1.5 py-0.5 text-[11px] text-gray-300">Offline {d.offline_days}d</span>}
+        </td>
         <td className="px-3 py-2 text-gray-500">{when(d.last_seen)}</td>
       </tr>
       {open && (

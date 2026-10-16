@@ -3,7 +3,7 @@
 import json
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +18,7 @@ from app.api.v1.endpoints.devices import (
     is_missing_from,
     last_online_of,
     list_devices,
+    offline_days_of,
     put_settings,
 )
 from app.db.rls import set_rls_context
@@ -103,7 +104,17 @@ async def test_devices_land_under_their_mapped_client_and_unmapped_ones_are_coun
     listing = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=None, search=None, vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=None,
+            search=None,
+            vendor=None,
+            not_in_master=False,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert sorted(d.hostname for d in listing.items) == ["ACME-PC", "BIRCH-PC"]
@@ -120,7 +131,17 @@ async def test_same_serial_from_ninja_and_addigy_is_one_device_in_the_client_vie
     listing = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=a, search=None, vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=a,
+            search=None,
+            vendor=None,
+            not_in_master=False,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert len(listing.items) == 1
@@ -135,7 +156,17 @@ async def test_each_feeds_details_come_back_with_the_device(world):
     listing = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=world["acme"], search=None, vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=world["acme"],
+            search=None,
+            vendor=None,
+            not_in_master=False,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert listing.items[0].sources[0].details == {"memory_gb": 16, "processor": "Intel i7"}
@@ -203,6 +234,8 @@ async def test_missing_filter_and_summary_counts(world):
             "vendor": None,
             "not_in_master": False,
             "missing": None,
+            "offline": False,
+            "has_alerts": False,
             "page": 1,
             "page_size": 50,
         }
@@ -226,7 +259,17 @@ async def test_master_flags_devices_the_master_does_not_report(world):
     gaps = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=None, search=None, vendor=None, not_in_master=True, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=None,
+            search=None,
+            vendor=None,
+            not_in_master=True,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert [d.hostname for d in gaps.items] == ["ONLY-ADDIGY"]
@@ -235,7 +278,17 @@ async def test_master_flags_devices_the_master_does_not_report(world):
     nogaps = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=None, search=None, vendor=None, not_in_master=True, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=None,
+            search=None,
+            vendor=None,
+            not_in_master=True,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert nogaps.items == []  # with no master nothing is a gap
@@ -262,7 +315,17 @@ async def test_a_parent_cannot_read_another_parents_client_or_device(world):
     mine = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=None, search=None, vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=None,
+            search=None,
+            vendor=None,
+            not_in_master=False,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     with pytest.raises(HTTPException) as err2:
@@ -287,21 +350,51 @@ async def test_search_and_tool_filter(world):
     by_name = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=None, search="front", vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=None,
+            search="front",
+            vendor=None,
+            not_in_master=False,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert [d.hostname for d in by_name.items] == ["FRONT-DESK"]
     by_serial = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=None, search="ser-ms", vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=None,
+            search="ser-ms",
+            vendor=None,
+            not_in_master=False,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert [d.hostname for d in by_serial.items] == ["MAC-STUDIO"]
     by_tool = await session(
         p,
         lambda db: list_devices(
-            user(p), db, client_id=None, search=None, vendor="addigy", not_in_master=False, missing=None, page=1, page_size=50
+            user(p),
+            db,
+            client_id=None,
+            search=None,
+            vendor="addigy",
+            not_in_master=False,
+            missing=None,
+            offline=False,
+            has_alerts=False,
+            page=1,
+            page_size=50,
         ),
     )
     assert [d.hostname for d in by_tool.items] == ["MAC-STUDIO"]
@@ -341,7 +434,17 @@ async def test_open_alerts_naming_a_device_show_on_that_device_only(world):
         listing = await session(
             p,
             lambda db: list_devices(
-                user(p), db, client_id=a, search=None, vendor=None, not_in_master=False, missing=None, page=1, page_size=50
+                user(p),
+                db,
+                client_id=a,
+                search=None,
+                vendor=None,
+                not_in_master=False,
+                missing=None,
+                offline=False,
+                has_alerts=False,
+                page=1,
+                page_size=50,
             ),
         )
         by_host = {d.hostname: d for d in listing.items}
@@ -350,9 +453,66 @@ async def test_open_alerts_naming_a_device_show_on_that_device_only(world):
         assert [x.title for x in pc.alerts] == ["CPU hot", "Disk almost full"]  # worst severity first
         assert pc.alerts[0].source == "ninjaone"
         assert by_host["ACME-OTHER"].open_alerts == 0
+        only = await session(
+            p,
+            lambda db: list_devices(
+                user(p),
+                db,
+                client_id=a,
+                search=None,
+                vendor=None,
+                not_in_master=False,
+                missing=None,
+                offline=False,
+                has_alerts=True,
+                page=1,
+                page_size=50,
+            ),
+        )
+        assert [d.hostname for d in only.items] == ["ACME-PC"]
+        assert only.summary.with_alerts == 1
     finally:
         owner = create_async_engine(PG_URL)
         async with owner.begin() as conn:
             await conn.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
             await conn.execute(text("delete from alerts where tenant_id = :t"), {"t": a})
         await owner.dispose()
+
+
+def test_offline_days_only_counts_a_device_a_tool_has_not_seen_for_a_week_and_unknown_is_not_offline():
+    now = datetime(2026, 10, 15, tzinfo=UTC)
+    assert offline_days_of(None, now) is None
+    assert offline_days_of(now - timedelta(days=6, hours=23), now) is None
+    assert offline_days_of(now - timedelta(days=7), now) == 7
+    assert offline_days_of(now - timedelta(days=40), now) == 40
+
+
+async def test_offline_filter_and_count_use_the_tools_last_online_not_the_sync_time(world):
+    p = world["parent"]
+    old = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+    new = datetime.now(UTC).isoformat()
+    items = [
+        DeviceIn(vendor="ninjaone", vendor_client_id="5", external_id="o1", hostname="OLD-PC", details={"last_contact": old}),
+        DeviceIn(vendor="ninjaone", vendor_client_id="5", external_id="o2", hostname="NEW-PC", details={"last_contact": new}),
+        DeviceIn(vendor="ninjaone", vendor_client_id="5", external_id="o3", hostname="NO-TIME-PC"),  # no tool says: unknown, not offline
+    ]
+    await session(p, lambda db: apply_devices(db, p, DevicesReport(items=items)))
+    res = await session(
+        p,
+        lambda db: list_devices(
+            user(p),
+            db,
+            client_id=None,
+            search=None,
+            vendor=None,
+            not_in_master=False,
+            missing=None,
+            offline=True,
+            has_alerts=False,
+            page=1,
+            page_size=50,
+        ),
+    )
+    assert [d.hostname for d in res.items] == ["OLD-PC"]
+    assert res.items[0].offline_days >= 30
+    assert res.summary.offline == 1

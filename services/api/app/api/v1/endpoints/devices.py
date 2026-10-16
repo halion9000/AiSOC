@@ -68,6 +68,8 @@ class DeviceOut(BaseModel):
     ip_addresses: list[str] = Field(default_factory=list)
     last_seen: datetime
     last_online: datetime | None = None
+    # Whole days since a tool last saw it online, when that is OFFLINE_AFTER_DAYS or more; None when it is recent or no tool says.
+    offline_days: int | None = None
     first_seen: datetime
     sources: list[DeviceSourceOut] = Field(default_factory=list)
     in_master: bool = True
@@ -82,6 +84,9 @@ class DeviceSummary(BaseModel):
     # Devices a tool should be covering but does not report (Addigy: Macs only, so Windows machines are never counted).
     not_in_addigy: int = 0
     not_in_threatmate: int = 0
+    # Devices no tool has seen online for OFFLINE_AFTER_DAYS or more, and devices with at least one open alert.
+    offline: int = 0
+    with_alerts: int = 0
 
 
 class DeviceListOut(BaseModel):
@@ -105,6 +110,17 @@ _MOBILE = re.compile(r"\b(ios|ipados|iphone|ipad)\b")
 
 def is_mobile(d: Any) -> bool:
     return bool(_MOBILE.search(f"{d.os or ''} {d.model or ''}".lower()))
+
+
+OFFLINE_AFTER_DAYS = 7
+
+
+def offline_days_of(last_online: datetime | None, now: datetime | None = None) -> int | None:
+    """Days since the device was last online, once that reaches OFFLINE_AFTER_DAYS. A device with no online time from any tool is unknown, not offline."""
+    if last_online is None:
+        return None
+    days = ((now or datetime.now(UTC)) - last_online).days
+    return days if days >= OFFLINE_AFTER_DAYS else None
 
 
 def last_online_of(sources: list[Any]) -> datetime | None:
@@ -216,7 +232,8 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     first_seen=d.first_seen,
                     sources=[DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}) for s in srcs],
                     in_master=master is None or any(s.vendor == master for s in srcs) or is_mobile(d),
-                    last_online=last_online_of(srcs),
+                    last_online=(online := last_online_of(srcs)),
+                    offline_days=offline_days_of(online),
                     open_alerts=len(alerts.get(d.hostname.lower(), [])),
                     alerts=alerts.get(d.hostname.lower(), [])[:_ALERTS_PER_DEVICE],
                 )
@@ -261,6 +278,8 @@ async def list_devices(
     missing: str | None = Query(
         default=None, pattern="^(addigy|threatmate)$", description="Only devices this tool should report but does not."
     ),
+    offline: bool = Query(default=False, description="Only devices no tool has seen online for a week or more."),
+    has_alerts: bool = Query(default=False, description="Only devices with at least one open alert."),
 ) -> DeviceListOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
@@ -271,6 +290,8 @@ async def list_devices(
         not_in_master=sum(1 for d in everything if not d.in_master),
         not_in_addigy=sum(1 for d in everything if is_missing_from(d, "addigy")),
         not_in_threatmate=sum(1 for d in everything if is_missing_from(d, "threatmate")),
+        offline=sum(1 for d in everything if d.offline_days is not None),
+        with_alerts=sum(1 for d in everything if d.open_alerts > 0),
     )
 
     rows = everything
@@ -287,6 +308,10 @@ async def list_devices(
         rows = [d for d in rows if not d.in_master]
     if missing:
         rows = [d for d in rows if is_missing_from(d, missing)]
+    if offline:
+        rows = [d for d in rows if d.offline_days is not None]
+    if has_alerts:
+        rows = [d for d in rows if d.open_alerts > 0]
     rows.sort(key=lambda d: (d.client_name or "", d.hostname.lower()))
     total = len(rows)
     start = (page - 1) * page_size

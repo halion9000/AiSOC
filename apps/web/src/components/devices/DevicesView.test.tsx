@@ -205,4 +205,20 @@ describe('missing-from-tool cards', () => {
     expect(cells('ONLINE-PC')[5].textContent).toMatch(/2020/);
     expect(cells('NO-IDEA')[5]).toHaveTextContent('—');
   });
+
+  it('marks a device that has been offline for days, and the tiles filter by offline and by open alerts', async () => {
+    listMock.mockResolvedValue(
+      list([device({ hostname: 'GONE-PC', last_online: '2020-01-02T03:04:05Z', offline_days: 40 })], { summary: { total: 5, not_in_master: 0, offline: 3, with_alerts: 2 } }),
+    );
+    render(<DevicesView />);
+    const row = (await screen.findByText('GONE-PC')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('Offline 40d')).toBeInTheDocument();
+    expect(screen.getByTestId('devices-offline')).toHaveTextContent('3');
+    expect(screen.getByTestId('devices-alerts')).toHaveTextContent('2');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Offline 7\+ days/ }));
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ offline: true })));
+    await user.click(screen.getByRole('button', { name: /With open alerts/ }));
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ offline: true, hasAlerts: true })));
+  });
 });

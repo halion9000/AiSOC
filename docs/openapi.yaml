@@ -9060,6 +9060,24 @@ paths:
           description: Only devices this tool should report but does not.
           title: Missing
         description: Only devices this tool should report but does not.
+      - name: offline
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Only devices no tool has seen online for a week or more.
+          default: false
+          title: Offline
+        description: Only devices no tool has seen online for a week or more.
+      - name: has_alerts
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Only devices with at least one open alert.
+          default: false
+          title: Has Alerts
+        description: Only devices with at least one open alert.
       responses:
         '200':
           description: Successful Response
@@ -21222,6 +21240,11 @@ components:
             format: date-time
           - type: 'null'
           title: Last Online
+        offline_days:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Offline Days
         first_seen:
           type: string
           format: date-time
@@ -21300,6 +21323,14 @@ components:
         not_in_threatmate:
           type: integer
           title: Not In Threatmate
+          default: 0
+        offline:
+          type: integer
+          title: Offline
+          default: 0
+        with_alerts:
+          type: integer
+          title: With Alerts
           default: 0
       type: object
       required:
