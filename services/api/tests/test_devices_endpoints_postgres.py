@@ -15,6 +15,7 @@ from app.api.v1.endpoints.devices import (
     DevicesReport,
     apply_devices,
     get_device,
+    host_key,
     is_missing_from,
     last_online_of,
     list_devices,
@@ -227,6 +228,15 @@ def test_online_now_reads_addigy_online_and_ninja_offline_and_is_unknown_when_no
     assert online_now_of([src(online="yes")]) is None, "only real booleans count"
 
 
+def test_host_key_ignores_case_and_domain_suffix_but_keeps_ip_addresses_whole():
+    assert host_key("PC-1.Acme.Local") == host_key("pc-1") == "pc-1"
+    assert host_key("  FRONT-DESK ") == "front-desk"
+    assert host_key("192.168.1.20") == "192.168.1.20"
+    assert host_key("fe80::1") == "fe80::1"
+    assert host_key("dead.beef") == "dead", "hex-looking letters in a dotted name are a name, not an address"
+    assert host_key(None) == ""
+
+
 async def test_missing_filter_and_summary_counts(world):
     p = world["parent"]
     items = [
@@ -430,6 +440,7 @@ async def test_open_alerts_naming_a_device_show_on_that_device_only(world):
             ("CPU hot", "critical", "triaging", "ACME-PC"),
             ("Old one", "high", "resolved", "ACME-PC"),  # closed: not counted
             ("Elsewhere", "low", "new", "SOME-OTHER-BOX"),  # another device
+            ("Fully qualified", "medium", "new", "Acme-PC.corp.acme.local"),  # the same machine named with its domain
         ]:
             await db.execute(
                 text("insert into alerts (tenant_id, title, severity, status, raw_event) values (:t, :ti, :s, :st, cast(:r as jsonb))"),
@@ -462,8 +473,8 @@ async def test_open_alerts_naming_a_device_show_on_that_device_only(world):
         )
         by_host = {d.hostname: d for d in listing.items}
         pc = by_host["ACME-PC"]
-        assert pc.open_alerts == 2
-        assert [x.title for x in pc.alerts] == ["CPU hot", "Disk almost full"]  # worst severity first
+        assert pc.open_alerts == 3
+        assert [x.title for x in pc.alerts] == ["CPU hot", "Disk almost full", "Fully qualified"]  # worst severity first
         assert pc.alerts[0].source == "ninjaone"
         assert by_host["ACME-OTHER"].open_alerts == 0
         only = await session(

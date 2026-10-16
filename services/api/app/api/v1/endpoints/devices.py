@@ -195,6 +195,15 @@ _ALERTS_PER_DEVICE = 5
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
+_IP_ADDRESS = re.compile(r"^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f]*:[0-9a-f:.]*)$")
+
+
+def host_key(name: str | None) -> str:
+    """What a device name is compared by: lower case, without a domain suffix (``PC-1.acme.local`` and ``pc-1`` are one machine). An IP address is kept whole."""
+    n = (name or "").strip().lower()
+    return n if _IP_ADDRESS.match(n) else n.split(".")[0]
+
+
 async def _alerts_by_host(db: Any, tid: uuid.UUID) -> dict[str, list[DeviceAlertOut]]:
     """This tenant's open alerts that name a device, grouped by lower-cased device name, worst severity then newest first. The caller has put ``db`` in the tenant's scope."""
     host = func.lower(Alert.raw_event["unmapped"]["context"]["device_name"].astext)
@@ -213,7 +222,7 @@ async def _alerts_by_host(db: Any, tid: uuid.UUID) -> dict[str, list[DeviceAlert
     ).all()
     grouped: dict[str, list[DeviceAlertOut]] = {}
     for r in rows:
-        grouped.setdefault(r.host, []).append(
+        grouped.setdefault(host_key(r.host), []).append(
             DeviceAlertOut(id=r.id, title=r.title, severity=r.severity, status=r.status, source=r.source, created_at=r.created_at)
         )
     for items in grouped.values():
@@ -251,8 +260,8 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     in_master=master is None or any(s.vendor == master for s in srcs) or is_mobile(d),
                     last_online=(online := last_online_of(srcs)),
                     offline_days=offline_days_of(online),
-                    open_alerts=len(alerts.get(d.hostname.lower(), [])),
-                    alerts=alerts.get(d.hostname.lower(), [])[:_ALERTS_PER_DEVICE],
+                    open_alerts=len(alerts.get(host_key(d.hostname), [])),
+                    alerts=alerts.get(host_key(d.hostname), [])[:_ALERTS_PER_DEVICE],
                 )
             )
     return out
