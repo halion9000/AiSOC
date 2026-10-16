@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ManagedTenantRow, VendorClient } from '@/lib/api';
@@ -35,7 +35,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import ClientMapping, { removeClients, keptSummary, filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel, suggestedChoices } from './ClientMapping';
+import ClientMapping, { removeClients, keptSummary, filterClients, toolTabs, groupClients, sortClients, sourceChoices, unmappedByVendor, vendorLabel, suggestedChoices, vendorFromSearch } from './ClientMapping';
 
 function client(over: Partial<VendorClient> & { vendor_client_name: string }): VendorClient {
   return { id: `a-${over.vendor_client_name}`, vendor: 'petra', vendor_client_id: '1', child_tenant_id: null, child_tenant_name: null, ignored: false, match_source: 'suggested', suggestions: [], ...over };
@@ -557,5 +557,35 @@ describe('import all with a name clash', () => {
     await user.click(await screen.findByRole('button', { name: 'Import all 1 from Petra' }));
     expect(importMock).toHaveBeenCalledWith('petra');
     confirm.mockRestore();
+  });
+});
+
+describe('opening on one tool from a link (?vendor=)', () => {
+  const two = () => ({
+    clients: [client({ vendor_client_name: 'Ninja Co', vendor: 'ninjaone' }), client({ vendor_client_name: 'Petra Co', vendor: 'petra', id: 'p1' })],
+    unmapped: 2,
+  });
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  it('reads a plausible tool id and ignores anything else', () => {
+    expect(vendorFromSearch('?vendor=ninjaone')).toBe('ninjaone');
+    expect(vendorFromSearch('')).toBeNull();
+    expect(vendorFromSearch('?vendor=../etc')).toBeNull();
+    expect(vendorFromSearch('?vendor=')).toBeNull();
+  });
+
+  it('shows only that tool\'s clients when the link names it', async () => {
+    window.history.replaceState(null, '', '/mssp?vendor=ninjaone');
+    clientsMock.mockResolvedValue(two());
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    expect(await screen.findByLabelText('Client for Ninja Co')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Client for Petra Co')).not.toBeInTheDocument();
+  });
+
+  it('shows every tool when there is no ?vendor=', async () => {
+    clientsMock.mockResolvedValue(two());
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    expect(await screen.findByLabelText('Client for Ninja Co')).toBeInTheDocument();
+    expect(screen.getByLabelText('Client for Petra Co')).toBeInTheDocument();
   });
 });

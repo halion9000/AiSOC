@@ -37,7 +37,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -873,6 +873,36 @@ async def delete_connector(
 # ----------------------------------------------------------- existing-instance test
 
 
+# CORE reports every 5 minutes; three missed reports is the same "late" line the freshness badge uses.
+CORE_FEED_STALE_AFTER = timedelta(minutes=15)
+
+
+def core_feed_verdict(connector: Connector, now: datetime | None = None) -> dict[str, Any]:
+    """What "Test" says for a feed CORE reports on: the last thing CORE said, and whether it is still checking in.
+
+    ``success`` is False when CORE's last run failed, when it has never reported, or when it has not reported for 15 minutes. A warning (alerts flowing, a side job failed) is a success that
+    carries the warning text, so the toast does not hide it.
+    """
+    now = now or datetime.now(UTC)
+    config = connector.connector_config or {}
+    last_error = config.get("last_error") if isinstance(config.get("last_error"), str) else None
+    seen = connector.last_sync
+    if connector.health_status == "unhealthy":
+        return {"success": False, "error": last_error or "CORE reported that its last run failed.", "details": {"source": "core-report"}}
+    if seen is None:
+        return {"success": False, "error": "CORE has not reported on this feed yet.", "details": {"source": "core-report"}}
+    if now - seen > CORE_FEED_STALE_AFTER:
+        minutes = int((now - seen).total_seconds() // 60)
+        return {
+            "success": False,
+            "error": f"CORE has not reported for {minutes} minutes (it reports every 5). Check that CORE is running.",
+            "details": {"source": "core-report"},
+        }
+    if connector.health_status == "degraded" and last_error:
+        return {"success": True, "message": last_error, "details": {"source": "core-report"}}
+    return {"success": True, "message": "CORE reported this feed healthy on its last run.", "details": {"source": "core-report"}}
+
+
 @router.post("/{connector_id}/test", status_code=status.HTTP_200_OK)
 async def test_existing_connector(
     connector_id: uuid.UUID,
@@ -900,6 +930,11 @@ async def test_existing_connector(
     if connector is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found")
 
+    if connector.connector_type == "core_feed":
+        # Nothing here can reach the vendor: CORE holds its credentials and reports each run. So "Test" answers from what CORE last reported instead of asking the connectors service,
+        # which has nothing to ask and used to say "successful" for a feed whose last run failed. It must not overwrite the health CORE reported.
+        return core_feed_verdict(connector)
+
     try:
         decrypted_auth = get_vault().decrypt_dict(connector.auth_config or {})
     except CredentialVaultError as exc:
@@ -917,10 +952,6 @@ async def test_existing_connector(
         decrypted_auth,
         connector.connector_config or {},
     )
-
-    if connector.connector_type == "core_feed":
-        # CORE reports this row's health after every run. A test from here reaches nothing, so it must not overwrite what CORE last said.
-        return verdict
 
     health_status = "healthy" if verdict.get("success") else "unhealthy"
     await db.execute(

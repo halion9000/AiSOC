@@ -27,6 +27,12 @@ export function sortClients(clients: VendorClient[], by: SortBy): VendorClient[]
   return [...clients].sort((a, b) => byText(key(a), key(b)) || byText(a.vendor_client_name, b.vendor_client_name) || byText(a.vendor, b.vendor));
 }
 
+/** The tool named by ``?vendor=`` in a page's query string, or ``null`` when absent or not a plausible tool id. */
+export function vendorFromSearch(search: string): string | null {
+  const v = new URLSearchParams(search).get('vendor');
+  return v && /^[a-z0-9][a-z0-9_-]{0,39}$/.test(v) ? v : null;
+}
+
 /** One tab per tool, with how many of its clients still need mapping, so each tool can be worked through on its own. */
 export function toolTabs(clients: VendorClient[]): { vendor: string; total: number; unmapped: number }[] {
   const tabs = new Map<string, { vendor: string; total: number; unmapped: number }>();
@@ -286,6 +292,12 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
   const choices = useRef<Record<string, string>>({});
   const [approving, setApproving] = useState(false);
   const [prefills, setPrefills] = useState<Record<string, { tenantId: string; n: number }>>({});
+
+  // A link such as /mssp?vendor=ninjaone (the Connectors card's "Map clients" button) opens on that tool's tab. Read once on mount; an unknown tool falls back to "all".
+  useEffect(() => {
+    const wanted = vendorFromSearch(window.location.search);
+    if (wanted) setTab(wanted);
+  }, []);
 
   const load = useCallback(async () => {
     try {

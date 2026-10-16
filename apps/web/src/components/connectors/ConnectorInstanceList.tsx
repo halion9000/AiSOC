@@ -16,6 +16,7 @@
  */
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { clsx } from 'clsx';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -122,6 +123,11 @@ const FRESHNESS_BADGE_LABELS: Record<'green' | 'yellow' | 'red', string> = {
   yellow: 'Late',
   red: 'Stalled',
 };
+
+/** True when the card's message says devices were skipped because their client is not mapped yet. */
+export function hasUnmappedClients(message: string | undefined): boolean {
+  return !!message && /not mapped yet/i.test(message);
+}
 
 /** The tool a CORE-fed connector reads from (``huntress``, ``ninjaone`` ...), or ``undefined`` for any other connector. */
 export function feedVendor(connector: Connector): string | undefined {
@@ -349,6 +355,15 @@ function ConnectorCard({
           )}
           Test
         </button>
+        {vendor && hasUnmappedClients(connector.errorMessage) && (
+          <Link
+            href={`/mssp?vendor=${encodeURIComponent(vendor)}`}
+            title="Those devices are not stored until their client is mapped. Opens that tool's clients on the MSSP page."
+            className="text-xs bg-amber-500/10 text-amber-200 px-3 py-2 rounded-lg border border-amber-500/30 hover:bg-amber-500/20 transition-colors"
+          >
+            Map clients
+          </Link>
+        )}
         {connector.type === 'core_feed' && (
           <button
             type="button"

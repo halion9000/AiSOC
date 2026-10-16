@@ -123,3 +123,26 @@ describe('the Log button', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 });
+
+describe('the Map clients button', () => {
+  const unmapped = (vendor: string) =>
+    ({ ...feed(vendor, `${vendor} (via CORE)`), status: 'warning', errorMessage: `Alerts are flowing, but ${vendor} devices: 48 device(s) belong to clients not mapped yet (map them on the MSSP page)` }) as Connector;
+
+  it('opens the MSSP page on that tool\'s clients, because unmapped devices are not stored and so are not on the Devices page', () => {
+    renderList([unmapped('ninjaone')]);
+    expect(screen.getByRole('link', { name: 'Map clients' })).toHaveAttribute('href', '/mssp?vendor=ninjaone');
+  });
+
+  it('is not shown for any other warning, or for a healthy card', () => {
+    renderList([
+      { ...unmapped('addigy'), errorMessage: 'Alerts are flowing, but addigy devices: 500' } as Connector,
+      feed('petra', 'Petra (via CORE)'),
+    ]);
+    expect(screen.queryByRole('link', { name: 'Map clients' })).not.toBeInTheDocument();
+  });
+
+  it('can be told apart per tool when several cards have the problem', () => {
+    renderList([unmapped('ninjaone'), unmapped('threatmate')]);
+    expect(screen.getAllByRole('link', { name: 'Map clients' }).map((a) => a.getAttribute('href'))).toEqual(['/mssp?vendor=ninjaone', '/mssp?vendor=threatmate']);
+  });
+});
