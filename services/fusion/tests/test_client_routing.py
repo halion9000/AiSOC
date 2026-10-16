@@ -43,6 +43,10 @@ def test_each_vendor_names_its_client_in_its_own_field():
         "blumira",
         "b28773fc-8152-4169-9d21-b750f40a69e9",
     )
+    assert client_key(_event("fieldeffect", fieldeffect_org_id="09a136cc-13f7-410e-9017-55fe3750c7b6")) == (
+        "fieldeffect",
+        "09a136cc-13f7-410e-9017-55fe3750c7b6",
+    )
 
 
 @pytest.mark.parametrize(

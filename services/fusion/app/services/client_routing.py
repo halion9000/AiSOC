@@ -17,7 +17,7 @@ import structlog
 logger = structlog.get_logger()
 
 # vendor -> the key in the record's context that holds that vendor's client id. Must match what CORE forwards (hud/src/aisoc-feed.ts, aisoc-ninjaone.ts) and what it lists as
-# clients (hud/src/aisoc-clients.ts): Huntress organizations, Petra tenants, NinjaOne organizations, Blumira accounts.
+# clients (hud/src/aisoc-clients.ts): Huntress organizations, Petra tenants, NinjaOne organizations, Blumira accounts, Field Effect organizations.
 CLIENT_ID_FIELD: dict[str, str] = {
     "huntress": "organization_id",
     "petra": "petra_tenant_id",
@@ -25,6 +25,7 @@ CLIENT_ID_FIELD: dict[str, str] = {
     "threatmate": "threatmate_client_id",
     "addigy": "addigy_client_id",
     "blumira": "blumira_account_id",
+    "fieldeffect": "fieldeffect_org_id",
 }
 
 Resolver = Callable[[uuid.UUID, str, str], Awaitable[uuid.UUID | None]]
