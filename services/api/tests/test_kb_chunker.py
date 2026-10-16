@@ -82,9 +82,9 @@ def test_long_paragraph_no_sentences():
     for c in chunks:
         assert len(c) <= 801
 
-    sentences = [f"Step {i}: investigate alert before closing. " for i in range(50)]
+
 def test_overlap_adds_total_chars():
-    sentences = ["Step %d: investigate alert before closing. " % i for i in range(50)]
+    sentences = [f"Step {i}: investigate alert before closing. " for i in range(50)]
     text = " ".join(sentences)
     no_ov = sum(len(c) for c in chunk_text(text, chunk_size=800, overlap=0))
     with_ov = sum(len(c) for c in chunk_text(text, chunk_size=800, overlap=150))
