@@ -15,10 +15,13 @@
  * dashed placeholder card.
  */
 
+import { useState } from 'react';
 import { clsx } from 'clsx';
+import VendorBadge from '@/components/mssp/VendorBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonCard } from '@/components/ui/Skeleton';
 import type { Connector } from '@/lib/api';
+import { ConnectorLogDrawer } from './ConnectorLogDrawer';
 
 const CONNECTOR_LABELS: Record<string, string> = {
   crowdstrike: 'CS',
@@ -120,6 +123,13 @@ const FRESHNESS_BADGE_LABELS: Record<'green' | 'yellow' | 'red', string> = {
   red: 'Stalled',
 };
 
+/** The tool a CORE-fed connector reads from (``huntress``, ``ninjaone`` ...), or ``undefined`` for any other connector. */
+export function feedVendor(connector: Connector): string | undefined {
+  if (connector.type !== 'core_feed') return undefined;
+  const vendor = (connector.config ?? connector.connectorConfig)?.vendor;
+  return typeof vendor === 'string' && vendor ? vendor : undefined;
+}
+
 function abbreviateType(type: string | undefined): string {
   if (!type) return '???';
   if (CONNECTOR_LABELS[type]) return CONNECTOR_LABELS[type];
@@ -146,6 +156,8 @@ function ConnectorCard({
   onConfigure,
   onDelete,
 }: ConnectorCardProps) {
+  const [showLog, setShowLog] = useState(false);
+  const vendor = feedVendor(connector);
   const statusCfg = STATUS_CONFIG[connector.status] ?? STATUS_CONFIG.configuring;
   const alertCount = connector.alertCount ?? connector.alertsIngested ?? 0;
   const eventsDropped = connector.eventsDropped ?? 0;
@@ -193,9 +205,13 @@ function ConnectorCard({
     <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl p-5 hover:border-gray-700/60 transition-colors flex flex-col">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 bg-gray-800 rounded-xl flex items-center justify-center text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex-shrink-0">
-            {abbreviateType(connector.type)}
-          </div>
+          {vendor ? (
+            <VendorBadge vendor={vendor} size="lg" />
+          ) : (
+            <div className="w-10 h-10 bg-gray-800 rounded-xl flex items-center justify-center text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex-shrink-0">
+              {abbreviateType(connector.type)}
+            </div>
+          )}
           <div className="min-w-0">
             <h3 className="text-sm font-medium text-gray-200 truncate">{connector.name}</h3>
             <p className="text-xs text-gray-500 truncate">{connector.type}</p>
@@ -333,6 +349,16 @@ function ConnectorCard({
           )}
           Test
         </button>
+        {connector.type === 'core_feed' && (
+          <button
+            type="button"
+            onClick={() => setShowLog(true)}
+            aria-label={`Open the log for ${connector.name}`}
+            className="text-xs bg-gray-800/60 text-gray-200 px-3 py-2 rounded-lg border border-gray-700/60 hover:bg-gray-800 transition-colors"
+          >
+            Log
+          </button>
+        )}
         {connector.type === 'core_feed' ? (
           <span
             title="This feed is set up in CORE: its credentials and settings live there. AiSOC only shows its status."
@@ -379,6 +405,8 @@ function ConnectorCard({
           {testResult ? '✓ Connection successful' : '✗ Connection failed'}
         </p>
       )}
+
+      {showLog && <ConnectorLogDrawer connector={connector} onClose={() => setShowLog(false)} />}
     </div>
   );
 }

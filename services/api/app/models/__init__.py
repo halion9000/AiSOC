@@ -9,6 +9,7 @@ from app.models.case import Case, CaseTask, CaseTimeline
 from app.models.client_alias import ClientAlias
 from app.models.community_catalog import CommunityCatalogItem
 from app.models.connector import Connector
+from app.models.connector_run_log import ConnectorRunLog
 from app.models.copilot_conversation import CopilotConversation
 from app.models.detection_proposal import DetectionEvalBaseline, DetectionRuleProposal
 from app.models.detection_rule import DetectionRule
@@ -77,6 +78,7 @@ __all__ = [
     "CaseTask",
     "CaseTimeline",
     "Connector",
+    "ConnectorRunLog",
     "DetectionRule",
     "DetectionRuleProposal",
     "DetectionEvalBaseline",

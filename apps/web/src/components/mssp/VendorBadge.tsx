@@ -8,12 +8,13 @@ const BADGES: Record<string, { text: string; className: string }> = {
   blumira: { text: 'B', className: 'bg-cyan-600/80 text-white' },
   addigy: { text: 'A', className: 'bg-indigo-600/80 text-white' },
   liongard: { text: 'L', className: 'bg-teal-600/80 text-white' },
+  fieldeffect: { text: 'F', className: 'bg-blue-600/80 text-white' },
 };
 
-const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate']);
+const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect']);
 
 /** Halo first, then the rest in one fixed order so every row lines up; tools not listed follow alphabetically. */
-export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira'];
+export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect'];
 
 export function orderSources(sources: string[]): string[] {
   const rank = (v: string) => {
@@ -24,13 +25,14 @@ export function orderSources(sources: string[]): string[] {
 }
 
 /** A small badge for the tool a client came from; hover shows the full name. */
-export default function VendorBadge({ vendor }: { vendor: string }) {
+export default function VendorBadge({ vendor, size = 'sm' }: { vendor: string; size?: 'sm' | 'lg' }) {
   const label = vendorLabel(vendor);
+  const box = size === 'lg' ? 'h-10 w-10 rounded-xl' : 'h-6 w-6 rounded-md';
   const b = BADGES[vendor] ?? { text: label.charAt(0).toUpperCase(), className: 'bg-gray-600 text-white' };
   if (LOGOS.has(vendor)) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={`/vendors/${vendor}.png`} alt={label} title={label} className="h-6 w-6 shrink-0 rounded-md bg-white/90 object-contain p-0.5" />
+      <img src={`/vendors/${vendor}.png`} alt={label} title={label} className={`${box} shrink-0 bg-white/90 object-contain p-0.5`} />
     );
   }
   return (
@@ -38,7 +40,7 @@ export default function VendorBadge({ vendor }: { vendor: string }) {
       title={label}
       aria-label={label}
       role="img"
-      className={`inline-flex h-6 min-w-6 items-center justify-center rounded-md px-1 text-[11px] font-semibold ${b.className}`}
+      className={`inline-flex ${size === 'lg' ? 'h-10 min-w-10 rounded-xl text-sm' : 'h-6 min-w-6 rounded-md text-[11px]'} shrink-0 items-center justify-center px-1 font-semibold ${b.className}`}
     >
       {b.text}
     </span>

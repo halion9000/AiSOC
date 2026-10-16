@@ -1,6 +1,6 @@
 """connectors:view: see which connectors exist and whether they are healthy, split out of connectors:read.
 
-connectors:read guards 11 routes. Besides the five that list connectors it guards POST /federated/search, which runs a free-text or
+connectors:read guards 12 routes. Besides the six that list connectors (or their log) it guards POST /federated/search, which runs a free-text or
 indicator query across the tenant's connected SIEMs (Splunk, Elastic...) with their stored credentials and returns the merged rows:
 telemetry from the customer's own systems. It also guards the federated backend list, the agent tool list, the inbox template and token
 lists and the OAuth app view.
@@ -10,7 +10,7 @@ non-secret, but nothing enforces that.)
 Each claim is tested over the whole application rather than assumed:
   1. NOBODY LOSES ACCESS: whatever held connectors:read (a role, a custom database role, a `connectors:*` wildcard, a key) still reads
   connectors AND still reaches the six routes that stay.
-  2. connectors:view ALONE GRANTS NOTHING ELSE: a key holding only it satisfies exactly the five reads among every route in the application.
+  2. connectors:view ALONE GRANTS NOTHING ELSE: a key holding only it satisfies exactly the six reads among every route in the application.
   3. CORE's real key scopes reach none of the six routes that stay, and still reach the three connector routes its tools call.
 NOT VERIFIED LIVE: a real federated search returning real rows needs a connected SIEM; what was shown is that authorization let the key in
 (and that it no longer does).
@@ -37,6 +37,10 @@ VIEW_ROUTES = {
     ("GET", "/connectors/health"),
     ("GET", "/connectors/{connector_id}"),
     ("GET", "/connectors/{connector_id}/last_event_at"),
+    (
+        "GET",
+        "/connectors/{connector_id}/log",
+    ),  # the running log of what the connector reported; its latest line is already in GET /connectors/{id}
 }
 STAY_ROUTES = {
     ("POST", "/federated/search"),
@@ -113,7 +117,7 @@ class TestRolesAreUnchanged:
 
 
 class TestTheRoutes:
-    def test_exactly_these_five_routes_need_connectors_view_and_each_is_a_get(self):
+    def test_exactly_these_six_routes_need_connectors_view_and_each_is_a_get(self):
         found = {
             (m, p)
             for p, r in ALL_ROUTES
@@ -123,7 +127,7 @@ class TestTheRoutes:
         }
         assert found == VIEW_ROUTES and all(m == "GET" for m, _ in found)
 
-    def test_a_key_holding_only_connectors_view_can_use_exactly_those_five_routes_in_the_whole_application(self):
+    def test_a_key_holding_only_connectors_view_can_use_exactly_those_six_routes_in_the_whole_application(self):
         assert _satisfied_by(["connectors:view"]) == VIEW_ROUTES
 
     def test_exactly_these_six_routes_still_need_connectors_read_and_connectors_view_does_not_reach_them(self):

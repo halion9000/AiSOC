@@ -244,3 +244,66 @@ async def test_a_warning_counts_the_alerts_that_arrived_keeps_the_reason_and_is_
     await run(world, world["feed_token"], report(SourceReport(vendor="addigy", category="edr", status="ok", sent=1)))
     (row,) = await cfg()
     assert row.health_status == "healthy" and "last_error" not in row.connector_config, "the next clean run clears the warning"
+
+
+# ---- the running log behind the card (migration 086) -------------------------------------------------------------------------------------------------------
+
+
+async def log_rows(world, tenant, vendor="ninjaone"):
+    async with world["owner"].connect() as conn:
+        res = await conn.execute(
+            text(
+                "select l.status, l.message, l.fetched, l.sent from connector_run_log l join connectors c on c.id = l.connector_id "
+                "where c.tenant_id = :t and c.connector_config ->> 'vendor' = :v order by l.at, l.id"
+            ),
+            {"t": tenant, "v": vendor},
+        )
+        return [tuple(r) for r in res.all()]
+
+
+def ninja(status, message=None, **kw):
+    return report(SourceReport(vendor="ninjaone", category="saas", status=status, message=message, **kw))
+
+
+async def test_the_log_gets_an_entry_only_when_the_status_or_message_changes(world):
+    t = world["feed_token"]
+    await run(world, t, ninja("warning", "48 device(s) belong to clients not mapped yet", fetched=3, sent=3))
+    await run(world, t, ninja("warning", "48 device(s) belong to clients not mapped yet", fetched=4, sent=4))  # same words: nothing new
+    await run(world, t, ninja("warning", "0 of 12 alerts matched a Halo ticket", fetched=4, sent=4))
+    await run(world, t, ninja("ok", fetched=2, sent=2))
+    await run(world, t, ninja("ok", fetched=5, sent=5))  # healthy again and again: nothing new
+    assert await log_rows(world, world["a"]) == [
+        ("warning", "48 device(s) belong to clients not mapped yet", 3, 3),
+        ("warning", "0 of 12 alerts matched a Halo ticket", 4, 4),
+        ("ok", None, 2, 2),
+    ]
+
+
+async def test_the_log_keeps_the_newest_200_entries_of_that_connector_only(world):
+    t = world["feed_token"]
+    await run(world, t, report(SourceReport(vendor="huntress", category="edr", status="error", message="huntress is down")))
+    for i in range(205):
+        await run(world, t, ninja("warning", f"message {i}"))
+    kept = await log_rows(world, world["a"])
+    assert len(kept) == 200 and kept[0][1] == "message 5" and kept[-1][1] == "message 204"
+    assert await log_rows(world, world["a"], vendor="huntress") == [("error", "huntress is down", 0, 0)], (
+        "trimming one connector never touches another's log"
+    )
+
+
+async def test_one_tenant_cannot_read_another_tenants_log_even_by_asking_for_its_connector(world):
+    await run(world, world["feed_token"], ninja("warning", "tenant A only"))
+    async with world["owner"].connect() as conn:
+        connector_id = (await conn.execute(text("select id from connectors where tenant_id = :t"), {"t": world["a"]})).scalar_one()
+    async with world["factory"]() as session:
+        await adopt_tenant(session, world["b"])
+        seen = (
+            await session.execute(text("select count(*) from connector_run_log where connector_id = :c"), {"c": connector_id})
+        ).scalar_one()
+    assert seen == 0, "row-level security hides tenant A's entries from tenant B's session"
+    async with world["factory"]() as session:
+        await adopt_tenant(session, world["a"])
+        seen = (
+            await session.execute(text("select count(*) from connector_run_log where connector_id = :c"), {"c": connector_id})
+        ).scalar_one()
+    assert seen == 1

@@ -30,6 +30,7 @@ from app.models.connector import Connector
 from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.client_mapping import IncomingClient, upsert_clients
+from app.services.connector_run_log import record_if_changed
 from app.services.core_feed_cases import open_cases_for_new_alerts
 from app.services.core_feed_sla import record_closure_events
 from app.services.iocs_from_alerts import sync_children_throttled as sync_iocs_throttled
@@ -165,6 +166,17 @@ async def apply_report(db: Any, tenant_id: Any, report: StatusReport, now: datet
                 last_outage_at=func.coalesce(Connector.last_outage_at, now),
             )
         await db.execute(update(Connector).where(Connector.id == row.id).values(**values))
+        # The card keeps only the latest message; the log keeps the history (an entry only when status or message changed).
+        await record_if_changed(
+            db,
+            tenant_id,
+            row.id,
+            status=src.status,
+            message=src.message if src.status != "ok" else None,
+            fetched=src.fetched,
+            sent=src.sent,
+            now=now,
+        )
         applied += 1
     return applied
 

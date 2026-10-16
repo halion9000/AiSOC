@@ -68,13 +68,14 @@ def _safe_connector_type(value: str) -> str:
 
 
 import httpx  # noqa: E402
-from fastapi import APIRouter, Depends, HTTPException, status  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException, Query, status  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from sqlalchemy import select, update  # noqa: E402
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.models.connector import Connector  # noqa: E402
+from app.models.connector_run_log import ConnectorRunLog  # noqa: E402
 from app.security.credential_vault import CredentialVaultError, get_vault  # noqa: E402
 from app.services.connector_freshness import compute_freshness  # noqa: E402
 
@@ -667,6 +668,44 @@ async def get_connector(
     if connector is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found")
     return _build_connector_response(connector)
+
+
+class RunLogEntry(BaseModel):
+    """One change in what a connector reported: a status or message that differs from the entry before it."""
+
+    at: datetime
+    status: str
+    message: str | None = None
+    fetched: int = 0
+    sent: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{connector_id}/log", response_model=list[RunLogEntry])
+async def get_connector_log(
+    connector_id: uuid.UUID,
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:view"))],
+    db: DBSession,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> list[RunLogEntry]:
+    """The connector's running log, newest first. Scoped to the caller's tenant: another tenant's connector is a 404."""
+    owned = await db.execute(select(Connector.id).where(Connector.id == connector_id, Connector.tenant_id == current_user.tenant_id))
+    if owned.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found")
+    rows = (
+        (
+            await db.execute(
+                select(ConnectorRunLog)
+                .where(ConnectorRunLog.connector_id == connector_id, ConnectorRunLog.tenant_id == current_user.tenant_id)
+                .order_by(ConnectorRunLog.at.desc(), ConnectorRunLog.id.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [RunLogEntry.model_validate(r) for r in rows]
 
 
 @router.patch("/{connector_id}", response_model=ConnectorResponse)

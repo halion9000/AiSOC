@@ -2676,7 +2676,19 @@ export interface IngestTokenResponse {
   inbox_url: string;
 }
 
+/** One change in what a connector reported (a status or message that differs from the entry before it). */
+export interface ConnectorLogEntry {
+  at: string;
+  status: 'ok' | 'warning' | 'error';
+  message: string | null;
+  fetched: number;
+  sent: number;
+}
+
 export const connectorsApi = {
+  /** The connector's running log, newest first. */
+  log: (id: string) => request<ConnectorLogEntry[]>(`/api/v1/connectors/${id}/log`),
+
   /**
    * List connector instances for the current tenant.
    *
