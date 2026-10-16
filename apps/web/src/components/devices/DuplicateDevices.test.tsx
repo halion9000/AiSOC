@@ -1,0 +1,89 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import type { DeviceRow } from '@/lib/api';
+
+const api = vi.hoisted(() => ({ duplicates: vi.fn(), dismissDuplicate: vi.fn(), mergeDuplicates: vi.fn() }));
+vi.mock('@/lib/api', () => ({ devicesApi: api }));
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('react-hot-toast', () => ({ default: toast }));
+
+import DuplicateDevices from './DuplicateDevices';
+
+const NOW = '2026-10-15T15:00:00Z';
+const dev = (id: string, hostname: string, vendor: string): DeviceRow =>
+  ({ id, tenant_id: 't1', client_name: 'Acme', hostname, serial_number: null, os: 'Windows 11', ip_addresses: [], last_seen: NOW, first_seen: NOW, sources: [{ vendor, name: hostname, last_seen: NOW }], in_master: true }) as unknown as DeviceRow;
+const pair = { a: dev('a', 'FRONT-DESK', 'ninjaone'), b: dev('b', 'front-desk', 'addigy') };
+
+beforeEach(() => {
+  api.duplicates.mockReset().mockResolvedValue({ items: [pair] });
+  api.dismissDuplicate.mockReset().mockResolvedValue(undefined);
+  api.mergeDuplicates.mockReset().mockResolvedValue({});
+  toast.success.mockReset();
+  toast.error.mockReset();
+});
+
+describe('DuplicateDevices', () => {
+  it('shows nothing when there are no possible duplicates', async () => {
+    api.duplicates.mockResolvedValue({ items: [] });
+    const { container } = render(<DuplicateDevices onChanged={vi.fn()} />);
+    await waitFor(() => expect(api.duplicates).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('lists each pair with its client and the tools that report each side', async () => {
+    render(<DuplicateDevices onChanged={vi.fn()} />);
+    expect(await screen.findByRole('region', { name: 'Possible duplicate devices' })).toHaveTextContent('Possible duplicates (1)');
+    expect(screen.getByText('FRONT-DESK')).toBeInTheDocument();
+    expect(screen.getByText('front-desk')).toBeInTheDocument();
+    expect(screen.getByText('Acme')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'NinjaOne' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Addigy' })).toBeInTheDocument();
+  });
+
+  it('asks only for the chosen client when one is picked', async () => {
+    render(<DuplicateDevices clientId="c1" onChanged={vi.fn()} />);
+    await screen.findByRole('region');
+    expect(api.duplicates).toHaveBeenCalledWith('c1');
+  });
+
+  it('merges into the first, keeping its id, then refreshes the list and the page', async () => {
+    const onChanged = vi.fn();
+    render(<DuplicateDevices onChanged={onChanged} />);
+    api.duplicates.mockResolvedValue({ items: [] });
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Merge front-desk into the first FRONT-DESK/ }));
+    expect(api.mergeDuplicates).toHaveBeenCalledWith('a', 'b');
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole('region')).not.toBeInTheDocument());
+  });
+
+  it('merges into the second the other way round', async () => {
+    render(<DuplicateDevices onChanged={vi.fn()} />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Merge FRONT-DESK into the second front-desk/ }));
+    expect(api.mergeDuplicates).toHaveBeenCalledWith('b', 'a');
+  });
+
+  it('remembers "not a duplicate" for the pair', async () => {
+    render(<DuplicateDevices onChanged={vi.fn()} />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Not a duplicate' }));
+    expect(api.dismissDuplicate).toHaveBeenCalledWith('a', 'b');
+    expect(api.mergeDuplicates).not.toHaveBeenCalled();
+  });
+
+  it('shows the reason when the server refuses, and leaves the pair listed', async () => {
+    api.mergeDuplicates.mockRejectedValue(new Error('These have different serial numbers, so they are different machines.'));
+    const onChanged = vi.fn();
+    render(<DuplicateDevices onChanged={onChanged} />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: /into the first/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('These have different serial numbers, so they are different machines.'));
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(screen.getByRole('region')).toBeInTheDocument();
+  });
+
+  it('shows nothing, not an error, when the list cannot be loaded', async () => {
+    api.duplicates.mockRejectedValue(new Error('down'));
+    const { container } = render(<DuplicateDevices onChanged={vi.fn()} />);
+    await waitFor(() => expect(api.duplicates).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
+});

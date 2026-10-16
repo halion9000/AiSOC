@@ -570,7 +570,24 @@ export interface DeviceQuery {
   hasAlerts?: boolean;
 }
 
+export interface DuplicatePair {
+  a: DeviceRow;
+  b: DeviceRow;
+}
+
 export const devicesApi = {
+  /** Pairs of a client's devices that share a name but have no serial number proving they differ. Dismissed pairs are not listed. */
+  async duplicates(clientId?: string): Promise<{ items: DuplicatePair[] }> {
+    return request(`/api/v1/devices/duplicates${clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''}`);
+  },
+  /** These two are different machines: stop suggesting them. Remembered for the whole organization. */
+  async dismissDuplicate(deviceA: string, deviceB: string): Promise<void> {
+    await request<void>('/api/v1/devices/duplicates/dismiss', { method: 'POST', body: JSON.stringify({ device_a: deviceA, device_b: deviceB }) });
+  },
+  /** These two are the same machine: fold `remove` into `keep`. */
+  async mergeDuplicates(keep: string, remove: string): Promise<DeviceRow> {
+    return request<DeviceRow>('/api/v1/devices/duplicates/merge', { method: 'POST', body: JSON.stringify({ keep, remove }) });
+  },
   async list(q: DeviceQuery = {}): Promise<DeviceList> {
     const p = new URLSearchParams();
     if (q.page) p.set('page', String(q.page));

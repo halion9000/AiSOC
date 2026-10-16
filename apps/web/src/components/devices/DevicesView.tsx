@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
+import DuplicateDevices from './DuplicateDevices';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
 
 /**
@@ -218,6 +219,8 @@ export default function DevicesView() {
           ))}
         </select>
       </div>
+
+      <DuplicateDevices clientId={clientId || undefined} onChanged={() => void load()} />
 
       {error && (
         <p role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">

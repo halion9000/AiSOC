@@ -13,12 +13,17 @@ from app.api.v1.endpoints.devices import (
     DeviceSettings,
     DeviceSourceOut,
     DevicesReport,
+    DismissIn,
+    MergeIn,
     apply_devices,
+    dismiss_duplicate,
     get_device,
     host_key,
     is_missing_from,
     last_online_of,
     list_devices,
+    list_duplicates,
+    merge_duplicate,
     offline_days_of,
     online_now_of,
     put_settings,
@@ -540,3 +545,86 @@ async def test_offline_filter_and_count_use_the_tools_last_online_not_the_sync_t
     assert [d.hostname for d in res.items] == ["OLD-PC"]
     assert res.items[0].offline_days >= 30
     assert res.summary.offline == 1
+
+
+# ---- possible duplicates: list, "not a duplicate", merge ----------------------------------------------------------------------------------------------------------
+
+
+async def _front_desk_pair(world):
+    p = world["parent"]
+    await session(
+        p,
+        lambda db: apply_devices(
+            db, p, DevicesReport(items=[dev("ninjaone", "5", "1", "FRONT-DESK"), dev("addigy", "a1", "2", "front-desk")])
+        ),
+    )
+    found = await session(p, lambda db: list_duplicates(user(p), db, client_id=None))
+    assert len(found.items) == 1
+    return found.items[0]
+
+
+async def test_same_name_devices_with_no_serial_are_listed_with_their_client_and_tools(world):
+    pair = await _front_desk_pair(world)
+    assert pair.a.client_name == pair.b.client_name and pair.a.tenant_id == world["acme"]
+    assert sorted(s.vendor for d in (pair.a, pair.b) for s in d.sources) == ["addigy", "ninjaone"]
+
+
+async def test_dismissing_a_pair_hides_it_for_everyone_in_the_organization(world):
+    p = world["parent"]
+    pair = await _front_desk_pair(world)
+    await session(p, lambda db: dismiss_duplicate(DismissIn(device_a=pair.a.id, device_b=pair.b.id), user(p), db))
+    colleague = user(p)  # another person in the same organization: the decision is on the client, not on a person
+    assert (await session(p, lambda db: list_duplicates(colleague, db, client_id=None))).items == []
+
+
+async def test_merging_keeps_one_device_fed_by_both_tools(world):
+    p = world["parent"]
+    pair = await _front_desk_pair(world)
+    kept = await session(p, lambda db: merge_duplicate(MergeIn(keep=pair.a.id, remove=pair.b.id), user(p), db))
+    assert kept.id == pair.a.id and sorted(s.vendor for s in kept.sources) == ["addigy", "ninjaone"]
+    assert (await session(p, lambda db: list_duplicates(user(p), db, client_id=None))).items == []
+    with pytest.raises(HTTPException) as gone:
+        await session(p, lambda db: get_device(pair.b.id, user(p), db))
+    assert gone.value.status_code == 404
+
+
+async def test_another_organization_cannot_dismiss_or_merge_these_devices(world):
+    pair = await _front_desk_pair(world)
+    o = world["other_parent"]
+    with pytest.raises(HTTPException) as e1:
+        await session(o, lambda db: dismiss_duplicate(DismissIn(device_a=pair.a.id, device_b=pair.b.id), user(o), db))
+    with pytest.raises(HTTPException) as e2:
+        await session(o, lambda db: merge_duplicate(MergeIn(keep=pair.a.id, remove=pair.b.id), user(o), db))
+    assert (e1.value.status_code, e2.value.status_code) == (404, 404)
+    assert len((await session(world["parent"], lambda db: list_duplicates(user(world["parent"]), db, client_id=None))).items) == 1
+
+
+async def test_merging_two_machines_with_different_serials_is_refused_with_a_reason(world):
+    p = world["parent"]
+    await session(
+        p,
+        lambda db: apply_devices(
+            db, p, DevicesReport(items=[dev("ninjaone", "5", "1", "LAB", "SER-A1111"), dev("addigy", "a1", "2", "LAB", "SER-B2222")])
+        ),
+    )
+    both = (
+        await session(
+            p,
+            lambda db: list_devices(
+                user(p),
+                db,
+                client_id=None,
+                search=None,
+                vendor=None,
+                not_in_master=False,
+                missing=None,
+                offline=False,
+                has_alerts=False,
+                page=1,
+                page_size=50,
+            ),
+        )
+    ).items
+    with pytest.raises(HTTPException) as err:
+        await session(p, lambda db: merge_duplicate(MergeIn(keep=both[0].id, remove=both[1].id), user(p), db))
+    assert err.value.status_code == 400 and "serial" in err.value.detail

@@ -29,7 +29,8 @@ from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
 from app.models.device import Device, DeviceSource
 from app.models.tenant import Tenant
-from app.services.device_upsert import DeviceReport, upsert_device
+from app.services.device_merge import DeviceMergeError, dismiss_pair, merge_devices
+from app.services.device_upsert import DeviceReport, possible_duplicates, upsert_device
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +351,89 @@ async def list_devices(
         page_size=page_size,
         pages=(total + page_size - 1) // page_size,
     )
+
+
+class DuplicatePairOut(BaseModel):
+    a: DeviceOut
+    b: DeviceOut
+
+
+class DuplicatesOut(BaseModel):
+    items: list[DuplicatePairOut]
+
+
+class DismissIn(BaseModel):
+    device_a: uuid.UUID
+    device_b: uuid.UUID
+
+
+class MergeIn(BaseModel):
+    keep: uuid.UUID = Field(description="The device that stays; every tool that reported the other one now reports this one.")
+    remove: uuid.UUID
+
+
+@router.get("/duplicates", response_model=DuplicatesOut)
+async def list_duplicates(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: DBSession,
+    client_id: uuid.UUID | None = Query(default=None),
+) -> DuplicatesOut:
+    """Pairs of a client's devices that share a hostname but have no serial number proving they differ. Pairs a person dismissed are not listed."""
+    owner = current_user.tenant_id
+    scope, clients = await _scope(db, owner, client_id)
+    master = _master_of(await db.get(Tenant, owner))
+    items: list[DuplicatePairOut] = []
+    for tid in scope:
+        async with _as(db, owner, tid):
+            pairs = await possible_duplicates(db, tid)
+        if not pairs:
+            continue
+        by_id = {d.id: d for d in await _load(db, owner, [tid], clients, master)}
+        items.extend(DuplicatePairOut(a=by_id[a], b=by_id[b]) for a, b in pairs if a in by_id and b in by_id)
+    items.sort(key=lambda p: ((p.a.client_name or ""), p.a.hostname.lower()))
+    return DuplicatesOut(items=items)
+
+
+async def _client_of(db: Any, owner: uuid.UUID, device_id: uuid.UUID) -> uuid.UUID:
+    scope, _ = await _scope(db, owner, None)
+    for tid in scope:
+        async with _as(db, owner, tid):
+            if (await db.execute(select(Device.id).where(Device.id == device_id, Device.tenant_id == tid))).first() is not None:
+                return tid
+    raise HTTPException(status_code=404, detail="Device not found")
+
+
+@router.post("/duplicates/dismiss", status_code=204)
+async def dismiss_duplicate(
+    body: DismissIn, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession
+) -> None:
+    """These two are different machines: stop suggesting them. Remembered for the whole organization."""
+    owner = current_user.tenant_id
+    tid = await _client_of(db, owner, body.device_a)
+    try:
+        async with _as(db, owner, tid):
+            await dismiss_pair(db, tid, body.device_a, body.device_b)
+    except DeviceMergeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+
+
+@router.post("/duplicates/merge", response_model=DeviceOut)
+async def merge_duplicate(
+    body: MergeIn, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession
+) -> DeviceOut:
+    """These two are the same machine: fold the second into the first."""
+    owner = current_user.tenant_id
+    tid = await _client_of(db, owner, body.keep)
+    try:
+        async with _as(db, owner, tid):
+            kept = await merge_devices(db, tid, body.keep, body.remove)
+    except DeviceMergeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    scope, clients = await _scope(db, owner, tid if tid != owner else None)
+    master = _master_of(await db.get(Tenant, owner))
+    return next(d for d in await _load(db, owner, [tid], clients, master) if d.id == kept)
 
 
 @router.get("/{device_id}", response_model=DeviceOut)

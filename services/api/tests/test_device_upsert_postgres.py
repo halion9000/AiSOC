@@ -114,3 +114,105 @@ async def test_clients_never_share_a_device(tenants):
     da = await run(a, lambda db: upsert_device(db, a, DeviceReport("ninjaone", "1", "PC", serial="SAME12345")))
     db_ = await run(b, lambda db: upsert_device(db, b, DeviceReport("ninjaone", "1", "PC", serial="SAME12345")))
     assert da != db_
+
+
+# ---- a person's decisions about possible duplicates ------------------------------------------------------------------------------------------------------------
+
+
+async def _two_same_name(t):
+    a = await run(t, lambda db: upsert_device(db, t, DeviceReport("ninjaone", "n-1", "FRONT-DESK")))
+    b = await run(t, lambda db: upsert_device(db, t, DeviceReport("addigy", "a-1", "front-desk", os="macOS", ip_addresses=["10.0.0.5"])))
+    assert a != b
+    return a, b
+
+
+async def test_dismissing_a_pair_stops_it_being_suggested_and_is_safe_to_repeat(tenants):
+    from app.services.device_merge import dismiss_pair
+
+    t = tenants["acme"]
+    a, b = await _two_same_name(t)
+    assert len(await run(t, lambda db: possible_duplicates(db, t))) == 1
+    await run(t, lambda db: dismiss_pair(db, t, b, a))  # either order
+    await run(t, lambda db: dismiss_pair(db, t, a, b))  # twice
+    assert await run(t, lambda db: possible_duplicates(db, t)) == []
+    assert await scalar(t, "select count(*) from device_merge_dismissals where tenant_id = :t") == 1
+
+
+async def test_merging_moves_every_tool_to_the_kept_device_and_fills_its_blanks(tenants):
+    from app.services.device_merge import merge_devices
+
+    t = tenants["acme"]
+    a, b = await _two_same_name(t)
+    kept = await run(t, lambda db: merge_devices(db, t, a, b))
+    assert kept == a
+    assert await scalar(t, "select count(*) from devices where tenant_id = :t") == 1
+    assert (
+        await scalar(
+            t, "select count(*) from device_sources where tenant_id = :t and device_id = (select id from devices where tenant_id = :t)"
+        )
+        == 2
+    )
+    assert await scalar(t, "select os from devices where tenant_id = :t") == "macOS"
+    assert await scalar(t, "select ip_addresses[1] from devices where tenant_id = :t") == "10.0.0.5"
+    assert await run(t, lambda db: possible_duplicates(db, t)) == []
+
+
+async def test_the_kept_device_takes_the_serial_of_the_one_removed(tenants):
+    from app.services.device_merge import merge_devices
+
+    t = tenants["acme"]
+    a = await run(t, lambda db: upsert_device(db, t, DeviceReport("ninjaone", "n-1", "LAB-PC")))
+    b = await run(t, lambda db: upsert_device(db, t, DeviceReport("addigy", "a-1", "lab-pc", serial="ABC12345")))
+    await run(t, lambda db: merge_devices(db, t, a, b))
+    assert await scalar(t, "select serial_number from devices where tenant_id = :t") == "ABC12345"
+
+
+async def test_two_different_serials_are_never_merged(tenants):
+    from app.services.device_merge import DeviceMergeError, merge_devices
+
+    t = tenants["acme"]
+    a = await run(t, lambda db: upsert_device(db, t, DeviceReport("ninjaone", "n-1", "LAB-PC", serial="AAA11111")))
+    b = await run(t, lambda db: upsert_device(db, t, DeviceReport("addigy", "a-1", "LAB-PC", serial="BBB22222")))
+    with pytest.raises(DeviceMergeError, match="different serial"):
+        await run(t, lambda db: merge_devices(db, t, a, b))
+    assert await scalar(t, "select count(*) from devices where tenant_id = :t") == 2
+
+
+async def test_a_device_from_another_client_cannot_be_merged_or_dismissed(tenants):
+    from app.services.device_merge import DeviceMergeError, dismiss_pair, merge_devices
+
+    acme, birch = tenants["acme"], tenants["birch"]
+    a = await run(acme, lambda db: upsert_device(db, acme, DeviceReport("ninjaone", "n-1", "PC-1")))
+    b = await run(birch, lambda db: upsert_device(db, birch, DeviceReport("ninjaone", "n-2", "PC-1")))
+    with pytest.raises(DeviceMergeError):
+        await run(acme, lambda db: merge_devices(db, acme, a, b))
+    with pytest.raises(DeviceMergeError):
+        await run(acme, lambda db: dismiss_pair(db, acme, a, b))
+    assert await scalar(birch, "select count(*) from devices where tenant_id = :t") == 1
+
+
+async def test_a_device_cannot_be_merged_into_itself(tenants):
+    from app.services.device_merge import DeviceMergeError, merge_devices
+
+    t = tenants["acme"]
+    a = await run(t, lambda db: upsert_device(db, t, DeviceReport("ninjaone", "n-1", "PC-1")))
+    with pytest.raises(DeviceMergeError):
+        await run(t, lambda db: merge_devices(db, t, a, a))
+
+
+async def test_the_client_check_holds_even_without_row_level_security(tenants):
+    """Row-level security already hides the other client's devices; this proves the query's own client filter would refuse too (defence in depth)."""
+    from app.services.device_merge import DeviceMergeError, dismiss_pair, merge_devices
+
+    acme, birch = tenants["acme"], tenants["birch"]
+    a = await run(acme, lambda db: upsert_device(db, acme, DeviceReport("ninjaone", "n-1", "PC-1")))
+    b = await run(birch, lambda db: upsert_device(db, birch, DeviceReport("ninjaone", "n-2", "PC-1")))
+    engine = create_async_engine(PG_URL, poolclass=NullPool)  # the table owner: not subject to row-level security
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            with pytest.raises(DeviceMergeError):
+                await merge_devices(db, acme, a, b)
+            with pytest.raises(DeviceMergeError):
+                await dismiss_pair(db, acme, a, b)
+    finally:
+        await engine.dispose()

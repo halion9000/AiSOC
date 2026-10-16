@@ -7,7 +7,7 @@ const listMock = vi.fn();
 const masterMock = vi.fn();
 const childrenMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  devicesApi: { list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a) },
+  devicesApi: { list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), duplicates: async () => ({ items: [] }) },
   msspApi: { listChildren: () => childrenMock() },
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
