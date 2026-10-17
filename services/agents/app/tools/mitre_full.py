@@ -16,6 +16,7 @@ AiSOC — open-source AI Security Operations Center (MIT License)
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import pathlib
@@ -36,6 +37,11 @@ _EMBED_BATCH_SIZE = 50
 
 
 # ─── Data Model ───────────────────────────────────────────────────────────────
+
+
+def technique_point_id(technique_id: str) -> int:
+    """A Qdrant point id for an ATT&CK technique, identical in every process (``hash()`` of a str changes on each start, which made re-embedding duplicate every point)."""
+    return int(hashlib.sha1(technique_id.encode("utf-8")).hexdigest()[:15], 16)
 
 
 class MitreTechnique:
@@ -369,7 +375,7 @@ async def embed_techniques_into_qdrant(
             vectors = [e.embedding for e in resp.data]
             points = [
                 PointStruct(
-                    id=abs(hash(t.id)) % (2**63),
+                    id=technique_point_id(t.id),
                     vector=vec,
                     payload={
                         "technique_id": t.id,
