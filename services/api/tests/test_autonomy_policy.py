@@ -112,7 +112,14 @@ def test_every_default_action_has_a_blast_radius_and_every_default_is_ordered():
 
 
 def test_blast_radius_labels_follow_the_risk_of_the_action():
-    assert {a for a, r in ap._BLAST_RADIUS.items() if r == "read"} == {"lookup_ip", "lookup_domain", "search_logs", "enrich_alert", "mitre_lookup", "get_alert_context"}
+    assert {a for a, r in ap._BLAST_RADIUS.items() if r == "read"} == {
+        "lookup_ip",
+        "lookup_domain",
+        "search_logs",
+        "enrich_alert",
+        "mitre_lookup",
+        "get_alert_context",
+    }
     assert ap._BLAST_RADIUS["delete_object"] == "critical"
     assert ap._BLAST_RADIUS["revoke_session"] == "medium"
     for action in ("isolate_host", "block_ip", "quarantine_file", "disable_user_account", "firewall_rule_add", "firewall_rule_remove"):
