@@ -78,6 +78,19 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         # permission only controls who *can* query at all.
         "lake:query",
         "lake:read_schema",
+        # Tenant features that were enforced by routes but listed in no role (a tenant's own admin got 403 on them).
+        "audit_log:read",
+        "copilot:use",
+        "graph:read",
+        "roles:read",
+        "roles:write",
+        "sla:read",
+        "sla:write",
+        "shifts:read",
+        "shifts:write",
+        "plugins:read",
+        "playbooks:admin",
+        "rules:admin",
     ],
     "soc_lead": [
         "alerts:read",
@@ -103,6 +116,12 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         # SOC leads run investigations across the lake routinely.
         "lake:query",
         "lake:read_schema",
+        # Tenant features that were enforced by routes but listed in no role (a tenant's own admin got 403 on them).
+        "copilot:use",
+        "graph:read",
+        "sla:read",
+        "shifts:read",
+        "shifts:write",
     ],
     "soc_analyst": [
         "alerts:read",
@@ -121,6 +140,11 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         # the rate limiter caps abuse.
         "lake:query",
         "lake:read_schema",
+        # Tenant features that were enforced by routes but listed in no role (a tenant's own admin got 403 on them).
+        "copilot:use",
+        "graph:read",
+        "sla:read",
+        "shifts:read",
     ],
     "threat_hunter": [
         "alerts:read",
@@ -138,6 +162,9 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         # events, alert metrics, and IOC enrichments.
         "lake:query",
         "lake:read_schema",
+        # Tenant features that were enforced by routes but listed in no role (a tenant's own admin got 403 on them).
+        "copilot:use",
+        "graph:read",
     ],
     "viewer": [
         "alerts:read",
