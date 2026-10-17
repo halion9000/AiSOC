@@ -5,6 +5,7 @@ results back to Kafka, and persists non-duplicate alerts to Postgres.
 """
 
 import asyncio
+from collections.abc import Callable
 import contextlib
 import json
 
@@ -16,7 +17,7 @@ from app.models.alert import FusionDecision, RawAlert
 from app.services.alert_sink import AlertSink, PersistOutcome, PersistResult
 from app.services.client_routing import route_to_client_tenant
 from app.services.detection_engine import DetectionEngine
-from app.services.dlq import DeadLetter, DeadLetterQueue, LoggingDLQ, safe_record
+from app.services.dlq import DeadLetter, DeadLetterQueue, KafkaDLQ, LoggingDLQ, TeeDLQ, safe_record
 from app.services.event_schema import validate_event
 from app.services.fusion_engine import FusionEngine
 from app.services.lake_writer import LakeWriter
@@ -44,6 +45,21 @@ _METRICS = {
 }
 
 
+# A message that fails to process is retried a few times (a Redis or Postgres blip is usually over in seconds) and then dead-lettered. It is never skipped: the offset
+# is only committed once the message has been handled or is safely in the DLQ.
+_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = 0.5
+_UNDECODABLE = "__undecodable__"
+
+
+def decode_message(raw: bytes) -> dict:
+    """JSON-decode a Kafka value. A payload that is not JSON must not raise inside the Kafka iterator (that ends the consume loop for good), so it becomes a marker the loop dead-letters."""
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return {_UNDECODABLE: raw[:2000].decode("utf-8", errors="replace")}
+
+
 class FusionWorker:
     """Kafka consumer/producer pair that drives the fusion pipeline."""
 
@@ -66,6 +82,9 @@ class FusionWorker:
         # A poison message must never vanish silently; default to a structured
         # logging DLQ so persistence-free deployments still get the signal.
         self._dlq: DeadLetterQueue = dlq or LoggingDLQ()
+        self._dlq_is_default = dlq is None
+        # Called once the Kafka consumer is really running, so readiness reflects it.
+        self.on_consuming: Callable[[], None] | None = None
         self._consumer: AIOKafkaConsumer | None = None
         self._producer: AIOKafkaProducer | None = None
         self._running = False
@@ -94,7 +113,7 @@ class FusionWorker:
             # processed (see _consume_loop), not on a background timer that could
             # commit an in-flight message before processing finishes.
             enable_auto_commit=False,
-            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            value_deserializer=decode_message,
         )
         self._producer = AIOKafkaProducer(
             bootstrap_servers=settings.kafka_bootstrap_servers,
@@ -102,6 +121,7 @@ class FusionWorker:
         )
         await self._consumer.start()
         await self._producer.start()
+        self._install_default_dlq()
         if self._sink is not None:
             await self._sink.start()
         if self._lake is not None:
@@ -111,6 +131,8 @@ class FusionWorker:
             # ticker guarantees the lake batch flushes by age even when idle.
             self._flush_task = asyncio.create_task(self._periodic_flush())
         self._running = True
+        if self.on_consuming is not None:
+            self.on_consuming()
         logger.info(
             "Fusion worker started",
             consumer_group=settings.kafka_consumer_group,
@@ -120,6 +142,11 @@ class FusionWorker:
             lake_writer=self._lake is not None,
         )
         await self._consume_loop()
+
+    def _install_default_dlq(self) -> None:
+        """Unless the caller chose a DLQ, dead letters go to Kafka (durable) as well as the log."""
+        if self._dlq_is_default and self._producer is not None:
+            self._dlq = TeeDLQ(LoggingDLQ(), KafkaDLQ(self._producer))
 
     async def _periodic_flush(self) -> None:
         interval = max(0.5, settings.lake_batch_max_age_seconds)
@@ -152,12 +179,8 @@ class FusionWorker:
         async for msg in self._consumer:
             if not self._running:
                 break
-            try:
-                await self._process_message(msg.value, topic=msg.topic)
-            except Exception as exc:
-                _METRICS["errors"] += 1
-                logger.error("Failed to process message", error=str(exc), exc_info=True)
-            else:
+            handled = await self._handle_with_retry(msg.value, msg.topic)
+            if handled:
                 # At-least-once: commit only after the message is handled
                 # (validated + laked + promoted, or dead-lettered). A crash
                 # before this line re-delivers the in-flight message on restart
@@ -170,6 +193,25 @@ class FusionWorker:
             # low-traffic window (batch fills by size OR age).
             if self._lake is not None:
                 await self._lake.flush_if_stale()
+
+    async def _handle_with_retry(self, payload, topic: str) -> bool:
+        """Process one message, retrying a failure; give up by dead-lettering it. True when the offset may be committed."""
+        if isinstance(payload, dict) and _UNDECODABLE in payload:
+            await self._dead_letter(topic=topic, payload=payload, reason="undecodable: payload is not valid JSON")
+            return True
+        last_error = ""
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                await self._process_message(payload, topic=topic)
+                return True
+            except Exception as exc:  # noqa: BLE001
+                _METRICS["errors"] += 1
+                last_error = f"{type(exc).__name__}: {exc}"
+                logger.error("Failed to process message", attempt=attempt, error=str(exc), exc_info=True)
+                if attempt < _MAX_ATTEMPTS:
+                    await asyncio.sleep(_RETRY_BACKOFF_SECONDS * attempt)
+        await self._dead_letter(topic=topic, payload=payload, reason=f"processing_failed after {_MAX_ATTEMPTS} attempts: {last_error}")
+        return True
 
     async def _dead_letter(
         self,
@@ -317,6 +359,11 @@ class FusionWorker:
                 _METRICS["persist_unavailable"] += 1
             elif result.outcome is PersistOutcome.FAILED:
                 _METRICS["persist_failed"] += 1
+            if result.outcome in (PersistOutcome.UNAVAILABLE, PersistOutcome.FAILED):
+                # Not stored. Fusion already registered the fingerprint, which would make a redelivery a "duplicate" that persist() skips, so forget it, then raise:
+                # the consume loop retries the message and dead-letters it if the store stays down, instead of committing past an alert that exists nowhere.
+                await self._engine.forget(alert)
+                raise RuntimeError(f"alert {fused.id} not persisted ({result.outcome.value})")
 
         # Publish fused alert (even duplicates, so downstream can track),
         # carrying the durable row id + persistence outcome (issue #568).

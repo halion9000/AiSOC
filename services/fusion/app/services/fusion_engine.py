@@ -302,6 +302,10 @@ class FusionEngine:
     def ml_scorer(self) -> MLScorer:
         return self._ml_scorer
 
+    async def forget(self, alert: RawAlert) -> None:
+        """Undo the dedup registration made by ``process`` (see Deduplicator.forget)."""
+        await self._dedup.forget(alert)
+
     @property
     def entity_risk(self) -> EntityRiskEngine | None:
         return self._entity_risk

@@ -166,7 +166,9 @@ class AlertSink:
         self._connect_failed_logged = False
 
     async def start(self) -> None:
-        """Open the pool. Failure is logged, not raised (fail-soft)."""
+        """Open the pool (once: a second call keeps the open one). Failure is logged, not raised (fail-soft)."""
+        if self._pool is not None:
+            return
         try:
             self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=self._pool_size, timeout=10)
             logger.info("alert_sink.started")

@@ -23,6 +23,7 @@ from app.services.lake_writer import LakeWriter
 from app.services.ueba_signal import UebaSignalCache
 from app.services.windowed_detection import WindowedDetectionEngine
 from app.workers.consumer import FusionWorker
+from app.workers.supervisor import supervise
 
 
 @asynccontextmanager
@@ -102,8 +103,12 @@ async def lifespan(app: FastAPI):
     )
     set_worker(worker)
 
-    # Start Kafka worker as a background task
-    worker_task = asyncio.create_task(worker.start())
+    # Start the Kafka worker as a supervised background task: readiness is only reported once the consumer is really running, and a consumer that dies (broker
+    # down at boot, an unexpected error) drops readiness and is restarted instead of leaving the service "healthy" while it consumes nothing.
+    worker.on_consuming = app.state.mark_ready
+    worker_task = asyncio.create_task(
+        supervise(worker.start, worker.stop, on_failure=lambda _exc: app.state.mark_not_ready())
+    )
     app.state.worker_task = worker_task
     app.state.redis = redis_client
 
@@ -124,9 +129,7 @@ async def lifespan(app: FastAPI):
     memory_task = asyncio.create_task(_refresh_memory_priors()) if memory_provider is not None else None
     app.state.memory_task = memory_task
 
-    # Phase 2.6 — flip /readyz to 200 now that Redis is open + the
-    # Kafka consumer is running.
-    app.state.mark_ready()
+    # /readyz flips to 200 from worker.on_consuming, once the Kafka consumer is running.
 
     logger.info("Alert Fusion Service ready")
     yield

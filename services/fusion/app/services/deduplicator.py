@@ -42,6 +42,10 @@ class Deduplicator:
 
         return False, None
 
+    async def forget(self, alert: RawAlert) -> None:
+        """Drop an alert's fingerprint, for an alert that was registered but could not be persisted: a redelivery must be processed, not skipped as a duplicate."""
+        await self._redis.delete(f"{_DEDUP_PREFIX}{alert.fingerprint()}")
+
     async def register(self, alert: RawAlert) -> None:
         """Register an alert fingerprint to suppress future duplicates."""
         fingerprint = alert.fingerprint()

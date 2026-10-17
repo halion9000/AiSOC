@@ -123,6 +123,17 @@ class KafkaDLQ:
         await self._producer.send(self._topic, value=dead_letter.to_dict())
 
 
+class TeeDLQ:
+    """Record to several dead-letter queues; one failing never stops the others."""
+
+    def __init__(self, *queues: DeadLetterQueue) -> None:
+        self._queues = queues
+
+    async def record(self, dead_letter: DeadLetter) -> None:
+        for queue in self._queues:
+            await safe_record(queue, dead_letter)
+
+
 async def safe_record(dlq: DeadLetterQueue | None, dead_letter: DeadLetter) -> bool:
     """Record to the DLQ, swallowing any sink error. Returns True on success.
 

@@ -210,3 +210,21 @@ def test_deterministic_id_is_replay_stable():
     assert a.id == b.id == a.deterministic_id()
     # And it is a proper uuid5 (not the random default_factory).
     assert a.id != uuid.uuid4()
+
+
+@pytest.mark.asyncio
+async def test_start_twice_opens_one_pool(monkeypatch):
+    """The memory-prior refresh opens the pool through _ensure_pool and the worker then calls start(): the second call overwrote the first pool without closing it, leaking its connections."""
+    import app.services.alert_sink as mod
+
+    opened = []
+
+    async def fake_create_pool(*_a, **_k):
+        opened.append(object())
+        return opened[-1]
+
+    monkeypatch.setattr(mod.asyncpg, "create_pool", fake_create_pool)
+    sink = AlertSink("postgresql://x")
+    await sink.start()
+    await sink.start()
+    assert len(opened) == 1 and sink._pool is opened[0]
