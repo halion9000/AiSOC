@@ -67,6 +67,13 @@ class _StubConn:
         self.calls.append((sql, args))
         return self._row
 
+    async def execute(self, sql, *args):
+        self.executed = getattr(self, "executed", [])
+        self.executed.append((sql, args))
+        if getattr(self, "execute_error", None):
+            raise self.execute_error
+        return "UPDATE 1"
+
 
 class _StubPool:
     def __init__(self, row):
@@ -144,6 +151,29 @@ async def test_dedup_hit_returns_duplicate():
     assert result.outcome is PersistOutcome.DUPLICATE
     assert result.alert_id == str(_fused().id)  # canonical id still known
     assert result.durable is True
+
+
+@pytest.mark.asyncio
+async def test_a_dedup_hit_refreshes_the_existing_alerts_last_seen():
+    """The row used to stay exactly as first written, so a recurrence a week later left no trace: last_seen never moved."""
+    pool = _StubPool(row=None)
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    fused = _fused()
+    result = await sink.persist(fused)
+    assert result.outcome is PersistOutcome.DUPLICATE
+    (sql, args), = pool.conn.executed
+    assert "last_seen" in sql and "updated_at" in sql
+    assert args[0] == TENANT and args[1] == fused.alert.fingerprint()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_last_seen_refresh_does_not_change_the_outcome():
+    pool = _StubPool(row=None)
+    pool.conn.execute_error = RuntimeError("db hiccup")
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    assert (await sink.persist(_fused())).outcome is PersistOutcome.DUPLICATE
 
 
 @pytest.mark.asyncio

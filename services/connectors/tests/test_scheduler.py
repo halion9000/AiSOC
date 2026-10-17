@@ -1057,3 +1057,20 @@ def test_safe_normalize_still_normalizes_raw_event():
     out = _safe_normalize(_Normalizer(), {"id": "abc", "foo": "bar"})
     assert out["external_id"] == "abc"
     assert out["raw_event"] == {"id": "abc", "foo": "bar"}
+
+
+def test_a_connector_that_wraps_the_vendor_row_under_raw_is_not_normalized_twice():
+    """24 connectors (Tenable, QRadar, Mimecast, Netskope, ...) put the vendor row under ``raw``, not ``raw_event``. The scheduler took their finished output for a raw
+    vendor row and normalized it again: a critical Tenable finding reached ingest as severity=info, titled 'Tenable vulnerability', with no id."""
+    from app.connectors.tenable import TenableConnector
+    from app.scheduler import _safe_normalize
+
+    connector = TenableConnector("a", "b")
+    vendor_row = {"severity": 4, "plugin_name": "Log4Shell", "plugin_id": 156014}
+    once = connector.normalize(vendor_row)
+    assert once["severity"] == "critical"
+    twice = _safe_normalize(connector, once)
+    assert twice == once, "an already-normalized event must pass through untouched"
+    assert (twice["severity"], twice["title"], twice["alert_id"]) == ("critical", "Log4Shell", "156014")
+    # a genuinely raw vendor row is still normalized exactly once
+    assert _safe_normalize(connector, vendor_row) == once

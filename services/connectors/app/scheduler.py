@@ -806,7 +806,13 @@ def _is_canonical_event(event: Any) -> bool:
     envelope structurally — a canonical event carries the original vendor row
     under ``raw_event`` plus a ``source`` label — which no raw vendor row has.
     """
-    return isinstance(event, dict) and "raw_event" in event and "source" in event
+    if not isinstance(event, dict) or "source" not in event:
+        return False
+    if "raw_event" in event:
+        return True
+    # Many connectors (Tenable, QRadar, Mimecast, Netskope, ...) keep the vendor row under ``raw`` instead. Requiring the rest of the envelope (severity + title) as well keeps
+    # a raw vendor row that merely has a ``raw`` or ``source`` field from being mistaken for a finished event.
+    return "raw" in event and "severity" in event and "title" in event
 
 
 def _safe_normalize(connector: Any, event: dict[str, Any]) -> dict[str, Any]:

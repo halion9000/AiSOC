@@ -28,7 +28,7 @@ from enum import Enum
 import asyncpg
 import structlog
 
-from app.models.alert import FusedAlert, FusionDecision
+from app.models.alert import FusedAlert, FusionDecision, RawAlert
 
 logger = structlog.get_logger()
 
@@ -97,6 +97,14 @@ RETURNING id
 # `dedup_hash` is VARCHAR(64); a varchar/text mismatch makes asyncpg's prepare
 # fail to unify parameter $11 ("inconsistent types deduced"), silently dropping
 # every write. Pinning both uses to ::text makes the deduction unambiguous.
+
+
+# A recurrence of an alert that is already stored: the row is kept (one alert, not one per repeat) but shows it happened again.
+_TOUCH_SQL = """
+UPDATE alerts
+SET last_seen = GREATEST(last_seen, COALESCE($3, NOW())), updated_at = NOW()
+WHERE tenant_id = $1 AND dedup_hash = $2::text
+"""
 
 
 # The mapping is only honoured when the chosen tenant really is a child of the tenant that owns the feed (a mapping row alone is not enough to move an alert into someone else's tenant).
@@ -187,6 +195,14 @@ class AlertSink:
             row = await conn.fetchrow(_CLIENT_TENANT_SQL, tenant_id, vendor, vendor_client_id)
         return row["child_tenant_id"] if row else None
 
+    async def _touch_existing(self, pool: asyncpg.Pool, alert: RawAlert) -> None:
+        """Move the stored alert's last_seen forward. Best effort: the alert is already safe, so a failure here is only logged."""
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(_TOUCH_SQL, alert.tenant_id, alert.fingerprint(), alert.event_time)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("alert_sink.touch_failed", error=str(exc))
+
     async def persist(self, fused: FusedAlert) -> PersistResult:
         """Insert one fused alert, returning a structured :class:`PersistResult`.
 
@@ -240,6 +256,7 @@ class AlertSink:
                 )
             if row is None:
                 logger.debug("alert_sink.dedup_skip", fingerprint=alert.fingerprint())
+                await self._touch_existing(pool, alert)
                 return PersistResult(PersistOutcome.DUPLICATE, canonical_id)
             return PersistResult(PersistOutcome.INSERTED, str(row["id"]))
         except asyncpg.ForeignKeyViolationError:

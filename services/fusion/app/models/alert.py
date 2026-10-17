@@ -113,6 +113,18 @@ class RawAlert(BaseModel):
             "file_hash": self.file_hash,
             "mitre_techniques": sorted(self.mitre_techniques),
         }
+        # Keys are added only when present, so an alert that names none of them keeps the fingerprint it always had.
+        # A forwarded alert with no host/user/IP is told apart by the vendor's client id (Huntress organization, ...), the rule and the connector: without them every
+        # client's copy of the same detection shared one fingerprint, one id and one row, and all but the first were dropped as duplicates.
+        from app.services.client_routing import client_key
+
+        client = client_key(self.raw_event)
+        if client is not None:
+            fields["client"] = list(client)
+        if self.rule_id:
+            fields["rule_id"] = self.rule_id
+        if self.connector_id is not None:
+            fields["connector_id"] = str(self.connector_id)
         canonical = json.dumps(fields, sort_keys=True)
         return hashlib.sha256(canonical.encode()).hexdigest()
 

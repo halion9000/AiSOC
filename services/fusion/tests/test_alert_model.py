@@ -100,3 +100,31 @@ class TestAlertSeverityEnum:
     )
     def test_severity_values(self, name: str, value: str) -> None:
         assert AlertSeverity[name].value == value
+
+
+def _huntress(org: str | None, **overrides) -> RawAlert:
+    context = {} if org is None else {"organization_id": org}
+    return _alert(raw_event={"source": "huntress", "unmapped": {"context": context}}, **overrides)
+
+
+class TestFingerprintKeepsClientsApart:
+    """Generic forwarded alerts carry no host/user/IP, so before the vendor client id was part of the fingerprint
+    2,486 Huntress alerts from 89 organizations became ONE row and every later client's alert was dropped as a duplicate."""
+
+    def test_same_detection_for_different_client_orgs_is_not_a_duplicate(self) -> None:
+        a, b = _huntress("org-1"), _huntress("org-2")
+        assert a.fingerprint() != b.fingerprint()
+        assert a.deterministic_id() != b.deterministic_id()
+
+    def test_same_detection_for_the_same_client_org_still_dedups(self) -> None:
+        assert _huntress("org-1").fingerprint() == _huntress("org-1").fingerprint()
+
+    def test_an_alert_naming_no_client_keeps_its_fingerprint(self) -> None:
+        assert _huntress(None).fingerprint() == _alert().fingerprint()
+
+    def test_different_rules_with_the_same_title_stay_apart(self) -> None:
+        assert _alert(rule_id="r1").fingerprint() != _alert(rule_id="r2").fingerprint()
+
+    def test_different_connectors_stay_apart(self) -> None:
+        c1, c2 = uuid4(), uuid4()
+        assert _alert(connector_id=c1).fingerprint() != _alert(connector_id=c2).fingerprint()
