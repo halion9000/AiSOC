@@ -243,9 +243,9 @@ def _assert_tenant_scoped(executed: list[tuple[str, dict[str, Any]]], tenant_id:
                 for name, value in params.items()
                 if (name == "tenant_id" or name.startswith("tenant_id_")) and value == tenant_id
             ]
-            assert (
-                matching
-            ), f"no bound tenant_id parameter matches caller's tenant in SQL: {sql}; params={params}; expected_tenant={tenant_id}"
+            assert matching, (
+                f"no bound tenant_id parameter matches caller's tenant in SQL: {sql}; params={params}; expected_tenant={tenant_id}"
+            )
             saw_tenant_scoped_read = True
     assert saw_tenant_scoped_read, "no alerts statement was tenant-scoped; every alerts read/write must mention tenant_id"
 
@@ -272,6 +272,7 @@ _LIST_ALERTS_DEFAULTS: dict[str, Any] = {
     "confidence_label": None,
     "source": None,
     "client_id": None,
+    "device": None,
 }
 
 
@@ -629,3 +630,29 @@ async def test_claim_alert_propagates_not_found_as_404(monkeypatch: pytest.Monke
     with pytest.raises(HTTPException) as exc:
         await claim_alert_route(alert_id=target_id, current_user=user, db=db)
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_alerts_device_filter_matches_the_whole_host_name_in_the_affected_hosts_list_and_keeps_tenant_scope() -> None:
+    user = _user()
+    db = _mk_db([[], 0, []])
+    await list_alerts(current_user=user, db=db, **{**_LIST_ALERTS_DEFAULTS, "device": "  HCC-FS01 "})
+    _assert_tenant_scoped(db.executed, user.tenant_id)
+    sql, params = next(e for e in db.executed if "affected_hosts" in e[0])
+    assert "lower(CAST(alerts.affected_hosts AS TEXT)) LIKE" in re.sub(r"\s+", " ", sql)
+    assert '%"hcc-fs01"%' in params.values(), params  # the quoted element, lowercased: "FS01" would not match "HCC-FS01"
+
+
+@pytest.mark.asyncio
+async def test_list_alerts_device_filter_takes_percent_and_underscore_literally() -> None:
+    db = _mk_db([[], 0, []])
+    await list_alerts(current_user=_user(), db=db, **{**_LIST_ALERTS_DEFAULTS, "device": "a_b%"})
+    _sql, params = next(e for e in db.executed if "affected_hosts" in e[0])
+    assert '%"a\\_b\\%"%' in params.values(), params
+
+
+@pytest.mark.asyncio
+async def test_list_alerts_without_a_device_does_not_look_at_affected_hosts() -> None:
+    db = _mk_db([[], 0, []])
+    await list_alerts(current_user=_user(), db=db, **_LIST_ALERTS_DEFAULTS)
+    assert all("CAST(alerts.affected_hosts" not in re.sub(r"\s+", " ", sql) for sql, _ in db.executed)

@@ -219,6 +219,16 @@ export function FiltersBar({
           </select>
         </>
       )}
+      {filters.device && (
+        <button
+          type="button"
+          aria-label={`Remove device filter ${filters.device}`}
+          onClick={() => onChange({ ...filters, device: undefined, page: 1 })}
+          className="text-xs px-2 py-1 rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
+        >
+          Device: {filters.device} ×
+        </button>
+      )}
       <span className="ml-auto text-xs text-gray-600">{total} total</span>
     </div>
   );
@@ -301,7 +311,16 @@ function AlertRow({
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export function AlertsView() {
-  const [filters, setFilters] = useState<AlertFilters>({ page: 1, pageSize: 25 });
+  // /alerts?device=HOST opens the list already narrowed to that machine (the devices page links here).
+  const [filters, setFilters] = useState<AlertFilters>(() => {
+    let device: string | undefined;
+    try {
+      device = new URLSearchParams(window.location.search).get('device')?.trim() || undefined;
+    } catch {
+      device = undefined;
+    }
+    return { page: 1, pageSize: 25, ...(device ? { device } : {}) };
+  });
   // Default to the entity-centric queue — that's the whole point of Wave 1's
   // RBA work. Analysts can flip back to the raw alert grid for legacy
   // workflows or when triaging a specific alert ID.
@@ -563,7 +582,7 @@ function AlertsTableGrid({
             filter-aware copy is the difference between an analyst thinking
             "the system is broken" and "I should clear my filters".
           */}
-          {filters.severity || filters.status || filters.source || filters.clientId || filters.search ? (
+          {filters.severity || filters.status || filters.source || filters.clientId || filters.device || filters.search ? (
             <EmptyState
               icon={EmptyStateIcons.search}
               title="No alerts match these filters"

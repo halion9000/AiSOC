@@ -1047,6 +1047,8 @@ export interface AlertFilters {
   tenantId?: string;
   /** Narrow an MSSP parent's list to one client tenant. */
   clientId?: string;
+  /** Only alerts about this machine (the host name the alert carries). */
+  device?: string;
 }
 
 export interface VendorRemediation {

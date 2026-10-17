@@ -60,6 +60,16 @@ describe('alertsApi.list', () => {
     expect(out.alerts[0].clientName).toBe('Setpoint');
   });
 
+  it('sends the device as the device query parameter', async () => {
+    let url = '';
+    vi.stubGlobal('fetch', async (u: string) => {
+      url = String(u);
+      return json({ items: [], total: 0 });
+    });
+    await alertsApi.list({ device: 'HCC-FS01' });
+    expect(url).toContain('device=HCC-FS01');
+  });
+
   it('passes the server tally through', async () => {
     vi.stubGlobal('fetch', async () => json({ summary: { total: 540, critical: 26, high: 21, unresolved: 255 }, items: [], total: 21 }));
     const out = await alertsApi.list({ severity: 'high' });

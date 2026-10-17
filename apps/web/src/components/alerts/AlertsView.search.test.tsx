@@ -54,3 +54,16 @@ describe('alerts search box', () => {
     expect(onChange).toHaveBeenCalledWith({ page: 1, pageSize: 25, search: undefined });
   });
 });
+
+describe('device filter', () => {
+  it('shows the machine being filtered on, and its chip removes the filter and goes back to page 1', () => {
+    const onChange = show(vi.fn(), { page: 3, pageSize: 25, device: 'HCC-FS01' });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove device filter HCC-FS01' }));
+    expect(onChange).toHaveBeenCalledWith({ page: 1, pageSize: 25, device: undefined });
+  });
+
+  it('has no device chip when no device is chosen', () => {
+    show();
+    expect(screen.queryByText(/^Device:/)).not.toBeInTheDocument();
+  });
+});

@@ -1,5 +1,6 @@
 """Alert management endpoints."""
 
+import json
 import logging
 import re
 import uuid
@@ -8,7 +9,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import Text, and_, cast, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
@@ -655,6 +656,7 @@ async def list_alerts(
     confidence_label: str | None = Query(default=None),
     source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$"),
     client_id: uuid.UUID | None = Query(default=None),
+    device: str | None = Query(default=None, max_length=255),
 ) -> AlertListResponse:
     """List alerts for the current tenant and its client tenants, with filtering and pagination.
 
@@ -663,6 +665,8 @@ async def list_alerts(
 
     `source` is the tool an alert came from as CORE names it (``huntress``, ``petra``, ``blumira``). Alerts forwarded by CORE arrive through the generic JSON inbox, so their
     product is all "Generic JSON"; the tool is the sender's own ``source`` field, which the inbox template keeps at ``raw_event.source``.
+
+    `device` narrows the list to alerts about one machine, by the host name the alert carries (compared without regard to case).
 
     `min_confidence` / `confidence_label` let the queue workbench (PR-5) and
     /alerts page filter on the fusion-emitted confidence signal (W3). Alerts
@@ -677,6 +681,13 @@ async def list_alerts(
     # `search` is plain text: % and _ are matched literally, and a blank search is no search.
     term = (search or "").strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     client_hits: set[uuid.UUID] = set()
+    device_name = (device or "").strip()
+    # The list is stored as JSON text like ["HCC-FS01", "other"]: look for the quoted name so "FS01" does not match "HCC-FS01", and take % and _ literally.
+    device_like = (
+        "%" + json.dumps(device_name.lower(), ensure_ascii=False).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        if device_name
+        else ""
+    )
 
     def filters_for(tenant_id: uuid.UUID) -> list:
         filters = [Alert.tenant_id == tenant_id]
@@ -690,6 +701,9 @@ async def list_alerts(
             filters.append(Alert.assigned_to_id == current_user.user_id)
         if source:
             filters.append(Alert.raw_event["source"].astext == source)
+        if device_name:
+            # affected_hosts is a JSON list of names; match one element exactly, ignoring case.
+            filters.append(func.lower(cast(Alert.affected_hosts, Text)).like(device_like, escape="\\"))
         if min_confidence is not None:
             filters.append(Alert.confidence >= min_confidence)
         if confidence_label is not None:

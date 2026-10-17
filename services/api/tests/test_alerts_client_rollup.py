@@ -88,6 +88,7 @@ def call(s, user_tenant, **kw):
         "confidence_label": None,
         "source": None,
         "client_id": None,
+        "device": None,
     }
     args.update(kw)
     return ep.list_alerts(user, s, **args)
