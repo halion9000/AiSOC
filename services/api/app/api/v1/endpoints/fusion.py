@@ -140,9 +140,10 @@ async def ml_status() -> dict[str, Any]:
 
 # ─── Entity risk (RBA) ─────────────────────────────────────────────────────
 
-# The threshold here mirrors services/fusion/app/services/entity_risk.py
-# default; the UI displays it as "promotion threshold".
-_DEFAULT_THRESHOLD = 100.0
+# Shown only when the fusion service cannot be reached. It must equal the fusion
+# service's own default (rba_promotion_threshold in services/fusion/app/core/config.py,
+# 80.0), which is what actually promotes an entity; the UI displays it as "promotion threshold".
+_DEFAULT_THRESHOLD = 80.0
 
 
 def _effective_tenant(tenant_id: UUID | None, user: AuthUser) -> str:
