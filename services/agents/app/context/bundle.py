@@ -630,7 +630,10 @@ class ContextBundleBuilder:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"httpx unavailable: {exc}") from exc
 
-        ueba_url = os.getenv("AISOC_UEBA_URL", "http://ueba:8086")
+        # The UEBA service listens on 8004 and answers 401/503 without its own bearer token.
+        ueba_url = os.getenv("AISOC_UEBA_URL", "http://ueba:8004")
+        ueba_token = os.getenv("AISOC_UEBA_SERVICE_TOKEN", "").strip()
+        ueba_headers = {"Authorization": f"Bearer {ueba_token}"} if ueba_token else {}
         principals = [e for e in entities if e.type in ("user", "email", "host", "ip")]
         if not principals:
             self._record_source("ueba")
@@ -638,7 +641,7 @@ class ContextBundleBuilder:
 
         out: dict[str, UEBABaseline] = {}
 
-        async with httpx.AsyncClient(timeout=self.per_source_timeout) as client:
+        async with httpx.AsyncClient(timeout=self.per_source_timeout, headers=ueba_headers) as client:
 
             async def _one(entity: EntityRef) -> tuple[str, UEBABaseline] | None:
                 # The UEBA list endpoint takes tenant + entity_type, then we
@@ -652,7 +655,7 @@ class ContextBundleBuilder:
                     resp.raise_for_status()
                     rows = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else []
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("context.ueba.failed", entity=entity.key, error=str(exc))
+                    logger.warning("context.ueba.failed", entity=entity.key, error=str(exc))
                     return None
                 if not isinstance(rows, list):
                     return None
