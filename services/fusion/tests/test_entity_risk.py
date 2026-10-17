@@ -279,6 +279,10 @@ async def test_stats_reports_bands(engine: EntityRiskEngine) -> None:
     assert stats["promoted_entities"] >= 1
     assert stats["threshold"] == engine.threshold
     assert sum(stats["score_bands"].values()) == stats["tracked_entities"]
+    # Names the console reads (EntityRiskStats in apps/web/src/lib/api.ts).
+    assert stats["total"] == stats["tracked_entities"]
+    assert stats["promoted"] == stats["promoted_entities"]
+    assert stats["bands"] == stats["score_bands"]
 
 
 # ---------------------------------------------------------------------------

@@ -199,6 +199,10 @@ class EntityRiskEngine:
             "tracked_entities": total,
             "promoted_entities": promoted,
             "score_bands": bands,
+            # The console's EntityRiskStats (apps/web/src/lib/api.ts) and the API's offline stub read these names.
+            "total": total,
+            "promoted": promoted,
+            "bands": bands,
             "threshold": self._threshold,
         }
 
