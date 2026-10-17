@@ -388,3 +388,45 @@ async def test_timestamps_are_valid_utc_for_timezone_aware_alerts(engine: Entity
     assert out["promoted_at"] is None or _parses_as_utc_z(out["promoted_at"])
     assert out["contributors"]
     assert all(_parses_as_utc_z(c["at"]) for c in out["contributors"])
+
+
+_OTHER = UUID("00000000-0000-0000-0000-0000000000bb")
+
+
+def _alert_for(tenant: UUID, severity: AlertSeverity, username: str) -> RawAlert:
+    return _alert(severity=severity, username=username).model_copy(update={"tenant_id": tenant})
+
+
+@pytest.mark.asyncio
+async def test_top_entities_many_merges_tenants_by_score_and_applies_one_limit(engine: EntityRiskEngine) -> None:
+    await engine.observe(_alert_for(_TENANT, AlertSeverity.LOW, "low-a"))
+    await engine.observe(_alert_for(_TENANT, AlertSeverity.HIGH, "high-a"))
+    await engine.observe(_alert_for(_OTHER, AlertSeverity.MEDIUM, "med-b"))
+    await engine.observe(_alert_for(_OTHER, AlertSeverity.CRITICAL, "crit-b"))
+    stranger = UUID("00000000-0000-0000-0000-0000000000cc")
+    await engine.observe(_alert_for(stranger, AlertSeverity.CRITICAL, "not-asked"))
+
+    top = await engine.top_entities_many([_TENANT, _OTHER], limit=3)
+    assert [r.entity_value for r in top] == ["crit-b", "high-a", "med-b"]
+    assert {r.tenant_id for r in top} == {str(_TENANT), str(_OTHER)}  # each row says which tenant it is from
+
+
+@pytest.mark.asyncio
+async def test_top_entities_many_promoted_only(engine: EntityRiskEngine) -> None:
+    for _ in range(3):
+        await engine.observe(_alert_for(_OTHER, AlertSeverity.CRITICAL, "hot"))
+    await engine.observe(_alert_for(_TENANT, AlertSeverity.LOW, "cold"))
+    top = await engine.top_entities_many([_TENANT, _OTHER], limit=10, promoted_only=True)
+    assert [r.entity_value for r in top] == ["hot"]
+
+
+@pytest.mark.asyncio
+async def test_stats_many_adds_tenants_up(engine: EntityRiskEngine) -> None:
+    await engine.observe(_alert_for(_TENANT, AlertSeverity.LOW, "a"))
+    await engine.observe(_alert_for(_OTHER, AlertSeverity.LOW, "b"))
+    await engine.observe(_alert_for(_OTHER, AlertSeverity.MEDIUM, "c"))
+    one, two = await engine.stats(_TENANT), await engine.stats(_OTHER)
+    both = await engine.stats_many([_TENANT, _OTHER])
+    assert both["tracked_entities"] == one["tracked_entities"] + two["tracked_entities"] == 3
+    assert both["total"] == 3 and both["threshold"] == engine.threshold
+    assert sum(both["score_bands"].values()) == 3 and both["bands"] == both["score_bands"]

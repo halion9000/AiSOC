@@ -24,7 +24,6 @@ Endpoint surface mirrors services/fusion/app/api/router.py:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import re
@@ -69,14 +68,17 @@ def _validate_proxy_path(path: str) -> str:
     return path
 
 
-async def _proxy_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """Forward GET to fusion if configured. Return None on transport error."""
+async def _forward(method: str, path: str, *, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Send a request to fusion if configured. Return None on a 5xx or a transport error."""
     if not _FUSION_URL:
         return None
     safe_path = _validate_proxy_path(path)
     try:
         async with httpx.AsyncClient(timeout=15.0, headers=fusion_service_headers()) as client:
-            resp = await client.get(f"{_FUSION_URL}{safe_path}", params=params or {})
+            if method == "POST":
+                resp = await client.post(f"{_FUSION_URL}{safe_path}", json=body or {})
+            else:
+                resp = await client.get(f"{_FUSION_URL}{safe_path}", params=params or {})
         if resp.status_code >= 500:
             logger.warning(
                 "fusion.upstream_error",
@@ -100,6 +102,16 @@ async def _proxy_get(path: str, params: dict[str, Any] | None = None) -> dict[st
             extra={"err": safe_log_value(str(exc))},
         )
         return None
+
+
+async def _proxy_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Forward GET to fusion if configured. Return None on transport error."""
+    return await _forward("GET", path, params=params)
+
+
+async def _proxy_post(path: str, body: dict[str, Any]) -> dict[str, Any] | None:
+    """Forward a POST with a JSON body to fusion if configured. Return None on transport error."""
+    return await _forward("POST", path, body=body)
 
 
 # ─── Health / metrics ──────────────────────────────────────────────────────
@@ -158,7 +170,7 @@ def _effective_tenant(tenant_id: UUID | None, user: AuthUser, clients: dict[str,
     return resolve_requested_tenant(user, tenant_id, also_allowed=(clients or {}).keys())
 
 
-_MAX_CLIENTS = 50
+_MAX_CLIENTS = 1000  # fusion's rollup routes take at most this many tenants in one call
 
 
 async def _client_tenants(db: Any, own: Any) -> dict[str, str]:
@@ -220,24 +232,6 @@ def _shape_stats(st: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _sum_stats(parts: list[dict[str, Any]]) -> dict[str, Any]:
-    """Add up the per-tenant stats of a parent and its clients: numbers are summed, the banded counts are summed key by key, anything else (the threshold) is kept from the first."""
-    out: dict[str, Any] = {}
-    for part in parts:
-        for key, value in part.items():
-            if isinstance(value, bool) or key == "tenant_id":
-                out.setdefault(key, value)
-            elif isinstance(value, int | float):
-                out[key] = out.get(key, 0) + value if key != "threshold" else out.get(key, value)
-            elif isinstance(value, dict):
-                merged = out.setdefault(key, {})
-                for k, v in value.items():
-                    merged[k] = merged.get(k, 0) + v if isinstance(v, int | float) else merged.get(k, v)
-            else:
-                out.setdefault(key, value)
-    return out
-
-
 @router.get("/entity-risk/queue", summary="Top entities by risk score")
 async def entity_risk_queue(
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
@@ -251,35 +245,24 @@ async def entity_risk_queue(
     # A parent that did not name a tenant sees its own entities and its clients' together (each row says which client): alerts for a mapped client are scored under that client's
     # tenant, so reading only the parent's would show nothing for them.
     scope = [tenant, *clients] if tenant_id is None and clients else [tenant]
-    results = await asyncio.gather(
-        *(
-            _proxy_get("/entity-risk/queue", params={"tenant_id": t, "limit": limit, "promoted_only": str(promoted_only).lower()})
-            for t in scope
-        ),
-        return_exceptions=True,
-    )
-    answers = [r for r in results if isinstance(r, dict)]
     if len(scope) == 1:
-        if results and isinstance(results[0], BaseException):
-            raise results[0]
-        if answers:
-            one = answers[0]
+        one = await _proxy_get(
+            "/entity-risk/queue", params={"tenant_id": tenant, "limit": limit, "promoted_only": str(promoted_only).lower()}
+        )
+        if one is not None:
             threshold = one.get("threshold", _DEFAULT_THRESHOLD)
             return {**one, "entities": [_shape_entity(e, threshold) for e in one.get("entities", [])]}
-    elif answers:
-        threshold = answers[0].get("threshold", _DEFAULT_THRESHOLD)
-        entities = [
-            _shape_entity({**e, "client_name": clients.get(str(e.get("tenant_id")))}, threshold)
-            for a in answers
-            for e in a.get("entities", [])
-        ]
-        entities.sort(key=lambda e: e.get("score", 0), reverse=True)
-        return {
-            "tenant_id": tenant,
-            "threshold": answers[0].get("threshold", _DEFAULT_THRESHOLD),
-            "entities": entities[:limit],
-            "rolled_up": True,
-        }
+    else:
+        # One call for the whole fleet: fusion merges the tenants and applies the limit once, instead of this gateway asking once per client.
+        rolled = await _proxy_post("/entity-risk/rollup/queue", {"tenant_ids": scope, "limit": limit, "promoted_only": promoted_only})
+        if rolled is not None:
+            threshold = rolled.get("threshold", _DEFAULT_THRESHOLD)
+            return {
+                "tenant_id": tenant,
+                "threshold": threshold,
+                "entities": [_shape_entity({**e, "client_name": clients.get(str(e.get("tenant_id")))}, threshold) for e in rolled.get("entities", [])],
+                "rolled_up": True,
+            }
     return {
         "tenant_id": tenant,
         "threshold": _DEFAULT_THRESHOLD,
@@ -296,15 +279,14 @@ async def entity_risk_stats(
     clients = await _client_tenants(db, user.tenant_id)
     tenant = _effective_tenant(tenant_id, user, clients)
     scope = [tenant, *clients] if tenant_id is None and clients else [tenant]
-    results = await asyncio.gather(*(_proxy_get("/entity-risk/stats", params={"tenant_id": t}) for t in scope), return_exceptions=True)
-    answers = [r for r in results if isinstance(r, dict)]
     if len(scope) == 1:
-        if results and isinstance(results[0], BaseException):
-            raise results[0]
-        if answers:
-            return _shape_stats(answers[0])
-    elif answers:
-        return _shape_stats({**_sum_stats(answers), "tenant_id": tenant, "rolled_up": True})
+        one = await _proxy_get("/entity-risk/stats", params={"tenant_id": tenant})
+        if one is not None:
+            return _shape_stats(one)
+    else:
+        rolled = await _proxy_post("/entity-risk/rollup/stats", {"tenant_ids": scope, "limit": 1})
+        if rolled is not None:
+            return _shape_stats({**rolled, "tenant_id": tenant, "rolled_up": True})
     return {
         "tenant_id": tenant,
         "threshold": _DEFAULT_THRESHOLD,

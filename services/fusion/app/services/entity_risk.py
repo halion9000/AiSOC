@@ -27,6 +27,7 @@ API service re-checks tenant on read.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import time
@@ -180,6 +181,56 @@ class EntityRiskEngine:
                 continue
             records.append(rec)
         return records
+
+    async def top_entities_many(
+        self,
+        tenant_ids: list[UUID | str],
+        *,
+        limit: int = 25,
+        promoted_only: bool = False,
+    ) -> list[EntityRiskRecord]:
+        """The top-N entities by score across several tenants at once (an MSSP parent and its clients).
+
+        One ranked list: each tenant's own top-N is read from its sorted set, merged by score, and only the winners are loaded."""
+        tenants = [str(t) for t in dict.fromkeys(tenant_ids)]
+        if promoted_only:
+            per_tenant = await asyncio.gather(*(self.top_entities(t, limit=limit, promoted_only=True) for t in tenants))
+            merged = [r for records in per_tenant for r in records]
+            merged.sort(key=lambda r: r.score, reverse=True)
+            return merged[:limit]
+        ranges = await asyncio.gather(*(self._redis.zrevrange(_TOPN_KEY + t, 0, max(0, limit - 1), withscores=True) for t in tenants))
+        ranked = sorted(
+            ((score, t, member) for t, raw in zip(tenants, ranges, strict=True) for member, score in raw),
+            key=lambda row: row[0],
+            reverse=True,
+        )[:limit]
+        records: list[EntityRiskRecord] = []
+        for _score, t, member in ranked:
+            entity = member.decode() if isinstance(member, bytes | bytearray) else member
+            entity_type, _, entity_value = entity.partition("::")
+            rec = await self._load(t, entity_type, entity_value)
+            if rec is not None:
+                records.append(rec)
+        return records
+
+    async def stats_many(self, tenant_ids: list[UUID | str]) -> dict:
+        """``stats`` summed over several tenants."""
+        parts = await asyncio.gather(*(self.stats(t) for t in dict.fromkeys(tenant_ids)))
+        bands = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for part in parts:
+            for band, count in part["score_bands"].items():
+                bands[band] = bands.get(band, 0) + count
+        tracked = sum(p["tracked_entities"] for p in parts)
+        promoted = sum(p["promoted_entities"] for p in parts)
+        return {
+            "tracked_entities": tracked,
+            "promoted_entities": promoted,
+            "score_bands": bands,
+            "threshold": self._threshold,
+            "total": tracked,
+            "promoted": promoted,
+            "bands": bands,
+        }
 
     async def get(self, tenant_id: UUID | str, entity_type: str, entity_value: str) -> EntityRiskRecord | None:
         return await self._load(str(tenant_id), entity_type, entity_value)

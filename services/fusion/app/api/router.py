@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.core.service_auth import require_service_token
 from app.models.alert import AnalystFeedback, FusedAlert, FusionDecision, RawAlert
@@ -126,6 +127,29 @@ async def entity_risk_stats(tenant_id: UUID):
     """Tenant-scoped queue stats for dashboards (banding, totals, threshold)."""
     eng = _require_entity_risk()
     return {"tenant_id": str(tenant_id), **(await eng.stats(tenant_id))}
+
+
+class EntityRiskRollup(BaseModel):
+    """Several tenants read together. The API gateway builds this list from the caller's own client tenants, never from the request."""
+
+    tenant_ids: list[UUID] = Field(min_length=1, max_length=1000)
+    limit: int = Field(default=25, ge=1, le=200)
+    promoted_only: bool = False
+
+
+@router.post("/entity-risk/rollup/queue", dependencies=[Depends(require_service_token)])
+async def entity_risk_rollup_queue(body: EntityRiskRollup):
+    """Top entities across several tenants as one ranked list (each row carries its own tenant_id)."""
+    eng = _require_entity_risk()
+    records = await eng.top_entities_many(body.tenant_ids, limit=body.limit, promoted_only=body.promoted_only)
+    return {"threshold": eng.threshold, "entities": [r.to_dict() for r in records]}
+
+
+@router.post("/entity-risk/rollup/stats", dependencies=[Depends(require_service_token)])
+async def entity_risk_rollup_stats(body: EntityRiskRollup):
+    """Queue stats summed across several tenants."""
+    eng = _require_entity_risk()
+    return await eng.stats_many(body.tenant_ids)
 
 
 @router.get("/entity-risk/{entity_type}/{entity_value}", dependencies=[Depends(require_service_token)])

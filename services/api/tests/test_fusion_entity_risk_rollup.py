@@ -36,6 +36,24 @@ class Upstream:
     def __init__(self, queues, stats):
         self.queues, self.stats, self.asked = queues, stats, []
 
+    async def post(self, path, body):
+        """The rollup routes: ONE request names every tenant, and fusion answers with them merged."""
+        ids = body["tenant_ids"]
+        self.asked.extend(ids)
+        self.posts = getattr(self, "posts", 0) + 1
+        if path.endswith("/queue"):
+            rows = [e for t in ids for e in self.queues.get(t, [])]
+            rows.sort(key=lambda e: e["score"], reverse=True)
+            return {"threshold": 80.0, "entities": rows[: body["limit"]]}
+        empty = {"total": 0, "promoted": 0, "bands": {"critical": 0, "high": 0, "medium": 0, "low": 0}}
+        parts = [self.stats.get(t, empty) for t in ids]
+        return {
+            "threshold": 80.0,
+            "total": sum(p["total"] for p in parts),
+            "promoted": sum(p["promoted"] for p in parts),
+            "bands": {k: sum(p["bands"][k] for p in parts) for k in empty["bands"]},
+        }
+
     async def get(self, path, params=None):
         t = params["tenant_id"]
         self.asked.append(t)
@@ -77,6 +95,7 @@ def test_parent_without_a_tenant_gets_own_and_client_entities_merged_by_score_wi
             {},
         )
         monkeypatch.setattr(ep, "_proxy_get", up.get)
+        monkeypatch.setattr(ep, "_proxy_post", up.post)
         out = await ep.entity_risk_queue(user(parent.id), s, None, 25, False)
         assert [e["entity_value"] for e in out["entities"]] == ["sp-pc", "tc-pc", "own-pc"]
         assert {e["entity_value"]: e["client_name"] for e in out["entities"]} == {"sp-pc": "Setpoint", "tc-pc": "Tecovas", "own-pc": None}
@@ -119,10 +138,39 @@ def test_stats_add_up_across_the_parent_and_its_clients(monkeypatch):
             str(parent.id): {"total": 1, "promoted": 0, "bands": {"critical": 0, "high": 0, "medium": 1, "low": 0}},
             str(a.id): {"total": 2, "promoted": 1, "bands": {"critical": 1, "high": 0, "medium": 0, "low": 1}},
         }
-        monkeypatch.setattr(ep, "_proxy_get", Upstream({}, stats).get)
+        up = Upstream({}, stats)
+        monkeypatch.setattr(ep, "_proxy_get", up.get)
+        monkeypatch.setattr(ep, "_proxy_post", up.post)
         out = await ep.entity_risk_stats(user(parent.id), s, None)
         assert out["total"] == 3 and out["promoted"] == 1 and out["threshold"] == 80.0
         assert out["bands"] == {"critical": 1, "high": 0, "medium": 1, "low": 1}
+        assert up.posts == 1 and str(other.id) not in up.asked
+
+    run(go)
+
+
+def test_every_client_is_included_not_just_the_first_fifty(monkeypatch):
+    """The rollup used to stop at 50 clients (by name), so a parent with 240 saw about a fifth of its entities, and could not open a later client's entity at all."""
+
+    async def go(s):
+        parent = tenant("Parent")
+        s.add(parent)
+        clients = [tenant(f"c{i:03d}", parent.id) for i in range(120)]
+        s.add_all(clients)
+        await s.commit()
+        last = clients[-1]
+        up = Upstream({str(last.id): [ent(last.id, "late-pc", 70)]}, {})
+        monkeypatch.setattr(ep, "_proxy_get", up.get)
+        monkeypatch.setattr(ep, "_proxy_post", up.post)
+        out = await ep.entity_risk_queue(user(parent.id), s, None, 25, False)
+        assert [e["entity_value"] for e in out["entities"]] == ["late-pc"]
+        assert out["entities"][0]["client_name"] == last.name
+        assert up.posts == 1 and len(up.asked) == 121, "one call carrying the parent and all 120 clients"
+        # and a client past the old cap can be named directly
+        up2 = Upstream({str(last.id): [ent(last.id, "late-pc", 70)]}, {})
+        monkeypatch.setattr(ep, "_proxy_get", up2.get)
+        one = await ep.entity_risk_queue(user(parent.id), s, last.id, 25, False)
+        assert [e["entity_value"] for e in one["entities"]] == ["late-pc"]
 
     run(go)
 
