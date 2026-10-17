@@ -38,7 +38,7 @@ from route_introspect import required_permissions
 CIPHER_CALLS = [
     ("aisoc_alert_stats", "GET", "/alerts/stats", [], None, False),
     ("aisoc_list_alerts (triage queue)", "GET", "/alerts/queue", ["page_size", "page"], None, False),
-    ("aisoc_list_alerts (filtered)", "GET", "/alerts", ["severity", "status", "page_size", "page"], None, False),
+    ("aisoc_list_alerts (filtered)", "GET", "/alerts", ["severity", "status", "search", "source", "page_size", "page"], None, False),
     ("aisoc_get_alert", "GET", "/alerts/{id}", [], None, False),
     ("aisoc_list_cases", "GET", "/cases", ["limit", "status"], None, False),
     ("aisoc_get_case", "GET", "/cases/{id}", [], None, False),
