@@ -67,6 +67,13 @@ def test_a_record_that_names_no_client_has_no_key(event):
     assert client_key(event) is None
 
 
+def test_the_same_client_id_as_a_number_or_padded_text_is_one_key():
+    assert client_key(_event("huntress", organization_id=7)) == ("huntress", "7")
+    assert client_key(_event("huntress", organization_id="  7  ")) == ("huntress", "7")
+    assert client_key(_event("huntress", organization_id=True)) is None
+    assert client_key(_event("huntress", organization_id="   ")) is None
+
+
 # ---- routing ----------------------------------------------------------------------------------------------------------------------------------------------
 
 
