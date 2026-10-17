@@ -169,12 +169,24 @@ async def _client_tenants(db: Any, own: Any) -> dict[str, str]:
     return {str(r[0]): r[1] for r in rows}
 
 
+def _fix_z(value: Any) -> Any:
+    """'...+00:00Z' -> '...Z'. Fusion once stacked an offset in front of the Z for a timezone-aware alert time; a browser reads that as an Invalid Date and the entity drawer crashed. Records already stored that way age out of Redis in a day."""
+    if isinstance(value, str) and value.endswith("+00:00Z"):
+        return value[: -len("+00:00Z")] + "Z"
+    return value
+
+
 def _shape_entity(rec: dict[str, Any], threshold: float) -> dict[str, Any]:
     """Give a fusion entity record the fields the console reads (display_score, threshold, promoted, first_seen, contributions, severity_histogram).
 
     The fusion service names them differently (score, promoted_at, contributors, severities), and the console read ``record.contributions.length`` and
     ``new Date(record.first_seen)``, so a real record would have broken the page. Only fields that are missing are added."""
-    contributors = [c for c in (rec.get("contributors") or []) if isinstance(c, dict)]
+    rec = {
+        **rec,
+        **{k: _fix_z(rec[k]) for k in ("last_seen", "promoted_at") if k in rec},
+        "contributors": [{**c, "at": _fix_z(c.get("at"))} if isinstance(c, dict) else c for c in (rec.get("contributors") or [])],
+    }
+    contributors = [c for c in rec["contributors"] if isinstance(c, dict)]
     score = rec.get("score", 0) or 0
     shaped = {
         "display_score": round(score),

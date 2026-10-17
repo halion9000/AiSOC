@@ -359,3 +359,32 @@ async def test_tenants_are_isolated(engine: EntityRiskEngine) -> None:
     queue_b = await engine.top_entities(other_tenant)
     assert all(r.tenant_id == str(_TENANT) for r in queue_a)
     assert all(r.tenant_id == str(other_tenant) for r in queue_b)
+
+
+def _parses_as_utc_z(value: str) -> bool:
+    """True only for a timestamp a browser's Date can read: no offset stacked in front of the trailing Z."""
+    if not value.endswith("Z") or "+" in value:
+        return False
+    try:
+        datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return True
+
+
+@pytest.mark.asyncio
+async def test_timestamps_are_valid_utc_for_timezone_aware_alerts(engine: EntityRiskEngine) -> None:
+    """An alert whose event_time carries an offset used to come out as '...+00:00Z', which the console reads as an Invalid Date and crashes the drawer on."""
+    from datetime import UTC
+
+    alert = _alert(username="tz-user")
+    alert.event_time = datetime(2026, 8, 8, 0, 41, 29, tzinfo=UTC)
+    for _ in range(5):
+        await engine.observe(alert.model_copy(update={"id": uuid4()}))
+    rec = await engine.get(_TENANT, "user", "tz-user")
+    assert rec is not None
+    out = rec.to_dict()
+    assert _parses_as_utc_z(out["last_seen"])
+    assert out["promoted_at"] is None or _parses_as_utc_z(out["promoted_at"])
+    assert out["contributors"]
+    assert all(_parses_as_utc_z(c["at"]) for c in out["contributors"])

@@ -31,7 +31,7 @@ import json
 import math
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 import redis.asyncio as aioredis
@@ -51,6 +51,13 @@ _TOPN_KEY = "aisoc:fusion:rba:topn:"
 _PROMOTED_KEY = "aisoc:fusion:rba:promoted:"
 
 ENTITY_TYPES: tuple[str, ...] = ("user", "host", "src_ip", "domain")
+
+
+def _utc_z(moment: datetime) -> str:
+    """A UTC ISO-8601 timestamp ending in Z. A timezone-aware value is converted to UTC first: appending 'Z' to its isoformat gave '...+00:00Z', which a browser reads as an Invalid Date."""
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(UTC).replace(tzinfo=None)
+    return moment.isoformat() + "Z"
 
 
 @dataclass(frozen=True)
@@ -88,10 +95,10 @@ class EntityRiskRecord:
             "entity_value": self.entity_value,
             "score": round(self.score, 2),
             "alert_count": self.alert_count,
-            "last_seen": self.last_seen.isoformat() + "Z",
+            "last_seen": _utc_z(self.last_seen),
             "contributing_alerts": self.contributing_alerts,
             "severities": self.severities,
-            "promoted_at": (self.promoted_at.isoformat() + "Z") if self.promoted_at else None,
+            "promoted_at": _utc_z(self.promoted_at) if self.promoted_at else None,
             "contributors": self.contributors or [],
         }
 
@@ -274,7 +281,7 @@ class EntityRiskEngine:
                 "severity": sig.severity,
                 "detection": sig.detection,
                 "points": sig.points,
-                "at": sig.occurred_at.isoformat() + "Z",
+                "at": _utc_z(sig.occurred_at),
             }
         )
         if len(contributors) > 25:

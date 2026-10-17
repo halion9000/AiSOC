@@ -181,3 +181,14 @@ def test_the_queue_route_shapes_what_it_returns(monkeypatch):
         assert out["entities"][0]["contributions"][0]["alert_id"] == "a2" and out["entities"][0]["display_score"] == 12
 
     run(go)
+
+
+def test_a_record_stored_with_an_offset_before_the_z_is_repaired():
+    """Fusion used to write '...+00:00Z' for a timezone-aware alert time; a browser reads that as an Invalid Date and the entity drawer crashed."""
+    bad = "2026-08-08T00:41:29+00:00Z"
+    rec = {**FUSION_RECORD, "last_seen": bad, "contributors": [{**FUSION_RECORD["contributors"][0], "at": bad}]}
+    out = ep._shape_entity(rec, 80.0)
+    assert out["first_seen"] == "2026-08-08T00:41:29Z"
+    assert out["contributions"][0]["observed_at"] == "2026-08-08T00:41:29Z"
+    assert out["last_seen"] == "2026-08-08T00:41:29Z"
+    assert out["contributors"][0]["at"] == "2026-08-08T00:41:29Z"
