@@ -54,6 +54,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
 
   redis:
     image: redis:7-alpine
@@ -70,6 +72,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -137,6 +141,8 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
     networks:
       - aisoc
+    restart: unless-stopped
+
 
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
@@ -160,6 +166,8 @@ services:
         hard: 262144
     mem_limit: 1g
     mem_reservation: 768m
+    restart: unless-stopped
+
 
   opensearch:
     image: opensearchproject/opensearch:2.11.0
@@ -182,8 +190,10 @@ services:
       - "127.0.0.1:9200:9200"
     networks:
       - aisoc
-    mem_limit: 1g
-    mem_reservation: 768m
+    mem_limit: 1536m
+    mem_reservation: 1g
+    restart: unless-stopped
+
 
   qdrant:
     image: qdrant/qdrant:v1.7.0
@@ -194,6 +204,8 @@ services:
       - qdrant_data:/qdrant/storage
     networks:
       - aisoc
+    restart: unless-stopped
+
 
   neo4j:
     image: neo4j:5.15-community
@@ -220,6 +232,8 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
+    restart: unless-stopped
+
 
   # ─── Application Services ────────────────────────────────────────────────────
 
@@ -415,6 +429,9 @@ services:
       # Bearer token required on every route except /health and /metrics; an empty token answers 503.
       ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
+      # Fuse-time enrichment: without these fusion called http://localhost:8082 (itself) with no token, so no alert ever got threat intel.
+      ENRICHMENT_SERVICE_URL: http://enrichment:8082
+      AISOC_ENRICHMENT_SERVICE_TOKEN: ${AISOC_ENRICHMENT_SERVICE_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_URL: redis://:redis_dev_secret@redis:6379/3
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
@@ -428,7 +445,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8003/health',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8003/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
       interval: 15s
       timeout: 5s
       retries: 5
@@ -485,7 +502,10 @@ services:
       OPENAI_BASE_URL: http://litellm:4000/v1
       OPENAI_API_KEY: ${LITELLM_MASTER_KEY:-sk-aisoc-local}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-aisoc-triage}
+      # The UEBA service listens on 8004 (the agents' built-in default is 8086, which nothing serves) and needs its bearer token.
+      AISOC_UEBA_URL: http://ueba:8004
+      AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
       # Issue #478 — the LiteLLM gateway (below) is the single entry point for
       # live LLM calls when enabled. Agents now routes through it by default.
       LLM_GATEWAY_URL: http://litellm:4000/v1
@@ -777,6 +797,8 @@ services:
     environment:
       # Bearer token required on every route; an empty token answers 503 (nothing in the repo calls this service yet).
       AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
+      # No OTLP collector runs in this stack; without this the exporter retries localhost:4317 and logs an error every ~10 s.
+      OTEL_SDK_DISABLED: "true"
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc
       REDIS_URL: redis://:redis_dev_secret@redis:6379/8
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
@@ -984,8 +1006,10 @@ services:
     pull_policy: build
     container_name: aisoc-web
     depends_on:
-      - api
-      - realtime
+      api:
+        condition: service_healthy
+      realtime:
+        condition: service_started
     ports:
       - "${AISOC_BIND_ADDR:-127.0.0.1}:3000:3000"
     environment:
@@ -999,6 +1023,12 @@ services:
       # since setting them here never did anything.
       API_URL: http://api:8000
       NODE_ENV: production
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - aisoc
     restart: unless-stopped
