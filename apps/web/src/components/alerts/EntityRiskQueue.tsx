@@ -217,6 +217,11 @@ function EntityRow({
           <span className="text-sm text-gray-200 truncate font-medium">
             {record.entity_value}
           </span>
+          {record.client_name && (
+            <span className="text-xs text-gray-500 truncate shrink-0" data-testid="entity-client">
+              {record.client_name}
+            </span>
+          )}
           {record.promoted && (
             <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30 shrink-0">
               Promoted
@@ -265,11 +270,13 @@ function EntityDetailDrawer({
   onClose: () => void;
 }) {
   const cfg = ENTITY_TYPE_CONFIG[entity.entity_type] ?? ENTITY_TYPE_CONFIG.user;
+  // A row that belongs to one of the caller's clients (a parent's combined view) is asked about under that client; every other row under the tenant being viewed.
+  const detailTenant = tenantId ?? (entity.client_name ? entity.tenant_id : undefined);
   // Pull a fresh detail record so contributions are up-to-date when the drawer
   // opens — falls back to the row data on error.
   const { data } = useSWR(
-    ['entity-risk-detail', tenantId, entity.entity_type, entity.entity_value],
-    () => entityRiskApi.get(entity.entity_type, entity.entity_value, tenantId ?? undefined),
+    ['entity-risk-detail', detailTenant, entity.entity_type, entity.entity_value],
+    () => entityRiskApi.get(entity.entity_type, entity.entity_value, detailTenant),
     { fallbackData: entity, refreshInterval: 30000 },
   );
   const record = data ?? entity;

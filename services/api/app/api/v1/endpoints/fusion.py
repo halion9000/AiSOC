@@ -24,6 +24,7 @@ Endpoint surface mirrors services/fusion/app/api/router.py:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -33,10 +34,13 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.core.internal_auth import fusion_service_headers
 from app.core.logging import safe_log_value
+from app.db.rls import TenantDBSession
+from app.models.tenant import Tenant
 from app.services.tenant_selection import resolve_requested_tenant
 
 logger = logging.getLogger(__name__)
@@ -146,32 +150,124 @@ async def ml_status() -> dict[str, Any]:
 _DEFAULT_THRESHOLD = 80.0
 
 
-def _effective_tenant(tenant_id: UUID | None, user: AuthUser) -> str:
+def _effective_tenant(tenant_id: UUID | None, user: AuthUser, clients: dict[str, str] | None = None) -> str:
     """The tenant this request is for. The fusion service trusts the tenant_id it is sent, so the check lives here.
 
     Omitted: the caller's own tenant (taken from their verified login, never from the request), so a client never has to know or guess it: the console used to send a BUILD-TIME constant here, which is 'default' (not even a UUID: a 422) on a standard build and some other tenant's id elsewhere (a 403).
-    Naming a tenant other than your own needs platform:cross_tenant_query (app.services.tenant_selection)."""
-    return resolve_requested_tenant(user, tenant_id)
+    Naming one of the caller's own client tenants (an MSSP parent looking at a client it manages) is allowed; naming any other tenant needs platform:cross_tenant_query (app.services.tenant_selection)."""
+    return resolve_requested_tenant(user, tenant_id, also_allowed=(clients or {}).keys())
+
+
+_MAX_CLIENTS = 50
+
+
+async def _client_tenants(db: Any, own: Any) -> dict[str, str]:
+    """The caller's client tenants (id -> name): the tenants whose parent is the caller's own. Empty for a tenant with no clients."""
+    rows = (
+        await db.execute(select(Tenant.id, Tenant.name).where(Tenant.parent_tenant_id == own).order_by(Tenant.name).limit(_MAX_CLIENTS))
+    ).all()
+    return {str(r[0]): r[1] for r in rows}
+
+
+def _shape_entity(rec: dict[str, Any], threshold: float) -> dict[str, Any]:
+    """Give a fusion entity record the fields the console reads (display_score, threshold, promoted, first_seen, contributions, severity_histogram).
+
+    The fusion service names them differently (score, promoted_at, contributors, severities), and the console read ``record.contributions.length`` and
+    ``new Date(record.first_seen)``, so a real record would have broken the page. Only fields that are missing are added."""
+    contributors = [c for c in (rec.get("contributors") or []) if isinstance(c, dict)]
+    score = rec.get("score", 0) or 0
+    shaped = {
+        "display_score": round(score),
+        "threshold": threshold,
+        "promoted": bool(rec.get("promoted_at")),
+        "promoted_incident_id": None,
+        "first_seen": min((str(c["at"]) for c in contributors if c.get("at")), default=None) or rec.get("last_seen"),
+        "contributions": [
+            {
+                "alert_id": c.get("alert_id"),
+                "severity": c.get("severity"),
+                "raw_points": c.get("points", 0),
+                "observed_at": c.get("at"),
+                "title": c.get("detection"),
+                "source": None,
+            }
+            for c in reversed(contributors)
+        ],
+        "severity_histogram": rec.get("severities") or {},
+    }
+    return {**shaped, **rec}
+
+
+def _shape_stats(st: dict[str, Any]) -> dict[str, Any]:
+    """The console reads total / promoted / bands; fusion calls them tracked_entities / promoted_entities / score_bands."""
+    return {
+        "total": st.get("tracked_entities", 0),
+        "promoted": st.get("promoted_entities", 0),
+        "bands": st.get("score_bands", {"critical": 0, "high": 0, "medium": 0, "low": 0}),
+        **st,
+    }
+
+
+def _sum_stats(parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Add up the per-tenant stats of a parent and its clients: numbers are summed, the banded counts are summed key by key, anything else (the threshold) is kept from the first."""
+    out: dict[str, Any] = {}
+    for part in parts:
+        for key, value in part.items():
+            if isinstance(value, bool) or key == "tenant_id":
+                out.setdefault(key, value)
+            elif isinstance(value, int | float):
+                out[key] = out.get(key, 0) + value if key != "threshold" else out.get(key, value)
+            elif isinstance(value, dict):
+                merged = out.setdefault(key, {})
+                for k, v in value.items():
+                    merged[k] = merged.get(k, 0) + v if isinstance(v, int | float) else merged.get(k, v)
+            else:
+                out.setdefault(key, value)
+    return out
 
 
 @router.get("/entity-risk/queue", summary="Top entities by risk score")
 async def entity_risk_queue(
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: TenantDBSession,
     tenant_id: UUID | None = None,
     limit: int = Query(default=25, ge=1, le=200),
     promoted_only: bool = False,
 ) -> dict[str, Any]:
-    tenant = _effective_tenant(tenant_id, user)
-    upstream = await _proxy_get(
-        "/entity-risk/queue",
-        params={
-            "tenant_id": tenant,
-            "limit": limit,
-            "promoted_only": str(promoted_only).lower(),
-        },
+    clients = await _client_tenants(db, user.tenant_id)
+    tenant = _effective_tenant(tenant_id, user, clients)
+    # A parent that did not name a tenant sees its own entities and its clients' together (each row says which client): alerts for a mapped client are scored under that client's
+    # tenant, so reading only the parent's would show nothing for them.
+    scope = [tenant, *clients] if tenant_id is None and clients else [tenant]
+    results = await asyncio.gather(
+        *(
+            _proxy_get("/entity-risk/queue", params={"tenant_id": t, "limit": limit, "promoted_only": str(promoted_only).lower()})
+            for t in scope
+        ),
+        return_exceptions=True,
     )
-    if upstream is not None:
-        return upstream
+    answers = [r for r in results if isinstance(r, dict)]
+    if len(scope) == 1:
+        if results and isinstance(results[0], BaseException):
+            raise results[0]
+        if answers:
+            one = answers[0]
+            threshold = one.get("threshold", _DEFAULT_THRESHOLD)
+            return {**one, "entities": [_shape_entity(e, threshold) for e in one.get("entities", [])]}
+    elif answers:
+        threshold = answers[0].get("threshold", _DEFAULT_THRESHOLD)
+        entities = [
+            _shape_entity({**e, "client_name": clients.get(str(e.get("tenant_id")))}, threshold)
+            for a in answers
+            for e in a.get("entities", [])
+        ]
+        entities.sort(key=lambda e: e.get("score", 0), reverse=True)
+        return {
+            "tenant_id": tenant,
+            "threshold": answers[0].get("threshold", _DEFAULT_THRESHOLD),
+            "entities": entities[:limit],
+            "rolled_up": True,
+        }
     return {
         "tenant_id": tenant,
         "threshold": _DEFAULT_THRESHOLD,
@@ -182,15 +278,21 @@ async def entity_risk_queue(
 @router.get("/entity-risk/stats", summary="Entity-risk queue stats")
 async def entity_risk_stats(
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: TenantDBSession,
     tenant_id: UUID | None = None,
 ) -> dict[str, Any]:
-    tenant = _effective_tenant(tenant_id, user)
-    upstream = await _proxy_get(
-        "/entity-risk/stats",
-        params={"tenant_id": tenant},
-    )
-    if upstream is not None:
-        return upstream
+    clients = await _client_tenants(db, user.tenant_id)
+    tenant = _effective_tenant(tenant_id, user, clients)
+    scope = [tenant, *clients] if tenant_id is None and clients else [tenant]
+    results = await asyncio.gather(*(_proxy_get("/entity-risk/stats", params={"tenant_id": t}) for t in scope), return_exceptions=True)
+    answers = [r for r in results if isinstance(r, dict)]
+    if len(scope) == 1:
+        if results and isinstance(results[0], BaseException):
+            raise results[0]
+        if answers:
+            return _shape_stats(answers[0])
+    elif answers:
+        return _shape_stats({**_sum_stats(answers), "tenant_id": tenant, "rolled_up": True})
     return {
         "tenant_id": tenant,
         "threshold": _DEFAULT_THRESHOLD,
@@ -209,9 +311,10 @@ async def entity_risk_detail(
     entity_type: str,
     entity_value: str,
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: TenantDBSession,
     tenant_id: UUID | None = None,
 ) -> dict[str, Any]:
-    tenant = _effective_tenant(tenant_id, user)
+    tenant = _effective_tenant(tenant_id, user, await _client_tenants(db, user.tenant_id))
     if entity_type == "ip":
         entity_type = "src_ip"
     # URL-encode user-controlled path segments so they cannot inject `/`,
@@ -223,7 +326,7 @@ async def entity_risk_detail(
         params={"tenant_id": tenant},
     )
     if upstream is not None:
-        return upstream
+        return _shape_entity(upstream, _DEFAULT_THRESHOLD)
     # No fallback record exists when fusion is offline; surface 404 so the
     # drawer renders its empty state.
     raise HTTPException(status_code=404, detail="entity_not_found")

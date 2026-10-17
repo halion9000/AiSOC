@@ -1356,6 +1356,8 @@ export interface EntityRiskContribution {
 /** A rolled-up entity with its current decayed risk score. */
 export interface EntityRiskRecord {
   tenant_id: string;
+  /** The client this entity belongs to, set when a parent sees its clients' entities together (null for the parent's own). */
+  client_name?: string | null;
   entity_type: EntityType;
   entity_value: string;
   /** Time-decayed score (0 → ∞ in theory, capped in practice by the engine). */

@@ -47,6 +47,19 @@ describe('when the queue loads', () => {
     expect(container.textContent).not.toMatch(/demo/i);
   });
 
+  it('names the client on a row that belongs to one, and asks for its detail under that client', async () => {
+    api.queue.mockResolvedValue({
+      tenant_id: 't1', threshold: 80, rolled_up: true,
+      entities: [{ ...record('sp-pc', 50, false), tenant_id: 'client-1', client_name: 'Setpoint' }, record('own-pc', 10, false)],
+    });
+    api.get.mockResolvedValue({ ...record('sp-pc', 50, false), tenant_id: 'client-1', client_name: 'Setpoint' });
+    renderQueue();
+    expect(await screen.findByText('Setpoint')).toBeInTheDocument();
+    expect(screen.getAllByTestId('entity-client')).toHaveLength(1); // the parent's own row carries no client
+    await userEvent.setup().click(screen.getByText('sp-pc'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('user', 'sp-pc', 'client-1'));
+  });
+
   it('still says so when there genuinely are no entities, and for the promoted-only filter', async () => {
     api.queue.mockResolvedValue({ tenant_id: 't1', threshold: 80, entities: [] });
     api.stats.mockResolvedValue({ ...stats, total: 0, promoted: 0, alert_count: 0 });

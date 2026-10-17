@@ -6,6 +6,7 @@ proven refused. A structural check keeps this table honest against the code.
 """
 
 import uuid
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ from app.api.v1 import deps
 from app.api.v1.deps import CurrentUser
 from app.api.v1.endpoints import airgap, api_keys, compliance, deployment, fusion, llm_status, nl_detection, stix_taxii, translation
 from app.core.security import ROLE_PERMISSIONS, has_permission
+from app.db.rls import get_tenant_db
 from app.main import app
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -67,7 +69,17 @@ def _client(user: CurrentUser) -> TestClient:
     async def fake_db():
         yield None
 
+    class _NoClients:
+        """The entity-risk routes ask which client tenants the caller has; none here."""
+
+        async def execute(self, *_a, **_k):
+            return SimpleNamespace(all=lambda: [])
+
+    async def fake_tenant_db():
+        yield _NoClients()
+
     app.dependency_overrides[deps.get_db] = fake_db
+    app.dependency_overrides[get_tenant_db] = fake_tenant_db
     app.dependency_overrides[deps.get_current_user] = lambda: user
     return TestClient(app, raise_server_exceptions=False)
 
