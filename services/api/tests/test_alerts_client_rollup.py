@@ -262,3 +262,30 @@ def test_search_treats_percent_and_underscore_literally_and_blank_search_is_no_s
         assert (await call(s, parent.id, search="   ")).total == 4
 
     run(go)
+
+
+def test_page_past_the_end_is_empty_but_keeps_totals():
+    async def go(s):
+        parent, *_ = await seed(s)
+        out = await call(s, parent.id, page=5, page_size=3)
+        assert out.items == []
+        assert out.total == 4 and out.pages == 2
+
+    run(go)
+
+
+def test_device_filter_pages_across_client_tenants():
+    async def go(s):
+        parent, a, b, _ = await seed(s)
+        for i, (t, host) in enumerate([(a, "SRV-01"), (b, "srv-01"), (b, "srv-010"), (a, "OTHER")]):
+            x = alert(t, f"host-{i}", i + 10)
+            x.affected_hosts = [host]
+            s.add(x)
+        await s.commit()
+        p1 = await call(s, parent.id, device="srv-01", page=1, page_size=1)
+        p2 = await call(s, parent.id, device="SRV-01", page=2, page_size=1)
+        assert [i.title for i in p1.items] == ["host-0"]
+        assert [i.title for i in p2.items] == ["host-1"]
+        assert p1.total == 2 and p1.pages == 2  # srv-010 and OTHER do not match
+
+    run(go)
