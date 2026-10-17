@@ -10,6 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { PushManager } from './push';
 import { resolveTicketSecret, verifyRealtimeTicket } from './auth';
 import { internalAuth } from './internal-auth';
+import { createRateLimiter, pushableAlert } from './alert-notify';
 
 const log = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -219,20 +220,14 @@ server.on('upgrade', (req, socket, head) => {
 // channel it subscribed to so broadcasts can filter cheaply.
 const clients = new Map<string, Set<any>>();
 
-// Simple IP-based connection rate limiter: max 20 WS connections per IP per minute.
-const wsConnectCounts = new Map<string, { count: number; resetAt: number }>();
+// Simple IP-based connection rate limiter: max 20 WS connections per IP per minute. Expired entries are pruned on a timer: the map used to keep one entry per IP forever.
 const WS_RATE_LIMIT = 20;
 const WS_RATE_WINDOW_MS = 60_000;
+const wsRateLimiter = createRateLimiter({ limit: WS_RATE_LIMIT, windowMs: WS_RATE_WINDOW_MS });
+setInterval(() => wsRateLimiter.prune(), WS_RATE_WINDOW_MS).unref();
 
 function wsRateLimitExceeded(ip: string): boolean {
-  const now = Date.now();
-  let entry = wsConnectCounts.get(ip);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 0, resetAt: now + WS_RATE_WINDOW_MS };
-    wsConnectCounts.set(ip, entry);
-  }
-  entry.count += 1;
-  return entry.count > WS_RATE_LIMIT;
+  return wsRateLimiter.exceeded(ip);
 }
 
 wss.on('connection', (ws, req) => {
@@ -260,6 +255,11 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     clients.get(tenantId)?.delete(ws);
     log.info({ tenantId, channel }, 'WebSocket client disconnected');
+  });
+
+  // An 'error' event with no listener is thrown by the EventEmitter and takes the whole process down (every tenant's live feed) on one malformed client frame.
+  ws.on('error', (err: unknown) => {
+    log.warn({ err, tenantId, channel }, 'WebSocket client error');
   });
 
   ws.send(JSON.stringify({ type: 'connected', tenantId, channel }));
@@ -430,34 +430,21 @@ async function startKafkaConsumer() {
           timestamp: new Date().toISOString(),
         });
 
-        // Fan out P0/critical alerts to mobile responders. Lower-severity
-        // alerts stay WebSocket-only so we don't pager-storm on-call.
-        const severity = String(
-          event?.alert?.severity ?? event?.severity ?? '',
-        ).toLowerCase();
-        if (
-          pushManager.enabled &&
-          (severity === 'critical' || severity === 'high')
-        ) {
-          const alertId =
-            event?.alert?.id ?? event?.alert?.alert_id ?? event?.id ?? 'unknown';
-          const title = `${severity === 'critical' ? 'P0' : 'P1'} alert · ${
-            event?.alert?.title ?? event?.title ?? 'New alert'
-          }`;
+        // Fan out P0/critical alerts to mobile responders. Lower-severity alerts stay WebSocket-only so we don't pager-storm on-call, and duplicates / alerts that were not
+        // stored are not pushed again (see pushableAlert).
+        const push = pushManager.enabled ? pushableAlert(event) : null;
+        if (push) {
           pushManager
             .sendToTarget(
               { tenant_id: tenantId, topic: 'p0_alert' },
               {
-                title,
-                body:
-                  event?.alert?.summary ??
-                  event?.summary ??
-                  'Tap to triage in the responder console',
-                url: `/responder/triage/${alertId}`,
-                tag: `alert-${alertId}`,
+                title: push.title,
+                body: push.body,
+                url: `/responder/triage/${push.alertId}`,
+                tag: `alert-${push.alertId}`,
                 topic: 'p0_alert',
-                severity: severity as 'critical' | 'high',
-                alert_id: String(alertId),
+                severity: push.severity,
+                alert_id: push.alertId,
               },
             )
             .catch((err: unknown) =>
