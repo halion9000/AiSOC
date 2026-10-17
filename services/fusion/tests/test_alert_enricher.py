@@ -122,3 +122,48 @@ async def test_enrich_is_fail_soft_on_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_enrich_no_iocs_short_circuits():
     assert await _enricher().enrich(_alert()) == {}
+
+
+def test_private_and_loopback_ips_are_never_sent_to_the_enrichment_service():
+    """Internal addresses went out to third-party TI providers (and can never be in a feed anyway)."""
+    alert = _alert(src_ip="10.1.2.3", dst_ip="8.8.8.8", domain="evil.test")
+    values = {i["value"] for i in AlertEnricher.extract_iocs(alert)}
+    assert values == {"8.8.8.8", "evil.test"}
+    for private in ("192.168.0.9", "172.16.5.5", "127.0.0.1", "169.254.1.1", "::1", "fd00::1"):
+        assert AlertEnricher.extract_iocs(_alert(src_ip=private)) == []
+
+
+@pytest.mark.asyncio
+async def test_enrich_authenticates_to_the_service(monkeypatch):
+    """The enrichment service requires a bearer token and the enricher sent none: every call was a silent 401, so no alert ever got threat-intel."""
+    seen: dict[str, Any] = {}
+    ok = _FakeResp(200, {"results": []})
+
+    class _Client:
+        def __init__(self, *a, **k) -> None:
+            seen["client_kwargs"] = k
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None):
+            return ok
+
+    monkeypatch.setattr("app.services.alert_enricher.httpx.AsyncClient", _Client)
+    enricher = AlertEnricher(base_url="http://enrich.test:8082", timeout_seconds=1.0, malicious_risk_floor=50.0, token="s3cret")
+    await enricher.enrich(_alert(src_ip="8.8.8.8"))
+    assert seen["client_kwargs"]["headers"] == {"Authorization": "Bearer s3cret"}
+
+
+@pytest.mark.asyncio
+async def test_enrich_failures_are_logged_above_debug(monkeypatch, caplog):
+    """Both failure modes (unreachable URL, 401) were logged at DEBUG, so they were invisible."""
+    import structlog.testing
+
+    monkeypatch.setattr("app.services.alert_enricher.httpx.AsyncClient", _fake_client_factory(error=RuntimeError("boom")))
+    with structlog.testing.capture_logs() as logs:
+        assert await _enricher().enrich(_alert(src_ip="8.8.8.8")) == {}
+    assert any(entry["event"] == "fuse_enrichment.failed" and entry["log_level"] in ("warning", "error") for entry in logs)

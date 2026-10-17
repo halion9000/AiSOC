@@ -104,6 +104,7 @@ class Settings(BaseSettings):
 
     # Enrichment service
     enrichment_service_url: str = Field(default="http://localhost:8082", alias="ENRICHMENT_SERVICE_URL")
+    enrichment_service_token: str = Field(default="", alias="AISOC_ENRICHMENT_SERVICE_TOKEN")
     # Fuse-time streaming enrichment: call the enrichment service for each
     # alert's IOCs and merge TI / vuln matches into fused.enrichments so the
     # confidence threat_intel factor + exploit-in-wild boost actually fire.

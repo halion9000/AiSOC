@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
             base_url=settings.enrichment_service_url,
             timeout_seconds=settings.fuse_enrichment_timeout_seconds,
             malicious_risk_floor=settings.fuse_enrichment_risk_floor,
+            token=settings.enrichment_service_token,
         )
         if settings.fuse_enrichment_enabled
         else None

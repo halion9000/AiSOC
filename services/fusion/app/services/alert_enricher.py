@@ -23,6 +23,7 @@ Honesty + robustness:
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
 
 import httpx
@@ -53,11 +54,20 @@ _SOURCE_TO_TI_KEY: dict[str, str] = {
 }
 
 
+def _is_internal_ip(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved
+
+
 class AlertEnricher:
     """Calls the enrichment service and maps results into fused.enrichments."""
 
-    def __init__(self, *, base_url: str, timeout_seconds: float = 3.0, malicious_risk_floor: float = 50.0) -> None:
+    def __init__(self, *, base_url: str, timeout_seconds: float = 3.0, malicious_risk_floor: float = 50.0, token: str = "") -> None:
         self._base_url = base_url.rstrip("/")
+        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._timeout = timeout_seconds
         self._risk_floor = malicious_risk_floor
 
@@ -69,6 +79,8 @@ class AlertEnricher:
         for field, ioc_type in _IOC_FIELDS:
             val = getattr(alert, field, None)
             if isinstance(val, str) and val.strip():
+                if ioc_type == "ip" and _is_internal_ip(val.strip()):
+                    continue  # an internal address is in no threat feed, and must not be sent to third-party providers
                 key = (ioc_type, val.strip())
                 if key not in seen:
                     seen.add(key)
@@ -81,12 +93,12 @@ class AlertEnricher:
         if not items:
             return {}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers) as client:
                 resp = await client.post(f"{self._base_url}/enrich/bulk", json={"items": items})
                 resp.raise_for_status()
                 results = resp.json().get("results", [])
         except Exception as exc:  # noqa: BLE001 — best-effort; never block fusion
-            logger.debug("fuse_enrichment.failed", error=str(exc))
+            logger.warning("fuse_enrichment.failed", error=str(exc))
             return {}
         return self.to_enrichments(results if isinstance(results, list) else [])
 
