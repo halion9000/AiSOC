@@ -217,9 +217,9 @@ async def create_approval(
 # DECIDING an approval is a person's act: it is the human sign-off for a destructive agent action (isolate a host, disable a user, a
 # destructive playbook step). It needs cases:write AND a signed-in
 # session: an API key, whatever its scopes, is refused. It used to need cases:write alone, so CORE's own key (which holds cases:write) could
-# create an approval and approve it itself; and this handler checks
-# nothing else (not that the decider differs from `requested_by`, not `required_user_id`, not `required_topic`, and it even decides an
-# `expired` request): those are NOT enforced here, only recorded.
+# create an approval and approve it itself. Enforced here: the request has not expired (an expired one can still be DENIED), and when it names
+# `required_user_id` only that person can approve it. NOT enforced (only recorded): `required_topic`, and that the decider differs from
+# `requested_by` (that is an agent name, not a user id).
 @router.post("/{approval_id}/decide", response_model=ApprovalResponse, dependencies=[Depends(require_signed_in_session)])
 async def decide_approval(
     approval_id: uuid.UUID,
@@ -239,12 +239,21 @@ async def decide_approval(
                 AgentApproval.id == approval_id,
                 AgentApproval.tenant_id == user.tenant_id,
             )
+            # Lock the row for the read-then-write below: two concurrent decisions (approve and deny) could both pass the status check and the last write won.
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
 
     new_status = "approved" if body.decision == "approve" else "denied"
+
+    if new_status == "approved":
+        # An approval is a human sign-off for a destructive action taken on the context it was requested in: not one that has since expired, and when a person was named, not anyone else.
+        if row.status == "expired" or (row.expires_at is not None and row.expires_at <= datetime.now(UTC)):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval expired; it can no longer be approved")
+        if row.required_user_id is not None and row.required_user_id != user.user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This approval names a specific approver")
 
     if row.status == new_status:
         return ApprovalResponse.model_validate(row)
@@ -306,7 +315,14 @@ async def _notify_realtime(row: AgentApproval, *, event: str) -> None:
     url = f"{base}/internal/agent-event"
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-            await client.post(url, headers=headers, json=payload)
+            resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code >= 400:
+            # A 401/500 here used to vanish: the agent run never resumed and nothing said why.
+            logger.warning(
+                "Realtime refused approval event (HTTP %s)",
+                resp.status_code,
+                extra={"approval_id": str(row.id), "event": event},
+            )
     except httpx.HTTPError as exc:
         # The approval has already been persisted; failing to notify is
         # a degraded experience, not a data loss event.

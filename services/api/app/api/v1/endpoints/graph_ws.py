@@ -73,6 +73,7 @@ from app.api.v1.dev_auth import (
 )
 from app.core.internal_auth import ingest_service_headers
 from app.core.security import decode_token
+from app.core.token_revocation import is_revoked
 from app.db.database import get_db
 from app.models.tenant import User
 
@@ -152,6 +153,10 @@ async def _authenticate_ws(
         user_uuid = uuid.UUID(sub)
     except ValueError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid subject")
+        return None
+    # The HTTP routes refuse a revoked token (logout, sign out everywhere); the socket did not, so a signed-out or stolen access token still opened this stream.
+    if await is_revoked(payload.get("jti")):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="token revoked")
         return None
     result = await db.execute(select(User).where(User.id == user_uuid, User.is_active.is_(True)))
     user = result.scalar_one_or_none()

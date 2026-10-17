@@ -250,6 +250,14 @@ async def _resolve_api_key(raw_key: str, db: AsyncSession) -> CurrentUser:
             select(User).where(User.id == api_key.user_id, User.is_active == True)  # noqa: E712
         )
         user = user_res.scalar_one_or_none()
+        if user is None:
+            # The person who minted this key is deactivated (or gone). The key used to fall through as a service key with its stored scopes, so offboarding someone left every key
+            # they had minted working until it expired.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="The owner of this API key is no longer active",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         if user is not None:
             role = user.role
             email = user.email or user.account_name  # the label for 'who': the email if there is one, else the account name

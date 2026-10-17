@@ -205,7 +205,11 @@ async def refresh_token(request: RefreshRequest, db: DBSession) -> TokenResponse
     if await is_revoked(payload.get("jti")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has been revoked")
 
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id), User.is_active.is_(True)))
+    try:
+        subject = uuid.UUID(str(user_id))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from e
+    result = await db.execute(select(User).where(User.id == subject, User.is_active.is_(True)))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
