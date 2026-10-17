@@ -215,3 +215,28 @@ class TestEndpoints:
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: creds.append(1) or ("https://es.internal", "key"))
         await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
         assert creds == []
+
+
+@pytest.mark.asyncio
+class TestErrorsDoNotLeakElasticsearchInternals:
+    """execute returned ``exc.response.text[:500]`` and ``str(exc)`` from the server's own Elasticsearch call to the caller: index names, cluster and stack details."""
+
+    async def _run(self, monkeypatch, error):
+        monkeypatch.setattr(nq.settings, "NL_QUERY_TENANT_FIELD", "", raising=False)
+        monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM logs-*" + GOOD_TAIL), "deterministic")))
+        monkeypatch.setattr(nq, "_execute_esql", AsyncMock(side_effect=error))
+        monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
+        return await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
+
+    async def test_an_http_error_body_from_elasticsearch_is_not_returned(self, monkeypatch):
+        import httpx
+
+        secret = "index [.security-7] on node es-prod-3 failed"
+        resp = httpx.Response(400, text=secret, request=httpx.Request("POST", "https://es.internal/_query"))
+        out = await self._run(monkeypatch, httpx.HTTPStatusError("bad", request=resp.request, response=resp))
+        assert out.execution_error and "400" in out.execution_error
+        assert secret not in out.execution_error and "es-prod-3" not in out.execution_error
+
+    async def test_an_unexpected_exception_text_is_not_returned(self, monkeypatch):
+        out = await self._run(monkeypatch, RuntimeError("connect to 10.9.8.7:9200 refused (user=elastic)"))
+        assert out.execution_error and "10.9.8.7" not in out.execution_error and "elastic" not in out.execution_error

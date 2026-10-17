@@ -554,9 +554,12 @@ async def execute_query(
     except ESQLExecutionError as exc:
         base.execution_error = str(exc)
     except httpx.HTTPStatusError as exc:
-        base.execution_error = f"ES query failed ({exc.response.status_code}): {exc.response.text[:500]}"
-    except Exception as exc:
-        base.execution_error = str(exc)
+        # The body and the exception text come from the SERVER's own Elasticsearch call (index names, node names, addresses): they go to the log, not to the caller.
+        logger.warning("nl_query.es_http_error status=%s body=%s", exc.response.status_code, exc.response.text[:500])
+        base.execution_error = f"ES query failed ({exc.response.status_code}). See the server log for details."
+    except Exception:
+        logger.exception("nl_query.execute_failed")
+        base.execution_error = "ES query failed. See the server log for details."
 
     return base
 

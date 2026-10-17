@@ -402,3 +402,51 @@ def test_allowed_tables_constant_matches_clickhouse_schema() -> None:
         assert "." in name, f"unqualified table in allowlist: {name}"
         schema, _ = name.split(".", 1)
         assert schema == DEFAULT_SCHEMA, f"unexpected schema: {schema}"
+
+
+# ---------------------------------------------------------------------------
+# A CTE name is only visible to the SELECTs it is defined for.
+# ---------------------------------------------------------------------------
+
+
+def test_a_cte_name_in_a_subquery_does_not_exempt_the_same_table_name_outside_it():
+    """``cte_aliases`` was collected from the whole tree, so a table whose name matched a CTE alias ANYWHERE was skipped: no allowlist check, no tenant predicate, no
+    schema prefix. This query read raw_events for every tenant."""
+    tid = uuid.uuid4()
+    sql = "SELECT * FROM (WITH raw_events AS (SELECT 1 AS a) SELECT a FROM raw_events), raw_events"
+    out = rewrite_for_tenant(sql, tid).sql
+    # the outer, real raw_events is qualified and filtered to the caller's tenant
+    assert out.count(f"tenant_id = '{tid}'") >= 1
+    assert f"{DEFAULT_SCHEMA}.raw_events" in out
+
+
+def test_a_cte_reference_inside_its_own_scope_is_still_allowed():
+    tid = uuid.uuid4()
+    out = rewrite_for_tenant("WITH highs AS (SELECT * FROM raw_events) SELECT * FROM highs", tid).sql
+    assert out.count(f"tenant_id = '{tid}'") == 1  # filtered inside the CTE body, not on the alias
+    assert "highs" in out
+
+
+def test_a_cte_name_cannot_hide_a_forbidden_table_in_another_scope():
+    sql = "SELECT * FROM (WITH system AS (SELECT 1 AS a) SELECT a FROM system) , system.tables"
+    with pytest.raises(LakeSqlForbiddenError):
+        rewrite_for_tenant(sql, uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# Caller SETTINGS must not reach ClickHouse.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM raw_events SETTINGS max_execution_time=0",
+        "SELECT * FROM raw_events SETTINGS readonly=0, max_result_rows=0",
+        "SELECT * FROM (SELECT * FROM raw_events SETTINGS max_memory_usage=0)",
+    ],
+)
+def test_caller_settings_are_refused(sql):
+    """A caller's SETTINGS can override the server-side caps (max_execution_time, max_memory_usage, max_result_rows, readonly): only the asyncio timeout was left."""
+    with pytest.raises(LakeSqlForbiddenError):
+        rewrite_for_tenant(sql, uuid.uuid4())

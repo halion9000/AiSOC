@@ -197,7 +197,13 @@ def rewrite_for_tenant(
     # ``FROM highs`` after ``WITH highs AS (…)`` should not be checked
     # against the allowlist (and gets no predicate — its data is already
     # tenant-filtered inside the CTE body).
-    cte_aliases = {cte.alias_or_name for cte in tree.find_all(exp.CTE)}
+    # A CTE name is only an alias for the SELECTs inside the statement that defines it (see _visible_cte_aliases). Collecting names from the whole tree let a CTE defined in one
+    # subquery exempt a REAL table of the same name anywhere else: no allowlist check, no tenant predicate.
+    cte_aliases: set[str] = set()  # kept for the signature; scope is resolved per SELECT
+
+    # ClickHouse SETTINGS let the caller override the server-side caps (max_execution_time, max_memory_usage, max_result_rows, readonly). The service sets its own.
+    if any(node.args.get("settings") for node in tree.find_all(exp.Expression)):
+        raise LakeSqlForbiddenError("SETTINGS clauses are not allowed in lake queries")
 
     # ── Step 4: walk every Select and rewrite ────────────────────────
     referenced: set[str] = set()
@@ -244,6 +250,18 @@ def _resolve_row_cap(row_cap: int | None) -> int:
     return row_cap
 
 
+def _visible_cte_aliases(select: exp.Select) -> set[str]:
+    """The CTE names in scope for ``select``: those of every ``WITH`` that belongs to it or to an enclosing statement."""
+    names: set[str] = set()
+    node: exp.Expression | None = select
+    while node is not None:
+        with_ = node.args.get("with_") or node.args.get("with")
+        if isinstance(with_, exp.With):
+            names.update(cte.alias_or_name for cte in with_.expressions if isinstance(cte, exp.CTE))
+        node = node.parent
+    return names
+
+
 def _validate_and_rewrite_select(
     select: exp.Select,
     tenant_id: uuid.UUID,
@@ -256,6 +274,7 @@ def _validate_and_rewrite_select(
     nested subqueries surface as their own Select nodes that the caller
     visits separately, so we don't recurse into them here).
     """
+    cte_aliases = _visible_cte_aliases(select)
     direct_tables = _direct_tables(select)
     if not direct_tables:
         # Selects without a FROM (constant projections like
