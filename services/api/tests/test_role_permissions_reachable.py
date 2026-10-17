@@ -12,8 +12,8 @@ from pathlib import Path
 from app.core.security import PLATFORM_PERMISSIONS, ROLE_PERMISSIONS, has_permission, known_permissions
 
 APP = Path(__file__).resolve().parent.parent / "app"
-# Enforced on purpose for a PLATFORM operator only, or deliberately granted to no role yet.
-DELIBERATELY_UNGRANTED = {"plugins:execute"}
+# Enforced on purpose for a PLATFORM operator only, or deliberately granted to no role yet. rules:admin and playbooks:admin curate the COMMUNITY (shared across every tenant) detections and playbooks.
+DELIBERATELY_UNGRANTED = {"plugins:execute", "rules:admin", "playbooks:admin"}
 
 
 def _enforced() -> set[str]:
@@ -30,7 +30,7 @@ def test_every_enforced_permission_is_grantable_to_a_non_wildcard_role():
 
 
 def test_a_tenant_admin_can_use_the_features_of_their_own_tenant():
-    for permission in ("audit_log:read", "copilot:use", "graph:read", "roles:read", "roles:write", "sla:read", "sla:write", "shifts:read", "shifts:write", "plugins:read", "playbooks:admin", "rules:admin"):
+    for permission in ("audit_log:read", "copilot:use", "graph:read", "roles:read", "roles:write", "sla:read", "sla:write", "shifts:read", "shifts:write", "plugins:read"):
         assert has_permission("tenant_admin", permission), permission
 
 

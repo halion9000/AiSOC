@@ -89,8 +89,6 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "shifts:read",
         "shifts:write",
         "plugins:read",
-        "playbooks:admin",
-        "rules:admin",
     ],
     "soc_lead": [
         "alerts:read",

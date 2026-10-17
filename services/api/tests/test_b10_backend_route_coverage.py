@@ -134,7 +134,7 @@ def _parse_rewrites() -> list[tuple[str, str]]:
     # template literal with ${HOST_VAR} prefix). re.DOTALL allows matching
     # across newlines between source and destination lines.
     pattern = re.compile(
-        r"source:\s*['\"]([^'\"]+)['\"].*?destination:\s*`\$\{(\w+)\}[^`]*`",
+        r"source:\s*['\"]([^'\"]+)['\"](?:(?!source:).)*?destination:\s*`\$\{(\w+)\}[^`]*`",
         re.DOTALL,
     )
     for m in pattern.finditer(content):

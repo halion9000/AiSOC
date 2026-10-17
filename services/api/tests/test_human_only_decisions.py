@@ -169,13 +169,14 @@ class TestNothingElseChanged:
         )
         assert found == [("POST", "/api/v1/approvals/{approval_id}/decide"), ("POST", "/api/v1/ledger/{run_id}/publish")]
 
-    def test_the_two_things_the_decide_handler_still_does_not_enforce_are_written_down_here(self):
-        """Not fixed, deliberately, because each is a product decision: that the decider differs from `requested_by`, that
-        `required_user_id` / `required_topic` are honoured, and that an `expired` approval cannot be approved. If any is ever enforced,
-        update this and the changelog."""
+    def test_what_the_decide_handler_enforces_and_what_it_still_does_not_is_written_down_here(self):
+        """Enforced (behaviour tests in test_approvals_decide_rules.py): an `expired` or past-`expires_at` approval cannot be APPROVED (it can still be denied), and a request that names
+        `required_user_id` can only be approved by that user. Still NOT enforced, deliberately, because each is a product decision: that the decider differs from `requested_by` (an agent
+        name, not a user id) and that `required_topic` is honoured. If either is ever enforced, update this and the changelog."""
         import inspect
 
         from app.api.v1.endpoints import approvals
 
         source = inspect.getsource(approvals.decide_approval)
-        assert "required_user_id" not in source and "requested_by" not in source and '{"pending", "expired"}' in source
+        assert "required_user_id" in source and "expires_at" in source, "the enforcement documented above has been removed"
+        assert "requested_by" not in source and "required_topic" not in source
