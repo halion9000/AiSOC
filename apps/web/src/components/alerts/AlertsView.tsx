@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { alertsApi, connectorsApi, msspApi, type Alert, type AlertFilters, type ConfidenceLabel } from '@/lib/api';
@@ -103,7 +103,7 @@ export function sourceOptions(connectors: { type: string; name: string; connecto
   return [...seen.entries()].map(([vendor, label]) => ({ vendor, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function FiltersBar({
+export function FiltersBar({
   filters,
   onChange,
   total,
@@ -121,8 +121,35 @@ function FiltersBar({
   const severities = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
   const statuses = ['all', 'new', 'investigating', 'resolved', 'false_positive'] as const;
 
+  // The box is typed into freely; the list is only re-queried a moment after typing stops (and straight away on Enter or clear).
+  const [text, setText] = useState(filters.search ?? '');
+  const [seenSearch, setSeenSearch] = useState(filters.search);
+  if (seenSearch !== filters.search) {
+    // The filter was changed from outside (for example Clear filters): show it.
+    setSeenSearch(filters.search);
+    setText(filters.search ?? '');
+  }
+  useEffect(() => {
+    const wanted = text.trim() || undefined;
+    if (wanted === (filters.search || undefined)) return;
+    const timer = setTimeout(() => onChange({ ...filters, search: wanted, page: 1 }), 350);
+    return () => clearTimeout(timer);
+  }, [text, filters, onChange]);
+
   return (
     <div className="flex items-center gap-3 flex-wrap py-3 px-4 bg-gray-900/40 border border-gray-800/60 rounded-xl">
+      <input
+        type="search"
+        aria-label="Search alerts"
+        placeholder="Search alerts, devices or clients"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onChange({ ...filters, search: text.trim() || undefined, page: 1 });
+        }}
+        className="text-xs bg-gray-900 border border-gray-700 text-gray-200 placeholder-gray-500 rounded-lg px-3 py-1 w-64"
+      />
+      <div className="w-px h-4 bg-gray-700" />
       <div className="flex items-center gap-1">
         {severities.map((s) => (
           <button
@@ -536,11 +563,11 @@ function AlertsTableGrid({
             filter-aware copy is the difference between an analyst thinking
             "the system is broken" and "I should clear my filters".
           */}
-          {filters.severity || filters.status || filters.source || filters.clientId ? (
+          {filters.severity || filters.status || filters.source || filters.clientId || filters.search ? (
             <EmptyState
               icon={EmptyStateIcons.search}
               title="No alerts match these filters"
-              description="Try clearing the severity, status or source filter to widen the search."
+              description="Try clearing the search text or the severity, status or source filter to widen the search."
               action={
                 <button
                   onClick={() => onFilterChange({ page: 1, pageSize: filters.pageSize ?? 25 })}

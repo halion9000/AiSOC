@@ -224,3 +224,40 @@ def test_the_list_names_the_tool_not_the_generic_inbox():
         assert by["own"] is None  # no tool recorded: the page falls back to the connector type
 
     run(go)
+
+
+def test_search_matches_title_description_and_rule_name_case_insensitively():
+    async def go(s):
+        parent, a, b, other = await seed(s)
+        rows = (await s.execute(select(Alert).where(Alert.tenant_id == a.id, Alert.title == "setpoint-old"))).scalars().all()
+        rows[0].description = "Device: LPT-83Y6LL3\nDisk Volume Free space"
+        rows[0].rule_name = "Low disk"
+        await s.commit()
+        assert [i.title for i in (await call(s, parent.id, search="lpt-83y6")).items] == ["setpoint-old"]
+        assert [i.title for i in (await call(s, parent.id, search="TECOVAS")).items] == ["tecovas"]
+        assert [i.title for i in (await call(s, parent.id, search="low DISK")).items] == ["setpoint-old"]
+        out = await call(s, parent.id, search="nothing-matches-this")
+        assert out.items == [] and out.total == 0
+
+    run(go)
+
+
+def test_search_by_client_name_returns_all_of_that_clients_alerts_and_only_that_client():
+    async def go(s):
+        parent, a, b, other = await seed(s)
+        out = await call(s, parent.id, search="setpoint")
+        assert sorted(i.title for i in out.items) == ["setpoint-new", "setpoint-old"]
+        out = await call(s, parent.id, search="set")  # also a client-name prefix of "Setpoint"
+        assert out.total == 2
+
+    run(go)
+
+
+def test_search_treats_percent_and_underscore_literally_and_blank_search_is_no_search():
+    async def go(s):
+        parent, a, b, other = await seed(s)
+        assert (await call(s, parent.id, search="%")).total == 0
+        assert (await call(s, parent.id, search="_")).total == 0
+        assert (await call(s, parent.id, search="   ")).total == 4
+
+    run(go)

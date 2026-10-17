@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
@@ -674,6 +674,10 @@ async def list_alerts(
         # NOTE: the local `status` query parameter shadows the `fastapi.status` module here, so use the literal 400.
         raise HTTPException(status_code=400, detail="confidence_label must be one of: high, medium, low")
 
+    # `search` is plain text: % and _ are matched literally, and a blank search is no search.
+    term = (search or "").strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    client_hits: set[uuid.UUID] = set()
+
     def filters_for(tenant_id: uuid.UUID) -> list:
         filters = [Alert.tenant_id == tenant_id]
         if severity:
@@ -690,6 +694,13 @@ async def list_alerts(
             filters.append(Alert.confidence >= min_confidence)
         if confidence_label is not None:
             filters.append(Alert.confidence_label == confidence_label)
+        if term and tenant_id not in client_hits:
+            # The text is in the title, the description (CORE puts the device and client there) or the rule name; a client's name matches all of that client's alerts.
+            like = f"%{term}%"
+            text_match = or_(
+                Alert.title.ilike(like, escape="\\"), Alert.description.ilike(like, escape="\\"), Alert.rule_name.ilike(like, escape="\\")
+            )
+            filters.append(text_match)
         return filters
 
     # The caller's client tenants (empty for an ordinary tenant).
@@ -700,6 +711,9 @@ async def list_alerts(
     if client_id is not None and client_id != current_user.tenant_id and client_id not in clients:
         raise HTTPException(status_code=404, detail="Client not found")
     scope = [client_id] if client_id is not None else [current_user.tenant_id, *clients]
+    if term:
+        plain = (search or "").strip().lower()
+        client_hits.update(tid for tid, name in clients.items() if plain in name.lower())
 
     offset = (page - 1) * page_size
     if len(scope) == 1 and scope[0] == current_user.tenant_id:
