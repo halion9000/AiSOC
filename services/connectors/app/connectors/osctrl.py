@@ -255,6 +255,7 @@ class OsctrlConnector(BaseConnector):
                             )
                         )
         except httpx.RequestError as exc:
+            self._fetch_failed()
             logger.warning("osctrl.fetch_exception", error=str(exc))
             return []
 

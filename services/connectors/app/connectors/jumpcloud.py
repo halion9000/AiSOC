@@ -61,6 +61,7 @@ class JumpCloudConnector(BaseConnector):
                 resp.raise_for_status()
                 events = resp.json()
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("jumpcloud.fetch_failed", error=str(exc))
             return []
         if not isinstance(events, list):

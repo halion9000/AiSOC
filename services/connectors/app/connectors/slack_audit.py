@@ -116,6 +116,7 @@ class SlackAuditConnector(BaseConnector):
                 items = (resp.json() or {}).get("entries") or []
                 return [self.normalize(i) for i in items]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("slack_audit.fetch_exception", error=str(exc))
             return []
 

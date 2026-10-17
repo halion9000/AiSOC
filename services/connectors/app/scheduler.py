@@ -490,6 +490,19 @@ class ConnectorScheduler:
             await self._record_failure(target.id)
             return
 
+        # Many connectors catch their own fetch errors and return [] (their tests rely on that). They say so through ``last_fetch_error``: an empty poll that
+        # ended in an error is a failing connector, not a healthy one with nothing to report.
+        fetch_error = getattr(connector, "last_fetch_error", None)
+        if isinstance(fetch_error, str) and fetch_error and not raw_events:
+            logger.error(
+                "connector.scheduler.fetch_swallowed_error id=%s type=%s err=%s",
+                connector_id,
+                target.connector_type,
+                fetch_error,
+            )
+            await self._record_failure(target.id)
+            return
+
         # Normalize defensively: connectors *should* normalize themselves
         # in fetch_alerts, but we double-tap so a connector that returns
         # raw events still produces consistent shapes downstream.
@@ -576,6 +589,17 @@ class ConnectorScheduler:
             return
 
         accepted = int(result.get("accepted", 0) or 0)
+        rejected = int(result.get("rejected", 0) or 0)
+        if kept and accepted == 0 and rejected > 0:
+            # Ingest refused every event. That is a failed poll, not a healthy one, and the checkpoint must stay put so the same window is fetched again.
+            logger.error(
+                "connector.scheduler.all_events_rejected id=%s type=%s rejected=%d",
+                connector_id,
+                target.connector_type,
+                rejected,
+            )
+            await self._record_failure(target.id)
+            return
         elapsed_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
 
         # Advance the persisted checkpoint only now that ingest has accepted the

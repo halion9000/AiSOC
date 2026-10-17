@@ -137,6 +137,7 @@ class Auth0Connector(BaseConnector):
                 items = resp.json() or []
                 return [self.normalize(i) for i in items]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("auth0.fetch_exception", error=str(exc))
             return []
 

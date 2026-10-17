@@ -353,6 +353,7 @@ class AWSCloudTrailConnector(BaseConnector):
         try:
             client = self._get_client()
         except RuntimeError as exc:
+            self._fetch_failed()
             logger.warning("cloudtrail.client_init_failed", error=str(exc))
             return []
 

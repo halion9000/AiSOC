@@ -124,6 +124,7 @@ class Rapid7InsightIDRConnector(BaseConnector):
                 items = (resp.json() or {}).get("data") or []
                 return [self.normalize(i) for i in items]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("rapid7_insightidr.fetch_exception", error=str(exc))
             return []
 

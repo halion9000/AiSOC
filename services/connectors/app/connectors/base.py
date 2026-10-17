@@ -304,6 +304,16 @@ class BaseConnector(ABC):
     connector_name: str = ""
     connector_category: str = ""
 
+    # Set (by ``_fetch_failed``) when ``fetch_alerts`` hit an error it chose to swallow and return [] for, so the scheduler can tell "nothing happened" from "could not look".
+    last_fetch_error: str | None = None
+
+    def _fetch_failed(self) -> None:
+        """Call first in an ``except`` block of ``fetch_alerts`` that returns []: records the exception being handled."""
+        import sys
+
+        exc = sys.exc_info()[1]
+        self.last_fetch_error = f"{type(exc).__name__}: {exc}" if exc is not None else "fetch failed"
+
     # ---------------------------- capabilities -------------------------------
 
     @classmethod

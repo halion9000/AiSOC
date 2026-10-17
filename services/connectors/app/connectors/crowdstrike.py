@@ -16,6 +16,10 @@ from app.connectors.base import BaseConnector, Capability, ConnectorSchema, Fiel
 logger = structlog.get_logger()
 
 
+_PAGE = 100  # the Falcon query and summaries endpoints both cap a call at 100
+_MAX_DETECTIONS_PER_POLL = 2000  # a runaway window must not make one poll unbounded
+
+
 class CrowdStrikeConnector(BaseConnector):
     connector_id = "crowdstrike"
     connector_name = "CrowdStrike Falcon"
@@ -89,35 +93,36 @@ class CrowdStrikeConnector(BaseConnector):
         since = (datetime.now(UTC) - timedelta(seconds=since_seconds)).isoformat()
         headers = {"Authorization": f"Bearer {self._access_token}"}
 
+        detection_ids: list[str] = []
+        detections: list[dict[str, Any]] = []
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Query detection IDs
-            resp = await client.get(
-                f"{self._base_url}/detects/queries/detects/v1",
-                headers=headers,
-                params={"filter": f"created_timestamp:>'{since}'", "limit": 100},
-            )
-            if resp.status_code == 401:
-                await self._authenticate()
-                headers = {"Authorization": f"Bearer {self._access_token}"}
-                resp = await client.get(
-                    f"{self._base_url}/detects/queries/detects/v1",
+            # Query detection IDs, a page at a time: the API returns at most ``_PAGE`` per call, so without an offset everything past the first page of a busy window was lost.
+            offset = 0
+            while len(detection_ids) < _MAX_DETECTIONS_PER_POLL:
+                params = {"filter": f"created_timestamp:>'{since}'", "limit": _PAGE, "offset": offset}
+                resp = await client.get(f"{self._base_url}/detects/queries/detects/v1", headers=headers, params=params)
+                if resp.status_code == 401:
+                    await self._authenticate()
+                    headers = {"Authorization": f"Bearer {self._access_token}"}
+                    resp = await client.get(f"{self._base_url}/detects/queries/detects/v1", headers=headers, params=params)
+                resp.raise_for_status()
+                body = resp.json()
+                page = body.get("resources", [])
+                detection_ids.extend(page)
+                offset += len(page)
+                total = ((body.get("meta") or {}).get("pagination") or {}).get("total")
+                if len(page) < _PAGE or (isinstance(total, int) and offset >= total):
+                    break
+
+            # Fetch detection details, at most _PAGE ids per call
+            for start in range(0, len(detection_ids), _PAGE):
+                details_resp = await client.post(
+                    f"{self._base_url}/detects/entities/summaries/GET/v1",
                     headers=headers,
-                    params={"filter": f"created_timestamp:>'{since}'", "limit": 100},
+                    json={"ids": detection_ids[start : start + _PAGE]},
                 )
-            resp.raise_for_status()
-            detection_ids = resp.json().get("resources", [])
-
-            if not detection_ids:
-                return []
-
-            # Fetch detection details
-            details_resp = await client.post(
-                f"{self._base_url}/detects/entities/summaries/GET/v1",
-                headers=headers,
-                json={"ids": detection_ids[:100]},
-            )
-            details_resp.raise_for_status()
-            detections = details_resp.json().get("resources", [])
+                details_resp.raise_for_status()
+                detections.extend(details_resp.json().get("resources", []))
 
         return [self.normalize(d) for d in detections]
 

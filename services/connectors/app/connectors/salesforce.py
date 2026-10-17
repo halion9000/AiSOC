@@ -167,6 +167,7 @@ class SalesforceConnector(BaseConnector):
                 items = (resp.json() or {}).get("records") or []
                 return [self.normalize(i) for i in items]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("salesforce.fetch_exception", error=str(exc))
             return []
 

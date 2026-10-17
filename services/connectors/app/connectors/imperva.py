@@ -76,6 +76,7 @@ class ImpervaConnector(BaseConnector):
                 resp.raise_for_status()
                 payload = resp.json()
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("imperva.fetch_failed", error=str(exc))
             return []
         events = payload.get("visits") or payload.get("events") or []

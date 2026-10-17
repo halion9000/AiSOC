@@ -120,6 +120,7 @@ class CortexXSIAMConnector(BaseConnector):
                 incidents = (payload.get("reply") or {}).get("incidents") or []
                 return [self.normalize(i) for i in incidents]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("cortex_xsiam.fetch_exception", error=str(exc))
             return []
 

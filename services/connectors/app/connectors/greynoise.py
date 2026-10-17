@@ -73,6 +73,7 @@ class GreyNoiseConnector(BaseConnector):
                 resp.raise_for_status()
                 data = resp.json().get("data", [])
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("greynoise.fetch_failed", error=str(exc))
             return []
         return [self.normalize(d) for d in data if isinstance(d, dict)]

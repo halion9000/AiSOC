@@ -139,6 +139,7 @@ class SumoLogicConnector(BaseConnector):
                 items = (resp.json() or {}).get("data", {}).get("objects") or []
                 return [self.normalize(i) for i in items]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("sumo_logic.fetch_exception", error=str(exc))
             return []
 

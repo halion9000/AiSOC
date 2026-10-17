@@ -206,6 +206,7 @@ class PrismaCloudConnector(BaseConnector):
                     return []
                 payload = resp.json() or {}
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("prisma_cloud.fetch_exception", error=str(exc))
             return []
 

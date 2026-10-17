@@ -321,6 +321,7 @@ class AWSVPCFlowLogsConnector(BaseConnector):
         try:
             client = self._get_client()
         except RuntimeError as exc:
+            self._fetch_failed()
             logger.warning("vpc_flow.client_init_failed", error=str(exc))
             return []
 
@@ -347,6 +348,7 @@ class AWSVPCFlowLogsConnector(BaseConnector):
             for page in pages:
                 events.extend(page.get("events", []))
         except Exception as exc:
+            self._fetch_failed()
             logger.warning(
                 "vpc_flow.filter_log_events_failed",
                 log_group=self._log_group_name,

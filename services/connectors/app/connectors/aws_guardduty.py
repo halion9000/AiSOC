@@ -173,6 +173,7 @@ class AWSGuardDutyConnector(BaseConnector):
         try:
             client = self._get_client()
         except RuntimeError as exc:
+            self._fetch_failed()
             logger.warning("guardduty.client_init_failed", error=str(exc))
             return []
 
@@ -185,6 +186,7 @@ class AWSGuardDutyConnector(BaseConnector):
         try:
             detector_ids = client.list_detectors().get("DetectorIds", [])
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("guardduty.list_detectors_failed", error=str(exc))
             return []
 

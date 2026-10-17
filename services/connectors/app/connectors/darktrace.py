@@ -84,6 +84,7 @@ class DarktraceConnector(BaseConnector):
                 resp.raise_for_status()
                 breaches = resp.json()
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("darktrace.fetch_failed", error=str(exc))
             return []
         return [self.normalize(b) for b in breaches if isinstance(b, dict)]

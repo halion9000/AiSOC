@@ -284,6 +284,7 @@ class WazuhConnector(BaseConnector):
                     json=query,
                 )
         except httpx.RequestError as exc:
+            self._fetch_failed()
             logger.warning("wazuh.fetch_exception", error=str(exc))
             return []
 
@@ -298,6 +299,7 @@ class WazuhConnector(BaseConnector):
         try:
             payload = resp.json()
         except ValueError:
+            self._fetch_failed()
             logger.warning("wazuh.search_returned_non_json")
             return []
 

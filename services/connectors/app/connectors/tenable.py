@@ -107,6 +107,7 @@ class TenableConnector(BaseConnector):
                 items = (resp.json() or {}).get("vulnerabilities") or []
                 return [self.normalize(i) for i in items[:200]]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("tenable.fetch_exception", error=str(exc))
             return []
 

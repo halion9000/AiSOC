@@ -352,6 +352,7 @@ class EmailInboxConnector(BaseConnector):
         try:
             events = await asyncio.to_thread(self._fetch_sync)
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("email_inbox.fetch_alerts.failed", error=str(exc))
             return []
         return [self.normalize(e) for e in events]

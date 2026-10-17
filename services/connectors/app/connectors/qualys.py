@@ -74,6 +74,7 @@ class QualysConnector(BaseConnector):
                 resp.raise_for_status()
                 data = resp.json()
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("qualys.fetch_failed", error=str(exc))
             return []
         hosts = _extract_host_list(data)

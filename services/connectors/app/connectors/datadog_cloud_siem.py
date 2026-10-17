@@ -132,6 +132,7 @@ class DatadogCloudSIEMConnector(BaseConnector):
                 items = (resp.json() or {}).get("data") or []
                 return [self.normalize(i) for i in items]
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("datadog_cloud_siem.fetch_exception", error=str(exc))
             return []
 

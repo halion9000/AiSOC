@@ -878,9 +878,10 @@ class _FakeVault:
 
 
 class _FakeIngestClient:
-    def __init__(self, accepted: int = 0) -> None:
+    def __init__(self, accepted: int = 0, rejected: int = 0) -> None:
         self.calls = 0
         self.accepted = accepted
+        self.rejected = rejected
         self.last_payload: dict[str, Any] | None = None
         self.exc: BaseException | None = None
 
@@ -889,7 +890,7 @@ class _FakeIngestClient:
         self.last_payload = kwargs
         if self.exc is not None:
             raise self.exc
-        return {"accepted": self.accepted, "rejected": 0}
+        return {"accepted": self.accepted, "rejected": self.rejected}
 
     async def aclose(self) -> None:
         return None
@@ -1074,3 +1075,64 @@ def test_a_connector_that_wraps_the_vendor_row_under_raw_is_not_normalized_twice
     assert (twice["severity"], twice["title"], twice["alert_id"]) == ("critical", "Log4Shell", "156014")
     # a genuinely raw vendor row is still normalized exactly once
     assert _safe_normalize(connector, vendor_row) == once
+
+
+@pytest.mark.asyncio
+async def test_a_poll_whose_events_were_all_rejected_is_a_failure_not_a_success(monkeypatch):
+    """The scheduler recorded success for ``accepted=0, rejected=N``, so a connector whose every event ingest refused showed as healthy forever, and its checkpoint moved past them."""
+    inst = _make_instance(connector_type="fake_connector", connector_config={"poll_interval_seconds": 60})
+    fake_connector = MagicMock()
+    fake_connector.fetch_alerts = AsyncMock(return_value=[{"raw": "event"}])
+    fake_connector.normalize = MagicMock(side_effect=lambda e: {"normalized": True, **e})
+    fake_connector.get_checkpoint = MagicMock(return_value={"cursor": "past-the-lost-events"})
+    monkeypatch.setattr("app.scheduler.CONNECTOR_REGISTRY", {"fake_connector": MagicMock(return_value=fake_connector)})
+
+    engine = _FakeEngine([inst])
+    scheduler = ConnectorScheduler(engine=engine, ingest_client=_FakeIngestClient(accepted=0, rejected=1), vault=_FakeVault())
+    await scheduler._poll_one(connector_id=inst.id)
+
+    assert engine.failure_calls == [inst.id]
+    assert engine.success_calls == []
+    fake_connector.get_checkpoint.assert_not_called()  # the checkpoint must not advance past events that were not stored
+
+
+@pytest.mark.asyncio
+async def test_a_connector_that_swallowed_its_fetch_error_is_recorded_as_failing(monkeypatch):
+    """24 connectors catch every fetch error and return [], so a revoked key or an outage was recorded as a healthy poll of 0 events: no failure count, no outage, no backfill."""
+    inst = _make_instance(connector_type="fake_connector", connector_config={"poll_interval_seconds": 60})
+
+    class _Swallower:
+        last_fetch_error = None
+
+        async def fetch_alerts(self, since_seconds):
+            self.last_fetch_error = "ConnectError('down')"
+            return []
+
+        def normalize(self, e):
+            return e
+
+    monkeypatch.setattr("app.scheduler.CONNECTOR_REGISTRY", {"fake_connector": MagicMock(return_value=_Swallower())})
+    engine = _FakeEngine([inst])
+    scheduler = ConnectorScheduler(engine=engine, ingest_client=_FakeIngestClient(accepted=0), vault=_FakeVault())
+    await scheduler._poll_one(connector_id=inst.id)
+    assert engine.failure_calls == [inst.id] and engine.success_calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_connector_that_really_has_no_events_is_still_healthy(monkeypatch):
+    inst = _make_instance(connector_type="fake_connector", connector_config={"poll_interval_seconds": 60})
+
+    class _Quiet:
+        last_fetch_error = None
+
+        async def fetch_alerts(self, since_seconds):
+            return []
+
+        def normalize(self, e):
+            return e
+
+    monkeypatch.setattr("app.scheduler.CONNECTOR_REGISTRY", {"fake_connector": MagicMock(return_value=_Quiet())})
+    engine = _FakeEngine([inst])
+    scheduler = ConnectorScheduler(engine=engine, ingest_client=_FakeIngestClient(accepted=0), vault=_FakeVault())
+    await scheduler._poll_one(connector_id=inst.id)
+    assert engine.success_calls == [inst.id] and engine.failure_calls == []

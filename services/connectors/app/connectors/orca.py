@@ -159,6 +159,7 @@ class OrcaConnector(BaseConnector):
                     return []
                 payload = resp.json() or {}
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("orca.fetch_exception", error=str(exc))
             return []
 

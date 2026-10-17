@@ -275,6 +275,7 @@ class FleetDMConnector(BaseConnector):
                                     )
                                 )
         except httpx.RequestError as exc:
+            self._fetch_failed()
             logger.warning("fleetdm.fetch_exception", error=str(exc))
             return []
 
