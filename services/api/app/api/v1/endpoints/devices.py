@@ -207,7 +207,8 @@ def host_key(name: str | None) -> str:
 
 async def _alerts_by_host(db: Any, tid: uuid.UUID) -> dict[str, list[DeviceAlertOut]]:
     """This tenant's open alerts that name a device, grouped by lower-cased device name, worst severity then newest first. The caller has put ``db`` in the tenant's scope."""
-    host = func.lower(Alert.raw_event["unmapped"]["context"]["device_name"].astext)
+    # The device a vendor named in its own context (RMM-style tools), else the host fusion recorded on the alert (SIEM/EDR alerts carry it only there).
+    host = func.lower(func.coalesce(Alert.raw_event["unmapped"]["context"]["device_name"].astext, Alert.affected_hosts[0].astext))
     rows = (
         await db.execute(
             select(

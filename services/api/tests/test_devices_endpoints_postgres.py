@@ -459,6 +459,14 @@ async def test_open_alerts_naming_a_device_show_on_that_device_only(world):
                 },
             )
 
+        # A SIEM/EDR alert from fusion names its host only in affected_hosts (no vendor device_name context).
+        await db.execute(
+            text(
+                "insert into alerts (tenant_id, title, severity, status, raw_event, affected_hosts) values (:t, 'From fusion', 'low', 'new', cast(:r as jsonb), cast(:h as jsonb))"
+            ),
+            {"t": a, "r": json.dumps({"source": "huntress"}), "h": json.dumps(["Acme-PC"])},
+        )
+
     await session(a, seed)
     try:
         listing = await session(
@@ -479,8 +487,8 @@ async def test_open_alerts_naming_a_device_show_on_that_device_only(world):
         )
         by_host = {d.hostname: d for d in listing.items}
         pc = by_host["ACME-PC"]
-        assert pc.open_alerts == 3
-        assert [x.title for x in pc.alerts] == ["CPU hot", "Disk almost full", "Fully qualified"]  # worst severity first
+        assert pc.open_alerts == 4
+        assert [x.title for x in pc.alerts] == ["CPU hot", "Disk almost full", "Fully qualified", "From fusion"]  # worst severity first
         assert pc.alerts[0].source == "ninjaone"
         assert by_host["ACME-OTHER"].open_alerts == 0
         only = await session(
