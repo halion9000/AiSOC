@@ -31,7 +31,7 @@ func NewClient(redisURL string, ttl time.Duration) (*Client, error) {
 		return nil, fmt.Errorf("Redis connection failed: %w", err)
 	}
 
-	log.Info().Str("url", redisURL).Msg("Redis cache connected")
+	log.Info().Str("addr", opts.Addr).Int("db", opts.DB).Msg("Redis cache connected") // never the URL itself: it carries the password
 	return &Client{rdb: rdb, ttl: ttl}, nil
 }
 

@@ -4,8 +4,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/beenuar/aisoc/services/ingest/internal/config"
@@ -62,6 +64,9 @@ func (h *Handler) SetSnapshotApplier(s SnapshotApplier) {
 	h.snapshot = s
 }
 
+// maxIngestBodyBytes caps the request body of POST /v1/ingest. The body used to be decoded into memory with no limit.
+const maxIngestBodyBytes = 32 << 20
+
 // IngestRequest is the API payload for submitting events
 type IngestRequest struct {
 	ConnectorID   string                   `json:"connector_id"`
@@ -87,7 +92,13 @@ func (h *Handler) IngestEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req IngestRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxIngestBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body exceeds maximum of "+strconv.Itoa(maxIngestBodyBytes)+" bytes")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
@@ -104,7 +115,7 @@ func (h *Handler) IngestEvents(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.Events) > h.cfg.MaxBatchSize {
 		writeError(w, http.StatusRequestEntityTooLarge,
-			"batch size exceeds maximum of "+string(rune(h.cfg.MaxBatchSize)))
+			"batch size exceeds maximum of "+strconv.Itoa(h.cfg.MaxBatchSize))
 		return
 	}
 

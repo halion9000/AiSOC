@@ -144,13 +144,20 @@ func (e *Enricher) Enrich(ctx context.Context, req EnrichRequest) (*EnrichmentRe
 		}
 	}
 
-	if e.cache != nil {
+	// Only a result some provider actually answered is worth caching: with every provider failing (a 429, an outage) or none configured, the merged result is empty and
+	// would otherwise be served as "clean" for the whole TTL.
+	if e.cache != nil && shouldCache(result) {
 		if cacheErr := e.cache.Set(ctx, cacheKey, result); cacheErr != nil {
 			log.Warn().Err(cacheErr).Str("key", cacheKey).Msg("Cache write failed")
 		}
 	}
 
 	return result, nil
+}
+
+// shouldCache reports whether a result may be cached: at least one provider contributed to it.
+func shouldCache(result *EnrichmentResult) bool {
+	return result != nil && len(result.Sources) > 0
 }
 
 // fanOutTask runs an enrichment call and routes the result/error onto the channel.
