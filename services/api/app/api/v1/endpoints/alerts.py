@@ -282,6 +282,11 @@ def _coerce_published(event: dict, now: datetime | None = None) -> tuple[datetim
     return coerce_with_bounds(event, now=now)
 
 
+def _as_dict(value: object) -> dict:
+    """``value`` if it is an object, else an empty one: ``events: list[dict]`` only checks the top level, so a nested ``actor`` / ``client`` can be a string or a number."""
+    return value if isinstance(value, dict) else {}
+
+
 def _synthesise_alert_from_events(
     *,
     tenant_id: uuid.UUID,
@@ -339,8 +344,8 @@ def _synthesise_alert_from_events(
     any_clamped = False
 
     for event in events:
-        actor = event.get("actor") or {}
-        client = event.get("client") or {}
+        actor = _as_dict(event.get("actor"))
+        client = _as_dict(event.get("client"))
 
         # User: collect candidate identifiers in priority order; skip the
         # actor entirely if *any* of them already appears in
@@ -358,7 +363,7 @@ def _synthesise_alert_from_events(
             affected_ips.append(ip)
 
         # Host from client geographicalContext or client.id
-        geo = client.get("geographicalContext") or {}
+        geo = _as_dict(client.get("geographicalContext"))
         host_hint = client.get("device") or client.get("id") or geo.get("city")
         if isinstance(host_hint, str) and host_hint and host_hint not in affected_hosts:
             affected_hosts.append(host_hint)

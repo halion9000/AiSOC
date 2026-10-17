@@ -501,9 +501,10 @@ async def add_rule_to_pack(
     if not rule or not (rule.tenant_id == current_user.tenant_id or (rule.tenant_id is None and rule.is_builtin)):
         raise HTTPException(status_code=404, detail="Detection rule not found")
 
-    link = MSSPRulePackRule(pack_id=pack_id, rule_id=body.rule_id)
-    db.add(link)
-    await db.commit()
+    # Idempotent: the link's key is (pack_id, rule_id), so adding a rule that is already in the pack (a double-click, a retry) used to raise an unhandled IntegrityError (500).
+    if await db.get(MSSPRulePackRule, (pack_id, body.rule_id)) is None:
+        db.add(MSSPRulePackRule(pack_id=pack_id, rule_id=body.rule_id))
+        await db.commit()
     return {"status": "ok", "pack_id": str(pack_id), "rule_id": str(body.rule_id)}
 
 

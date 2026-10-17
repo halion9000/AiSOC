@@ -164,16 +164,27 @@ async def _generate_queries(hypothesis: str, mitre: str | None) -> dict[str, str
             )
         resp.raise_for_status()
         return json.loads(resp.json()["choices"][0]["message"]["content"])
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        # The caller falls back to template queries and stores them as if they were generated; at least leave a trace of why.
+        logger.warning("hunts.query_generation_failed: %s (falling back to template queries)", exc)
         return None
 
 
+def _quote_safe(hypothesis: str, limit: int = 60) -> str:
+    """The first ``limit`` characters of ``hypothesis``, safe inside a double-quoted query string.
+
+    Cut BEFORE escaping (cutting after could leave a dangling backslash that escapes the closing quote) and escape the backslash before the quote (otherwise a backslash-quote in the text
+    becomes backslash-backslash-quote, which ends the string early and lets the rest of the text run as query syntax). Newlines are flattened: a quoted operand cannot span lines in SPL/ES|QL."""
+    flat = " ".join(hypothesis[:limit].split())
+    return flat.replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))
+
+
 def _fallback_queries(hypothesis: str) -> dict[str, str]:
-    escaped = hypothesis.replace('"', '\\"')
+    escaped = _quote_safe(hypothesis)
     return {
-        "esql": f'FROM logs-* | WHERE message LIKE "%{escaped[:60]}%" | LIMIT 100',
-        "spl": f'index=* "{escaped[:60]}" | head 100',
-        "kql": f'// KQL hunt — adapt field names\nSecurityEvent\n| where Activity has "{escaped[:60]}"\n| limit 100',
+        "esql": f'FROM logs-* | WHERE message LIKE "%{escaped}%" | LIMIT 100',
+        "spl": f'index=* "{escaped}" | head 100',
+        "kql": f'// KQL hunt — adapt field names\nSecurityEvent\n| where Activity has "{escaped}"\n| limit 100',
     }
 
 

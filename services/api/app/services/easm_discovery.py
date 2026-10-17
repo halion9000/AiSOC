@@ -150,13 +150,23 @@ async def _probe_port(host: str, port: int, timeout: float = 3.0) -> bool:
         sock.close()
 
 
+# At most this many TCP connects in flight at once: the scan used to gather one connect per (target, port) with no bound.
+_MAX_CONCURRENT_PROBES = 50
+
+
 async def _active_scan(targets: Sequence[str], ports: Sequence[int]) -> list[DiscoveredAsset]:
     """Lightweight TCP-connect scan against *targets* on *ports*."""
     results: list[DiscoveredAsset] = []
+    gate = asyncio.Semaphore(_MAX_CONCURRENT_PROBES)
+
+    async def probe(target: str, port: int) -> bool:
+        async with gate:
+            return await _probe_port(target, port)
+
     tasks = []
     for target in targets:
         for port in ports:
-            tasks.append((target, port, _probe_port(target, port)))
+            tasks.append((target, port, probe(target, port)))
 
     outcomes = await asyncio.gather(*(t[2] for t in tasks), return_exceptions=True)
     host_ports: dict[str, list[int]] = {}

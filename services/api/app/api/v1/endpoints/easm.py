@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,11 +26,28 @@ logger = logging.getLogger("aisoc.easm")
 router = APIRouter(prefix="/easm", tags=["easm"])
 
 
+MAX_IP_TARGETS = 64
+
+
 class ScanRequest(BaseModel):
     tenant_id: UUID
     org_query: str | None = None
-    ip_targets: list[str] = []
+    # PUBLIC IP addresses only (an external attack surface scan): an internal address, a hostname or a CIDR would turn this into a port scanner of the API host's own network,
+    # with the open ports then readable from /easm/assets.
+    ip_targets: list[str] = Field(default_factory=list, max_length=MAX_IP_TARGETS)
     asset_type: ExternalAssetType | None = None
+
+    @field_validator("ip_targets")
+    @classmethod
+    def _public_ips_only(cls, targets: list[str]) -> list[str]:
+        for target in targets:
+            try:
+                ip = ipaddress.ip_address(target.strip())
+            except ValueError as exc:
+                raise ValueError(f"{target!r} is not an IP address (hostnames and CIDR ranges are not accepted)") from exc
+            if not ip.is_global:
+                raise ValueError(f"{target!r} is not a public IP address")
+        return [t.strip() for t in targets]
 
 
 async def _run_scan_job(
