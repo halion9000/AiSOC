@@ -201,6 +201,7 @@ describe('missing-from-tool cards', () => {
     render(<DevicesView />);
     const row = (await screen.findByText('FRONT-DESK')).closest('tr') as HTMLElement;
     expect(within(row).getByText('2 open alerts')).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: '2 open alerts' })).toHaveAttribute('href', '/alerts?device=FRONT-DESK');
     const quiet = screen.getByText('QUIET-PC').closest('tr') as HTMLElement;
     expect(within(quiet).queryByText(/open alert/)).not.toBeInTheDocument();
     await userEvent.setup().click(row);

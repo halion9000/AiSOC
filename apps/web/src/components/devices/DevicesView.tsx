@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
@@ -289,9 +290,14 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
           )}
           {d.hostname}
           {(d.open_alerts ?? 0) > 0 && (
-            <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[11px] text-red-300">
+            <Link
+              href={`/alerts?device=${encodeURIComponent(d.hostname)}`}
+              onClick={(e) => e.stopPropagation()}
+              title="Show this machine's alerts"
+              className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[11px] text-red-300 hover:bg-red-500/30"
+            >
               {d.open_alerts} open alert{d.open_alerts === 1 ? '' : 's'}
-            </span>
+            </Link>
           )}
           {discoveredOnNetwork(d) && (
             <span
