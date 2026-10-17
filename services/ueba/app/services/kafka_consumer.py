@@ -34,6 +34,7 @@ Anomalies are published to ``ueba.anomalies``:
 from __future__ import annotations
 
 import json
+import math
 import logging
 import uuid
 from typing import Any
@@ -45,6 +46,21 @@ from app.services.peer_group import PeerGroupService
 from app.services.scoring import ScoringService
 
 LOG = logging.getLogger(__name__)
+
+
+def clean_features(features_raw: Any) -> dict[str, float]:
+    """The numeric, finite feature values of a message. ``float()`` happily takes "nan" and "inf", and one of those in a baseline's running mean poisons it for good."""
+    out: dict[str, float] = {}
+    if not isinstance(features_raw, dict):
+        return out
+    for k, v in features_raw.items():
+        try:
+            number = float(v)
+        except (TypeError, ValueError):
+            continue  # non-numeric feature value; skip
+        if math.isfinite(number):
+            out[k] = number
+    return out
 
 
 class UEBAKafkaConsumer:
@@ -78,12 +94,7 @@ class UEBAKafkaConsumer:
             LOG.warning("Invalid tenant_id: %s", tenant_id_raw)
             return
 
-        features: dict[str, float] = {}
-        for k, v in features_raw.items():
-            try:
-                features[k] = float(v)
-            except (TypeError, ValueError):
-                pass  # non-numeric feature value; skip
+        features = clean_features(features_raw)
 
         if not features:
             return
@@ -156,14 +167,21 @@ class UEBAKafkaConsumer:
         LOG.info("UEBA Kafka consumer started (topic=%s)", settings.kafka_input_topic)
 
         try:
-            async for msg in consumer:
-                if not self._running:
-                    break
-                await self._process_message(msg.value, producer)
+            await self._consume(consumer, producer)
         finally:
             await consumer.stop()
             await producer.stop()
             LOG.info("UEBA Kafka consumer stopped.")
+
+    async def _consume(self, messages: Any, producer: Any) -> None:
+        """Process messages until stopped. A message that fails is logged and skipped: one bad row (a DB error, a schema mismatch) must not end the consumer."""
+        async for msg in messages:
+            if not self._running:
+                break
+            try:
+                await self._process_message(msg.value, producer)
+            except Exception:  # noqa: BLE001
+                LOG.exception("UEBA failed to process a message; continuing")
 
     def stop(self) -> None:
         self._running = False
