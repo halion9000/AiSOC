@@ -130,6 +130,8 @@ class AlertDetailResponse(AlertResponse):
     """
 
     narrative: str | None = None
+    # The event as the source sent it (already redacted before storage). The alert page's Raw tab reads this; without it the tab always said "not available".
+    raw_event: dict = {}
     related_entities: list[RelatedEntity] = []
     mini_timeline: list[MiniTimelineEvent] = []
     recommended_actions: list[RecommendedAction] = []
