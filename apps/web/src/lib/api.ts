@@ -800,6 +800,8 @@ export interface Alert {
   tenantId: string;
   /** The client tenant the alert belongs to, when the list is an MSSP parent's. */
   clientName?: string;
+  /** First host the alert names (affected_hosts[0]); the alerts page can filter by it. */
+  device?: string;
   riskScore: number;
   mitreAttack?: MitreAttack[];
   iocs?: AlertIOC[];
@@ -826,6 +828,12 @@ export interface Alert {
   relatedEntities?: RelatedEntity[];
   miniTimeline?: MiniTimelineEvent[];
   recommendedActions?: RecommendedAction[];
+}
+
+function firstHost(v: unknown): string | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const h = v.find((x) => typeof x === 'string' && x.trim());
+  return typeof h === 'string' ? h.trim() : undefined;
 }
 
 /**
@@ -991,6 +999,7 @@ function normalizeAlert(raw: unknown): Alert {
     sourceRef: pickStr('source_ref', 'sourceRef'),
     tenantId: pickStr('tenant_id', 'tenantId') ?? '',
     clientName: pickStr('client_name', 'clientName'),
+    device: firstHost(r.affected_hosts ?? r.affectedHosts),
     riskScore,
     mitreAttack,
     iocs: pickArr<AlertIOC>('iocs', 'iocs'),

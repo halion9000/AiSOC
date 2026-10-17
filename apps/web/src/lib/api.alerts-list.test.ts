@@ -60,6 +60,21 @@ describe('alertsApi.list', () => {
     expect(out.alerts[0].clientName).toBe('Setpoint');
   });
 
+  it('exposes the first named host as device, and none when the list is empty or blank', async () => {
+    vi.stubGlobal('fetch', async () =>
+      json({
+        items: [
+          { id: 'a', title: 'x', severity: 'low', status: 'new', affected_hosts: ['  ', ' HCC-FS01 ', 'other'], created_at: '2026-10-13T00:00:00Z' },
+          { id: 'b', title: 'y', severity: 'low', status: 'new', affected_hosts: [], created_at: '2026-10-13T00:00:00Z' },
+          { id: 'c', title: 'z', severity: 'low', status: 'new', created_at: '2026-10-13T00:00:00Z' },
+        ],
+        total: 3,
+      }),
+    );
+    const out = await alertsApi.list();
+    expect(out.alerts.map((a) => a.device)).toEqual(['HCC-FS01', undefined, undefined]);
+  });
+
   it('sends the device as the device query parameter', async () => {
     let url = '';
     vi.stubGlobal('fetch', async (u: string) => {

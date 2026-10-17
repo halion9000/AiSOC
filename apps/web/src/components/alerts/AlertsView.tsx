@@ -240,7 +240,7 @@ export function FiltersBar({
 // "open in new tab" muscle memory. The row gets a left-border highlight
 // when selected so the analyst can see at a glance which alert the rail is
 // describing.
-function AlertRow({
+export function AlertRow({
   alert,
   selected,
   onSelect,
@@ -287,6 +287,12 @@ function AlertRow({
             </>
           )}
           <span className="text-xs text-gray-600">{alert.source}</span>
+          {alert.device && (
+            <>
+              <span className="text-gray-700">·</span>
+              <span className="text-xs text-gray-500 truncate" data-testid="alert-device">{alert.device}</span>
+            </>
+          )}
           {alert.assignee && (
             <>
               <span className="text-gray-700">·</span>

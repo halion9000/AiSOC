@@ -9,7 +9,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   msspApi: { listChildren: api.listChildren },
 }));
 
-import { FiltersBar } from './AlertsView';
+import { AlertRow, FiltersBar } from './AlertsView';
+import type { Alert } from '@/lib/api';
 
 function show(onChange = vi.fn(), filters = { page: 3, pageSize: 25 } as Record<string, unknown>) {
   render(
@@ -65,5 +66,19 @@ describe('device filter', () => {
   it('has no device chip when no device is chosen', () => {
     show();
     expect(screen.queryByText(/^Device:/)).not.toBeInTheDocument();
+  });
+});
+
+describe('alert row device', () => {
+  const base = { id: 'a1', title: 'Low disk', description: '', severity: 'high', status: 'new', source: 'ninjaone', tenantId: 't', riskScore: 1, createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z' } as Alert;
+
+  it('shows the machine name next to the source', () => {
+    render(<AlertRow alert={{ ...base, device: 'HCC-FS01' }} selected={false} onSelect={vi.fn()} />);
+    expect(screen.getByTestId('alert-device')).toHaveTextContent('HCC-FS01');
+  });
+
+  it('shows no device marker when the alert names no machine', () => {
+    render(<AlertRow alert={base} selected={false} onSelect={vi.fn()} />);
+    expect(screen.queryByTestId('alert-device')).not.toBeInTheDocument();
   });
 });
