@@ -6,7 +6,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { casesApi, type Case, type CasesResponse } from '@/lib/api';
 import { clsx } from 'clsx';
-import { format } from 'date-fns';
+import { safeFormat } from '@/lib/safe-date';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import { CreateCaseModal } from './CreateCaseModal';
@@ -79,7 +79,7 @@ function CaseCard({ c }: { c: Case }) {
             </div>
           </div>
           <div className="text-right shrink-0 flex flex-col items-end gap-2">
-            <p className="text-xs text-gray-500" suppressHydrationWarning>{format(new Date(c.createdAt), 'MMM dd, HH:mm')}</p>
+            <p className="text-xs text-gray-500" suppressHydrationWarning>{safeFormat(c.createdAt, 'MMM dd, HH:mm')}</p>
             {c.tags && c.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 justify-end">
                 {c.tags.slice(0, 2).map((tag) => (

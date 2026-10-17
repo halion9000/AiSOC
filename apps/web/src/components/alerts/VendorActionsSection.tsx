@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import { alertsApi, ApiError, type VendorActionItem, type VendorRemediation, type VendorState } from '@/lib/api';
 
 export const REJECT_REASONS: { value: string; label: string }[] = [
@@ -250,7 +250,7 @@ export function VendorActionsSection({ alertId }: { alertId: string }) {
                 {STATUS_LABEL[a.status] ?? a.status}
               </span>
               {ACTION_LABEL[a.action] ?? a.action}
-              <span className="text-gray-600"> · {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}</span>
+              <span className="text-gray-600"> · {safeDistance(a.created_at, { addSuffix: true })}</span>
               {a.result_message && <p className="mt-0.5 ml-1 text-gray-500">{a.result_message}</p>}
             </li>
           ))}
@@ -419,7 +419,7 @@ export function ResolveOnlyPanel({
                 {STATUS_LABEL[a.status] ?? a.status}
               </span>
               Resolve in {name}
-              <span className="text-gray-600"> · {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}</span>
+              <span className="text-gray-600"> · {safeDistance(a.created_at, { addSuffix: true })}</span>
               {a.result_message && <p className="mt-0.5 ml-1 text-gray-500">{a.result_message}</p>}
             </li>
           ))}

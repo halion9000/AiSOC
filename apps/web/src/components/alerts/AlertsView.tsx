@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { alertsApi, connectorsApi, msspApi, type Alert, type AlertFilters, type ConfidenceLabel } from '@/lib/api';
 import { clsx } from 'clsx';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import { EntityRiskQueue } from './EntityRiskQueue';
 import { InvestigationRail } from './InvestigationRail';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
@@ -307,7 +307,7 @@ export function AlertRow({
         <SeverityBadge severity={alert.severity} />
         <StatusBadge status={alert.status} />
         <span className="text-xs text-gray-600 w-24 text-right" suppressHydrationWarning>
-          {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
+          {safeDistance(alert.createdAt, { addSuffix: true })}
         </span>
       </div>
     </Link>

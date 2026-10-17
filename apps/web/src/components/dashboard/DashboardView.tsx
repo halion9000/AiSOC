@@ -19,7 +19,7 @@ import useSWR from 'swr';
 import { metricsApi, type DashboardMetrics } from '@/lib/api';
 import { clsx } from 'clsx';
 import dynamic from 'next/dynamic';
-import { format } from 'date-fns';
+import { safeFormat } from '@/lib/safe-date';
 import { LiveFeedPanel } from './LiveFeedPanel';
 import { SOCMetricsDashboard } from './SOCMetricsDashboard';
 import { DashboardWelcome } from './DashboardWelcome';
@@ -404,7 +404,7 @@ export function DashboardView() {
     : EMPTY_METRICS;
 
   const trendData = metrics.alertsTrend.map((d) => ({
-    time: format(new Date(d.timestamp), 'HH:mm'),
+    time: safeFormat(d.timestamp, 'HH:mm'),
     count: d.count,
   }));
 

@@ -28,7 +28,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { format, formatDistanceToNow } from 'date-fns';
+import { safeDistance, safeFormat } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
   huntApi,
@@ -311,8 +311,8 @@ function SavedHuntsPanel({
             </p>
             <p className="mt-1 text-[11px] text-slate-500" suppressHydrationWarning>
               {h.last_run_at
-                ? `Last run ${formatDistanceToNow(new Date(h.last_run_at), { addSuffix: true })}`
-                : `Saved ${formatDistanceToNow(new Date(h.created_at), { addSuffix: true })}`}
+                ? `Last run ${safeDistance(h.last_run_at, { addSuffix: true })}`
+                : `Saved ${safeDistance(h.created_at, { addSuffix: true })}`}
             </p>
           </div>
           <div className="flex shrink-0 flex-col gap-1">
@@ -404,7 +404,7 @@ function SavedList({
             </div>
             <p className="mt-1 truncate text-sm text-slate-200">{s.name}</p>
             <p className="mt-0.5 text-[11px] text-slate-500" suppressHydrationWarning>
-              {formatDistanceToNow(new Date(s.createdAt), { addSuffix: true })}
+              {safeDistance(s.createdAt, { addSuffix: true })}
             </p>
           </button>
           <button
@@ -453,7 +453,7 @@ function ResultRow({ result }: { result: HuntResult }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-400">
             <span className="font-mono text-slate-300" suppressHydrationWarning>
-              {format(new Date(result.timestamp), 'MMM dd HH:mm:ss')}
+              {safeFormat(result.timestamp, 'MMM dd HH:mm:ss')}
             </span>
             <span className="text-slate-600">·</span>
             <span className="rounded bg-slate-800/60 px-1.5 py-0.5 text-[10px] text-slate-400">

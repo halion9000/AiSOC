@@ -36,7 +36,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { format, formatDistanceToNow } from 'date-fns';
+import { safeDistance, safeFormat } from '@/lib/safe-date';
 import {
   alertsApi,
   type Alert,
@@ -244,7 +244,7 @@ function RailHeader({
         <span>{alert.source}</span>
         <span>·</span>
         <span suppressHydrationWarning>
-          {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
+          {safeDistance(alert.createdAt, { addSuffix: true })}
         </span>
         {typeof alert.riskScore === 'number' && (
           <>
@@ -387,7 +387,7 @@ function MiniTimelineSection({ events }: { events: MiniTimelineEvent[] }) {
 function TimelineRow({ event }: { event: MiniTimelineEvent }) {
   let ts: string;
   try {
-    ts = format(new Date(event.timestamp), 'MMM d HH:mm');
+    ts = safeFormat(event.timestamp, 'MMM d HH:mm');
   } catch {
     // Defensive: if the server hands back a malformed timestamp we still
     // render the row rather than crashing the rail.

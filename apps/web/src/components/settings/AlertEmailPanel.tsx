@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import toast from 'react-hot-toast';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -135,7 +135,7 @@ function Inner() {
             <span className="text-gray-400">
               Sender: <span className="text-gray-200">{status.sender ?? 'not set'}</span>
             </span>
-            {status.last_sent_at ? <span className="text-gray-400" suppressHydrationWarning>Last sent {formatDistanceToNow(new Date(status.last_sent_at), { addSuffix: true })}</span> : <span className="text-gray-500">Nothing sent yet</span>}
+            {status.last_sent_at ? <span className="text-gray-400" suppressHydrationWarning>Last sent {safeDistance(status.last_sent_at, { addSuffix: true })}</span> : <span className="text-gray-500">Nothing sent yet</span>}
           </div>
           {status.warnings.map((w) => (
             <p key={w} data-testid="alert-email-warning" className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">{w}</p>
@@ -147,7 +147,7 @@ function Inner() {
           ) : null}
           {status.last_error ? (
             <p data-testid="alert-email-last-error" role="alert" className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">
-              Last error{status.last_error_at ? ` (${formatDistanceToNow(new Date(status.last_error_at), { addSuffix: true })})` : ''}: {status.last_error}
+              Last error{status.last_error_at ? ` (${safeDistance(status.last_error_at, { addSuffix: true })})` : ''}: {status.last_error}
               {status.consecutive_failures > 1 ? ` — failed ${status.consecutive_failures} times in a row. Unsent alerts stay waiting and go out once it is fixed.` : ''}
             </p>
           ) : null}
@@ -203,7 +203,7 @@ function Inner() {
                 <tbody className="divide-y divide-gray-800 bg-gray-950/40">
                   {(log ?? []).map((l) => (
                     <tr key={l.alert_id} data-testid="alert-email-log-row">
-                      <td className="px-4 py-2 text-xs text-gray-400" suppressHydrationWarning>{formatDistanceToNow(new Date(l.sent_at), { addSuffix: true })}</td>
+                      <td className="px-4 py-2 text-xs text-gray-400" suppressHydrationWarning>{safeDistance(l.sent_at, { addSuffix: true })}</td>
                       <td className="px-4 py-2 text-gray-300">{l.tenant_name ?? 'unknown tenant'}</td>
                       <td className="px-4 py-2 text-gray-300">{l.severity}</td>
                       <td className="px-4 py-2 text-gray-100">{l.title}</td>

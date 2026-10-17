@@ -22,7 +22,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { format, formatDistanceToNow } from 'date-fns';
+import { safeDistance, safeFormat } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
   casesApi,
@@ -149,7 +149,7 @@ function TimelineItem({ event }: { event: CaseTimelineEvent }) {
             <span className="text-[11px] text-slate-500">by {event.actor}</span>
           )}
           <span className="ml-auto text-[11px] text-slate-500" suppressHydrationWarning>
-            {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
+            {safeDistance(event.timestamp, { addSuffix: true })}
           </span>
         </div>
         {event.description && (
@@ -212,7 +212,7 @@ function TaskRow({ task, onChangeStatus }: TaskRowProps) {
           </span>
           {task.assignee && <span>@{task.assignee}</span>}
           <span suppressHydrationWarning>
-            {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })}
+            {safeDistance(task.createdAt, { addSuffix: true })}
           </span>
         </div>
       </div>
@@ -654,12 +654,12 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
           <Meta label="Assignee" value={caseRecord.assignee?.split('@')[0] ?? '—'} />
           <Meta
             label="Created"
-            value={format(new Date(caseRecord.createdAt), 'MMM d, HH:mm')}
+            value={safeFormat(caseRecord.createdAt, 'MMM d, HH:mm')}
             suppressHydrationWarning
           />
           <Meta
             label="Updated"
-            value={formatDistanceToNow(new Date(caseRecord.updatedAt), {
+            value={safeDistance(caseRecord.updatedAt, {
               addSuffix: true,
             })}
             suppressHydrationWarning
@@ -668,7 +668,7 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
             label="SLA"
             value={
               caseRecord.dueAt
-                ? `${formatDistanceToNow(new Date(caseRecord.dueAt))} left`
+                ? `${safeDistance(caseRecord.dueAt)} left`
                 : '—'
             }
             suppressHydrationWarning
@@ -1513,7 +1513,7 @@ function AttackChainPanel({ caseId }: { caseId: string }) {
                     <p className="mt-0.5 text-[11px] text-slate-500">
                       {(() => {
                         try {
-                          return `${format(new Date(link.eventTime), 'MMM d, HH:mm:ss')} · ${formatDistanceToNow(new Date(link.eventTime), { addSuffix: true })}`;
+                          return `${safeFormat(link.eventTime, 'MMM d, HH:mm:ss')} · ${safeDistance(link.eventTime, { addSuffix: true })}`;
                         } catch {
                           return link.eventTime;
                         }
@@ -1613,7 +1613,7 @@ function AttackChainPanel({ caseId }: { caseId: string }) {
         Chain computed at{' '}
         {(() => {
           try {
-            return format(new Date(data.generatedAt), 'MMM d, HH:mm:ss');
+            return safeFormat(data.generatedAt, 'MMM d, HH:mm:ss');
           } catch {
             return data.generatedAt;
           }

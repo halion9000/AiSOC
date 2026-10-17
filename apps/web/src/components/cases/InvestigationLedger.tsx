@@ -27,7 +27,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
+import { safeDistance, safeFormat } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
   ledgerApi,
@@ -331,7 +332,7 @@ export function InvestigationLedger({
         >
           {runs.map((r) => (
             <option key={r.id} value={r.id} suppressHydrationWarning>
-              {format(new Date(r.started_at), 'MMM d HH:mm')} · {r.status}
+              {safeFormat(r.started_at, 'MMM d HH:mm')} · {r.status}
               {r.model_used ? ` · ${r.model_used}` : ''}
             </option>
           ))}
@@ -684,7 +685,7 @@ function TimelineRow({
               </span>
             )}
             <span className="ml-auto shrink-0 text-[10px] text-slate-600" suppressHydrationWarning>
-              {format(new Date(event.ts), 'HH:mm:ss.SSS')}
+              {safeFormat(event.ts, 'HH:mm:ss.SSS')}
             </span>
           </div>
           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400">
@@ -755,7 +756,7 @@ function ExplainPanel({ runId, step }: { runId: string; step: number }) {
               <span className="text-xs font-semibold text-slate-200">{focus.agent}</span>
             )}
             <span className="ml-auto text-[10px] text-slate-500" suppressHydrationWarning>
-              {format(new Date(focus.ts), 'MMM d, HH:mm:ss.SSS')}
+              {safeFormat(focus.ts, 'MMM d, HH:mm:ss.SSS')}
               {focus.duration_ms > 0 && ` · ${focus.duration_ms}ms`}
             </span>
           </div>
@@ -872,7 +873,7 @@ function NeighbourCard({
               {event.summary || '—'}
             </p>
             <p className="mt-0.5 font-mono text-[10px] text-slate-600" suppressHydrationWarning>
-              #{event.seq} · {formatDistanceToNow(new Date(event.ts), { addSuffix: true })}
+              #{event.seq} · {safeDistance(event.ts, { addSuffix: true })}
             </p>
           </div>
         </div>

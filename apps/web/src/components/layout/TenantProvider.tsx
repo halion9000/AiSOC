@@ -17,6 +17,7 @@ import {
   type AuthUser,
   type ViewableTenant,
 } from '@/lib/api';
+import { onViewedTenantChangedElsewhere } from '@/lib/tenant-view';
 
 export interface TenantOption {
   /** Stable tenant UUID: what `X-View-As-Tenant` carries while this tenant is being viewed. */
@@ -68,6 +69,9 @@ function toOption(t: ViewableTenant): TenantOption {
  * cleared and the page reloads onto the person's own tenant; if the list cannot be read at all, the console says it is viewing another tenant and offers the way back.
  */
 export function TenantProvider({ children }: { children: ReactNode }) {
+  // Another tab switched tenant: this tab's name and cached data are for the old one, but its next request would carry the new one. Reload onto the new choice.
+  useEffect(() => onViewedTenantChangedElsewhere(() => window.location.reload()), []);
+
   const [current, setCurrent] = useState<TenantOption | null>(null);
   const [home, setHome] = useState<TenantOption | null>(null);
   const [available, setAvailable] = useState<TenantOption[]>([]);

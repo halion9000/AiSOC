@@ -16,7 +16,7 @@ import {
   type AnalystVerdict,
   type RedispositionCandidate,
 } from '@/lib/api';
-import { format } from 'date-fns';
+import { safeFormat } from '@/lib/safe-date';
 import { clsx } from 'clsx';
 import { ContextualActions } from '@/components/copilot/ContextualActions';
 import { ExplainDrawer } from '@/components/alerts/ExplainDrawer';
@@ -250,7 +250,7 @@ function LedgerEvidenceChain({ runId }: { runId: string }) {
                   </span>
                 </div>
                 <div className="text-[10px] text-gray-600 mt-0.5" suppressHydrationWarning>
-                  {event.agent} · {format(new Date(event.ts), 'HH:mm:ss')}
+                  {event.agent} · {safeFormat(event.ts, 'HH:mm:ss')}
                 </div>
               </div>
             </li>
@@ -692,7 +692,7 @@ function AnalystOverridePanel({
                       </span>
                       <span className="text-[10px] text-gray-600">·</span>
                       <span className="text-[10px] text-gray-500" suppressHydrationWarning>
-                        {format(new Date(c.event_time), 'MMM d, HH:mm')}
+                        {safeFormat(c.event_time, 'MMM d, HH:mm')}
                       </span>
                       {c.current_disposition && (
                         <>
@@ -813,7 +813,7 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
             <span className="text-xs text-gray-500">Risk Score: <span className="text-white font-bold">{alert.riskScore}</span></span>
           </div>
           <h1 className="text-lg font-semibold text-gray-100">{alert.title}</h1>
-          <p className="text-sm text-gray-500 mt-1" suppressHydrationWarning>{alert.source} · {format(new Date(alert.createdAt), 'MMM d, yyyy HH:mm:ss')}</p>
+          <p className="text-sm text-gray-500 mt-1" suppressHydrationWarning>{alert.source} · {safeFormat(alert.createdAt, 'MMM d, yyyy HH:mm:ss')}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <select
@@ -930,9 +930,9 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
                 <Field label="Source Ref" value={alert.sourceRef || '—'} />
                 <Field label="Tenant" value={alert.tenantId} />
                 <Field label="Assignee" value={alert.assignee || <span className="text-gray-500">Unassigned</span>} />
-                <Field label="Created" value={<span suppressHydrationWarning>{format(new Date(alert.createdAt), 'MMM d, yyyy HH:mm:ss')}</span>} />
+                <Field label="Created" value={<span suppressHydrationWarning>{safeFormat(alert.createdAt, 'MMM d, yyyy HH:mm:ss')}</span>} />
                 {alert.resolvedAt && (
-                  <Field label="Resolved" value={<span suppressHydrationWarning>{format(new Date(alert.resolvedAt), 'MMM d, yyyy HH:mm:ss')}</span>} />
+                  <Field label="Resolved" value={<span suppressHydrationWarning>{safeFormat(alert.resolvedAt, 'MMM d, yyyy HH:mm:ss')}</span>} />
                 )}
                 {alert.tags && alert.tags.length > 0 && (
                   <Field label="Tags" value={
@@ -1003,7 +1003,7 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
                 <div className="pb-4">
                   <div className="text-sm font-medium text-gray-200">{event.title}</div>
                   <div className="text-xs text-gray-500 mt-0.5">{event.desc}</div>
-                  <div className="text-xs text-gray-600 mt-1" suppressHydrationWarning>{format(new Date(event.time), 'MMM d, yyyy HH:mm:ss')}</div>
+                  <div className="text-xs text-gray-600 mt-1" suppressHydrationWarning>{safeFormat(event.time, 'MMM d, yyyy HH:mm:ss')}</div>
                 </div>
               </div>
             ))}

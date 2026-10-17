@@ -9,7 +9,7 @@ import {
   type ThreatIndicator,
 } from '@/lib/api';
 import { clsx } from 'clsx';
-import { format } from 'date-fns';
+import { safeFormat } from '@/lib/safe-date';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 
 // ─── Type badges ──────────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ function IOCRow({ ioc }: { ioc: ThreatIndicator }) {
         </div>
         <p className="text-xs text-gray-600 mt-0.5" suppressHydrationWarning>
           {ioc.lastSeen || ioc.firstSeen
-            ? format(new Date(ioc.lastSeen ?? ioc.firstSeen ?? 0), 'MMM dd HH:mm')
+            ? safeFormat(ioc.lastSeen ?? ioc.firstSeen ?? 0, 'MMM dd HH:mm')
             : '—'}
         </p>
       </div>

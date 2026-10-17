@@ -10,7 +10,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
   detectionProposalsApi,
@@ -195,7 +195,7 @@ export function DetectionProposalsView() {
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
                     <span suppressHydrationWarning>
                       Updated{' '}
-                      {formatDistanceToNow(new Date(p.updated_at), {
+                      {safeDistance(p.updated_at, {
                         addSuffix: true,
                       })}
                     </span>

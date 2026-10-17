@@ -7,6 +7,7 @@ import {
   getViewedTenantId,
   homeTenantId,
   isAccountLevelPath,
+  onViewedTenantChangedElsewhere,
   setViewedTenantId,
   viewAsHeaders,
 } from './tenant-view';
@@ -150,4 +151,27 @@ describe('viewAsHeaders', () => {
       expect(viewAsHeaders(path)).toEqual({});
     },
   );
+});
+
+
+describe('another tab switching tenants', () => {
+  // The chosen tenant lives in localStorage and every tab sends it: a tab that kept showing tenant X's name and cached data
+  // would send its next request for the tenant chosen in the other tab.
+  it('calls the handler when the stored tenant changes in another tab', () => {
+    const changed = vi.fn();
+    const stop = onViewedTenantChangedElsewhere(changed);
+    window.dispatchEvent(new StorageEvent('storage', { key: ACTIVE_TENANT_KEY, oldValue: null, newValue: 'tenant-b' }));
+    expect(changed).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('ignores other keys and stops listening once cleaned up', () => {
+    const changed = vi.fn();
+    const stop = onViewedTenantChangedElsewhere(changed);
+    window.dispatchEvent(new StorageEvent('storage', { key: 'something-else', newValue: 'x' }));
+    expect(changed).not.toHaveBeenCalled();
+    stop();
+    window.dispatchEvent(new StorageEvent('storage', { key: ACTIVE_TENANT_KEY, newValue: 'tenant-b' }));
+    expect(changed).not.toHaveBeenCalled();
+  });
 });

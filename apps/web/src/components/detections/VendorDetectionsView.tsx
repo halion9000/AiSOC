@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import { detectionApi } from '@/lib/api';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -122,7 +122,7 @@ export function VendorDetectionsView() {
                     <td className="px-3 py-2 text-right tabular-nums text-gray-200">{r.open}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-200">{r.clients}</td>
                     <td className="px-3 py-2 text-gray-400">
-                      {r.last_seen ? formatDistanceToNow(new Date(r.last_seen), { addSuffix: true }) : '—'}
+                      {r.last_seen ? safeDistance(r.last_seen, { addSuffix: true }) : '—'}
                     </td>
                   </tr>
                 ))}

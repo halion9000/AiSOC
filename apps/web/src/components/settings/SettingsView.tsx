@@ -24,7 +24,7 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
-import { format, formatDistanceToNow } from 'date-fns';
+import { safeDistance, safeFormat } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
   ApiError,
@@ -543,7 +543,7 @@ function WorkspacePanel() {
           <InfoTile label="Workspace name" value={tenant.name} />
           <InfoTile label="Tenant ID" value={tenant.id} mono />
           <InfoTile label="Plan" value={tenant.plan} />
-          <InfoTile label="Created" value={Number.isNaN(new Date(tenant.created_at).getTime()) ? '—' : format(new Date(tenant.created_at), 'PPP')} />
+          <InfoTile label="Created" value={Number.isNaN(new Date(tenant.created_at).getTime()) ? '—' : safeFormat(tenant.created_at, 'PPP')} />
           <InfoTile label="Default locale" value={`${Intl.DateTimeFormat().resolvedOptions().locale} • 24h`} />
         </div>
       ) : null}
@@ -740,7 +740,7 @@ function IntegrationsPanel() {
                       {c.lastSync ? (
                         <span suppressHydrationWarning>
                           Last sync{' '}
-                          {formatDistanceToNow(new Date(c.lastSync), {
+                          {safeDistance(c.lastSync, {
                             addSuffix: true,
                           })}
                         </span>
@@ -990,11 +990,11 @@ function ApiKeysPanel() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400" suppressHydrationWarning>
-                      {format(new Date(k.createdAt), 'PPP')}
+                      {safeFormat(k.createdAt, 'PPP')}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400" suppressHydrationWarning>
                       {k.lastUsedAt
-                        ? formatDistanceToNow(new Date(k.lastUsedAt), {
+                        ? safeDistance(k.lastUsedAt, {
                             addSuffix: true,
                           })
                         : '—'}
@@ -1855,7 +1855,7 @@ function BYOKCard({
                 className="text-xs text-gray-300"
                 title={credential.last_rotated_at}
               >
-                {formatDistanceToNow(new Date(credential.last_rotated_at), {
+                {safeDistance(credential.last_rotated_at, {
                   addSuffix: true,
                 })}
               </span>
@@ -1868,7 +1868,7 @@ function BYOKCard({
               className="text-xs text-gray-300"
               title={credential.updated_at}
             >
-              {formatDistanceToNow(new Date(credential.updated_at), {
+              {safeDistance(credential.updated_at, {
                 addSuffix: true,
               })}
             </span>
@@ -2139,7 +2139,7 @@ function AuditPanel() {
                   <span>{a.target}</span>
                 </p>
                 <p className="text-xs text-gray-500" suppressHydrationWarning>
-                  {formatDistanceToNow(new Date(a.at), { addSuffix: true })}
+                  {safeDistance(a.at, { addSuffix: true })}
                 </p>
               </div>
             </li>

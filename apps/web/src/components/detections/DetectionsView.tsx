@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
   detectionApi,
@@ -667,7 +667,7 @@ function RuleCard({ rule, selected, onSelect, onToggle }: RuleCardProps) {
             </div>
             <div className="mt-0.5" suppressHydrationWarning>
               {rule.lastTriggeredAt
-                ? `last fired ${formatDistanceToNow(new Date(rule.lastTriggeredAt), { addSuffix: true })}`
+                ? `last fired ${safeDistance(rule.lastTriggeredAt, { addSuffix: true })}`
                 : 'no recent hits'}
             </div>
           </div>

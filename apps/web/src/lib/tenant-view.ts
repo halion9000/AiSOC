@@ -68,6 +68,16 @@ export function setViewedTenantId(tenantId: string | null): void {
   }
 }
 
+/** Run `onChange` when ANOTHER tab changes the chosen tenant (the browser fires `storage` only in the other tabs). Returns the cleanup. */
+export function onViewedTenantChangedElsewhere(onChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const listener = (event: StorageEvent) => {
+    if (event.key === ACTIVE_TENANT_KEY) onChange();
+  };
+  window.addEventListener('storage', listener);
+  return () => window.removeEventListener('storage', listener);
+}
+
 /** The header to add to a request for `path` (a same-origin /api path): empty unless a tenant is being viewed and the route is not account-level. */
 export function viewAsHeaders(path: string): Record<string, string> {
   if (isAccountLevelPath(path)) return {};

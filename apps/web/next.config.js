@@ -69,6 +69,20 @@ const nextConfig = {
     NEXT_PUBLIC_HONEYTOKENS_URL: process.env.NEXT_PUBLIC_HONEYTOKENS_URL || '',
     NEXT_PUBLIC_OSQUERY_TLS_URL: process.env.NEXT_PUBLIC_OSQUERY_TLS_URL || '',
   },
+  // ─── Response headers ─────────────────────────────────────────────────────
+  // Hardening that cannot break an embed or the inline theme bootstrap. Deliberately NOT set: X-Frame-Options / frame-ancestors (the HUD may frame the console) and a CSP
+  // (the theme bootstrap is an inline script); both need an owner decision.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        ],
+      },
+    ];
+  },
   // ─── Permanent URL redirects (browser-visible) ───────────────────────────
   //
   // These run *before* rewrites and emit real 308 responses (so search

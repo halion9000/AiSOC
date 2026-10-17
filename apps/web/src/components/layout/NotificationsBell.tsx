@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import { alertsApi, type Alert } from '@/lib/api';
 
 /** The newest critical and high alerts nobody has picked up yet, newest first. */
@@ -78,7 +78,7 @@ export function NotificationsBell() {
                     <p className="text-sm text-gray-200 truncate">{a.title}</p>
                     <p className="text-xs text-gray-500">
                       <span className={a.severity === 'critical' ? 'text-red-400' : 'text-orange-400'}>{a.severity}</span>
-                      {a.clientName ? ` · ${a.clientName}` : ''} · {formatDistanceToNow(new Date(a.createdAt), { addSuffix: true })}
+                      {a.clientName ? ` · ${a.clientName}` : ''} · {safeDistance(a.createdAt, { addSuffix: true })}
                     </p>
                   </Link>
                 </li>

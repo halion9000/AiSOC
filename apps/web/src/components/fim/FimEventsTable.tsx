@@ -1,7 +1,7 @@
 'use client';
 
 import clsx from 'clsx';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import type { FimEvent } from '@/lib/osquery-api';
 
 interface Props {
@@ -53,7 +53,7 @@ export function FimEventsTable({ events, total, page, pageSize, onPageChange }: 
                     title={e.event_time}
                     className="whitespace-nowrap text-gray-500"
                   >
-                    {formatDistanceToNow(new Date(e.event_time), { addSuffix: true })}
+                    {safeDistance(e.event_time, { addSuffix: true })}
                   </span>
                 </Td>
                 <Td>

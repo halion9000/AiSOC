@@ -16,7 +16,7 @@ import useSWR from 'swr';
 import { TenantScopePicker } from '@/components/ui/TenantScopePicker';
 import { clsx } from 'clsx';
 import { ErrorState } from '@/components/ui/ErrorState';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 import {
   entityRiskApi,
   type AlertSeverity,
@@ -237,7 +237,7 @@ function EntityRow({
           <span className="text-gray-700">·</span>
           <span className="text-xs text-gray-500" suppressHydrationWarning>
             last seen{' '}
-            {formatDistanceToNow(new Date(record.last_seen), {
+            {safeDistance(record.last_seen, {
               addSuffix: true,
             })}
           </span>
@@ -340,7 +340,7 @@ function EntityDetailDrawer({
               </p>
               <p className="text-[10px] text-gray-500 mt-0.5" suppressHydrationWarning>
                 first seen{' '}
-                {formatDistanceToNow(new Date(record.first_seen), {
+                {safeDistance(record.first_seen, {
                   addSuffix: true,
                 })}
               </p>
@@ -392,7 +392,7 @@ function EntityDetailDrawer({
                         {c.source && <span>{c.source}</span>}
                         {c.source && <span className="text-gray-700">·</span>}
                         <span suppressHydrationWarning>
-                          {formatDistanceToNow(new Date(c.observed_at), {
+                          {safeDistance(c.observed_at, {
                             addSuffix: true,
                           })}
                         </span>

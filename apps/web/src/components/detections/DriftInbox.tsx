@@ -20,7 +20,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { clsx } from 'clsx';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 
 import { detectionApi, type DetectionDrift, type DetectionDriftEntry } from '@/lib/api';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -201,7 +201,7 @@ interface DriftRowProps {
 
 function DriftRow({ entry }: DriftRowProps) {
   const lastFired = entry.lastTriggeredAt
-    ? formatDistanceToNow(new Date(entry.lastTriggeredAt), { addSuffix: true })
+    ? safeDistance(entry.lastTriggeredAt, { addSuffix: true })
     : 'never';
   return (
     <Link

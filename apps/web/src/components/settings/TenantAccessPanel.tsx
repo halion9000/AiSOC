@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import toast from 'react-hot-toast';
-import { formatDistanceToNow } from 'date-fns';
+import { safeDistance } from '@/lib/safe-date';
 
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -218,7 +218,7 @@ function Inner({ canGrantAll }: { canGrantAll: boolean }) {
                           <td className="px-4 py-3 text-gray-300">{tenantName(g.home_tenant_id)}</td>
                           <td className="px-4 py-3"><LevelPill level={g.access} /></td>
                           <td className="px-4 py-3 text-xs text-gray-400" suppressHydrationWarning>
-                            {g.granted_by} · {formatDistanceToNow(new Date(g.created_at), { addSuffix: true })}
+                            {g.granted_by} · {safeDistance(g.created_at, { addSuffix: true })}
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-2">
@@ -278,7 +278,7 @@ function Inner({ canGrantAll }: { canGrantAll: boolean }) {
                       <li key={g.user_id} data-testid="all-access-row" className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                         <div>
                           <span className="font-medium text-gray-100">{g.account_name}</span> <LevelPill level={g.access} />
-                          <div className="text-xs text-gray-500">{g.granted_by} · {formatDistanceToNow(new Date(g.created_at), { addSuffix: true })}</div>
+                          <div className="text-xs text-gray-500">{g.granted_by} · {safeDistance(g.created_at, { addSuffix: true })}</div>
                         </div>
                         <div className="flex gap-2">
                           <button
