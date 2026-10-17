@@ -248,6 +248,12 @@ def event_to_row(message: dict[str, Any]) -> dict[str, Any] | None:
     return row
 
 
+# After a failed flush the batch is KEPT and retried, not dropped. These bound that: wait at least this long between attempts (so a down ClickHouse is not hit on every event),
+# and never hold more than this many rows (the OLDEST beyond it are dropped and counted: an outage cannot grow memory forever).
+_RETRY_BACKOFF_SECONDS = 5.0
+_MAX_RETAINED_ROWS = 5000
+
+
 class LakeWriter:
     """Batched, fail-soft ClickHouse writer for the ``aisoc.raw_events`` lake."""
 
@@ -273,7 +279,9 @@ class LakeWriter:
         self._buffer: list[dict[str, Any]] = []
         self._buffer_started_at: float = 0.0
         self._disabled = False
+        self._retry_not_before = 0.0
         self.rows_written = 0
+        self.rows_dropped = 0
         self.flush_failures = 0
 
     async def start(self) -> None:
@@ -295,10 +303,12 @@ class LakeWriter:
             self._disabled = True
             logger.warning("lake_writer.disabled_no_driver")
         except Exception as exc:  # noqa: BLE001 — degrade, never crash the worker
-            self._disabled = True
+            # Not permanent: ClickHouse being down at boot must not mean no lake writes until the container restarts. flush() reconnects when the next batch is due.
+            self._client = None
             logger.error("lake_writer.connect_failed", error=str(exc))
 
     async def stop(self) -> None:
+        self._retry_not_before = 0.0  # shutting down: one last attempt now, whatever the backoff says
         await self.flush()
         if self._client is not None:
             try:
@@ -331,11 +341,16 @@ class LakeWriter:
     async def flush(self) -> None:
         if self._disabled or not self._buffer:
             return
+        if time.monotonic() < self._retry_not_before:
+            return  # a recent flush failed: keep buffering, try again after the backoff
+        if self._client is None:
+            await self.start()  # reconnect lazily (a failed start leaves the buffer intact)
+            if self._client is None:
+                self._after_failure("no connection")
+                return
         batch = self._buffer
         self._buffer = []
         client = self._client
-        if client is None:
-            return
 
         def _insert() -> None:
             # clickhouse-driver executes INSERT ... VALUES with a list of dicts.
@@ -352,13 +367,25 @@ class LakeWriter:
         try:
             await asyncio.to_thread(_insert)
             self.rows_written += len(batch)
-        except Exception as exc:  # noqa: BLE001 — best-effort archival; drop the batch
-            self.flush_failures += 1
-            logger.error("lake_writer.flush_failed", error=str(exc), dropped=len(batch))
+        except Exception as exc:  # noqa: BLE001 — never raise into the consumer
+            self._buffer = batch + self._buffer  # keep the batch (oldest first) for the next attempt
+            self._after_failure(str(exc))
+
+    def _after_failure(self, reason: str) -> None:
+        self.flush_failures += 1
+        self._retry_not_before = time.monotonic() + _RETRY_BACKOFF_SECONDS
+        if not self._buffer_started_at:
+            self._buffer_started_at = time.monotonic()
+        excess = len(self._buffer) - _MAX_RETAINED_ROWS
+        if excess > 0:
+            del self._buffer[:excess]
+            self.rows_dropped += excess
+        logger.error("lake_writer.flush_failed", error=reason, retained=len(self._buffer), dropped_total=self.rows_dropped)
 
     def metrics(self) -> dict[str, int]:
         return {
             "rows_written": self.rows_written,
             "flush_failures": self.flush_failures,
+            "rows_dropped": self.rows_dropped,
             "buffered": len(self._buffer),
         }

@@ -1,8 +1,8 @@
 """Phase A1 — ClickHouse lake writer tests.
 
 Proves the OCSF->column mapping, batching (size + age + stop flush), IP/UUID
-coercion, and the fail-soft contract (a ClickHouse error drops the batch and
-never raises into the consumer). Uses a fake client so no live ClickHouse is
+coercion, and the fail-soft contract (a ClickHouse error never raises into the
+consumer: the batch is kept and retried, up to a cap, instead of dropped). Uses a fake client so no live ClickHouse is
 needed; the live-container assertion is the integration.yml gate.
 """
 
@@ -143,14 +143,60 @@ async def test_omits_none_event_id_from_insert_row():
 # ── Fail-soft ────────────────────────────────────────────────────────────────
 
 
-async def test_flush_failure_drops_batch_and_does_not_raise():
+@pytest.fixture(autouse=True)
+def _no_retry_backoff(monkeypatch):
+    from app.services import lake_writer
+
+    monkeypatch.setattr(lake_writer, "_RETRY_BACKOFF_SECONDS", 0.0)
+
+
+async def test_flush_failure_keeps_the_batch_and_does_not_raise():
+    """A ClickHouse blip used to drop the batch for good (up to 100 events lost, one log line)."""
     w, fake = _writer_with_fake(batch_size=2)
     fake.fail = True
     await w.write_event(_message())
     await w.write_event(_message())  # triggers flush -> fails
     assert w.flush_failures == 1
     assert w.rows_written == 0
-    assert w.metrics()["buffered"] == 0  # batch was dropped, not re-buffered
+    assert w.metrics()["buffered"] == 2  # kept for the next attempt
+    fake.fail = False  # ClickHouse recovers
+    await w.flush()
+    assert w.rows_written == 2 and len(fake.inserted) == 2 and w.metrics()["buffered"] == 0
+
+
+async def test_retained_rows_are_capped_so_an_outage_cannot_grow_memory_forever(monkeypatch):
+    from app.services import lake_writer
+
+    monkeypatch.setattr(lake_writer, "_MAX_RETAINED_ROWS", 5)
+    w, fake = _writer_with_fake(batch_size=1)
+    fake.fail = True
+    for _ in range(9):
+        await w.write_event(_message())
+    assert w.metrics()["buffered"] == 5
+    assert w.rows_dropped == 4
+
+
+async def test_a_connect_failure_at_start_is_retried_later_not_permanent(monkeypatch):
+    """start() used to set _disabled for the life of the process on any connect error, so ClickHouse being down at boot meant no lake writes until the container was restarted."""
+    import sys
+    import types
+
+    attempts = {"n": 0}
+    fake = _FakeClient()
+
+    class _Driver:
+        def __init__(self, **kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ConnectionError("clickhouse not up yet")
+            self.__dict__.update(execute=fake.execute, disconnect=fake.disconnect)
+
+    monkeypatch.setitem(sys.modules, "clickhouse_driver", types.SimpleNamespace(Client=_Driver))
+    w = LakeWriter(host="x", batch_size=1)
+    await w.start()
+    assert w._client is None and w._disabled is False  # noqa: SLF001
+    await w.write_event(_message())  # reconnects lazily and writes
+    assert attempts["n"] == 2 and w.rows_written == 1
 
 
 async def test_disabled_writer_is_noop():
@@ -158,3 +204,15 @@ async def test_disabled_writer_is_noop():
     w._disabled = True  # noqa: SLF001
     assert await w.write_event(_message()) is False
     await w.flush()  # no raise
+
+
+async def test_stop_makes_a_last_attempt_even_during_the_backoff(monkeypatch):
+    from app.services import lake_writer
+
+    monkeypatch.setattr(lake_writer, "_RETRY_BACKOFF_SECONDS", 3600.0)
+    w, fake = _writer_with_fake(batch_size=1)
+    fake.fail = True
+    await w.write_event(_message())  # fails, backoff starts
+    fake.fail = False
+    await w.stop()
+    assert len(fake.inserted) == 1
