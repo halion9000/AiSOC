@@ -319,7 +319,7 @@ async def upsert_action_threshold(
     """
     await user.require_permission_db("settings:write", db)
 
-    if not action or len(action) > 100 or not action.replace("_", "").isalnum():
+    if not action or len(action) > 100 or not action.isascii() or not action.replace("_", "").isalnum():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="action name must be alphanumeric/underscore, ≤ 100 chars",
