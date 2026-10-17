@@ -139,6 +139,9 @@ class TestDetectionLoopSuggest:
             "raw_event": {"proc": "powershell.exe"},
             "entities": {},
             "iocs": [],
+            "affected_hosts": ["HCC-FS01"],
+            "affected_users": [],
+            "affected_ips": ["10.0.0.5"],
         }
         base.update(over)
         return SimpleNamespace(**base)
@@ -153,7 +156,10 @@ class TestDetectionLoopSuggest:
         await self.run(db)
         sql, params = db.executed[0]
         assert "FROM alerts WHERE id = :aid AND tenant_id = :tenant_id" in sql and params["tenant_id"] == TID and "aisoc_alerts" not in sql
-        assert "SELECT rule_id, tenant_id, title, severity, mitre_techniques, raw_event, entities, iocs FROM alerts" in sql
+        assert (
+            "SELECT rule_id, tenant_id, title, severity, mitre_techniques, raw_event, entities, iocs, affected_hosts, affected_users, affected_ips FROM alerts"
+            in sql
+        )
 
     async def test_the_evidence_is_composed_from_the_alerts_own_fields(self, llm):
         await self.run(FakeDB(self.alert(), None))
@@ -162,10 +168,16 @@ class TestDetectionLoopSuggest:
             "severity": "high",
             "mitre_techniques": ["T1059.001"],
             "raw_event": {"proc": "powershell.exe"},
+            "affected_hosts": ["HCC-FS01"],
+            "affected_ips": ["10.0.0.5"],
         }
 
     async def test_empty_fields_are_left_out_of_the_evidence(self, llm):
-        await self.run(FakeDB(self.alert(mitre_techniques=[], raw_event={}, entities=None, iocs=[], title=""), None))
+        await self.run(
+            FakeDB(
+                self.alert(mitre_techniques=[], raw_event={}, entities=None, iocs=[], title="", affected_hosts=[], affected_ips=None), None
+            )
+        )
         assert llm["alert_fields"] == {"severity": "high"}
 
     @pytest.mark.parametrize("rule_id", ["sigma-powershell-001", "not a uuid", "det-1", "12345"])

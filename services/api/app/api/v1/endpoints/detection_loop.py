@@ -209,7 +209,7 @@ async def suggest_fp_fix(
     # `alerts` has no `evidence` column (and `aisoc_alerts`, which this used to query, was never created, so this endpoint failed on every call): the evidence is composed from the alert's own fields.
     row = await db.execute(
         text(
-            "SELECT rule_id, tenant_id, title, severity, mitre_techniques, raw_event, entities, iocs FROM alerts "
+            "SELECT rule_id, tenant_id, title, severity, mitre_techniques, raw_event, entities, iocs, affected_hosts, affected_users, affected_ips FROM alerts "
             "WHERE id = :aid AND tenant_id = :tenant_id"
         ).bindparams(aid=body.alert_id, tenant_id=user.tenant_id)
     )
@@ -227,6 +227,10 @@ async def suggest_fp_fix(
             "raw_event": alert_row.raw_event,
             "entities": alert_row.entities,
             "iocs": alert_row.iocs,
+            # `entities` is rarely filled; the hosts, users and IPs the alert is about live in affected_*.
+            "affected_hosts": alert_row.affected_hosts,
+            "affected_users": alert_row.affected_users,
+            "affected_ips": alert_row.affected_ips,
         }.items()
         if value not in (None, [], {}, "")
     }
@@ -245,7 +249,7 @@ async def suggest_fp_fix(
         rule_uuid = None
     if rule_uuid is not None:
         rule_row = await db.execute(
-            text("SELECT rule_body FROM detection_rules " "WHERE id = :rid AND tenant_id = :tenant_id").bindparams(
+            text("SELECT rule_body FROM detection_rules WHERE id = :rid AND tenant_id = :tenant_id").bindparams(
                 rid=rule_uuid, tenant_id=user.tenant_id
             )
         )
