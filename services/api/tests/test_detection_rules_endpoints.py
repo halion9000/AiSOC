@@ -62,43 +62,50 @@ class FakeDB:
 
     async def refresh(self, obj):
         now = __import__("datetime").datetime(2026, 10, 1, tzinfo=__import__("datetime").UTC)
-        for key, value in dict(
-            id=RULE_ID, status="active", fp_rate=0.0, total_hits=0, is_builtin=False, version=1, created_at=now, updated_at=now
-        ).items():
+        for key, value in {
+            "id": RULE_ID,
+            "status": "active",
+            "fp_rate": 0.0,
+            "total_hits": 0,
+            "is_builtin": False,
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+        }.items():
             if getattr(obj, key, None) is None:
                 setattr(obj, key, value)
 
 
 def rule_row(tenant=TENANT, **over):
     now = __import__("datetime").datetime(2026, 10, 1, tzinfo=__import__("datetime").UTC)
-    base = dict(
-        id=RULE_ID,
-        tenant_id=tenant,
-        name="r",
-        description=None,
-        rule_language="sigma",
-        rule_body="title: x",
-        category="auth",
-        status="active",
-        severity="high",
-        confidence=60,
-        mitre_tactics=[],
-        mitre_techniques=[],
-        fp_rate=0.0,
-        total_hits=0,
-        last_triggered=None,
-        tags=[],
-        is_builtin=False,
-        version=3,
-        created_at=now,
-        updated_at=now,
-    )
+    base = {
+        "id": RULE_ID,
+        "tenant_id": tenant,
+        "name": "r",
+        "description": None,
+        "rule_language": "sigma",
+        "rule_body": "title: x",
+        "category": "auth",
+        "status": "active",
+        "severity": "high",
+        "confidence": 60,
+        "mitre_tactics": [],
+        "mitre_techniques": [],
+        "fp_rate": 0.0,
+        "total_hits": 0,
+        "last_triggered": None,
+        "tags": [],
+        "is_builtin": False,
+        "version": 3,
+        "created_at": now,
+        "updated_at": now,
+    }
     base.update(over)
     return SimpleNamespace(**base)
 
 
 def list_call(db, **kw):
-    args = dict(category=None, rule_language=None, include_builtin=True, include_packs=True)
+    args = {"category": None, "rule_language": None, "include_builtin": True, "include_packs": True}
     args.update(kw)
     return run(dr.list_rules(user(), db, **args))
 
