@@ -29,9 +29,13 @@ from app.api.router import router as legacy_router
 from app.db import dispose_engine
 from app.db_role import warn_if_rls_bypassed
 from app.live_actions import register_builtin_executors
+from app.security.egress_guard import install_egress_guard
 from app.store_readiness import check_action_store, mark_ready_when_store_answers
 
 logger = structlog.get_logger(__name__)
+
+# Executors call hosts named in the request (webhook_url, *_base_url, panos_host, ...): refuse loopback, link-local/metadata and other never-legitimate destinations on every httpx client.
+install_egress_guard()
 
 app = FastAPI(
     title="AiSOC Action Execution Service",

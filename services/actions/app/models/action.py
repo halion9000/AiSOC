@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ActionType(str, Enum):
@@ -177,3 +177,13 @@ class ActionResult(BaseModel):
     rollback_data: dict[str, Any] = Field(default_factory=dict)
     executed_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: datetime | None = None
+    # True when nothing really ran (no vendor credentials: the executor rehearsed the action). The status stays COMPLETED, but a reader must be able to tell.
+    simulated: bool = False
+
+    @model_validator(mode="after")
+    def _mark_simulation(self) -> ActionResult:
+        if not self.simulated and any(
+            isinstance(v, str) and (v.startswith("Simulation mode") or v.startswith("SIM-")) for v in self.output.values()
+        ):
+            self.simulated = True
+        return self
