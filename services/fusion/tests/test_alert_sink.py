@@ -129,6 +129,10 @@ async def test_new_alert_is_inserted_with_canonical_id_and_provenance():
     assert json.loads(args[19]) == ["evt-1"]  # source_event_ids
     assert args[20] == 2004  # ocsf_class_uid
     assert args[21] == "edr-cred-dump-1"  # rule_id
+    # The columns the alert rail, entity pages and device counts read (not only the generic `entities` blob).
+    assert json.loads(args[23]) == ["10.20.30.40"]  # affected_ips
+    assert json.loads(args[24]) == ["WIN-DC01"]  # affected_hosts
+    assert json.loads(args[25]) == ["svc-backup"]  # affected_users
 
 
 @pytest.mark.asyncio

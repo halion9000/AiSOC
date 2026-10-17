@@ -71,7 +71,8 @@ INSERT INTO alerts (
     dedup_hash, confidence, confidence_label, confidence_rationale,
     narrative, anomaly_score, event_time,
     connector_id, connector_type, source_event_ids, ocsf_class_uid,
-    rule_id, rule_name
+    rule_id, rule_name,
+    affected_ips, affected_hosts, affected_users
 )
 SELECT
     $1, $2, $3, $4, $5, 'new',
@@ -79,7 +80,8 @@ SELECT
     $11::text, $12, $13, $14::jsonb,
     $15, $16, COALESCE($17, NOW()),
     $18, $19, $20::jsonb, $21,
-    $22, $23
+    $22, $23,
+    $24::jsonb, $25::jsonb, $26::jsonb
 WHERE NOT EXISTS (
     SELECT 1 FROM alerts WHERE tenant_id = $2 AND dedup_hash = $11::text
 )
@@ -134,6 +136,15 @@ def _entities(fused: FusedAlert) -> list[dict[str, str]]:
         out.append({"type": "host", "value": alert.hostname})
     if alert.username:
         out.append({"type": "user", "value": alert.username})
+    return out
+
+
+def _affected(*values: str | None) -> list[str]:
+    """The distinct, non-empty values in order (the alerts.affected_* columns are plain string lists)."""
+    out: list[str] = []
+    for v in values:
+        if v and v not in out:
+            out.append(v)
     return out
 
 
@@ -223,6 +234,9 @@ class AlertSink:
                     alert.ocsf_class_uid,
                     alert.rule_id,
                     alert.rule_name,
+                    json.dumps(_affected(alert.src_ip, alert.dst_ip)),
+                    json.dumps(_affected(alert.hostname)),
+                    json.dumps(_affected(alert.username)),
                 )
             if row is None:
                 logger.debug("alert_sink.dedup_skip", fingerprint=alert.fingerprint())
