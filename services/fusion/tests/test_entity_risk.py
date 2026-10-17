@@ -430,3 +430,16 @@ async def test_stats_many_adds_tenants_up(engine: EntityRiskEngine) -> None:
     assert both["tracked_entities"] == one["tracked_entities"] + two["tracked_entities"] == 3
     assert both["total"] == 3 and both["threshold"] == engine.threshold
     assert sum(both["score_bands"].values()) == 3 and both["bands"] == both["score_bands"]
+
+
+@pytest.mark.asyncio
+async def test_observing_the_same_alert_twice_scores_it_once(engine: EntityRiskEngine) -> None:
+    """A redelivered (or retried) alert used to add its points again every time, so one alert could push an entity over the promotion threshold."""
+    alert = _alert(severity=AlertSeverity.HIGH, username="redelivered")
+    for _ in range(5):
+        await engine.observe(alert)
+    rec = await engine.get(_TENANT, "user", "redelivered")
+    assert rec is not None
+    assert rec.alert_count == 1
+    assert rec.score == pytest.approx(20.0)
+    assert rec.promoted_at is None

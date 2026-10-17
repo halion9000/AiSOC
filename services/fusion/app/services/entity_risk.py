@@ -316,6 +316,10 @@ class EntityRiskEngine:
                 contributors=[],
             )
 
+        if sig.alert_id in record.contributing_alerts:
+            # This alert already counted toward this entity: a redelivery or a retry (the consumer retries a failed message) must not add its points again.
+            return record
+
         record.score = self._decay(record.score, record.last_seen, now) + sig.points
         record.alert_count += 1
         record.last_seen = now

@@ -136,6 +136,8 @@ class WindowedDetectionEngine:
             return []
         fields = self._fields(message)
         now = time.time()
+        event_time = self._event_time(ocsf, now)
+        event_id = self._event_id(ocsf)
         hits: list[DetectionHit] = []
         for rule in self._rules:
             try:
@@ -144,7 +146,7 @@ class WindowedDetectionEngine:
                 entity = fields.get(rule.group_by)
                 if not entity:
                     continue
-                if await self._observe_and_check(rule, tenant, str(entity), now):
+                if await self._observe_and_check(rule, tenant, str(entity), now, event_time=event_time, event_id=event_id):
                     hits.append(
                         DetectionHit(
                             rule_id=rule.id,
@@ -155,13 +157,32 @@ class WindowedDetectionEngine:
                         )
                     )
             except Exception as exc:  # noqa: BLE001 — one rule/Redis error must not wedge detection
-                logger.debug("windowed_detection.rule_error", rule=rule.id, error=str(exc))
+                logger.warning("windowed_detection.rule_error", rule=rule.id, error=str(exc))
         return hits
 
-    async def _observe_and_check(self, rule: WindowRule, tenant: str, entity: str, now: float) -> bool:
+    @staticmethod
+    def _event_time(ocsf: dict[str, Any], now: float) -> float:
+        """When the event HAPPENED (OCSF ``time`` is epoch milliseconds), else ``now``. A time in the future (clock skew) is clamped to now."""
+        raw = ocsf.get("time")
+        if isinstance(raw, bool) or not isinstance(raw, int | float):
+            return now
+        seconds = raw / 1000.0 if raw > 1e11 else float(raw)
+        return min(seconds, now) if seconds > 0 else now
+
+    @staticmethod
+    def _event_id(ocsf: dict[str, Any]) -> str | None:
+        metadata = ocsf.get("metadata")
+        uid = metadata.get("uid") if isinstance(metadata, dict) else None
+        return str(uid) if uid else None
+
+    async def _observe_and_check(
+        self, rule: WindowRule, tenant: str, entity: str, now: float, *, event_time: float | None = None, event_id: str | None = None
+    ) -> bool:
         key = f"{self._prefix}:{tenant}:{rule.id}:{entity}"
-        member = uuid.uuid4().hex
-        await self._redis.zadd(key, {member: now})
+        # The member is the event's own id when it has one, so the same message delivered again (a retry, a rebalance) is one entry, not another failed login. The score is when it
+        # happened, not when it arrived: a backlog of old events must not look like a burst now (they fall outside the window and are pruned below).
+        member = event_id or uuid.uuid4().hex
+        await self._redis.zadd(key, {member: event_time if event_time is not None else now})
         await self._redis.zremrangebyscore(key, 0, now - rule.window_seconds)
         # Expire the key a window after the last event so idle entities are reaped.
         await self._redis.expire(key, rule.window_seconds + 60)
