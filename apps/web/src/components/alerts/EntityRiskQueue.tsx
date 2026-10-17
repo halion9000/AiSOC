@@ -555,6 +555,12 @@ export function EntityRiskQueue() {
                 ? 'No entities have crossed the promotion threshold yet.'
                 : 'No entities are currently being tracked.'}
             </p>
+            {!promotedOnly && (
+              <p className="text-[11px] text-gray-600 max-w-md text-center">
+                Entities appear here as new alerts arrive that name a host, user or IP address.
+                Alerts that arrived before entity tracking was switched on are not counted.
+              </p>
+            )}
             <p className="text-[11px] text-gray-600">
               Decay window: 24h · half-life: 4h
             </p>

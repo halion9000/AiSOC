@@ -65,8 +65,10 @@ describe('when the queue loads', () => {
     api.stats.mockResolvedValue({ ...stats, total: 0, promoted: 0, alert_count: 0 });
     renderQueue();
     expect(await screen.findByText('No entities are currently being tracked.')).toBeInTheDocument();
+    expect(screen.getByText(/name a host, user or IP address/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Promoted only' }));
     expect(await screen.findByText('No entities have crossed the promotion threshold yet.')).toBeInTheDocument();
+    expect(screen.queryByText(/name a host, user or IP address/)).not.toBeInTheDocument();
     expect(screen.queryByText("Couldn't load the entity queue")).not.toBeInTheDocument();
   });
 });
