@@ -208,6 +208,8 @@ jobs:
             tests/test_alert_reroute_postgres.py \
             tests/test_device_upsert_postgres.py \
             tests/test_devices_endpoints_postgres.py \
+            tests/test_alert_entities_backfill_postgres.py \
+            tests/test_alert_finding_uid_index_postgres.py \
             tests/test_core_feed_sla_postgres.py \
             tests/test_iocs_from_alerts_postgres.py \
             tests/test_service_migrations_postgres.py \
