@@ -9,6 +9,7 @@ AiSOC — open-source AI Security Operations Center (MIT License)
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
@@ -44,6 +45,8 @@ class FeedScheduler:
         self._scheduler.add_job(
             func=handler,
             trigger=IntervalTrigger(seconds=interval_seconds),
+            # First poll at startup. Without this the first run was a full interval (a day) after start, and every restart reset that timer, so the IOC index stayed empty.
+            next_run_time=datetime.now(UTC),
             id=feed_name,
             name=f"Feed: {feed_name}",
             replace_existing=True,

@@ -64,15 +64,20 @@ class ThreatIntelPipeline:
             return {"total": 0, "new": 0, "duplicate": 0}
 
         # --- Dedup via Bloom filter ---
+        # The key includes the source: OpenSearch stores one record per (type, value, source), so a second feed's copy of an IOC is new information. Nothing is added to
+        # the filter yet: an IOC only counts as "seen" once it has really been stored (below), otherwise a failed write would mark it seen and it would never be retried.
         new_iocs: list[dict[str, Any]] = []
+        keys: list[str] = []
+        pending: set[str] = set()
         duplicates = 0
 
         for ioc in iocs:
-            bloom_key = f"{ioc.get('type', '?')}:{ioc.get('value', '?')}"
-            if await self._bloom.contains(bloom_key):
+            bloom_key = f"{ioc.get('type', '?')}:{ioc.get('value', '?')}:{ioc.get('source') or source}"
+            if bloom_key in pending or await self._bloom.contains(bloom_key):
                 duplicates += 1
             else:
-                await self._bloom.add(bloom_key)
+                pending.add(bloom_key)
+                keys.append(bloom_key)
                 new_iocs.append(ioc)
 
         logger.info(
@@ -88,6 +93,12 @@ class ThreatIntelPipeline:
 
         # --- Write to storage sinks ---
         indexed = await self._os.bulk_index_iocs(new_iocs)
+        if indexed >= len(new_iocs):
+            for key in keys:
+                await self._bloom.add(key)
+        else:
+            # Some or all documents were not indexed. Leave the whole batch unmarked: re-indexing is idempotent (stable document ids), and the next poll retries it.
+            logger.warning("IOC index incomplete; batch left unmarked for retry", source=source, indexed=indexed, expected=len(new_iocs))
 
         try:
             await self._qdrant.upsert_iocs(new_iocs)
