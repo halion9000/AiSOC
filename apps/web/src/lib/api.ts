@@ -927,16 +927,22 @@ function normalizeAlert(raw: unknown): Alert {
   // ── Investigation Rail envelope (W6) ────────────────────────────────────
   const relatedRaw = r.related_entities ?? r.relatedEntities;
   const relatedEntities = Array.isArray(relatedRaw)
-    ? (relatedRaw as Array<Record<string, unknown>>).map((e) => ({
-        kind: (e.kind ?? 'principal') as RelatedEntity['kind'],
-        type: String(e.type ?? ''),
-        value: String(e.value ?? ''),
-        label: (e.label as string | null | undefined) ?? null,
-        pivotPath:
-          (e.pivot_path as string | null | undefined) ??
-          (e.pivotPath as string | null | undefined) ??
-          null,
-      }))
+    ? (relatedRaw as Array<Record<string, unknown>>).map((e) => {
+        // The API sends {group, kind, value, pivot}: `group` is the rail column and `kind` the concrete type (host, ip...).
+        // Older payloads sent {kind: <column>, type: <concrete>, pivot_path}; accept both.
+        const group = e.group as string | undefined;
+        return {
+          kind: (group ?? e.kind ?? 'principal') as RelatedEntity['kind'],
+          type: String(group ? (e.kind ?? e.type ?? '') : (e.type ?? '')),
+          value: String(e.value ?? ''),
+          label: (e.label as string | null | undefined) ?? null,
+          pivotPath:
+            (e.pivot as string | null | undefined) ??
+            (e.pivot_path as string | null | undefined) ??
+            (e.pivotPath as string | null | undefined) ??
+            null,
+        };
+      })
     : undefined;
 
   const timelineRaw = r.mini_timeline ?? r.miniTimeline;

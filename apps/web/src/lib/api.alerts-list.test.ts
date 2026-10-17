@@ -92,3 +92,29 @@ describe('alertsApi.list', () => {
     expect(out.total).toBe(21);
   });
 });
+
+describe('alertsApi.get related entities', () => {
+  const detail = (related: unknown[]) => ({ id: 'a1', title: 't', severity: 'low', status: 'new', created_at: '2026-10-13T00:00:00Z', related_entities: related });
+
+  it('reads the API shape {group, kind, value, pivot}: group is the column, kind the concrete type, pivot the link', async () => {
+    vi.stubGlobal('fetch', async () =>
+      json(
+        detail([
+          { group: 'principal', kind: 'host', value: 'HCC-FS01', label: null, pivot: '/attack-graph?entity=host:HCC-FS01' },
+          { group: 'network', kind: 'ip', value: '10.0.0.5', pivot: null },
+        ]),
+      ),
+    );
+    const out = await alertsApi.get('a1');
+    expect(out.relatedEntities).toEqual([
+      { kind: 'principal', type: 'host', value: 'HCC-FS01', label: null, pivotPath: '/attack-graph?entity=host:HCC-FS01' },
+      { kind: 'network', type: 'ip', value: '10.0.0.5', label: null, pivotPath: null },
+    ]);
+  });
+
+  it('still reads the older shape {kind: column, type, pivot_path}', async () => {
+    vi.stubGlobal('fetch', async () => json(detail([{ kind: 'principal', type: 'user', value: 'alice', pivot_path: '/graph/user/alice' }])));
+    const out = await alertsApi.get('a1');
+    expect(out.relatedEntities).toEqual([{ kind: 'principal', type: 'user', value: 'alice', label: null, pivotPath: '/graph/user/alice' }]);
+  });
+});
