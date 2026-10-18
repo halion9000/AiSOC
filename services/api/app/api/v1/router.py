@@ -85,6 +85,7 @@ from app.api.v1.endpoints import (
     sla,
     stix_taxii,
     tenant_provision,
+    tenant_triage_settings,
     tenants,
     threat_intel,
     translation,
@@ -114,6 +115,7 @@ api_router.include_router(connectors.router)
 # operator back on /onboarding.
 api_router.include_router(oauth.router)
 api_router.include_router(tenants.router)
+api_router.include_router(tenant_triage_settings.router)
 api_router.include_router(detection_rules.router)
 # Frontend-shape facade: /api/v1/detection/rules + /api/v1/detection/test
 api_router.include_router(detection_compat.router)

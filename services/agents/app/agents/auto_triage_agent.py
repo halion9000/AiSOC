@@ -139,6 +139,60 @@ def set_threshold(value: float) -> float:
     return AUTO_CLOSE_THRESHOLD
 
 
+# ── per-tenant threshold ──────────────────────────────────────────────────────────────────────────────────────────────────
+# A tenant may set its own auto-close confidence in tenants.settings.auto_close_threshold (PUT /api/v1/triage/auto-close). It is read at triage time and cached for a minute.
+# Anything that goes wrong (no database, no row, a value that is not a number, one outside the allowed range) falls back to the platform value: the safe default never depends on the lookup.
+TENANT_THRESHOLD_MIN = 0.5  # closing an alert on less than even confidence is never a sensible setting
+TENANT_THRESHOLD_MAX = 1.0
+_TENANT_THRESHOLD_TTL_S = 60.0
+_tenant_threshold_cache: dict[str, tuple[float, float | None]] = {}
+
+
+def parse_tenant_threshold(raw: object) -> float | None:
+    """A tenant's stored value as a threshold, or None when it is absent, not a number, or outside the allowed range."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if value != value or not (TENANT_THRESHOLD_MIN <= value <= TENANT_THRESHOLD_MAX):  # NaN fails the comparison too
+        return None
+    return value
+
+
+async def _fetch_tenant_threshold(tenant_id: str) -> float | None:
+    try:
+        from app.investigator import ledger as _ledger  # noqa: PLC0415 - optional dependency in slim deployments and in unit tests
+
+        pool = await _ledger.get_pool()
+        if pool is None:
+            return None
+        async with pool.acquire() as conn:
+            raw = await conn.fetchval("SELECT settings ->> 'auto_close_threshold' FROM tenants WHERE id = $1::uuid", tenant_id)
+        return parse_tenant_threshold(raw)
+    except Exception as exc:  # noqa: BLE001 - never let a settings lookup stop a triage
+        logger.warning("auto_triage.tenant_threshold_lookup_failed", tenant=tenant_id, error=str(exc))
+        return None
+
+
+async def effective_threshold(tenant_id: object, *, now: float | None = None) -> float:
+    """The confidence at or above which this tenant's benign / false-positive verdicts close on their own: its own setting, else the platform's."""
+    import time
+
+    key = str(tenant_id)
+    moment = time.monotonic() if now is None else now
+    hit = _tenant_threshold_cache.get(key)
+    if hit is None or hit[0] <= moment:
+        hit = (moment + _TENANT_THRESHOLD_TTL_S, await _fetch_tenant_threshold(key))
+        _tenant_threshold_cache[key] = hit
+    return hit[1] if hit[1] is not None else AUTO_CLOSE_THRESHOLD
+
+
+def reset_tenant_threshold_cache() -> None:
+    _tenant_threshold_cache.clear()
+
+
 def _build_alert_context(state: InvestigationState) -> str:
     """Serialise the alert into a compact string the LLM can reason over."""
     raw = state.raw_alert
@@ -285,7 +339,8 @@ async def run_auto_triage(state: InvestigationState) -> InvestigationState:
 
     # Auto-close FP / benign / benign_true_positive (no active threat, no
     # response needed); true_positive and needs_review always escalate.
-    should_auto_close = verdict in AUTO_CLOSEABLE_DISPOSITIONS and confidence >= AUTO_CLOSE_THRESHOLD
+    threshold = await effective_threshold(state.tenant_id)
+    should_auto_close = verdict in AUTO_CLOSEABLE_DISPOSITIONS and confidence >= threshold
 
     # Prompt-injection L0 demotion: a high-severity injection signal always
     # blocks auto-close and routes to a human, regardless of the LLM's verdict.
@@ -305,12 +360,12 @@ async def run_auto_triage(state: InvestigationState) -> InvestigationState:
     if should_auto_close:
         _metrics["auto_resolved_count"] += 1
         state.status = AgentStatus.COMPLETED
-        state.add_finding(f"Auto-closed as {verdict} (confidence {confidence:.2f} >= threshold {AUTO_CLOSE_THRESHOLD:.2f})")
+        state.add_finding(f"Auto-closed as {verdict} (confidence {confidence:.2f} >= threshold {threshold:.2f})")
         logger.info(
             "Auto-triage: auto-closed",
             verdict=verdict,
             confidence=round(confidence, 2),
-            threshold=AUTO_CLOSE_THRESHOLD,
+            threshold=threshold,
             incident_id=str(state.incident_id),
             elapsed_ms=elapsed_ms,
         )
@@ -318,13 +373,13 @@ async def run_auto_triage(state: InvestigationState) -> InvestigationState:
         _metrics["escalated_count"] += 1
         state.add_finding(
             f"Escalating to full pipeline — "
-            f"{'TP verdict' if verdict == 'true_positive' else f'confidence {confidence:.2f} < threshold {AUTO_CLOSE_THRESHOLD:.2f}'}"
+            f"{'TP verdict' if verdict == 'true_positive' else f'confidence {confidence:.2f} < threshold {threshold:.2f}'}"
         )
         logger.info(
             "Auto-triage: escalating",
             verdict=verdict,
             confidence=round(confidence, 2),
-            threshold=AUTO_CLOSE_THRESHOLD,
+            threshold=threshold,
             incident_id=str(state.incident_id),
             elapsed_ms=elapsed_ms,
         )
