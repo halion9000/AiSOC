@@ -25,6 +25,7 @@ import { clsx } from 'clsx';
 import { safeDistance, safeFormat } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
+  apiErrorDetail,
   casesApi,
   graphApi,
   realtimeApi,
@@ -67,6 +68,9 @@ function isWorkspaceTab(value: string | null): value is WorkspaceTab {
 
 /** What to tell the user when a call fails: the real reason, never a pretence that it worked. */
 function failureMessage(e: unknown): string {
+  // The API's own sentence (for example which status changes are allowed) is more useful than "API 422 Unprocessable Entity".
+  const detail = apiErrorDetail(e);
+  if (detail) return detail;
   return e instanceof Error && e.message ? e.message : 'the backend is unreachable';
 }
 

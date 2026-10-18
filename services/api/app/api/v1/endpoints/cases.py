@@ -95,15 +95,10 @@ def _validate_agents_path(path: str) -> str:
 CaseStatus = Literal["new", "triaged", "investigating", "contained", "resolved", "closed"]
 CaseSeverity = Literal["info", "low", "medium", "high", "critical"]
 
-# Valid forward-only state transitions
-_TRANSITIONS: dict[str, set[str]] = {
-    "new": {"triaged"},
-    "triaged": {"investigating"},
-    "investigating": {"contained", "resolved"},
-    "contained": {"resolved"},
-    "resolved": {"closed"},
-    "closed": set(),
-}
+# The lifecycle only moves forward, but an analyst may skip steps: a case that is plainly being worked can go straight from new to investigating, and one that turns out to be nothing can be
+# resolved or closed without passing through every stage. (It used to allow only the NEXT step, so choosing "In progress" on a new case was refused with a bare 422.) Going back is not allowed.
+_STATUS_ORDER = ["new", "triaged", "investigating", "contained", "resolved", "closed"]
+_TRANSITIONS: dict[str, set[str]] = {status: set(_STATUS_ORDER[i + 1 :]) for i, status in enumerate(_STATUS_ORDER)}
 
 
 class CreateCaseRequest(BaseModel):

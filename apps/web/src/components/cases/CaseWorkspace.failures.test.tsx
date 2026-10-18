@@ -11,7 +11,8 @@ const toastFn = vi.hoisted(() => vi.fn());
 const toastError = vi.hoisted(() => vi.fn());
 const toastSuccess = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/api', () => ({ __esModule: true, casesApi: api, graphApi: {}, realtimeApi: {} }));
+// apiErrorDetail reads the API's own sentence from an error; the stand-in reads it from a `detail` property.
+vi.mock('@/lib/api', () => ({ __esModule: true, casesApi: api, graphApi: {}, realtimeApi: {}, apiErrorDetail: (e: unknown) => (e as { detail?: string })?.detail ?? null }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock('./InvestigationLedger', () => ({ InvestigationLedger: () => null }));
 vi.mock('@/components/copilot/ContextualActions', () => ({ ContextualActions: () => null }));
@@ -92,6 +93,16 @@ describe('changing the status', () => {
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Status set to Resolved'));
     expect(api.update).toHaveBeenCalledWith('case-1', { status: 'resolved' });
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("shows the API's own sentence (which status changes are allowed), not a bare '422 Unprocessable Entity'", async () => {
+    api.update.mockRejectedValue(Object.assign(new Error('API 422 Unprocessable Entity — /api/v1/cases/c1'), { detail: 'Invalid status transition: closed → investigating. Allowed: none' }));
+    renderCase();
+    await screen.findByText('Real phishing case');
+    await userEvent.setup().selectOptions(screen.getByDisplayValue('Open') as HTMLSelectElement, 'resolved');
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith('Could not set status to Resolved: Invalid status transition: closed → investigating. Allowed: none'),
+    );
   });
 });
 
