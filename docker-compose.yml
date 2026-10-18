@@ -166,6 +166,14 @@ services:
         hard: 262144
     mem_limit: 1g
     mem_reservation: 768m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://localhost:8123/ping > /dev/null || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
 
@@ -192,6 +200,14 @@ services:
       - aisoc
     mem_limit: 1536m
     mem_reservation: 1g
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -fs http://localhost:9200/_cluster/health > /dev/null || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
 
 
@@ -204,6 +220,14 @@ services:
       - qdrant_data:/qdrant/storage
     networks:
       - aisoc
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 && printf \"GET /readyz HTTP/1.0\r\n\r\n\" >&3 && head -1 <&3 | grep -q 200' || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
 
@@ -407,6 +431,14 @@ services:
       SHODAN_API_KEY: ${SHODAN_API_KEY:-}
     networks:
       - aisoc
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://127.0.0.1:8082/health > /dev/null || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
   fusion:
