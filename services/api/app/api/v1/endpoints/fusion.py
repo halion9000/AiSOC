@@ -27,7 +27,8 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Annotated, Any
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import UUID
 
@@ -188,7 +189,35 @@ def _fix_z(value: Any) -> Any:
     return value
 
 
-def _shape_entity(rec: dict[str, Any], threshold: float) -> dict[str, Any]:
+RECENT_HOURS = 4  # the score's half-life: what was added since then is what is "heating up"
+
+
+def _parse_at(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def trend_of(contributors: list[dict[str, Any]], now: datetime | None = None) -> dict[str, Any]:
+    """How this entity's risk has moved lately, from its contributions (each has the points it added and when): the points and alerts added in the last four hours, and a label.
+
+    ``new``: its first contribution is that recent; ``rising``: it picked up points that recently; ``fading``: nothing has been added for four hours, so its score is only decaying.
+    With no dated contribution there is nothing to say, so the label is None rather than a guess."""
+    moment = now or datetime.now(UTC)
+    cutoff = moment - timedelta(hours=RECENT_HOURS)
+    dated = [(at, float(c.get("points") or 0)) for c in contributors if isinstance(c, dict) and (at := _parse_at(c.get("at"))) is not None]
+    if not dated:
+        return {"recent_points": 0.0, "recent_alerts": 0, "trend": None}
+    recent = [(at, pts) for at, pts in dated if at >= cutoff]
+    label = "new" if min(at for at, _ in dated) >= cutoff else ("rising" if recent else "fading")
+    return {"recent_points": round(sum(pts for _at, pts in recent), 2), "recent_alerts": len(recent), "trend": label}
+
+
+def _shape_entity(rec: dict[str, Any], threshold: float, now: datetime | None = None) -> dict[str, Any]:
     """Give a fusion entity record the fields the console reads (display_score, threshold, promoted, first_seen, contributions, severity_histogram).
 
     The fusion service names them differently (score, promoted_at, contributors, severities), and the console read ``record.contributions.length`` and
@@ -218,6 +247,7 @@ def _shape_entity(rec: dict[str, Any], threshold: float) -> dict[str, Any]:
             for c in reversed(contributors)
         ],
         "severity_histogram": rec.get("severities") or {},
+        **trend_of(contributors, now),
     }
     return {**shaped, **rec}
 
@@ -232,6 +262,13 @@ def _shape_stats(st: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def order_entities(entities: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+    """``score``: as fusion ranked them. ``recent``: most points added lately first, ties by score."""
+    if sort != "recent":
+        return entities
+    return sorted(entities, key=lambda e: (-(e.get("recent_points") or 0), -(e.get("score") or 0)))
+
+
 @router.get("/entity-risk/queue", summary="Top entities by risk score")
 async def entity_risk_queue(
     user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
@@ -239,7 +276,9 @@ async def entity_risk_queue(
     tenant_id: UUID | None = None,
     limit: int = Query(default=25, ge=1, le=200),
     promoted_only: bool = False,
+    sort: Literal["score", "recent"] = "score",
 ) -> dict[str, Any]:
+    """``sort=recent`` orders the entities that are in the top ``limit`` by score by what they picked up in the last four hours (those heating up first), then by score."""
     clients = await _client_tenants(db, user.tenant_id)
     tenant = _effective_tenant(tenant_id, user, clients)
     # A parent that did not name a tenant sees its own entities and its clients' together (each row says which client): alerts for a mapped client are scored under that client's
@@ -251,7 +290,7 @@ async def entity_risk_queue(
         )
         if one is not None:
             threshold = one.get("threshold", _DEFAULT_THRESHOLD)
-            return {**one, "entities": [_shape_entity(e, threshold) for e in one.get("entities", [])]}
+            return {**one, "entities": order_entities([_shape_entity(e, threshold) for e in one.get("entities", [])], sort)}
     else:
         # One call for the whole fleet: fusion merges the tenants and applies the limit once, instead of this gateway asking once per client.
         rolled = await _proxy_post("/entity-risk/rollup/queue", {"tenant_ids": scope, "limit": limit, "promoted_only": promoted_only})
@@ -260,7 +299,7 @@ async def entity_risk_queue(
             return {
                 "tenant_id": tenant,
                 "threshold": threshold,
-                "entities": [_shape_entity({**e, "client_name": clients.get(str(e.get("tenant_id")))}, threshold) for e in rolled.get("entities", [])],
+                "entities": order_entities([_shape_entity({**e, "client_name": clients.get(str(e.get("tenant_id")))}, threshold) for e in rolled.get("entities", [])], sort),
                 "rolled_up": True,
             }
     return {

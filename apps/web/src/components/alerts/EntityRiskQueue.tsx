@@ -227,6 +227,14 @@ function EntityRow({
               Promoted
             </span>
           )}
+          {(record.trend === 'new' || record.trend === 'rising') && (
+            <span
+              title={`+${record.recent_points ?? 0} points from ${record.recent_alerts ?? 0} alert(s) in the last four hours`}
+              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 border border-orange-500/30 shrink-0"
+            >
+              {record.trend === 'new' ? 'New' : 'Rising'}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3 mt-1">
           <span className="text-xs text-gray-500">
@@ -416,13 +424,14 @@ const UNKNOWN = '\u2014';
 
 export function EntityRiskQueue() {
   const [promotedOnly, setPromotedOnly] = useState(false);
+  const [sort, setSort] = useState<'score' | 'recent'>('score');
   const [selected, setSelected] = useState<EntityRiskRecord | null>(null);
   // null = my own tenant (the default; nothing is sent and the server resolves it). Set only when someone who may look at other tenants picks one.
   const [tenantId, setTenantId] = useState<string | null>(null);
 
   const { data: queue, error: queueError, isLoading: queueLoading, mutate: mutateQueue } = useSWR(
-    ['entity-risk-queue', tenantId, promotedOnly],
-    () => entityRiskApi.queue({ limit: 50, promotedOnly, tenantId: tenantId ?? undefined }),
+    ['entity-risk-queue', tenantId, promotedOnly, sort],
+    () => entityRiskApi.queue({ limit: 50, promotedOnly, sort, tenantId: tenantId ?? undefined }),
     { refreshInterval: 30000 },
   );
   const { data: stats } = useSWR<EntityRiskStats>(
@@ -514,6 +523,23 @@ export function EntityRiskQueue() {
             )}
           >
             Promoted only
+          </button>
+        </div>
+        <div className="flex items-center gap-1" role="group" aria-label="Order">
+          <button
+            onClick={() => setSort('score')}
+            aria-pressed={sort === 'score'}
+            className={clsx('text-xs px-2.5 py-1 rounded-lg transition-colors', sort === 'score' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/60')}
+          >
+            Highest score
+          </button>
+          <button
+            onClick={() => setSort('recent')}
+            aria-pressed={sort === 'recent'}
+            title="Entities that picked up the most risk in the last four hours first"
+            className={clsx('text-xs px-2.5 py-1 rounded-lg transition-colors', sort === 'recent' ? 'bg-orange-600 text-white' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/60')}
+          >
+            Heating up
           </button>
         </div>
         <span className="ml-auto text-xs text-gray-600">

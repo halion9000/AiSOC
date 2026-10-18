@@ -1397,6 +1397,10 @@ export interface EntityRiskRecord {
   severity_histogram: Record<AlertSeverity, number>;
   /** Convenience: total alert count in the decay window. */
   alert_count: number;
+  /** Points and alerts added in the last four hours, and how the entity is moving: new, rising, fading (null when no contribution is dated). */
+  recent_points?: number;
+  recent_alerts?: number;
+  trend?: 'new' | 'rising' | 'fading' | null;
 }
 
 export interface EntityRiskQueueResponse {
@@ -1439,6 +1443,8 @@ export const entityRiskApi = {
     tenantId?: string;
     limit?: number;
     promotedOnly?: boolean;
+    /** `recent` puts what picked up points in the last four hours first. */
+    sort?: 'score' | 'recent';
   } = {}) =>
     request<EntityRiskQueueResponse>(`${FUSION_PATH}/entity-risk/queue`, {
       params: {
@@ -1446,6 +1452,7 @@ export const entityRiskApi = {
         tenant_id: params.tenantId,
         limit: params.limit ?? 25,
         promoted_only: params.promotedOnly ? 'true' : undefined,
+        sort: params.sort === 'recent' ? 'recent' : undefined,
       },
     }),
 

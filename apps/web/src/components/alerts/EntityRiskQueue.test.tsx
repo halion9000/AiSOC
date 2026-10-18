@@ -119,11 +119,23 @@ const holder = { own_tenant_id: 't1', can_select_other_tenants: true, tenants: [
 const tenantPicker = () => screen.getByRole('combobox', { name: /Tenant/ });
 const askedFor = (mock: ReturnType<typeof vi.fn>, pick: (call: unknown[]) => unknown) => mock.mock.calls.map(pick);
 
+describe('ordering by what changed', () => {
+  it('asks the server for the "heating up" order when that is picked, and back to score order again', async () => {
+    renderQueue();
+    await screen.findByText('alice');
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Heating up' }));
+    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, sort: 'recent', tenantId: undefined }));
+    await user.click(screen.getByRole('button', { name: 'Highest score' }));
+    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, sort: 'score', tenantId: undefined }));
+  });
+});
+
 describe('which tenant it asks about', () => {
   it('names NO tenant by default: the server resolves the caller\'s own', async () => {
     renderQueue();
     await screen.findByText('alice');
-    expect(api.queue).toHaveBeenCalledWith({ limit: 50, promotedOnly: false, tenantId: undefined });
+    expect(api.queue).toHaveBeenCalledWith({ limit: 50, promotedOnly: false, sort: 'score', tenantId: undefined });
     expect(api.stats).toHaveBeenCalledWith(undefined);
     expect(askedFor(api.queue, (c) => (c[0] as { tenantId?: string }).tenantId).every((t) => t === undefined)).toBe(true);
   });
@@ -142,7 +154,7 @@ describe('which tenant it asks about', () => {
     await screen.findByText('alice');
     await userEvent.setup().selectOptions(tenantPicker(), 'Bravo Corp');
     expect(await screen.findByText('carol')).toBeInTheDocument();
-    expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, tenantId: 'tenant-b' });
+    expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, sort: 'score', tenantId: 'tenant-b' });
     expect(api.stats).toHaveBeenLastCalledWith('tenant-b');
     expect(screen.getByRole('status')).toHaveTextContent("Viewing Bravo Corp's data (read-only).");
   });
@@ -155,7 +167,7 @@ describe('which tenant it asks about', () => {
     renderQueue();
     await screen.findByText('alice');
     await userEvent.setup().selectOptions(tenantPicker(), 'Bravo Corp');
-    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, tenantId: 'tenant-b' }));
+    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, sort: 'score', tenantId: 'tenant-b' }));
     expect(screen.queryByText('alice')).not.toBeInTheDocument(); // tenant 1's entity must not sit under a "Viewing Bravo Corp" banner
     release({ tenant_id: 'tenant-b', threshold: 80, entities: [record('carol', 60, false)] });
     expect(await screen.findByText('carol')).toBeInTheDocument();
@@ -167,9 +179,9 @@ describe('which tenant it asks about', () => {
     await screen.findByText('alice');
     const user = userEvent.setup();
     await user.selectOptions(tenantPicker(), 'Bravo Corp');
-    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, tenantId: 'tenant-b' }));
+    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, sort: 'score', tenantId: 'tenant-b' }));
     await user.click(screen.getByRole('button', { name: 'Back to my tenant' }));
-    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, tenantId: undefined }));
+    await waitFor(() => expect(api.queue).toHaveBeenLastCalledWith({ limit: 50, promotedOnly: false, sort: 'score', tenantId: undefined }));
     expect(api.stats).toHaveBeenLastCalledWith(undefined);
   });
 
