@@ -9,11 +9,17 @@ import logging
 import uuid
 from typing import Annotated, Any
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.api.v1.deps import CurrentUser, DBSession, get_current_user, require_permission
+from app.db.rls import TenantDBSession
+from app.db.rls_scope import acting_as_tenant
+from app.models.alert import Alert
+from app.models.tenant import Tenant
 from app.services import graph_service
 
 logger = logging.getLogger(__name__)
@@ -265,6 +271,135 @@ async def _attack_path_from_relational(
         "node_count": len(nodes),
         "edge_count": len(edges),
     }
+
+
+# ─── Overview graph ───────────────────────────────────────────────────────────
+#
+# GET /graph is what the Attack Graph page draws: the hosts, users and IP addresses that recent alerts touch, the ATT&CK techniques those alerts used, and which entity
+# sits with which technique. It is built from the alerts themselves (the same rows the Alerts page reads), so it works with or without the Neo4j sidecar, and it covers the
+# caller's own tenant and its client tenants. It never invents a node: with no alerts it returns an empty graph.
+
+_SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+_SEVERITY_SCORE = {"info": 5, "low": 20, "medium": 45, "high": 70, "critical": 90}
+_ENTITY_KINDS = (("affected_hosts", "host"), ("affected_users", "user"), ("affected_ips", "ip"))
+_MAX_ENTITIES_PER_KIND = 20
+_MAX_TECHNIQUES = 15
+_MAX_ENTITIES_PER_ALERT = 6
+_OVERVIEW_WINDOW_DAYS = 30
+_OVERVIEW_ALERT_CAP = 2000  # newest first, per tenant
+
+
+def _technique_ids(raw: Any) -> list[str]:
+    """Technique ids from an alert's mitre_techniques, which is a list of strings or of objects depending on how the alert was written."""
+    out: list[str] = []
+    for item in raw or []:
+        tid = item if isinstance(item, str) else (item.get("id") or item.get("technique_id")) if isinstance(item, dict) else None
+        if tid and str(tid).strip():
+            out.append(str(tid).strip())
+    return out
+
+
+def _names(raw: Any) -> list[str]:
+    return [str(x).strip() for x in (raw or []) if isinstance(x, str | int) and str(x).strip()]
+
+
+def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -> dict[str, Any]:
+    """The overview graph from alert rows: ``{severity, hosts, users, ips, techniques}`` each. Pure, so it is testable without a database.
+
+    The busiest entities and techniques are kept (a cap per kind), and an edge joins an entity to a technique when an alert names both; its weight is how many alerts did.
+    ``entity`` narrows the graph to alerts that name that host, user or address (compared without regard to case).
+    """
+    wanted = (entity or "").strip().lower()
+    per_node: dict[tuple[str, str], dict[str, Any]] = {}
+    pairs: dict[tuple[tuple[str, str], str], int] = {}
+    together: dict[tuple[tuple[str, str], tuple[str, str]], int] = {}
+    technique_counts: dict[str, int] = {}
+    for a in alerts:
+        severity = a.get("severity") if a.get("severity") in _SEVERITY_RANK else "info"
+        entities = [(kind, name) for field, kind in _ENTITY_KINDS for name in _names(a.get(field))]
+        if wanted and not any(name.lower() == wanted for _k, name in entities):
+            continue
+        techniques = _technique_ids(a.get("mitre_techniques"))
+        # Two different kinds of entity on one alert (a host and the user on it, a host and its address) are linked: that is how a user is connected to a machine when no technique is known.
+        distinct = sorted(set(entities))[:_MAX_ENTITIES_PER_ALERT]
+        for i, first in enumerate(distinct):
+            for second in distinct[i + 1 :]:
+                if first[0] != second[0]:
+                    together[(first, second)] = together.get((first, second), 0) + 1
+        for key in entities:
+            node = per_node.setdefault(key, {"alerts": 0, "severity": "info"})
+            node["alerts"] += 1
+            if _SEVERITY_RANK[severity] > _SEVERITY_RANK[node["severity"]]:
+                node["severity"] = severity
+            for tid in set(techniques):
+                pairs[(key, tid)] = pairs.get((key, tid), 0) + 1
+        for tid in set(techniques):
+            technique_counts[tid] = technique_counts.get(tid, 0) + 1
+
+    kept: set[tuple[str, str]] = set()
+    for _field, kind in _ENTITY_KINDS:
+        ranked = sorted((k for k in per_node if k[0] == kind), key=lambda k: (-per_node[k]["alerts"], k[1].lower()))
+        kept.update(ranked[:_MAX_ENTITIES_PER_KIND])
+    top_techniques = {t for t, _n in sorted(technique_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:_MAX_TECHNIQUES]}
+
+    nodes: list[dict[str, Any]] = []
+    for kind, name in sorted(kept, key=lambda k: (k[0], k[1].lower())):
+        info = per_node[(kind, name)]
+        nodes.append(
+            {
+                "id": f"{kind}:{name}",
+                "label": name,
+                "kind": kind,
+                "riskScore": _SEVERITY_SCORE[info["severity"]],
+                "severity": info["severity"],
+                "attributes": {"alerts": info["alerts"]},
+            }
+        )
+    used_techniques = {t for (key, t) in pairs if key in kept and t in top_techniques}
+    for tid in sorted(used_techniques):
+        nodes.append({"id": f"technique:{tid}", "label": tid, "kind": "technique", "attributes": {"alerts": technique_counts[tid]}})
+    edges = [
+        {"id": f"{key[0]}:{key[1]}->{tid}", "source": f"{key[0]}:{key[1]}", "target": f"technique:{tid}", "label": "alerts using technique", "weight": count}
+        for (key, tid), count in sorted(pairs.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1].lower(), kv[0][1]))
+        if key in kept and tid in top_techniques
+    ]
+    edges += [
+        {"id": f"{a[0]}:{a[1]}--{b[0]}:{b[1]}", "source": f"{a[0]}:{a[1]}", "target": f"{b[0]}:{b[1]}", "label": "seen on the same alert", "weight": count}
+        for (a, b), count in sorted(together.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1]))
+        if a in kept and b in kept
+    ]
+    return {"nodes": nodes, "edges": edges}
+
+
+@router.get(
+    "",
+    summary="Overview graph: entities and ATT&CK techniques seen on recent alerts",
+    dependencies=[Depends(require_permission("alerts:read"))],
+)
+async def get_overview(
+    db: TenantDBSession,
+    current_user: CurrentUser = Depends(get_current_user),
+    entity: Annotated[str | None, Query(max_length=255, description="Only alerts that name this host, user or IP address.")] = None,
+    depth: Annotated[int, Query(ge=1, le=6, description="Accepted for compatibility; the overview is always one hop (entity to technique).")] = 3,
+) -> dict[str, Any]:
+    """The graph the Attack Graph page draws, from the last 30 days of alerts across the caller's tenant and its client tenants (see the note above)."""
+    since = datetime.now(UTC) - timedelta(days=_OVERVIEW_WINDOW_DAYS)
+    clients = [row.id for row in (await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == current_user.tenant_id))).all()]
+    rows: list[dict[str, Any]] = []
+    for tenant_id in [current_user.tenant_id, *clients]:
+        async with acting_as_tenant(db, tenant_id):
+            result = await db.execute(
+                select(Alert.severity, Alert.affected_hosts, Alert.affected_users, Alert.affected_ips, Alert.mitre_techniques)
+                .where(Alert.tenant_id == tenant_id, Alert.created_at >= since)
+                .order_by(Alert.created_at.desc())
+                .limit(_OVERVIEW_ALERT_CAP)
+            )
+            rows.extend(
+                {"severity": r.severity, "affected_hosts": r.affected_hosts, "affected_users": r.affected_users, "affected_ips": r.affected_ips, "mitre_techniques": r.mitre_techniques}
+                for r in result.all()
+            )
+    graph = build_overview(rows, entity=entity)
+    return {**graph, "generatedAt": datetime.now(UTC).isoformat(), "alertsConsidered": len(rows)}
 
 
 @router.get(

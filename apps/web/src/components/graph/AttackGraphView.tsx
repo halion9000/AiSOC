@@ -271,9 +271,7 @@ export function AttackGraphView() {
       try {
         return await graphApi.getOverview({ depth: 3 });
       } catch (err) {
-        // B7: GET /api/v1/graph does not exist in this build. Return null so
-        // the view renders an explicit unavailable state instead of silently
-        // swallowing the error. Demo-data fallback removed per PLAN.md item 9.
+        // The overview is built from alerts (GET /api/v1/graph). If the call fails, return null so the view says so instead of swallowing the error or inventing nodes.
         return null;
       }
     },
@@ -316,13 +314,11 @@ export function AttackGraphView() {
           <div className="p-8 text-center space-y-3 border-b border-white/5">
             <h2 className="text-lg font-semibold text-gray-200">Attack Graph Unavailable</h2>
             <p className="text-sm text-gray-400 max-w-xl mx-auto">
-              The attack graph overview endpoint (<code>GET /api/v1/graph</code>) is not
-              available in this build. Deploy the Neo4j knowledge-graph sidecar or
-              upgrade to a release that includes the graph aggregation pipeline to
-              enable this view.
+              The graph overview (<code>GET /api/v1/graph</code>) did not load. If AiSOC was just rebuilt or restarted, reload in a minute; otherwise check
+              Settings, Platform health for a service that is down.
             </p>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-800/60 text-xs text-gray-400 border border-gray-700">
-              Not available in this build
+              Could not load
             </span>
           </div>
         )}
