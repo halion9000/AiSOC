@@ -40,6 +40,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.caller import authenticated_tenant, resolve_tenant
+from app.core.rate_limit import TokenBucketLimiter
 from app.models.state import AgentStatus, InvestigationState
 from app.orchestrator import PARALLEL_TOPOLOGY_FLAG, RouterOrchestrator
 
@@ -52,6 +53,26 @@ router = APIRouter(prefix="/api/v1", tags=["triage"])
 
 _REALTIME_URL = os.environ.get("REALTIME_URL", "http://realtime:8086")
 _INTERNAL_TOKEN = os.environ.get("INTERNAL_TOKEN", "")
+
+# Per-tenant limit on triage launches: every run is an LLM conversation, so one tenant's burst (or a loop) must not burn the whole budget. AISOC_TRIAGE_PER_MINUTE=0 turns it off.
+_triage_limiter: TokenBucketLimiter | None = None
+
+
+def _get_triage_limiter() -> TokenBucketLimiter | None:
+    global _triage_limiter
+    per_minute = float(os.environ.get("AISOC_TRIAGE_PER_MINUTE", "30"))
+    if per_minute <= 0:
+        return None
+    if _triage_limiter is None:
+        burst = float(os.environ.get("AISOC_TRIAGE_BURST", "60"))
+        _triage_limiter = TokenBucketLimiter(capacity=max(1.0, burst), refill_per_second=per_minute / 60.0)
+    return _triage_limiter
+
+
+def _reset_triage_limiter() -> None:
+    global _triage_limiter
+    _triage_limiter = None
+
 
 # Stable namespace for deriving deterministic tenant/incident UUIDs from
 # string inputs (e.g. ``tenant_id="acme"``). Using a frozen project-scoped
@@ -274,6 +295,13 @@ async def launch_triage(
         body.tenant_id, authenticated_tenant(request)
     )  # the authenticated caller's tenant, never the body's claim
     topology = _resolve_topology(body.topology)
+
+    limiter = _get_triage_limiter()
+    if limiter is not None:
+        decision = await limiter.acquire(body.tenant_id)
+        if not decision.allowed:
+            logger.info("triage.rate_limited", tenant_id=body.tenant_id, retry_after=decision.retry_after_seconds)
+            raise HTTPException(status_code=429, detail="Too many triage runs for this tenant; slow down.", headers=decision.to_headers())
 
     run_id = str(uuid4())
     tenant_uuid = _coerce_uuid(body.tenant_id, fallback=body.tenant_id or "default")
