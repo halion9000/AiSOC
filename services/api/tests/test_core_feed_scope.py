@@ -55,15 +55,17 @@ async def test_the_scope_is_the_owner_then_only_its_own_children():
 
 
 @pytest.mark.asyncio
-async def test_a_state_report_is_applied_in_every_tenant_in_scope():
-    db = _db(child_ids=[CLIENT_A], rowcounts=[0, 1])  # the owner has no such alert; the client's tenant does
+async def test_a_state_report_is_applied_in_the_tenant_that_holds_the_alert():
+    """It used to be applied in every tenant in scope (240 clients: tens of thousands of statements, CORE timed out); one lookup now finds the holders (test_core_feed_fanout.py).
+    Here the client's tenant holds the alert (the fake answers the holder lookup with the same ids as the scope query), so the update runs there, and only there."""
+    db = _db(child_ids=[CLIENT_A], rowcounts=[0, 0, 1])  # statements: the scope query, the holder lookup, the update
     out = await cf.report_core_feed_state(
         "tok", cf.StateReport(vendor="huntress", items=[cf.StateItem(uid="huntress:7", status="sent")]), db
     )
     assert out.updated == 1
-    updates = [_sql(s) for s in db.executed[1:]]
-    assert [OWNER in p.values() for _, p in updates] == [True, False]
-    assert [CLIENT_A in p.values() for _, p in updates] == [False, True]
+    updates = [_sql(s) for s in db.executed if _sql(s)[0].lower().startswith("update alerts")]
+    assert len(updates) == 1
+    assert CLIENT_A in updates[0][1].values() and OWNER not in updates[0][1].values()
 
 
 @pytest.mark.asyncio

@@ -100,13 +100,36 @@ async def _scope_ids(db: Any, owner: Any) -> list[Any]:
     return [owner, *children]
 
 
-async def _across(db: Any, owner: Any, work: Any) -> list[Any]:
-    """Run ``work(tenant_id)`` once per tenant in scope, each inside that tenant's row-level-security scope (restored afterwards). Returns the results in order."""
+async def _across(db: Any, owner: Any, work: Any, tenants: list[Any] | None = None) -> list[Any]:
+    """Run ``work(tenant_id)`` once per tenant (the whole scope, or just ``tenants``), each inside that tenant's row-level-security scope (restored afterwards). Returns the results in order."""
     results = []
-    for tid in await _scope_ids(db, owner):
+    for tid in tenants if tenants is not None else await _scope_ids(db, owner):
         async with acting_as_tenant(db, tid):
             results.append(await work(tid))
     return results
+
+
+async def _tenants_holding(db: Any, owner: Any, uids: list[str]) -> list[Any]:
+    """The tenants in the feed's scope that have an alert for any of these incident ids, in scope order: ONE query.
+
+    A report used to be applied item by item in every client tenant of the owner. With 240 clients, a few hundred items was tens of thousands of statements, each inside its own
+    row-level-security scope, and CORE gave up after 30 seconds. Almost every incident lives in one tenant, so ask once where they are and work only those. The lookup reads
+    across the scope on purpose (it is what finds the tenants), and returns only tenant ids that are already in it: the token never reaches any other tenant.
+    """
+    scope = await _scope_ids(db, owner)
+    wanted = sorted(set(uids))
+    if not wanted:
+        return []
+    async with cross_tenant_reads(db):
+        found = (
+            await db.execute(
+                select(Alert.tenant_id)
+                .where(Alert.tenant_id.in_(scope), Alert.raw_event["finding"]["uid"].astext.in_(wanted))
+                .distinct()
+            )
+        ).scalars().all()
+    held = set(found)
+    return [tid for tid in scope if tid in held]
 
 
 async def apply_report(db: Any, tenant_id: Any, report: StatusReport, now: datetime | None = None) -> int:
@@ -328,9 +351,12 @@ async def report_core_feed_closed(tenant_token: str, body: ClosedReport, db: DBS
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
     now = datetime.now(UTC)
-    resolved = sum(await _across(db, tenant_id, lambda tid: apply_closed(db, tid, body, now)))
+    prefix = f"{body.vendor}:"
+    holders = await _tenants_holding(db, tenant_id, [i.uid for i in body.closed if i.uid.startswith(prefix)])
+    changed = await _across(db, tenant_id, lambda tid: apply_closed(db, tid, body, now), tenants=holders)
+    resolved = sum(changed)
     if resolved:
-        # Give the SLA page the timing for what was just closed. Best effort: it must never undo the closures themselves.
+        # Give the SLA page the timing for what was just closed. Best effort: it must never undo the closures themselves. Only tenants where something was resolved.
         async def sla(tid: Any) -> int:
             try:
                 async with db.begin_nested():
@@ -339,7 +365,7 @@ async def report_core_feed_closed(tenant_token: str, body: ClosedReport, db: DBS
                 logger.exception("core_feed.sla_events_failed")
                 return 0
 
-        await _across(db, tenant_id, sla)
+        await _across(db, tenant_id, sla, tenants=[tid for tid, n in zip(holders, changed, strict=True) if n])
     await db.commit()
     return ClosedResponse(resolved=resolved)
 
@@ -412,7 +438,9 @@ async def report_core_feed_state(tenant_token: str, body: StateReport, db: DBSes
     """Record the current state of open vendor incidents, so the alert can show the remediation plan and offer the right actions."""
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
-    updated = sum(await _across(db, tenant_id, lambda tid: apply_state(db, tid, body)))
+    prefix = f"{body.vendor}:"
+    holders = await _tenants_holding(db, tenant_id, [i.uid for i in body.items if i.uid.startswith(prefix)])
+    updated = sum(await _across(db, tenant_id, lambda tid: apply_state(db, tid, body), tenants=holders))
     await db.commit()
     return StateResponse(updated=updated)
 
@@ -594,6 +622,8 @@ async def report_core_feed_tickets(tenant_token: str, body: TicketsReport, db: D
     """Record the PSA (HaloPSA) tickets linked to open vendor incidents, so each alert shows its tickets."""
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
-    updated = sum(await _across(db, tenant_id, lambda tid: apply_tickets(db, tid, body)))
+    prefix = f"{body.vendor}:"
+    holders = await _tenants_holding(db, tenant_id, [i.uid for i in body.items if i.uid.startswith(prefix)])
+    updated = sum(await _across(db, tenant_id, lambda tid: apply_tickets(db, tid, body), tenants=holders))
     await db.commit()
     return TicketsResponse(updated=updated)
