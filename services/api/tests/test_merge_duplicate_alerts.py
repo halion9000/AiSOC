@@ -50,3 +50,25 @@ def test_a_single_row_has_nothing_to_merge():
 def test_a_row_that_carries_the_linked_tickets_is_preferred_over_an_older_bare_one():
     plan = plan_merge([row(1, minutes=0), row(2, minutes=5, tickets=1)])
     assert plan.keeper == uuid.UUID(int=2)
+
+
+def test_one_incident_in_the_parent_and_one_client_is_kept_by_the_client():
+    from app.scripts.merge_duplicate_alerts import plan_cross_tenant
+
+    parent, client = uuid.uuid4(), uuid.uuid4()
+    plan = plan_cross_tenant({parent: [row(1)], client: [row(2, minutes=3)]}, {client})
+    assert plan == (client, uuid.UUID(int=2), [(parent, uuid.UUID(int=1))])
+
+
+def test_several_client_tenants_holding_it_is_left_alone():
+    from app.scripts.merge_duplicate_alerts import plan_cross_tenant
+
+    parent, a, b = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    assert plan_cross_tenant({parent: [row(1)], a: [row(2)], b: [row(3)]}, {a, b}) is None
+
+
+def test_a_parent_copy_somebody_is_working_on_is_not_closed():
+    from app.scripts.merge_duplicate_alerts import plan_cross_tenant
+
+    parent, client = uuid.uuid4(), uuid.uuid4()
+    assert plan_cross_tenant({parent: [row(1, status="in_progress")], client: [row(2)]}, {client}) is None
