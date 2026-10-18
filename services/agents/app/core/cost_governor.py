@@ -50,6 +50,9 @@ class BudgetConfig:
     max_tokens_per_alert: int = 20_000
     window_seconds: int = 24 * 3600
     cache_ttl_seconds: int = 3600
+    # At most this many LLM investigations per tenant per window, whatever they cost. 0 (the default) means no limit. Dollars cannot do this job on a flat-rate plan (the cost of a
+    # run is 0), so a flood of alerts could otherwise queue unbounded LLM work; past the limit a tenant's alerts are triaged deterministically, never dropped.
+    max_llm_runs: int = 0
 
     @classmethod
     def from_env(cls) -> BudgetConfig:
@@ -71,6 +74,7 @@ class BudgetConfig:
             max_tokens_per_alert=_i("AISOC_MAX_TOKENS_PER_ALERT", 20_000),
             window_seconds=_i("AISOC_BUDGET_WINDOW_SECONDS", 24 * 3600),
             cache_ttl_seconds=_i("AISOC_INVESTIGATION_CACHE_TTL", 3600),
+            max_llm_runs=max(0, _i("AISOC_BUDGET_MAX_LLM_RUNS", 0)),
         )
 
 
@@ -149,6 +153,10 @@ class CostGovernor:
     def spent_tokens(self, tenant_id: str) -> int:
         return sum(e.tokens for e in self._prune(tenant_id))
 
+    def llm_runs(self, tenant_id: str) -> int:
+        """Investigations in the window that used the LLM (a deterministic run records no tokens)."""
+        return sum(1 for e in self._prune(tenant_id) if e.tokens > 0)
+
     # -- enforcement -----------------------------------------------------------
 
     def cap_tokens(self, requested_tokens: int) -> int:
@@ -181,6 +189,15 @@ class CostGovernor:
                 reason=f"tenant hard budget ${self.config.hard_usd:.2f} exhausted; deterministic-only",
                 remaining_usd=0.0,
                 soft_breached=True,
+            )
+
+        limit = self.config.max_llm_runs
+        if limit > 0 and self.llm_runs(tenant_id) >= limit:
+            return GovernorDecision(
+                decision=Decision.CIRCUIT_OPEN,
+                reason=f"tenant limit of {limit} LLM investigations per window reached; deterministic-only",
+                remaining_usd=remaining,
+                soft_breached=spent >= self.config.soft_usd,
             )
 
         return GovernorDecision(
@@ -220,6 +237,8 @@ class CostGovernor:
             "soft_breached": spent >= self.config.soft_usd,
             "hard_breached": spent >= self.config.hard_usd,
             "spent_tokens": self.spent_tokens(tenant_id),
+            "llm_runs": self.llm_runs(tenant_id),
+            "max_llm_runs": self.config.max_llm_runs,
             "cached_entries": sum(1 for k in self._cache if k[0] == tenant_id),
         }
 

@@ -176,3 +176,79 @@ def test_config_from_env(monkeypatch):
 
 def test_get_governor_is_singleton():
     assert get_governor() is get_governor()
+
+
+# ── a count limit on LLM runs: dollars are 0 on a flat-rate plan, so they cannot bound a flood ───────────────────────────
+
+class _Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+def _gov(limit, clock=None):
+    from app.core.cost_governor import BudgetConfig, CostGovernor
+
+    return CostGovernor(config=BudgetConfig(max_llm_runs=limit, window_seconds=3600), now=clock or _Clock())
+
+
+def test_with_no_limit_set_a_flood_of_zero_cost_runs_is_never_stopped():
+    g = _gov(0)
+    for i in range(50):
+        g.record_verdict("t", f"f{i}", {"verdict": "x"}, usd=0.0, tokens=700)
+    assert g.check("t", "new").use_llm
+
+
+def test_past_the_limit_a_tenant_goes_deterministic_instead_of_dropping_alerts():
+    from app.core.cost_governor import Decision
+
+    g = _gov(3)
+    for i in range(3):
+        assert g.check("t", f"f{i}").use_llm
+        g.record_verdict("t", f"f{i}", {"verdict": "x"}, usd=0.0, tokens=700)
+    d = g.check("t", "another")
+    assert d.decision is Decision.CIRCUIT_OPEN and not d.use_llm and "3 LLM investigations" in d.reason
+
+
+def test_one_tenants_flood_does_not_stop_another_tenant():
+    g = _gov(1)
+    g.record_verdict("noisy", "f", {"verdict": "x"}, usd=0.0, tokens=700)
+    assert not g.check("noisy", "g").use_llm
+    assert g.check("quiet", "g").use_llm
+
+
+def test_deterministic_runs_do_not_count_toward_the_limit():
+    g = _gov(2)
+    for i in range(10):
+        g.record_verdict("t", f"d{i}", {"verdict": "x"}, usd=0.0, tokens=0)
+    assert g.check("t", "n").use_llm and g.llm_runs("t") == 0
+
+
+def test_the_limit_is_per_window_so_it_frees_up():
+    clock = _Clock()
+    g = _gov(1, clock)
+    g.record_verdict("t", "f", {"verdict": "x"}, usd=0.0, tokens=700)
+    assert not g.check("t", "g").use_llm
+    clock.t += 3601
+    assert g.check("t", "g").use_llm
+
+
+def test_a_cached_identical_alert_is_still_served_when_the_limit_is_reached():
+    from app.core.cost_governor import Decision
+
+    g = _gov(1)
+    g.record_verdict("t", "same", {"verdict": "benign", "confidence": 0.9}, usd=0.0, tokens=700)
+    assert g.check("t", "same").decision is Decision.DEDUPLICATED
+
+
+def test_the_limit_comes_from_the_environment(monkeypatch):
+    from app.core.cost_governor import BudgetConfig
+
+    monkeypatch.setenv("AISOC_BUDGET_MAX_LLM_RUNS", "7")
+    assert BudgetConfig.from_env().max_llm_runs == 7
+    monkeypatch.setenv("AISOC_BUDGET_MAX_LLM_RUNS", "-4")
+    assert BudgetConfig.from_env().max_llm_runs == 0
+    monkeypatch.setenv("AISOC_BUDGET_MAX_LLM_RUNS", "junk")
+    assert BudgetConfig.from_env().max_llm_runs == 0

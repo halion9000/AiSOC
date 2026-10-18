@@ -555,6 +555,8 @@ services:
       # Manual triage launches allowed per tenant per minute (0 = no limit), and the burst a tenant may spend at once. Auto-triage from Kafka is not limited by this.
       AISOC_TRIAGE_PER_MINUTE: ${AISOC_TRIAGE_PER_MINUTE:-30}
       AISOC_TRIAGE_BURST: ${AISOC_TRIAGE_BURST:-60}
+      # At most this many LLM triage runs per tenant per day (0 = no limit); past it a tenant's alerts are triaged without the LLM, never dropped.
+      AISOC_BUDGET_MAX_LLM_RUNS: ${AISOC_BUDGET_MAX_LLM_RUNS:-0}
       # The UEBA service listens on 8004 (the agents' built-in default is 8086, which nothing serves) and needs its bearer token.
       AISOC_UEBA_URL: http://ueba:8004
       AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
