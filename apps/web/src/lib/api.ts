@@ -872,7 +872,16 @@ function coreToolName(rawEvent: unknown): string | undefined {
   return typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,39}$/.test(v) ? v : undefined;
 }
 
-function normalizeAlert(raw: unknown): Alert {
+/**
+ * A confidence as a fraction from 0 to 1, whichever way the API sent it. The alert's ``confidence`` is a whole number from 0 to 100 (47 means 47%), but the page shows ``score * 100``,
+ * which made a 47 read "4700%". A value above 1 is read as a percentage; the result is kept within 0 to 1.
+ */
+export function confidenceFraction(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+  return Math.min(1, value > 1 ? value / 100 : value);
+}
+
+export function normalizeAlert(raw: unknown): Alert {
   const r = (raw ?? {}) as Record<string, unknown>;
 
   const pickStr = (snake: string, camel: string): string | undefined => {
@@ -1046,9 +1055,7 @@ function normalizeAlert(raw: unknown): Alert {
     confidenceLabel: (r.confidence_label ?? r.confidenceLabel) as
       | ConfidenceLabel
       | undefined,
-    confidenceScore:
-      pickNum('confidence_score', 'confidenceScore') ??
-      pickNum('confidence', 'confidence'),
+    confidenceScore: confidenceFraction(pickNum('confidence_score', 'confidenceScore') ?? pickNum('confidence', 'confidence')),
     confidenceRationale,
     ledgerRunId: pickStr('ledger_run_id', 'ledgerRunId'),
     disposition: (r.disposition ?? null) as Alert['disposition'],

@@ -67,6 +67,18 @@ class _FakeRedis:
             return [(m.encode(), s) for m, s in sliced]
         return [m.encode() for m, _ in sliced]
 
+    async def zrem(self, key: str, *members: str) -> int:
+        bucket = self.zsets.get(key, {})
+        return sum(1 for m in members if bucket.pop(m, None) is not None)
+
+    async def zrangebyscore(self, key: str, low: Any, high: Any) -> list[bytes]:
+        lo = float("-inf") if low == "-inf" else float(low)
+        hi = float("inf") if high == "+inf" else float(high)
+        return [m.encode() for m, sc in sorted(self.zsets.get(key, {}).items(), key=lambda kv: kv[1]) if lo <= sc <= hi]
+
+    async def ttl(self, key: str) -> int:
+        return -1 if key in self.hashes else -2
+
     async def zcard(self, key: str) -> int:
         return len(self.zsets.get(key, {}))
 
@@ -443,3 +455,67 @@ async def test_observing_the_same_alert_twice_scores_it_once(engine: EntityRiskE
     assert rec.alert_count == 1
     assert rec.score == pytest.approx(20.0)
     assert rec.promoted_at is None
+
+
+# ---------------------------------------------------------------------------
+# A queue member whose record has expired no longer counts or takes a place in the list
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_members_whose_record_is_gone_are_dropped_from_the_list_and_the_count(engine, fake_redis):
+    """The live system had 656 members in the queue and a handful of records behind them: the count said 656 and the list showed 11."""
+    for name in ("a", "b", "c"):
+        await engine.observe(_alert(username=name))
+    topn = "aisoc:fusion:rba:topn:" + str(_TENANT)
+    for ghost in range(5):  # members from before the expiry index existed, whose records have long expired
+        fake_redis.zsets[topn][f"user::ghost{ghost}"] = 50.0 - ghost
+    assert await fake_redis.zcard(topn) == 8
+
+    stats = await engine.stats(_TENANT)
+    assert stats["tracked_entities"] == 3 and stats["total"] == 3
+    records = await engine.top_entities(_TENANT, limit=5)
+    assert sorted(r.entity_value for r in records) == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_a_member_is_removed_when_its_expiry_time_passes(engine, fake_redis):
+    await engine.observe(_alert(username="alice"))
+    await engine.observe(_alert(username="bob"))
+    expiry = "aisoc:fusion:rba:expiry:" + str(_TENANT)
+    assert set(fake_redis.zsets[expiry]) == {"user::alice", "user::bob"}, "saving a record records when it expires"
+    fake_redis.zsets[expiry]["user::alice"] = 1.0  # long past
+    fake_redis.hashes.pop("aisoc:fusion:rba:entity:" + f"{_TENANT}:user:alice")  # and her record has expired with it
+    stats = await engine.stats(_TENANT)
+    assert stats["tracked_entities"] == 1
+    assert "user::alice" not in fake_redis.zsets["aisoc:fusion:rba:topn:" + str(_TENANT)]
+    assert "user::alice" not in fake_redis.zsets[expiry]
+
+
+@pytest.mark.asyncio
+async def test_a_stale_member_does_not_take_a_place_from_a_live_one(engine, fake_redis):
+    await engine.observe(_alert(username="live"))
+    topn = "aisoc:fusion:rba:topn:" + str(_TENANT)
+    for i in range(10):
+        fake_redis.zsets[topn][f"user::ghost{i}"] = 90.0 + i  # higher scores than the live entity
+    records = await engine.top_entities(_TENANT, limit=3)
+    assert [r.entity_value for r in records] == ["live"]
+
+
+@pytest.mark.asyncio
+async def test_a_live_member_from_before_the_index_is_kept_and_a_second_read_does_not_recheck(engine, fake_redis):
+    await engine.observe(_alert(username="alice"))
+    expiry = "aisoc:fusion:rba:expiry:" + str(_TENANT)
+    fake_redis.zsets.pop(expiry)  # as if written before the index existed
+    first = await engine.top_entities(_TENANT, limit=5)
+    assert [r.entity_value for r in first] == ["alice"]
+    calls = []
+    original = fake_redis.ttl
+
+    async def counting_ttl(key):
+        calls.append(key)
+        return await original(key)
+
+    fake_redis.ttl = counting_ttl
+    await engine.top_entities(_TENANT, limit=5)
+    assert calls == [], "the legacy check runs once per tenant"

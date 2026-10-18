@@ -50,6 +50,9 @@ logger = structlog.get_logger()
 _ENTITY_PREFIX = "aisoc:fusion:rba:entity:"
 _TOPN_KEY = "aisoc:fusion:rba:topn:"
 _PROMOTED_KEY = "aisoc:fusion:rba:promoted:"
+# When each queued entity's record expires (score = the time). The queue's sorted set cannot expire members on its own, so without this a member outlived its record forever: the count said 656
+# active entities while the list could show only the handful whose record still existed.
+_EXPIRY_KEY = "aisoc:fusion:rba:expiry:"
 
 ENTITY_TYPES: tuple[str, ...] = ("user", "host", "src_ip", "domain")
 
@@ -114,6 +117,7 @@ class EntityRiskEngine:
         self._window = settings.rba_window_seconds
         self._half_life = max(60, settings.rba_decay_half_life_seconds)
         self._max_top = max(10, settings.rba_max_top_entities)
+        self._legacy_checked: set[str] = set()
         self._weights: dict[AlertSeverity, float] = {
             AlertSeverity.CRITICAL: settings.rba_severity_weights_critical,
             AlertSeverity.HIGH: settings.rba_severity_weights_high,
@@ -160,6 +164,39 @@ class EntityRiskEngine:
     # ------------------------------------------------------------------
     # Read path
     # ------------------------------------------------------------------
+    @staticmethod
+    def _text(value: Any) -> str:
+        return value.decode() if isinstance(value, bytes | bytearray) else str(value)
+
+    async def _prune(self, tenant_id: str) -> int:
+        """Remove queue members whose record has expired, so the list and the count agree. Returns how many were removed.
+
+        Members written since the expiry index existed are removed when their time passes. Members written before it (the first read of each tenant after an upgrade) are checked once
+        against their record's remaining life: a record that is gone is dropped, one that has life left is given its expiry.
+        """
+        topn, promoted, expiry = _TOPN_KEY + tenant_id, _PROMOTED_KEY + tenant_id, _EXPIRY_KEY + tenant_id
+        now = time.time()
+        stale = [self._text(m) for m in await self._redis.zrangebyscore(expiry, "-inf", now)]
+        if tenant_id not in self._legacy_checked:
+            self._legacy_checked.add(tenant_id)
+            known = {self._text(m) for m in await self._redis.zrevrange(expiry, 0, -1)}
+            for raw in await self._redis.zrevrange(topn, 0, -1):
+                member = self._text(raw)
+                if member in known:
+                    continue
+                entity_type, _, entity_value = member.partition("::")
+                ttl = await self._redis.ttl(_ENTITY_PREFIX + f"{tenant_id}:{entity_type}:{entity_value}")
+                if ttl is None or ttl == -2 or ttl == 0:
+                    stale.append(member)
+                elif ttl > 0:
+                    await self._redis.zadd(expiry, {member: now + ttl})
+        if stale:
+            stale = list(dict.fromkeys(stale))
+            await self._redis.zrem(topn, *stale)
+            await self._redis.zrem(promoted, *stale)
+            await self._redis.zrem(expiry, *stale)
+        return len(stale)
+
     async def top_entities(
         self,
         tenant_id: UUID | str,
@@ -168,6 +205,7 @@ class EntityRiskEngine:
         promoted_only: bool = False,
     ) -> list[EntityRiskRecord]:
         """Return the top-N entities by current decayed score."""
+        await self._prune(str(tenant_id))
         key = _TOPN_KEY + str(tenant_id)
         raw = await self._redis.zrevrange(key, 0, max(0, limit - 1), withscores=True)
         records: list[EntityRiskRecord] = []
@@ -193,6 +231,7 @@ class EntityRiskEngine:
 
         One ranked list: each tenant's own top-N is read from its sorted set, merged by score, and only the winners are loaded."""
         tenants = [str(t) for t in dict.fromkeys(tenant_ids)]
+        await asyncio.gather(*(self._prune(t) for t in tenants))
         if promoted_only:
             per_tenant = await asyncio.gather(*(self.top_entities(t, limit=limit, promoted_only=True) for t in tenants))
             merged = [r for records in per_tenant for r in records]
@@ -237,6 +276,7 @@ class EntityRiskEngine:
 
     async def stats(self, tenant_id: UUID | str) -> dict:
         """Return queue-level metrics for the dashboard."""
+        await self._prune(str(tenant_id))
         topn_key = _TOPN_KEY + str(tenant_id)
         promoted_key = _PROMOTED_KEY + str(tenant_id)
         total = await self._redis.zcard(topn_key)
@@ -390,6 +430,9 @@ class EntityRiskEngine:
         }
         await self._redis.hset(key, mapping=payload)
         await self._redis.expire(key, self._window)
+        expiry_key = _EXPIRY_KEY + record.tenant_id
+        await self._redis.zadd(expiry_key, {self._member(record): time.time() + self._window})
+        await self._redis.expire(expiry_key, self._window)
         topn_key = _TOPN_KEY + record.tenant_id
         await self._redis.zadd(topn_key, {self._member(record): record.score})
         await self._redis.zremrangebyrank(topn_key, 0, -(self._max_top + 1))
