@@ -293,6 +293,10 @@ services:
       # The fusion gateway (/api/v1/fusion/*) proxies to the fusion service at this URL. Unset, every route returns its
       # empty stub (entity-risk stats showed 0 with 2k entities scored in fusion's Redis). Fusion listens on 8003.
       FUSION_SERVICE_URL: http://fusion:8003
+      # Natural-language search (/nl-query/execute) queries ONE shared Elasticsearch with the server's key. Set the field that holds each event's tenant so every query is limited to the
+      # caller's tenant, or (only if that Elasticsearch holds a single tenant's events) NL_QUERY_ALLOW_UNSCOPED=true. With neither, it is refused on a platform with several tenants.
+      NL_QUERY_TENANT_FIELD: ${NL_QUERY_TENANT_FIELD:-}
+      NL_QUERY_ALLOW_UNSCOPED: ${NL_QUERY_ALLOW_UNSCOPED:-false}
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
       # The connectors service makes outbound calls with connector config + credentials the CALLER supplies, so it
       # requires this bearer token (the API is its only caller). It listens on 8087 (8003 is the fusion service).

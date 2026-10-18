@@ -352,6 +352,9 @@ class Settings(BaseSettings):
     # `| WHERE <field> == "<caller's tenant id>"` right after the source command of every query they run. Leave empty for a single-tenant Elasticsearch; set it
     # for a shared one, or a tenant with lake:query can read every tenant's events through /nl-query/execute (which runs with the server's credentials).
     NL_QUERY_TENANT_FIELD: str = ""
+    # With NL_QUERY_TENANT_FIELD empty, /nl-query/execute runs the query with the server's Elasticsearch key and NO tenant predicate. That is only safe when the Elasticsearch holds ONE tenant's events:
+    # on a platform with several tenants it is refused unless the operator sets this to true to say the Elasticsearch is theirs alone.
+    NL_QUERY_ALLOW_UNSCOPED: bool = False
     SPLUNK_URL: str = ""
     SPLUNK_HMAC_TOKEN: str = ""
     CHRONICLE_PROJECT_ID: str = ""

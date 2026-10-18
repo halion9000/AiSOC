@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.airgap import AirgapViolation, enforce_airgap_for_url
@@ -485,6 +485,20 @@ async def translate_query(
     )
 
 
+async def _unscoped_search_refusal(db: Any) -> str | None:
+    """Why a query with no tenant predicate must not run, or None when it may: a tenant field is configured (then every query is scoped), the operator said the Elasticsearch is theirs alone,
+    or there is only one tenant."""
+    if (settings.NL_QUERY_TENANT_FIELD or "").strip() or settings.NL_QUERY_ALLOW_UNSCOPED:
+        return None
+    tenants = (await db.execute(select(func.count()).select_from(Tenant))).scalar_one()
+    if tenants <= 1:
+        return None
+    return (
+        "this platform has several tenants and NL_QUERY_TENANT_FIELD is not set, so the search could not be limited to your tenant's events "
+        "(set NL_QUERY_TENANT_FIELD to the Elasticsearch field that holds each event's tenant, or NL_QUERY_ALLOW_UNSCOPED=true if this Elasticsearch holds only one tenant)"
+    )
+
+
 @router.post(
     "/execute",
     response_model=NLQueryExecuteResponse,
@@ -506,6 +520,8 @@ async def execute_query(
         scope_error = None
     except QueryScopeError as exc:
         scoped_esql, scope_error = translated.esql, str(exc)
+    if scope_error is None:
+        scope_error = await _unscoped_search_refusal(db)
 
     base = NLQueryExecuteResponse(
         request_id=uuid.uuid4(),

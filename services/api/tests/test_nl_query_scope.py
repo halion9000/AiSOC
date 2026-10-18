@@ -206,7 +206,7 @@ class TestEndpoints:
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated(q), "deterministic")))
         monkeypatch.setattr(nq, "_execute_esql", run)
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
-        await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
+        await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=CountDB(1))
         assert run.await_args.args[0] == q
 
     async def test_the_scope_check_runs_before_the_server_credentials_are_even_resolved(self, monkeypatch):
@@ -226,7 +226,7 @@ class TestErrorsDoNotLeakElasticsearchInternals:
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM logs-*" + GOOD_TAIL), "deterministic")))
         monkeypatch.setattr(nq, "_execute_esql", AsyncMock(side_effect=error))
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
-        return await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=NoDB())
+        return await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=CountDB(1))
 
     async def test_an_http_error_body_from_elasticsearch_is_not_returned(self, monkeypatch):
         import httpx
@@ -240,3 +240,45 @@ class TestErrorsDoNotLeakElasticsearchInternals:
     async def test_an_unexpected_exception_text_is_not_returned(self, monkeypatch):
         out = await self._run(monkeypatch, RuntimeError("connect to 10.9.8.7:9200 refused (user=elastic)"))
         assert out.execution_error and "10.9.8.7" not in out.execution_error and "elastic" not in out.execution_error
+
+
+class CountDB:
+    """A database that only knows how many tenants exist (the unscoped-search guard asks once)."""
+
+    def __init__(self, tenants):
+        self.execute = AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: tenants, scalar=lambda: tenants))
+
+
+@pytest.mark.asyncio
+class TestUnscopedSearchOnAMultiTenantDeployment:
+    """With NL_QUERY_TENANT_FIELD unset (the default) /nl-query/execute ran the query against the shared Elasticsearch with the server's key and NO tenant predicate: on a platform with
+    several tenants, tenant A's search returned tenant B's events. The documented trade-off was 'leave it empty for a single-tenant Elasticsearch'; the code never checked that it was one."""
+
+    async def _run(self, monkeypatch, tenants, *, allow=False, field=""):
+        run = AsyncMock(return_value=nq.QueryResult(columns=["n"], rows=[[1]], total_rows=1))
+        monkeypatch.setattr(nq.settings, "NL_QUERY_TENANT_FIELD", field, raising=False)
+        monkeypatch.setattr(nq.settings, "NL_QUERY_ALLOW_UNSCOPED", allow, raising=False)
+        monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM logs-*" + GOOD_TAIL), "deterministic")))
+        monkeypatch.setattr(nq, "_execute_esql", run)
+        monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
+        out = await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=CountDB(tenants))
+        return out, run
+
+    async def test_refused_when_there_are_several_tenants_and_no_tenant_field(self, monkeypatch):
+        out, run = await self._run(monkeypatch, tenants=241)
+        run.assert_not_awaited()
+        assert out.result is None and "NL_QUERY_TENANT_FIELD" in out.execution_error
+
+    async def test_allowed_on_a_single_tenant_deployment(self, monkeypatch):
+        out, run = await self._run(monkeypatch, tenants=1)
+        run.assert_awaited_once()
+        assert out.execution_error is None
+
+    async def test_allowed_when_the_operator_says_the_elasticsearch_is_theirs_alone(self, monkeypatch):
+        out, run = await self._run(monkeypatch, tenants=241, allow=True)
+        run.assert_awaited_once()
+
+    async def test_a_tenant_field_makes_the_count_irrelevant(self, monkeypatch):
+        out, run = await self._run(monkeypatch, tenants=241, field="tenant.id")
+        run.assert_awaited_once()
+        assert f'tenant.id == "{TENANT}"' in run.await_args.args[0]
