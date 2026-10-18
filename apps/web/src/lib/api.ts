@@ -3137,6 +3137,17 @@ export interface ThreatIndicator {
   country?: string;
   asn?: string;
   mitre?: string[];
+  /** The stored type as the API names it (file_hash_sha256, ip, ...): a hash row says which algorithm. */
+  storedType?: string;
+  tlp?: string;
+  threatActor?: string;
+  campaign?: string;
+  malwareFamily?: string;
+  /** Ids of the alerts this indicator was seen on. */
+  linkedAlerts?: string[];
+  /** Where the indicator came from, when the feed says (an alert id, a feed reference). */
+  sourceRef?: string;
+  expiresAt?: string;
 }
 
 export interface IOCLookup extends ThreatIndicator {
@@ -3198,7 +3209,16 @@ export const threatIntelApi = {
       sources: [ioc.source],
       firstSeen: ioc.first_seen,
       lastSeen: ioc.last_seen,
-      description: ioc.context?.description as string | undefined,
+      // A feed writes `description`; an indicator pulled out of an alert carries a `derived` note saying so (and that it is not a confirmed malicious indicator).
+      description: (ioc.context?.description as string | undefined) ?? (ioc.context?.derived as string | undefined),
+      storedType: ioc.ioc_type,
+      tlp: ioc.tlp || undefined,
+      threatActor: ioc.threat_actor ?? undefined,
+      campaign: ioc.campaign ?? undefined,
+      malwareFamily: ioc.malware_family ?? undefined,
+      linkedAlerts: ioc.linked_alerts ?? undefined,
+      sourceRef: ioc.source_ref ?? undefined,
+      expiresAt: ioc.expires_at ?? undefined,
     }));
 
     // Client-side filtering for tag and q since backend doesn't support them
