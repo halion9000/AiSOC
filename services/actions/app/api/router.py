@@ -195,6 +195,14 @@ async def reject_action(
     return record
 
 
+@router.get("/egress/blocked")
+async def egress_blocked(_auth: None = Depends(require_service_auth)) -> dict:
+    """What the outbound-request guard has refused recently (host and reason only), newest first."""
+    from app.security.egress_guard import recent_blocked
+
+    return {"blocked": recent_blocked()}
+
+
 @router.get("/actions")
 async def list_actions(
     status: str | None = Query(None, description="Filter by status, e.g. running"),

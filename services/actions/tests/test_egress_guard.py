@@ -101,3 +101,16 @@ async def test_a_single_label_host_is_not_resolved_so_an_in_process_transport_is
         await g.check_request_async(httpx.Request("GET", "http://localhost/x"))
     await g.check_request_async(httpx.Request("GET", "https://hooks.example.test/x"))
     assert looked_up == ["hooks.example.test"]
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_is_remembered_with_host_and_reason_but_never_the_path_or_query():
+    g._recent.clear()
+    request = httpx.Request("GET", "http://169.254.169.254/latest/meta-data/iam?token=SECRET")
+    with pytest.raises(g.EgressBlocked):
+        await g.check_request_async(request)
+    (entry,) = g.recent_blocked()
+    assert entry["host"] == "169.254.169.254"
+    assert "not a permitted destination" in entry["reason"]
+    assert "SECRET" not in str(entry) and "meta-data" not in str(entry)
+    g._recent.clear()

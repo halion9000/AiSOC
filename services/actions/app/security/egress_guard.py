@@ -11,11 +11,13 @@ LIMIT: resolve-then-connect leaves a DNS-rebinding window (a name that resolves 
 from __future__ import annotations
 
 import asyncio
+import collections
 import ipaddress
 import logging
 import os
 import socket
 import time
+from datetime import UTC, datetime
 
 import httpx
 
@@ -121,10 +123,25 @@ def _refusal(url: httpx.URL, addresses: list[ipaddress._BaseAddress] | None = No
     return None
 
 
+# The last refusals, for an operator asking "what did the guard stop?": host and reason only (never a path, query or header, which can carry secrets). In memory, per process.
+_RECENT_LIMIT = 100
+_recent: collections.deque[dict[str, object]] = collections.deque(maxlen=_RECENT_LIMIT)
+
+
+def _record_block(request: httpx.Request, reason: str) -> None:
+    _recent.append({"at": datetime.now(UTC).isoformat(), "host": (request.url.host or "").lower(), "reason": reason})
+
+
+def recent_blocked() -> list[dict[str, object]]:
+    """The most recent refusals, newest first."""
+    return list(reversed(_recent))
+
+
 def check_request_sync(request: httpx.Request) -> None:
     reason = _refusal(request.url) if _enabled() else None
     if reason:
         logger.warning("actions.egress_blocked reason=%s", reason)
+        _record_block(request, reason)
         raise EgressBlocked(f"Request blocked by the egress guard: {reason}", request=request)
 
 
@@ -142,6 +159,7 @@ async def check_request_async(request: httpx.Request) -> None:
     reason = _refusal(request.url, addresses)
     if reason:
         logger.warning("actions.egress_blocked reason=%s", reason)
+        _record_block(request, reason)
         raise EgressBlocked(f"Request blocked by the egress guard: {reason}", request=request)
 
 
