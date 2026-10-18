@@ -5,7 +5,7 @@
  *
  * Backed by /api/v1/compliance/{frameworks/<key>/controls, report, evidence, evidence/collect}. "Collect platform evidence" records what the platform's own
  * data can show (accounts, monitoring coverage, incident handling) as PENDING items; a person reviews each one here. Controls that need a document or an
- * attestation stay "No evidence" until someone adds one: nothing is filled in on anyone's behalf.
+ * attestation stay "No evidence" until someone adds one with "Add evidence" (an attestation, where a policy lives, a runbook): nothing is filled in on anyone's behalf.
  */
 import { useCallback, useEffect, useState } from 'react';
 
@@ -38,6 +38,15 @@ interface Posture {
   controls_covered: string[];
   controls_missing: string[];
 }
+type EvidenceKind = 'attestation' | 'policy' | 'runbook' | 'other';
+
+const KIND_HELP: Record<EvidenceKind, { label: string; hint: string }> = {
+  attestation: { label: 'Attestation', hint: 'A statement that someone responsible confirms, for example "Access reviews are done quarterly; last one 2026-09-30, by Dana."' },
+  policy: { label: 'Policy', hint: 'That a policy exists and where it lives, for example "Access Control Policy v3, in the Compliance folder on SharePoint."' },
+  runbook: { label: 'Runbook', hint: 'The procedure that covers this, and where it is kept.' },
+  other: { label: 'Other', hint: 'Anything else that shows the control is met.' },
+};
+
 interface Evidence {
   id: string;
   control_id: string;
@@ -63,6 +72,9 @@ export function FrameworkView({ framework }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [kind, setKind] = useState<EvidenceKind>('attestation');
+  const [summary, setSummary] = useState('');
 
   const load = useCallback(async () => {
     if (!key) return;
@@ -109,6 +121,27 @@ export function FrameworkView({ framework }: Props) {
       await load();
     } catch (err) {
       setNote(err instanceof Error ? err.message : 'Collection failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addEvidence(controlId: string) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await authFetch('/api/v1/compliance/evidence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ framework: key, control_id: controlId, evidence_kind: kind, summary: summary.trim(), raw_payload: { source: 'manual' } }),
+      });
+      if (!res.ok) throw new Error(`The API answered ${res.status}`);
+      setAdding(null);
+      setSummary('');
+      setNote(`Added to ${controlId}. It waits for a review below before it counts.`);
+      await load();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Could not add the evidence');
     } finally {
       setBusy(false);
     }
@@ -198,6 +231,48 @@ export function FrameworkView({ framework }: Props) {
                   )}
                 </div>
               ))}
+              {adding === c.control_id ? (
+                <div className="mt-3 space-y-2 border-t border-gray-700/60 pt-3" data-testid={`add-form-${c.control_id}`}>
+                  <select
+                    aria-label="Kind of evidence"
+                    value={kind}
+                    onChange={(e) => setKind(e.target.value as EvidenceKind)}
+                    className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-sm text-gray-200"
+                  >
+                    {(Object.keys(KIND_HELP) as EvidenceKind[]).map((k) => (
+                      <option key={k} value={k}>
+                        {KIND_HELP[k].label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500">{KIND_HELP[kind].hint}</p>
+                  <textarea
+                    aria-label="Evidence"
+                    value={summary}
+                    onChange={(e) => setSummary(e.target.value)}
+                    rows={3}
+                    className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-gray-200"
+                    placeholder="What you are attesting or pointing to (at least 5 characters)"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || summary.trim().length < 5}
+                      onClick={() => void addEvidence(c.control_id)}
+                      className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                    <button type="button" onClick={() => { setAdding(null); setSummary(''); }} className="px-3 py-1.5 rounded border border-gray-700 text-gray-300 text-xs">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => { setAdding(c.control_id); setSummary(''); }} className="mt-3 text-xs text-blue-400 hover:text-blue-300">
+                  Add evidence
+                </button>
+              )}
             </div>
           );
         })}

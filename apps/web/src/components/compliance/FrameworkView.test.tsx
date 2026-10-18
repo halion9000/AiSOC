@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FrameworkView } from './FrameworkView';
@@ -37,5 +38,43 @@ describe('FrameworkView', () => {
     authFetch.mockImplementation(() => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) }));
     render(<FrameworkView framework="hipaa" />);
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('503'));
+  });
+
+  it('lets a person add an attestation to a control, and it waits for review before it counts', async () => {
+    const posts: { url: string; body: any }[] = [];
+    authFetch.mockImplementation((url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'POST') {
+        posts.push({ url, body: JSON.parse(String(init.body)) });
+        return json({ id: 'new' });
+      }
+      if (url.includes('/controls')) return json({ controls: [{ control_id: 'CC1.1', title: 'Competence' }] });
+      if (url.includes('/report')) return json([{ total_evidence: 0, accepted: 0, pending: 0, rejected: 0, coverage_pct: 0, controls_covered: [], controls_missing: ['CC1.1'] }]);
+      return json([]);
+    });
+    render(<FrameworkView framework="soc2" />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Add evidence' }));
+    const add = screen.getByRole('button', { name: 'Add' });
+    expect(add).toBeDisabled(); // nothing typed yet
+    await user.type(screen.getByLabelText('Evidence'), 'Annual security training completed 2026-09-30');
+    await user.selectOptions(screen.getByLabelText('Kind of evidence'), 'policy');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].url).toBe('/api/v1/compliance/evidence');
+    expect(posts[0].body).toEqual({ framework: 'SOC2', control_id: 'CC1.1', evidence_kind: 'policy', summary: 'Annual security training completed 2026-09-30', raw_payload: { source: 'manual' } });
+    expect(await screen.findByText(/waits for a review below before it counts/)).toBeInTheDocument();
+  });
+
+  it('refuses a summary that is too short to mean anything', async () => {
+    authFetch.mockImplementation((url: string) => {
+      if (url.includes('/controls')) return json({ controls: [{ control_id: 'CC1.1', title: 'Competence' }] });
+      if (url.includes('/report')) return json([]);
+      return json([]);
+    });
+    render(<FrameworkView framework="soc2" />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Add evidence' }));
+    await user.type(screen.getByLabelText('Evidence'), 'ok');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
   });
 });
