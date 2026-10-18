@@ -547,6 +547,8 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-aisoc-triage}
       # ATT&CK technique embeddings need an embedding model behind the gateway; set to "off" to skip them.
       AISOC_EMBEDDING_MODEL: ${AISOC_EMBEDDING_MODEL:-text-embedding-3-large}
+      # Confidence at or above which a benign/false-positive verdict closes the alert without an analyst (0.0-1.0). Raise it to auto-close less.
+      AISOC_AUTO_CLOSE_THRESHOLD: ${AISOC_AUTO_CLOSE_THRESHOLD:-0.85}
       # The UEBA service listens on 8004 (the agents' built-in default is 8086, which nothing serves) and needs its bearer token.
       AISOC_UEBA_URL: http://ueba:8004
       AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
