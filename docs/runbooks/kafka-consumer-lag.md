@@ -12,14 +12,20 @@ partition count is too low for the current throughput, or the
 consumer is stuck (deadlocked, crashing on the head message and
 retrying forever).
 
-Affected services and their canonical topics:
+Consumer groups that exist in a running stack, and what each reads (checked against a live
+Kafka with `kafka-consumer-groups --list` and `--describe`, not from memory):
 
-| Service       | Topic(s)                            |
-|---------------|-------------------------------------|
-| `fusion`      | `aisoc.alerts.raw`                  |
-| `actions`     | `aisoc.actions.dispatch`            |
-| `threatintel` | `aisoc.indicators.enrich`           |
-| `ueba`        | `aisoc.events.normalized`           |
+| Consumer group          | Service    | Topic(s)                                                          |
+|-------------------------|------------|-------------------------------------------------------------------|
+| `aisoc-fusion-consumer` | `fusion`   | `aisoc.alerts.raw`, `aisoc.raw_events`, `ueba.anomalies`          |
+| `aisoc-agents-triage`   | `agents`   | `aisoc.alerts.fused`                                              |
+| `aisoc-realtime-ws`     | `realtime` | `aisoc.alerts.fused` (pushes alerts to open browsers)             |
+| `aisoc-realtime-graph`  | `realtime` | `security.graph_updates`                                          |
+| `ueba-service`          | `ueba`     | `security.events` (nothing publishes to it yet: lag stays 0)      |
+
+`actions` and `threatintel` have no Kafka consumer group. An older version of this table named
+`aisoc.actions.dispatch`, `aisoc.indicators.enrich` and `aisoc.events.normalized`; none of those
+topics exists in the code or on a running broker.
 
 ## First five minutes
 
