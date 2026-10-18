@@ -895,6 +895,9 @@ services:
     ports:
       - "127.0.0.1:8008:8005"
     environment:
+      # The address a planted honeytoken link calls (<this>/api/v1/canary/<token id>). The default is the console on THIS machine, right for trying a token here; for a token planted where other
+      # machines will find it, set it to an address they can reach (this host's LAN address, or a public one).
+      HONEYTOKEN_CANARY_BASE_URL: ${HONEYTOKEN_CANARY_BASE_URL:-http://localhost:3000}
       # Bearer token required on every route except the canary callback (POST /webhook/trigger); the API's gateway sends it.
       AISOC_HONEYTOKENS_SERVICE_TOKEN: ${AISOC_HONEYTOKENS_SERVICE_TOKEN:-}
       DATABASE_URL: postgresql+asyncpg://aisoc:${POSTGRES_PASSWORD:-aisoc_dev_secret}@postgres:5432/aisoc

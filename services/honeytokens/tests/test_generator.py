@@ -65,9 +65,34 @@ class TestGenerateTokenShape:
         assert len(td["access_key_id"]) == 20
         assert td["secret_access_key"]  # non-empty
 
-    def test_url_token_is_https(self) -> None:
+    def test_url_token_is_a_link_to_this_installs_canary_route_carrying_its_own_id(self) -> None:
         record = generate_token("url", "u", None, TENANT, None)
-        assert record["metadata_"]["token_data"]["url"].startswith("https://")
+        assert record["metadata_"]["token_data"]["url"] == f"http://localhost:3000/api/v1/canary/{record['id']}"
+        assert record["metadata_"]["detection"] == "link"
+
+    def test_the_link_address_is_configurable_and_a_bad_value_falls_back(self, monkeypatch) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "canary_base_url", "http://192.168.1.20:3000/")
+        record = generate_token("url", "u", None, TENANT, None)
+        assert record["metadata_"]["token_data"]["url"] == f"http://192.168.1.20:3000/api/v1/canary/{record['id']}"
+        for bad in ("", "ftp://x", "javascript:alert(1)", "not a url", "http://has space"):
+            monkeypatch.setattr(settings, "canary_base_url", bad)
+            assert generate_token("url", "u", None, TENANT, None)["metadata_"]["token_data"]["url"].startswith("http://localhost:3000/api/v1/canary/")
+
+    def test_a_file_token_carries_a_beacon_link_to_put_inside_the_document(self) -> None:
+        record = generate_token("file", "f", None, TENANT, None)
+        assert record["metadata_"]["token_data"]["beacon_url"] == f"http://localhost:3000/api/v1/canary/{record['id']}"
+        assert record["metadata_"]["detection"] == "link"
+
+    def test_only_links_claim_to_detect_anything_every_other_type_says_it_is_a_decoy_only(self) -> None:
+        for kind in ("aws_key", "email", "dns", "db_credential", "api_key", "custom"):
+            assert generate_token(kind, "x", None, TENANT, None)["metadata_"]["detection"] == "none", kind
+
+    def test_two_url_tokens_never_share_a_link(self) -> None:
+        a = generate_token("url", "a", None, TENANT, None)["metadata_"]["token_data"]["url"]
+        b = generate_token("url", "a", None, TENANT, None)["metadata_"]["token_data"]["url"]
+        assert a != b
 
     def test_email_token_uses_canary_alias(self) -> None:
         record = generate_token("email", "e", None, TENANT, None)

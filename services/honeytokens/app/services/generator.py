@@ -11,6 +11,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import re
+
 from app.core.config import settings
 
 
@@ -39,9 +41,8 @@ TOKEN_GENERATORS: dict[str, Any] = {
         "access_key_id": _fake_aws_access_key(),
         "secret_access_key": _fake_aws_secret_key(),
     },
-    "url": lambda: {
-        "url": f"https://canary.example.com/{_random_alphanum(16)}?t={_random_alphanum(8)}",
-    },
+    # "url" and "file" get their link once the token's id is known (see generate_token): the link IS the id, so a visit identifies the token.
+    "url": lambda: {},
     "file": lambda: {
         "filename": f"backup_{_random_alphanum(8)}.zip",
         "checksum": hashlib.sha256(os.urandom(32)).hexdigest(),
@@ -66,6 +67,21 @@ TOKEN_GENERATORS: dict[str, Any] = {
 }
 
 
+# What can really raise an alert today. A link calls AiSOC when opened. Everything else is a decoy value: nothing watches for it being used (an AWS key needs CloudTrail, a DNS name a name
+# server, an e-mail address a mailbox, a database login that system's logs), so the page says so rather than letting someone plant one and believe it will alert.
+DETECTS_ON_OPEN = {"url", "file"}
+
+
+def canary_base_url() -> str:
+    """The configured link address without a trailing slash; anything that is not an http(s) address falls back to the default."""
+    value = (settings.canary_base_url or "").strip().rstrip("/")
+    return value if re.fullmatch(r"https?://[^\s/]+(?::\d+)?(?:/[^\s]*)?", value) else "http://localhost:3000"
+
+
+def canary_link(token_id: uuid.UUID) -> str:
+    return f"{canary_base_url()}/api/v1/canary/{token_id}"
+
+
 def generate_token(
     token_type: str,
     name: str,
@@ -80,17 +96,23 @@ def generate_token(
         raise ValueError(f"Unknown token_type '{token_type}'. Valid: {list(TOKEN_GENERATORS)}")
 
     token_data = TOKEN_GENERATORS[token_type]()
+    token_id = uuid.uuid4()
+    if token_type == "url":
+        token_data["url"] = canary_link(token_id)
+    elif token_type == "file":
+        token_data["beacon_url"] = canary_link(token_id)  # put this link inside the document: opening it fires the alert
     ttl = ttl_days if ttl_days is not None else settings.token_ttl_days
     expires_at = datetime.now(UTC) + timedelta(days=ttl)
+    detection = "link" if token_type in DETECTS_ON_OPEN else "none"
 
     return {
-        "id": uuid.uuid4(),
+        "id": token_id,
         "tenant_id": tenant_id,
         "name": name,
         "description": description,
         "token_type": token_type,
         "token_value": str(token_data),
-        "metadata_": {**(metadata or {}), "token_data": token_data},
+        "metadata_": {**(metadata or {}), "token_data": token_data, "detection": detection},
         "status": "active",
         "expires_at": expires_at,
         "created_by": created_by,

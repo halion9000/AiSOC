@@ -60,6 +60,9 @@ PUBLIC = {
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/tickets"): (
         "CORE's list of the PSA tickets linked to open incidents: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add ticket details to that feed's own alerts (the 422 here is the empty body)"
     ),
+    ("GET", "/api/v1/canary/{token_id}"): (
+        "The honeytoken tripwire: a planted link must work for someone who has no AiSOC account, so it cannot require sign-in. It answers every id the same way (a one pixel image), forwards only a well-formed UUID, is rate limited per token and overall, and returns nothing about the token"
+    ),
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/device-names"): (
         "CORE's names for the devices vendor incidents were raised on: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only fill an EMPTY host list on that feed's own alerts (the 422 here is the empty body)"
     ),

@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     business_context,
     cases,
     community,
+    canary,
     compliance,
     connectors,
     copilot,
@@ -138,6 +139,7 @@ api_router.include_router(marketplace.router)
 api_router.include_router(rbac.router)
 api_router.include_router(audit.router)
 api_router.include_router(compliance.router)
+api_router.include_router(canary.router)
 api_router.include_router(copilot.router)
 api_router.include_router(metrics.router)
 # Pipeline health snapshot — v1.5 SOC Console parity.

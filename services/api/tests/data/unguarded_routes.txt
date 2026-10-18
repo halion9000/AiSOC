@@ -9,6 +9,7 @@
 DELETE /passkeys/credentials/{credential_id} [passkeys.py::revoke_credential]
 DELETE /saved-views/{view_id} [saved_views.py::delete_saved_view]
 GET /auth/me [auth.py::get_me]
+GET /canary/{token_id} [canary.py::canary_visit]
 GET /community/detections [community.py::list_community_detections]
 GET /community/detections/{detection_id} [community.py::get_community_detection]
 GET /community/playbooks [community.py::list_community_playbooks]

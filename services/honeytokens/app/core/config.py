@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # Token defaults
     token_ttl_days: int = 365
 
+    # The address a planted link calls (HONEYTOKEN_CANARY_BASE_URL): the web console, which proxies /api/v1 to the API, so a link is <base>/api/v1/canary/<token id>.
+    # The default is the console on this machine, which is right for trying a token on the same computer. For a token planted where other machines will find it, set it to an
+    # address those machines can reach (the AiSOC host's LAN address, or a public one).
+    canary_base_url: str = "http://localhost:3000"
+
     # OTel
     otel_endpoint: str = "http://localhost:4317"
     service_name: str = "aisoc-honeytokens"
