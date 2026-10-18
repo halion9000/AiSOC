@@ -411,7 +411,67 @@ class TestConfiguration:
         assert 'job_name="retention_sweeper"' in src and "worker=run_retention_sweeper" in src
         assert "retention_task.cancel()" in src
 
-    def test_it_never_touches_alerts_or_the_lake(self):
+    def test_alerts_are_only_ever_swept_when_the_operator_opts_in_and_the_lake_never(self):
+        """This used to assert the sweeper never mentions alerts (deleting them was 'a separate, destructive decision'). That decision is now made as an OPT IN: off by default, finished and case-less only."""
+        from app.core.config import Settings
+
+        assert Settings.model_fields["RETENTION_ALERTS_DAYS"].default == 0, "alert deletion must stay off unless the operator turns it on"
         src = (Path(__file__).resolve().parent.parent / "app" / "workers" / "retention_sweeper.py").read_text(encoding="utf-8")
-        assert "alerts" not in re.sub(r'""".*?"""', "", src, flags=re.S).replace("detection_suggestions", "")
-        assert rs.CLASSES == ("copilot_conversations", "detection_suggestions", "response_actions")
+        code = re.sub(r'""".*?"""', "", src, flags=re.S)  # the docstring may mention the lake; the code must not touch it
+        assert "raw_events" not in code and "clickhouse" not in code.lower(), "the raw-event lake has its own TTL and is not swept here"
+        assert rs.CLASSES == ("copilot_conversations", "detection_suggestions", "response_actions", "alerts")
+
+
+# ── alerts: opt-in, finished and case-less only ─────────────────────────────────────────────────────────────────────────
+
+def alert(status, age_days, case=None, tenant=A):
+    aid = uuid.uuid4()
+    with Session(DB.sync) as s:
+        s.execute(insert(rs.alerts_table).values(id=aid, tenant_id=tenant, status=status, case_id=case, updated_at=ago(age_days)))
+        s.commit()
+    return aid
+
+
+def remaining_alerts() -> set[uuid.UUID]:
+    with Session(DB.sync) as s:
+        return {r[0] for r in s.execute(select(rs.alerts_table.c.id)).all()}
+
+
+class TestAlertRetentionIsOptIn:
+    def test_by_default_nothing_is_ever_deleted_however_old(self):
+        old = alert("resolved", 5000)
+        result = sweep()  # RETENTION_ALERTS_DAYS is absent from this config: the default is off
+        assert "alerts" not in result.counts and old in remaining_alerts()
+        assert "alerts" not in sweep(RETENTION_ALERTS_DAYS=0).counts and old in remaining_alerts()
+
+    def test_a_finished_old_caseless_alert_goes_and_a_recent_one_stays(self):
+        old, recent = alert("resolved", 400), alert("resolved", 30)
+        assert sweep(RETENTION_ALERTS_DAYS=365).counts["alerts"] == 1
+        assert remaining_alerts() == {recent} and old not in remaining_alerts()
+
+    @pytest.mark.parametrize("status", ["resolved", "closed", "false_positive", "fp"])
+    def test_every_finished_status_is_swept(self, status):
+        aid = alert(status, 400)
+        sweep(RETENTION_ALERTS_DAYS=365)
+        assert aid not in remaining_alerts()
+
+    @pytest.mark.parametrize("status", ["new", "triaging", "in_progress"])
+    def test_an_open_alert_is_never_deleted_however_old(self, status):
+        aid = alert(status, 5000)
+        sweep(RETENTION_ALERTS_DAYS=1)
+        assert aid in remaining_alerts()
+
+    def test_an_alert_that_belongs_to_a_case_is_never_deleted(self):
+        aid = alert("closed", 5000, case=uuid.uuid4())
+        sweep(RETENTION_ALERTS_DAYS=1)
+        assert aid in remaining_alerts()
+
+    def test_a_dry_run_counts_and_deletes_nothing(self):
+        aid = alert("resolved", 400)
+        result = sweep(RETENTION_ALERTS_DAYS=365, dry_run=True)
+        assert result.counts["alerts"] == 1 and aid in remaining_alerts()
+
+    def test_the_window_is_clamped_to_a_day_so_a_typo_cannot_wipe_everything_finished_today(self):
+        today, old = alert("resolved", 0.1), alert("resolved", 3)
+        sweep(RETENTION_ALERTS_DAYS=1)
+        assert today in remaining_alerts() and old not in remaining_alerts()

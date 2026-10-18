@@ -300,7 +300,7 @@ class Settings(BaseSettings):
     # Retention sweeper. Deletes data that has outlived its window from the tables that would otherwise grow without limit (copilot conversations, detection suggestions, finished response actions).
     # ON by default with conservative windows; RETENTION_SWEEPER_ENABLED=false turns it off and RETENTION_DRY_RUN=true makes it COUNT and log what it would delete without deleting anything. The first sweep
     # waits RETENTION_INITIAL_DELAY_SECONDS after startup. Every window is clamped to 1..3650 days. A finished response action follows its tenant's `audit_days` retention setting
-    # (RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS when the tenant has set none). Alerts and the raw-event lake are NOT swept: those windows are still configuration only.
+    # (RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS when the tenant has set none). Alerts are swept only when RETENTION_ALERTS_DAYS is set above 0 (default 0: never); the raw-event lake has its own TTL.
     # ------------------------------------------------------------------
     RETENTION_SWEEPER_ENABLED: bool = True
     RETENTION_DRY_RUN: bool = False
@@ -311,6 +311,8 @@ class Settings(BaseSettings):
     RETENTION_COPILOT_CONVERSATIONS_DAYS: int = 90
     RETENTION_DETECTION_SUGGESTIONS_DAYS: int = 180
     RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS: int = 730
+    # Opt in to deleting FINISHED, case-less alerts older than this many days. 0 (the default) keeps every alert forever.
+    RETENTION_ALERTS_DAYS: int = 0
 
     # ------------------------------------------------------------------
     # Event-warehouse credentials — one block per provider in

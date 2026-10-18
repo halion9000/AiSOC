@@ -5,7 +5,9 @@ What it sweeps, and the rule for each:
   * detection_suggestions  - created more than RETENTION_DETECTION_SUGGESTIONS_DAYS ago (platform-wide setting).
   * response_actions       - ONLY finished ones (completed / failed / rejected / rolled_back), last updated more than the tenant's `audit_days` ago
                              (RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS if the tenant has set none). Pending, awaiting-approval, approved and RUNNING actions are never deleted, however old.
-What it does NOT sweep: alerts and the raw-event lake. Those windows can be configured but nothing enforces them; that is a separate, destructive decision.
+  * alerts                 - OPT IN (RETENTION_ALERTS_DAYS, default 0 = never). Only alerts that are finished (resolved, closed, false positive), belong to no case, and were last updated more than the window ago.
+                             An open, in-progress or case-linked alert is never deleted, however old. Deleting an alert also removes its vendor-action records (they cascade).
+What it does NOT sweep: the raw-event lake (ClickHouse has its own 90-day TTL).
 
 Safety:
   * Every per-tenant delete carries an EXPLICIT tenant predicate. Nothing here relies on row-level security for tenant scoping (the services connect as a superuser by default, which bypasses it).
@@ -48,7 +50,21 @@ response_actions = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
-CLASSES = ("copilot_conversations", "detection_suggestions", "response_actions")
+# The alerts table as the sweeper needs it (the ORM model uses Postgres-only column types).
+alerts_table = Table(
+    "alerts",
+    _meta,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid, nullable=False),
+    Column("status", String, nullable=False),
+    Column("case_id", Uuid, nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+# Statuses an alert ends in. "fp" is the old spelling of false_positive.
+FINISHED_ALERT_STATUSES = ("resolved", "closed", "false_positive", "fp")
+
+CLASSES = ("copilot_conversations", "detection_suggestions", "response_actions", "alerts")
 
 
 @dataclass
@@ -129,6 +145,23 @@ async def sweep_response_actions(
     return total
 
 
+async def sweep_alerts(session: AsyncSession, *, now: datetime, days: int, batch: int, max_batches: int, dry_run: bool) -> int:
+    """Opt-in. Finished alerts with no case, older than the window. 0 (or less) means never: nothing is counted and nothing is deleted."""
+    if days <= 0:
+        return 0
+    cutoff = now - timedelta(days=clamp_days(days))
+    match = alerts_table.c.status.in_(FINISHED_ALERT_STATUSES) & alerts_table.c.case_id.is_(None) & (alerts_table.c.updated_at < cutoff)
+    return await _batched_delete(
+        session,
+        count_stmt=select(func.count()).select_from(alerts_table).where(match),
+        ids_stmt=select(alerts_table.c.id).where(match),
+        delete_for=lambda sub: delete(alerts_table).where(alerts_table.c.id.in_(sub)),
+        batch=batch,
+        max_batches=max_batches,
+        dry_run=dry_run,
+    )
+
+
 async def sweep_once(
     session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
     *,
@@ -153,6 +186,9 @@ async def sweep_once(
             s, now=now, default_days=settings.RETENTION_RESPONSE_ACTIONS_DEFAULT_DAYS, batch=batch, max_batches=max_batches, dry_run=dry
         ),
     }
+    alert_days = int(getattr(settings, "RETENTION_ALERTS_DAYS", 0) or 0)
+    if alert_days > 0:  # opt in: with the default 0 the class is not even listed in the result
+        jobs["alerts"] = lambda s: sweep_alerts(s, now=now, days=alert_days, batch=batch, max_batches=max_batches, dry_run=dry)
     for name, job in jobs.items():
         try:
             async with session_factory() as session:

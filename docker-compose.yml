@@ -297,6 +297,9 @@ services:
       # caller's tenant, or (only if that Elasticsearch holds a single tenant's events) NL_QUERY_ALLOW_UNSCOPED=true. With neither, it is refused on a platform with several tenants.
       NL_QUERY_TENANT_FIELD: ${NL_QUERY_TENANT_FIELD:-}
       NL_QUERY_ALLOW_UNSCOPED: ${NL_QUERY_ALLOW_UNSCOPED:-false}
+      # Delete FINISHED alerts with no case once they are this many days old (0 = keep every alert). RETENTION_DRY_RUN=true only counts and logs what would go.
+      RETENTION_ALERTS_DAYS: ${RETENTION_ALERTS_DAYS:-0}
+      RETENTION_DRY_RUN: ${RETENTION_DRY_RUN:-false}
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
       # The connectors service makes outbound calls with connector config + credentials the CALLER supplies, so it
       # requires this bearer token (the API is its only caller). It listens on 8087 (8003 is the fusion service).
