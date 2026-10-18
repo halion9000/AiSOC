@@ -18,6 +18,9 @@ from app.connectors.base import BaseConnector, Capability, ConnectorSchema, Fiel
 logger = structlog.get_logger()
 
 
+# Findings kept per poll (the rest are dropped, worst first kept).
+_MAX_ITEMS = 200
+
 class TenableConnector(BaseConnector):
     """Tenable.io VM."""
 
@@ -106,7 +109,11 @@ class TenableConnector(BaseConnector):
                     )
                     return []
                 items = (resp.json() or {}).get("vulnerabilities") or []
-                return [self.normalize(i) for i in items[:200]]
+                # Worst first, so the cap drops the least important findings, and say so when it drops any (it used to cut silently).
+                items = sorted(items, key=lambda i: (i.get("severity") or 0, i.get("vpr_score") or 0), reverse=True)
+                if len(items) > _MAX_ITEMS:
+                    logger.warning("tenable.fetch_truncated", returned=len(items), kept=_MAX_ITEMS)
+                return [self.normalize(i) for i in items[:_MAX_ITEMS]]
         except Exception as exc:
             self._fetch_failed()
             logger.warning("tenable.fetch_exception", error=str(exc))
