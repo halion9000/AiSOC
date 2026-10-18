@@ -70,3 +70,55 @@ async def is_revoked(jti: str | None) -> bool:
     except (RedisError, OSError) as exc:
         logger.warning("token_revocation.check_failed_allowing_request", extra={"err": str(exc)})
         return False
+
+
+# ── Refresh-token rotation ───────────────────────────────────────────────────────────────────────────────────────────────
+# A refresh token is single use: ``/auth/refresh`` hands back a NEW pair and the presented token is spent. Two browser tabs refreshing at the same moment present the same
+# token, so for a short grace window the second caller is given the pair the first one was issued (rather than being signed out). A spent token presented AFTER the grace
+# window is a replay (a copied token, or one tab that missed the rotation) and is refused. Like checking revocation, this fails OPEN when Redis is unreachable.
+
+_USED_PREFIX = "aisoc:refresh-used:"
+_PAIR_PREFIX = "aisoc:refresh-pair:"
+REFRESH_GRACE_SECONDS = 30
+_PAIR_WAIT_ATTEMPTS = 20
+_PAIR_WAIT_SECONDS = 0.1
+
+
+async def claim_refresh(jti: str | None, exp: Any) -> str:
+    """Spend a refresh token. Returns ``"fresh"`` (first use: issue a new pair, then ``remember_refresh_pair``), ``"replay"`` (already spent; ``spent_pair`` may return the
+    pair issued to the first caller), or ``"unchecked"`` (no jti, or the store is unreachable: issue as before)."""
+    if not jti:
+        return "unchecked"
+    try:
+        won = await _get_client().set(_USED_PREFIX + jti, "1", ex=_seconds_until(exp), nx=True)
+    except (RedisError, OSError) as exc:
+        logger.warning("token_revocation.claim_failed_allowing_refresh", extra={"err": str(exc)})
+        return "unchecked"
+    return "fresh" if won else "replay"
+
+
+async def remember_refresh_pair(jti: str | None, pair: str) -> None:
+    """Keep the pair issued for a spent token for the grace window, so a concurrent refresh with the same token gets it. Best effort."""
+    if not jti:
+        return
+    try:
+        await _get_client().set(_PAIR_PREFIX + jti, pair, ex=REFRESH_GRACE_SECONDS)
+    except (RedisError, OSError) as exc:
+        logger.warning("token_revocation.remember_pair_failed", extra={"err": str(exc)})
+
+
+async def spent_pair(jti: str | None) -> str | None:
+    """The pair issued to the first caller that spent ``jti``, if still inside the grace window. Waits briefly: the first caller may not have stored it yet."""
+    import asyncio
+
+    if not jti:
+        return None
+    for _ in range(_PAIR_WAIT_ATTEMPTS):
+        try:
+            pair = await _get_client().get(_PAIR_PREFIX + jti)
+        except (RedisError, OSError):
+            return None
+        if pair:
+            return pair
+        await asyncio.sleep(_PAIR_WAIT_SECONDS)
+    return None

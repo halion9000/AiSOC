@@ -1,5 +1,7 @@
 """Authentication endpoints: login, refresh, logout, user preferences."""
 
+import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -21,11 +23,13 @@ from app.core.security import (
     known_permissions,
     verify_password_or_equalise,
 )
-from app.core.token_revocation import RevocationUnavailable, is_revoked, revoke
+from app.core.token_revocation import RevocationUnavailable, claim_refresh, is_revoked, remember_refresh_pair, revoke, spent_pair
 from app.core.trusted_proxy import resolve_client_ip
 from app.models.tenant import User
 from app.services import login_throttle
 from app.services.user_lookup import find_user_by_login
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -214,6 +218,16 @@ async def refresh_token(request: RefreshRequest, db: DBSession) -> TokenResponse
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    # Single use: the presented refresh token is spent now. A second tab refreshing at the same moment gets the pair the first was issued; a replay after the grace window is refused.
+    jti = payload.get("jti")
+    claim = await claim_refresh(jti, payload.get("exp"))
+    if claim == "replay":
+        pair = await spent_pair(jti)
+        if pair:
+            return TokenResponse(**json.loads(pair))
+        logger.warning("auth.refresh_token_replayed user=%s", user.id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has already been used")
+
     token_data = {
         "sub": str(user.id),
         "tenant_id": str(user.tenant_id),
@@ -221,10 +235,13 @@ async def refresh_token(request: RefreshRequest, db: DBSession) -> TokenResponse
         "email": user.email or user.account_name,
         "account_name": user.account_name,
     }
-    return TokenResponse(
+    issued = TokenResponse(
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
     )
+    if claim == "fresh":
+        await remember_refresh_pair(jti, issued.model_dump_json(include={"access_token", "refresh_token"}))
+    return issued
 
 
 class AuthorizeRequest(BaseModel):

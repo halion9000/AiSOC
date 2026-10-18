@@ -136,7 +136,7 @@ class TestLogout:
         assert out.status_code == 200
         assert world.client.post("/auth/refresh", json={"refresh_token": bob["refresh_token"]}).status_code == 200
         assert world.client.get("/auth/me", headers=bearer(bob["access_token"])).status_code == 200
-        assert len(revocation_store.data) == 1  # only alice's own access token
+        assert len([k for k in revocation_store.data if k.startswith("aisoc:revoked-jti:")]) == 1
 
     def test_the_denylist_entry_lives_exactly_as_long_as_the_token(self, world, revocation_store):
         tokens = login(world)
@@ -210,3 +210,60 @@ class TestTheDenylistModule:
         asyncio.run(token_revocation.revoke("abc", 4102444800))
         assert asyncio.run(token_revocation.is_revoked("abc")) is True
         assert asyncio.run(token_revocation.is_revoked("other")) is False
+
+
+# ── single-use refresh with a grace window ──────────────────────────────────────────────────────────────────────────────
+
+class _FakeRedis:
+    def __init__(self):
+        self.kv = {}
+
+    async def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.kv:
+            return None
+        self.kv[key] = value
+        return True
+
+    async def get(self, key):
+        return self.kv.get(key)
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_token_is_spent_once_and_a_concurrent_caller_gets_the_same_pair(monkeypatch):
+    from app.core import token_revocation as tr
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(tr, "_get_client", lambda: fake)
+    monkeypatch.setattr(tr, "_PAIR_WAIT_SECONDS", 0)
+    exp = 4_000_000_000
+
+    assert await tr.claim_refresh("jti-1", exp) == "fresh"
+    await tr.remember_refresh_pair("jti-1", '{"access_token":"a","refresh_token":"r"}')
+    assert await tr.claim_refresh("jti-1", exp) == "replay"
+    assert await tr.spent_pair("jti-1") == '{"access_token":"a","refresh_token":"r"}'
+
+
+@pytest.mark.asyncio
+async def test_a_replay_after_the_grace_window_has_no_pair(monkeypatch):
+    from app.core import token_revocation as tr
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(tr, "_get_client", lambda: fake)
+    monkeypatch.setattr(tr, "_PAIR_WAIT_SECONDS", 0)
+    assert await tr.claim_refresh("jti-2", 4_000_000_000) == "fresh"
+    assert await tr.claim_refresh("jti-2", 4_000_000_000) == "replay"
+    assert await tr.spent_pair("jti-2") is None  # the pair expired (or was never stored): a replay
+
+
+@pytest.mark.asyncio
+async def test_refresh_fails_open_when_the_store_is_down_or_the_token_has_no_jti(monkeypatch):
+    from app.core import token_revocation as tr
+    from redis.exceptions import RedisError
+
+    class _Down:
+        async def set(self, *a, **k):
+            raise RedisError("down")
+
+    monkeypatch.setattr(tr, "_get_client", lambda: _Down())
+    assert await tr.claim_refresh("jti-3", 4_000_000_000) == "unchecked"
+    assert await tr.claim_refresh(None, 4_000_000_000) == "unchecked"

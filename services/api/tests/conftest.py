@@ -19,11 +19,17 @@ class FakeRedis:
         if self.down:
             raise RedisConnectionError("simulated outage")
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> bool:
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False) -> bool | None:
         self._check()
+        if nx and key in self.data:
+            return None
         self.data[key] = value
         self.ttls[key] = ex
         return True
+
+    async def get(self, key: str) -> str | None:
+        self._check()
+        return self.data.get(key)
 
     async def exists(self, key: str) -> int:
         self._check()
