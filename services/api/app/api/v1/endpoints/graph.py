@@ -285,6 +285,7 @@ _ENTITY_KINDS = (("affected_hosts", "host"), ("affected_users", "user"), ("affec
 _MAX_ENTITIES_PER_KIND = 20
 _MAX_TECHNIQUES = 15
 _MAX_ENTITIES_PER_ALERT = 6
+_MAX_ALERT_NODES = 25  # the most severe recent alerts are drawn as nodes of their own, joined to the entities and techniques they name
 _OVERVIEW_WINDOW_DAYS = 30
 _OVERVIEW_ALERT_CAP = 2000  # newest first, per tenant
 
@@ -304,9 +305,10 @@ def _names(raw: Any) -> list[str]:
 
 
 def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -> dict[str, Any]:
-    """The overview graph from alert rows: ``{severity, hosts, users, ips, techniques}`` each. Pure, so it is testable without a database.
+    """The overview graph from alert rows (``id``, ``title``, ``severity``, ``affected_hosts``, ``affected_users``, ``affected_ips``, ``mitre_techniques``). Pure, so it is testable without a database.
 
     The busiest entities and techniques are kept (a cap per kind), and an edge joins an entity to a technique when an alert names both; its weight is how many alerts did.
+    The most severe recent alerts (a cap) are drawn as alert nodes joined to the entities and techniques they name, so the graph has relationships even when no technique is known.
     ``entity`` narrows the graph to alerts that name that host, user or address (compared without regard to case).
     """
     wanted = (entity or "").strip().lower()
@@ -314,12 +316,15 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
     pairs: dict[tuple[tuple[str, str], str], int] = {}
     together: dict[tuple[tuple[str, str], tuple[str, str]], int] = {}
     technique_counts: dict[str, int] = {}
-    for a in alerts:
+    drawn: list[tuple[int, int, dict[str, Any], str, list[tuple[str, str]], list[str]]] = []  # (-severity rank, order, row, severity, entities, techniques)
+    for order, a in enumerate(alerts):
         severity = a.get("severity") if a.get("severity") in _SEVERITY_RANK else "info"
         entities = [(kind, name) for field, kind in _ENTITY_KINDS for name in _names(a.get(field))]
         if wanted and not any(name.lower() == wanted for _k, name in entities):
             continue
         techniques = _technique_ids(a.get("mitre_techniques"))
+        if a.get("id") and (entities or techniques):
+            drawn.append((-_SEVERITY_RANK[severity], order, a, severity, sorted(set(entities))[:_MAX_ENTITIES_PER_ALERT], sorted(set(techniques))))
         # Two different kinds of entity on one alert (a host and the user on it, a host and its address) are linked: that is how a user is connected to a machine when no technique is known.
         distinct = sorted(set(entities))[:_MAX_ENTITIES_PER_ALERT]
         for i, first in enumerate(distinct):
@@ -341,6 +346,10 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
         ranked = sorted((k for k in per_node if k[0] == kind), key=lambda k: (-per_node[k]["alerts"], k[1].lower()))
         kept.update(ranked[:_MAX_ENTITIES_PER_KIND])
     top_techniques = {t for t, _n in sorted(technique_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:_MAX_TECHNIQUES]}
+    chosen = sorted(drawn, key=lambda d: (d[0], d[1]))[:_MAX_ALERT_NODES]
+    for _neg, _order, _row, _sev, entities_of, techniques_of in chosen:
+        kept.update(entities_of)  # an alert drawn must not point at an entity that was cut
+        top_techniques.update(techniques_of)
 
     nodes: list[dict[str, Any]] = []
     for kind, name in sorted(kept, key=lambda k: (k[0], k[1].lower())):
@@ -356,6 +365,19 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
             }
         )
     used_techniques = {t for (key, t) in pairs if key in kept and t in top_techniques}
+    for _neg, _order, row, sev, _entities, techniques_of in chosen:
+        used_techniques.update(techniques_of)
+    for _neg, _order, row, sev, _entities, _techniques in chosen:
+        nodes.append(
+            {
+                "id": f"alert:{row['id']}",
+                "label": (str(row.get("title") or "Alert")[:60]),
+                "kind": "alert",
+                "riskScore": _SEVERITY_SCORE[sev],
+                "severity": sev,
+                "attributes": {"alert_id": str(row["id"])},
+            }
+        )
     for tid in sorted(used_techniques):
         nodes.append({"id": f"technique:{tid}", "label": tid, "kind": "technique", "attributes": {"alerts": technique_counts[tid]}})
     edges = [
@@ -363,6 +385,12 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
         for (key, tid), count in sorted(pairs.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1].lower(), kv[0][1]))
         if key in kept and tid in top_techniques
     ]
+    for _neg, _order, row, _sev, entities_of, techniques_of in chosen:
+        alert_node = f"alert:{row['id']}"
+        for kind, name in entities_of:
+            edges.append({"id": f"{alert_node}->{kind}:{name}", "source": alert_node, "target": f"{kind}:{name}", "label": "affects", "weight": 1})
+        for tid in techniques_of:
+            edges.append({"id": f"{alert_node}->technique:{tid}", "source": alert_node, "target": f"technique:{tid}", "label": "uses technique", "weight": 1})
     edges += [
         {"id": f"{a[0]}:{a[1]}--{b[0]}:{b[1]}", "source": f"{a[0]}:{a[1]}", "target": f"{b[0]}:{b[1]}", "label": "seen on the same alert", "weight": count}
         for (a, b), count in sorted(together.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1]))
@@ -389,13 +417,13 @@ async def get_overview(
     for tenant_id in [current_user.tenant_id, *clients]:
         async with acting_as_tenant(db, tenant_id):
             result = await db.execute(
-                select(Alert.severity, Alert.affected_hosts, Alert.affected_users, Alert.affected_ips, Alert.mitre_techniques)
+                select(Alert.id, Alert.title, Alert.severity, Alert.affected_hosts, Alert.affected_users, Alert.affected_ips, Alert.mitre_techniques)
                 .where(Alert.tenant_id == tenant_id, Alert.created_at >= since)
                 .order_by(Alert.created_at.desc())
                 .limit(_OVERVIEW_ALERT_CAP)
             )
             rows.extend(
-                {"severity": r.severity, "affected_hosts": r.affected_hosts, "affected_users": r.affected_users, "affected_ips": r.affected_ips, "mitre_techniques": r.mitre_techniques}
+                {"id": r.id, "title": r.title, "severity": r.severity, "affected_hosts": r.affected_hosts, "affected_users": r.affected_users, "affected_ips": r.affected_ips, "mitre_techniques": r.mitre_techniques}
                 for r in result.all()
             )
     graph = build_overview(rows, entity=entity)

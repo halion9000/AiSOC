@@ -76,3 +76,47 @@ def test_a_host_and_the_user_on_the_same_alert_are_linked_even_when_no_technique
 def test_two_entities_of_the_same_kind_on_one_alert_are_not_linked():
     g = build_overview([alert(hosts=["a", "b"])])
     assert g["edges"] == []
+
+
+def row(i, severity="medium", **kw):
+    return {"id": f"a{i:03d}", "title": f"Alert {i}", **alert(severity, **kw)}
+
+
+def test_the_most_severe_alerts_become_nodes_joined_to_their_entities_even_with_no_technique():
+    g = build_overview([row(1, "low", hosts=["WS-1"]), row(2, "critical", hosts=["WS-2"], users=["ann"])])
+    nodes = by_id(g)
+    assert nodes["alert:a002"]["kind"] == "alert" and nodes["alert:a002"]["severity"] == "critical" and nodes["alert:a002"]["label"] == "Alert 2"
+    targets = {e["target"] for e in g["edges"] if e["source"] == "alert:a002"}
+    assert targets == {"host:WS-2", "user:ann"}
+    assert all(e["label"] == "affects" for e in g["edges"] if e["source"] == "alert:a002")
+
+
+def test_an_alert_node_also_points_at_its_techniques():
+    g = build_overview([row(1, "high", hosts=["WS-1"], techniques=["T1059"])])
+    assert {(e["source"], e["target"], e["label"]) for e in g["edges"] if e["source"] == "alert:a001"} == {
+        ("alert:a001", "host:WS-1", "affects"),
+        ("alert:a001", "technique:T1059", "uses technique"),
+    }
+
+
+def test_only_the_most_severe_alerts_are_drawn_newest_first_among_equals():
+    from app.api.v1.endpoints.graph import _MAX_ALERT_NODES
+
+    rows = [row(i, "low", hosts=[f"h{i}"]) for i in range(60)] + [row(100, "critical", hosts=["bad"])]
+    g = build_overview(rows)
+    drawn = [n for n in g["nodes"] if n["kind"] == "alert"]
+    assert len(drawn) == _MAX_ALERT_NODES and "alert:a100" in by_id(g)
+    assert "alert:a000" in by_id(g) and "alert:a059" not in by_id(g), "among equal severity the earlier (newer) rows win"
+
+
+def test_an_alert_never_points_at_an_entity_or_technique_that_was_cut():
+    rows = [row(i, "low", hosts=[f"h{i:03d}"], techniques=[f"T{i:03d}"]) for i in range(60)] + [row(100, "critical", hosts=["rare-host"], techniques=["T-RARE"])]
+    g = build_overview(rows)
+    ids = by_id(g)
+    assert "host:rare-host" in ids and "technique:T-RARE" in ids
+    assert all(e["source"] in ids and e["target"] in ids for e in g["edges"])
+
+
+def test_rows_without_an_id_or_anything_to_draw_get_no_alert_node():
+    g = build_overview([alert("high", hosts=["h"]), row(2, "high")])
+    assert not [n for n in g["nodes"] if n["kind"] == "alert"]
