@@ -7,54 +7,26 @@ Two defects, both fabricating security data:
      benchmark data as if they were the tenant's. The default is now "ingest" (the live path, not wired yet: an empty stream, an empty run). "synthetic" must be requested explicitly.
 """
 
+import importlib
+
 import pytest
-from app.api import hunt_search
 from app.hunt import scheduler
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-INVENTED = [
-    "WS-DEV-01",
-    "corp.example",
-    "192.0.2.42",
-    "AssumeRole",
-    "arn:aws:iam::123456789:role/Admin",
-    "DOMAIN\\\\analyst",
-    "explorer.exe",
-]
+class TestHuntSearchIsNotHere:
+    """Hunt search lives in the core API (it searches the tenant's own alerts). This service used to carry a second route that answered 501 and that nothing called; it, and the invented
+    events it once returned for every query, are gone, so nothing here can hand a hunter fabricated telemetry again."""
 
+    def test_the_module_that_held_the_route_and_the_fake_events_is_gone(self):
+        with pytest.raises(ImportError):
+            importlib.import_module("app.api.hunt_search")
 
-@pytest.fixture
-def client():
-    app = FastAPI()
-    app.include_router(hunt_search.router)
-    yield TestClient(app)
+    def test_the_agents_service_does_not_serve_hunt_search_or_saved_searches(self):
+        from app.main import app
 
-
-class TestHuntSearch:
-    @pytest.mark.parametrize("query", ["powershell -enc", "process.name: cmd.exe", "*", "user:admin AND src_ip:10.0.0.5"])
-    def test_it_says_no_event_store_is_connected_for_any_query(self, client, query):
-        response = client.post("/api/v1/hunt/search", json={"query": query, "language": "lucene"})
-        assert response.status_code == 501
-        assert "not connected to an event store" in response.json()["detail"]
-        for value in INVENTED:
-            assert value not in response.text, f"invented telemetry is back: {value}"
-        assert "hits" not in response.json()
-
-    def test_the_query_is_not_echoed_back_into_fake_events(self, client):
-        response = client.post("/api/v1/hunt/search", json={"query": "UNIQUE-MARKER-12345"})
-        assert response.status_code == 501
-        assert "UNIQUE-MARKER-12345" not in response.text  # it used to appear as `cmd.exe /c UNIQUE-MARKER-12345` and as a highlight
-
-    def test_the_synthetic_generator_no_longer_exists(self):
-        assert not hasattr(hunt_search, "_synthetic_hits")
-
-    def test_the_agents_service_no_longer_serves_saved_searches(self, client):
-        """They were one in-memory dict here: lost on restart and returned to EVERY tenant. They live in the core API (tenant-scoped, persisted); the web rewrite sends /api/v1/hunt/saved* there."""
-        assert not hasattr(hunt_search, "_SAVED_SEARCHES")
+        client = TestClient(app)
+        assert client.post("/api/v1/hunt/search", json={"query": "powershell -enc"}).status_code in (404, 405)
         assert client.get("/api/v1/hunt/saved").status_code in (404, 405)
-        assert client.post("/api/v1/hunt/saved", json={"name": "n", "query": "q", "language": "lucene"}).status_code in (404, 405)
-        assert client.delete("/api/v1/hunt/saved/1").status_code in (404, 405)
 
 
 class TestSchedulerTelemetry:

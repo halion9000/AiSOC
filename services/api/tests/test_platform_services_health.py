@@ -90,3 +90,18 @@ async def test_a_service_that_is_up_but_has_consumed_no_events_says_so(monkeypat
     assert by["ueba"]["status"] == "up" and "no events" in by["ueba"]["detail"]
     assert by["fusion"]["detail"] == ""
     assert out["overall"] == "ok"  # up is up: this is information, not an outage
+
+
+def test_the_deployed_extras_are_probed_at_the_addresses_compose_gives_the_api(monkeypatch):
+    """Honeytokens and Purple Team are probed, on the same host:port the API is configured to call them on."""
+    import re
+    from pathlib import Path
+
+    for name in ("honeytokens", "purple-team"):
+        monkeypatch.delenv(f"AISOC_SERVICE_HEALTH_{name.upper()}", raising=False)
+    probes = health._service_probes()
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(encoding="utf-8")
+    for name, var in (("honeytokens", "HONEYTOKENS_SERVICE_URL"), ("purple-team", "PURPLE_TEAM_SERVICE_URL")):
+        configured = re.search(rf"{var}:\s*(http://[\w.-]+:\d+)", compose)
+        assert configured, f"{var} is not set in compose"
+        assert probes[name].startswith(configured.group(1)), f"{name} is probed somewhere other than where the API calls it"

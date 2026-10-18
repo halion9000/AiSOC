@@ -544,6 +544,8 @@ _SERVICE_PROBES: dict[str, str] = {
     "ueba": "http://ueba:8004/health",
     "ingest": "http://ingest-worker:8080/health",
     "realtime": "http://realtime:4000/health",
+    "honeytokens": "http://honeytokens:8005/livez",
+    "purple-team": "http://purple-team:8006/livez",
 }
 
 

@@ -11,7 +11,7 @@ rewrite sent every request to this module, leaving the api service's
 workbench completely unreachable — dormant only because neither currently
 has a frontend page built against it (confirmed: the one hunt-related
 page, HuntView.tsx, calls only huntApi's /api/v1/hunt/* — a third,
-genuinely separate search/saved-searches feature in hunt_search.py,
+genuinely separate search/saved-searches feature in the core API,
 untouched by this collision). Renamed this module rather than api's,
 since api's has migrations, a scheduler, and tests that would all need
 auditing for hardcoded-path references; this module's only other

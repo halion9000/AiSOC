@@ -11,7 +11,6 @@ from app._health import install_health_routes
 from app.api.contextual import router as contextual_router
 from app.api.copilot import router as copilot_router
 from app.api.explain import router as explain_router
-from app.api.hunt_search import router as hunt_search_router
 from app.api.hunts import router as hunts_router
 from app.api.investigate import router as investigate_router
 from app.api.playbooks import router as playbook_router
@@ -181,7 +180,6 @@ app.include_router(triage_router)  # prefix: /api/v1  (POST /cases/{id}/triage �
 app.include_router(playbook_router)  # prefix: /api/v1/playbooks
 app.include_router(contextual_router)  # prefix: /api/v1/contextual
 app.include_router(hunts_router)  # prefix: /api/v1/hunt-corpus (renamed from /api/v1/hunts — see hunts.py's own docstring)
-app.include_router(hunt_search_router)  # prefix: /api/v1/hunt  (search + saved)
 app.include_router(copilot_router)  # prefix: /api/v1/copilot
 app.include_router(explain_router)  # prefix: /api/v1  (POST /explain — NDJSON stream)
 

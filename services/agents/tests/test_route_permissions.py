@@ -14,7 +14,6 @@ CASES = [
     ("DELETE", "/api/v1/playbooks/abc", "playbooks:write"),
     ("POST", "/api/v1/playbooks/draft-from-nl", "playbooks:write"),
     ("POST", "/api/v1/playbooks/abc/run", "playbooks:execute"),
-    ("POST", "/api/v1/hunt/search", "lake:query"),
     ("GET", "/api/v1/hunt/saved", "lake:query"),
     ("DELETE", "/api/v1/hunt/saved/9", "lake:query"),
     ("GET", "/api/v1/hunt-corpus", "lake:query"),
