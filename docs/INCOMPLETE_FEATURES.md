@@ -11,6 +11,7 @@ Each entry says what is missing, how it fails today (every one fails closed or s
 - **Per-connector push URLs** (`ait_` tokens from "Reveal push URL") resolve in ingest; they used to answer 404.
 - **Alert retention** can be switched on (`RETENTION_ALERTS_DAYS`, default 0 = never).
 - **Huntress incidents** carry a device name (looked up from the Huntress agent), so they create host entities.
+- **Entity promotion** can open a case (`AISOC_RBA_OPEN_CASE`, default off); a tenant can set its own **auto-close confidence** (Settings > Auto-close); **Kafka triage** can be limited per tenant (`AISOC_BUDGET_MAX_LLM_RUNS`, default no limit); stored **Huntress alerts** get a device name for open incidents through `POST /core-feed/{token}/device-names` (closed ones stay as they are).
 - **Platform health** reports whether the database enforces row-level security and whether UEBA has consumed any event.
 
 ## Not finished
@@ -25,9 +26,5 @@ Each entry says what is missing, how it fails today (every one fails closed or s
 | **Community plugin install** | 501: only the package SHA-256 is stored. | Decide package storage and signing, or keep plugins admin-installed and remove the button. |
 | **SAML / OIDC** | 501 until `SAML_IDP_SSO_URL` / `OIDC_ISSUER` + client id are configured (fails closed on purpose). | Configuration, needs an IdP. |
 | **Slack approvals** | The Slack bot sends no verified approver identity, so `AISOC_ACTIONS_REQUIRE_PRINCIPAL` stays off. | Map Slack user to AiSOC user, send it as the approver, then turn the setting on. |
-| **Entity promotion** | A promoted entity (risk score over the threshold) is marked in Redis only; it opens no case. | Opt-in setting that opens a case for a newly promoted entity. |
-| **Per-tenant auto-close threshold** | One global `AISOC_AUTO_CLOSE_THRESHOLD`. | A tenant setting (table + admin UI) read by the triage agent. |
-| **Auto-triage rate limit** | `AISOC_TRIAGE_PER_MINUTE` limits manual triage launches; triage started from Kafka is not limited. | A per-tenant limit on the Kafka path (decide what happens to the alerts that wait). |
 | **Evidence collection coverage** | Only controls the platform's own data can show are collected. | Attestation / policy-document upload for the rest. |
 | **Entities page** | Ranked queue works; no "changed since yesterday" ordering. | Store the previous score snapshot and sort by delta. |
-| **Existing Huntress alerts without a device** | Only new and updated incidents get a hostname; stored ones stay entity-less. | A one-off re-send that also updates the stored alert's host list (and does not re-score old, closed incidents as new). |
