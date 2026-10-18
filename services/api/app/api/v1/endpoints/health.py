@@ -541,7 +541,7 @@ _SERVICE_PROBES: dict[str, str] = {
     "actions": "http://actions:8085/readyz",
     "connectors": "http://connectors:8087/readyz",
     "threatintel": "http://threatintel:8005/readyz",
-    "ueba": "http://ueba:8004/readyz",
+    "ueba": "http://ueba:8004/health",
     "ingest": "http://ingest-worker:8080/health",
     "realtime": "http://realtime:4000/health",
 }
@@ -558,6 +558,17 @@ def _service_probes() -> dict[str, str]:
     return probes
 
 
+def _idle_detail(resp: Any) -> str:
+    """A service that answers but reports it has consumed no events (UEBA) is up, and says so: ready is not the same as learning."""
+    try:
+        body = resp.json()
+    except Exception:  # noqa: BLE001 - a probe body that is not JSON just has no extra detail
+        return ""
+    if isinstance(body, dict) and body.get("events_consumed") == 0:
+        return "up, but has consumed no events yet"
+    return ""
+
+
 async def _probe(client: Any, name: str, url: str) -> dict[str, Any]:
     import time
 
@@ -566,6 +577,8 @@ async def _probe(client: Any, name: str, url: str) -> dict[str, Any]:
         resp = await client.get(url)
         ok = resp.status_code == 200
         detail = "" if ok else f"HTTP {resp.status_code}"
+        if ok:
+            detail = _idle_detail(resp)
     except Exception as exc:  # noqa: BLE001 - any failure to answer is the finding
         ok, detail = False, type(exc).__name__
     return {"service": name, "status": "up" if ok else "down", "latency_ms": round((time.monotonic() - started) * 1000), "detail": detail}

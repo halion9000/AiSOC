@@ -72,3 +72,21 @@ async def test_an_ordinary_role_is_enforced_and_an_unreadable_one_is_unknown_not
     assert (await health.database_row_security(_Db(("app", False, False))))["enforced"] is True
     assert (await health.database_row_security(_Db(error=RuntimeError("no catalog access"))))["enforced"] is None
     assert (await health.database_row_security(_Db(None)))["enforced"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_service_that_is_up_but_has_consumed_no_events_says_so(monkeypatch):
+    monkeypatch.setattr(health, "_SERVICE_PROBES", {"ueba": "http://ueba/health", "fusion": "http://fusion/readyz"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "ueba":
+            return httpx.Response(200, json={"status": "ok", "events_consumed": 0})
+        return httpx.Response(200, json={"status": "ready"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    out = await health.platform_services(user=object(), db=_Db(("app_user", False, False)))
+    by = {r["service"]: r for r in out["services"]}
+    assert by["ueba"]["status"] == "up" and "no events" in by["ueba"]["detail"]
+    assert by["fusion"]["detail"] == ""
+    assert out["overall"] == "ok"  # up is up: this is information, not an outage

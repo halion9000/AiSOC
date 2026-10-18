@@ -33,6 +33,8 @@ Anomalies are published to ``ueba.anomalies``:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import json
 import math
 import logging
@@ -61,6 +63,10 @@ def clean_features(features_raw: Any) -> dict[str, float]:
         if math.isfinite(number):
             out[k] = number
     return out
+
+
+# What the service reports on /health, so "ready" is not mistaken for "learning": a consumer that has seen no event has nothing to learn from.
+STATS: dict[str, object] = {"consumed": 0, "last_message_at": None}
 
 
 class UEBAKafkaConsumer:
@@ -178,6 +184,8 @@ class UEBAKafkaConsumer:
         async for msg in messages:
             if not self._running:
                 break
+            STATS["consumed"] += 1
+            STATS["last_message_at"] = datetime.now(UTC).isoformat()
             try:
                 await self._process_message(msg.value, producer)
             except Exception:  # noqa: BLE001

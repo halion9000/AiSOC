@@ -106,4 +106,7 @@ async def _stop_kafka() -> None:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "service": settings.service_name}
+    from app.services.kafka_consumer import STATS
+
+    # events_consumed 0 means the service is up and listening but nothing has ever reached it, so it has learned nothing.
+    return {"status": "ok", "service": settings.service_name, "events_consumed": STATS["consumed"], "last_event_at": STATS["last_message_at"]}
