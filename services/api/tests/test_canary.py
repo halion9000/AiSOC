@@ -17,7 +17,11 @@ def clean(monkeypatch):
     async def fake_forward(payload):
         sent.append(payload)
 
+    async def no_alert(*_a, **_k):
+        return None
+
     monkeypatch.setattr(canary, "_forward", fake_forward)
+    monkeypatch.setattr(canary, "_raise_alert", no_alert)  # the database part is tested separately below
     yield sent
     canary.reset_limits()
 
@@ -114,3 +118,97 @@ async def test_failing_to_reach_the_honeytokens_service_changes_nothing_for_the_
     monkeypatch.setattr(canary.httpx, "AsyncClient", Boom)
     out = await canary.canary_visit(str(uuid.uuid4()), req())
     assert out.status_code == 200 and out.body[:6] == b"GIF89a"
+
+
+# ── the alert a visit raises ─────────────────────────────────────────────────────────────────────────────────────────────
+
+from datetime import UTC, datetime  # noqa: E402
+
+TOKEN = {"id": uuid.UUID("11111111-1111-4111-8111-111111111111"), "tenant_id": uuid.UUID("00000000-0000-0000-0000-000000000001"), "name": "Finance wiki bait", "token_type": "url"}
+NOW = datetime(2026, 10, 18, 15, 30, tzinfo=UTC)
+
+
+def test_the_alert_names_the_token_the_visitor_and_is_high_severity_and_tagged():
+    spec = canary.alert_for_visit(TOKEN, "198.51.100.7", "curl/8.0", NOW)
+    assert spec["tenant_id"] == TOKEN["tenant_id"]
+    assert spec["override_title"] == "Honeytoken opened: Finance wiki bait"
+    assert "198.51.100.7" in spec["override_description"] and "curl/8.0" in spec["override_description"]
+    assert spec["override_severity"] == "high" and spec["override_tags"] == ["honeytoken", "deception"]
+    assert spec["connector_type"] == "honeytoken"
+    assert spec["events"][0]["client"] == {"ipAddress": "198.51.100.7"}, "the visitor becomes an IP on the alert"
+
+
+def test_one_alert_per_token_per_hour_by_idempotency_key():
+    a = canary.alert_for_visit(TOKEN, "1.1.1.1", None, NOW)
+    b = canary.alert_for_visit(TOKEN, "2.2.2.2", None, NOW.replace(minute=59))
+    c = canary.alert_for_visit(TOKEN, "1.1.1.1", None, NOW.replace(hour=16))
+    other = canary.alert_for_visit({**TOKEN, "id": uuid.uuid4()}, "1.1.1.1", None, NOW)
+    assert a["idempotency_key"] == b["idempotency_key"] != c["idempotency_key"] != other["idempotency_key"]
+    assert a["idempotency_key"] == "honeytoken-11111111-1111-4111-8111-111111111111-2026101815"
+
+
+def test_the_key_fits_the_alert_submit_rules_so_the_unique_index_accepts_it():
+    import re
+
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", canary.alert_for_visit(TOKEN, None, None, NOW)["idempotency_key"])
+
+
+def test_an_unknown_address_gives_an_alert_without_an_ip_and_a_long_name_is_cut():
+    spec = canary.alert_for_visit({**TOKEN, "name": "x" * 900}, None, None, NOW)
+    assert spec["events"][0]["client"] == {} and len(spec["override_title"]) <= 500 and " from " not in spec["override_description"]
+
+
+def test_the_alert_the_spec_describes_can_really_be_built_by_the_alert_code():
+    from app.api.v1.endpoints.alerts import _synthesise_alert_from_events
+
+    alert = _synthesise_alert_from_events(**canary.alert_for_visit(TOKEN, "198.51.100.7", "curl/8.0", NOW))
+    assert alert.title == "Honeytoken opened: Finance wiki bait" and alert.severity == "high"
+    assert alert.tenant_id == TOKEN["tenant_id"] and alert.idempotency_key.startswith("honeytoken-")
+    assert "198.51.100.7" in (alert.affected_ips or []) and "honeytoken" in (alert.tags or [])
+
+
+@pytest.mark.asyncio
+async def test_a_failure_writing_the_alert_never_reaches_the_visitor(monkeypatch):
+    async def boom(_id):
+        raise RuntimeError("db down")
+
+    monkeypatch.undo()  # use the real _raise_alert
+    monkeypatch.setattr(canary, "_lookup_token", boom)
+    await canary._raise_alert(uuid.uuid4(), "1.1.1.1", None)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_token_raises_no_alert(monkeypatch):
+    stored = []
+
+    async def none(_id):
+        return None
+
+    async def store(spec):
+        stored.append(spec)
+        return True
+
+    monkeypatch.undo()
+    monkeypatch.setattr(canary, "_lookup_token", none)
+    monkeypatch.setattr(canary, "_store_alert", store)
+    await canary._raise_alert(uuid.uuid4(), "1.1.1.1", None)
+    assert stored == []
+
+
+@pytest.mark.asyncio
+async def test_a_known_token_stores_one_alert_built_from_the_visit(monkeypatch):
+    stored = []
+
+    async def found(_id):
+        return TOKEN
+
+    async def store(spec):
+        stored.append(spec)
+        return True
+
+    monkeypatch.undo()
+    monkeypatch.setattr(canary, "_lookup_token", found)
+    monkeypatch.setattr(canary, "_store_alert", store)
+    await canary._raise_alert(TOKEN["id"], "198.51.100.7", "curl/8.0")
+    (spec,) = stored
+    assert spec["override_title"] == "Honeytoken opened: Finance wiki bait" and spec["tenant_id"] == TOKEN["tenant_id"]

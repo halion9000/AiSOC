@@ -8,7 +8,10 @@ Why this is safe to leave open:
   * An id that is not a UUID is never forwarded.
   * A token's id is unguessable (a random UUID); a visit to a real token is the signal, and nothing else about the token is returned.
   * It is rate limited per token and overall, so it cannot be used to flood the honeytokens service or its database. Past a limit the visit is dropped quietly (the first visits already fired the alert).
-  * Failing to reach the honeytokens service never changes the answer or raises an error to the visitor.
+  * Failing to reach the honeytokens service, or to write the alert, never changes the answer or raises an error to the visitor.
+
+Two things happen on a visit to a real token: the honeytokens service records the trigger (so the token shows as triggered, with the visitor's address and browser), and AiSOC raises an ALERT in the
+token's own tenant (high severity, tagged honeytoken) so it reaches the queue analysts work. One alert per token per hour: later visits in that hour are in the trigger history, not new alerts.
 """
 
 from __future__ import annotations
@@ -20,9 +23,11 @@ import os
 import time
 import uuid
 from collections import deque
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Request, Response
+from sqlalchemy import select, text
 
 logger = logging.getLogger("aisoc.canary")
 
@@ -89,6 +94,70 @@ async def _forward(payload: dict) -> None:
         logger.warning("canary.forward_failed", extra={"err": type(exc).__name__})
 
 
+def alert_for_visit(token: dict, ip: str | None, user_agent: str | None, now: datetime) -> dict:
+    """What the alert for a visit to ``token`` (``{id, tenant_id, name, token_type}``) looks like: the arguments for building the alert row. Pure."""
+    where = f" from {ip}" if ip else ""
+    client: dict = {"ipAddress": ip} if ip else {}
+    return {
+        "tenant_id": token["tenant_id"],
+        "events": [{"eventType": "honeytoken_opened", "severity": "high", "client": client, "published": now.isoformat(), "honeytoken": {"id": str(token["id"]), "type": token.get("token_type")}}],
+        "connector_type": "honeytoken",
+        "override_title": f"Honeytoken opened: {token['name']}"[:500],
+        "override_description": (
+            f"Someone opened the decoy {token.get('token_type') or 'link'} \"{token['name']}\"{where}. Nothing legitimate should ever touch it, so treat this as an intruder or a compromised account looking around."
+            + (f" Browser: {user_agent[:200]}." if user_agent else "")
+        ),
+        "override_severity": "high",
+        "override_tags": ["honeytoken", "deception"],
+        # One alert per token per hour: the first visit raises it, later ones are in the token's trigger history.
+        "idempotency_key": f"honeytoken-{token['id']}-{now.strftime('%Y%m%d%H')}",
+    }
+
+
+async def _lookup_token(token_id: uuid.UUID) -> dict | None:
+    from app.db.database import AsyncSessionLocal
+    from app.db.rls_sessions import mark_platform
+
+    async with AsyncSessionLocal() as db:
+        mark_platform(db)  # the visitor has no tenant: find the token's
+        row = (await db.execute(text("SELECT id, tenant_id, name, token_type FROM honeytokens WHERE id = :id AND status IN ('active', 'triggered')").bindparams(id=token_id))).first()
+    return dict(row._mapping) if row else None
+
+
+async def _store_alert(spec: dict) -> bool:
+    """Write the alert in the token's own tenant. False when this token already raised one this hour."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.api.v1.endpoints.alerts import _synthesise_alert_from_events
+    from app.db.database import AsyncSessionLocal
+    from app.db.rls_sessions import mark_tenant
+    from app.models.alert import Alert
+
+    async with AsyncSessionLocal() as db:
+        mark_tenant(db, spec["tenant_id"])
+        existing = (await db.execute(select(Alert.id).where(Alert.tenant_id == spec["tenant_id"], Alert.idempotency_key == spec["idempotency_key"]))).first()
+        if existing:
+            return False
+        alert = _synthesise_alert_from_events(**spec)
+        db.add(alert)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            return False
+    return True
+
+
+async def _raise_alert(token_id: uuid.UUID, ip: str | None, user_agent: str | None) -> None:
+    try:
+        token = await _lookup_token(token_id)
+        if token is None:
+            return  # an unknown id: nothing to alert on
+        await _store_alert(alert_for_visit(token, ip, user_agent, datetime.now(UTC)))
+    except Exception as exc:  # noqa: BLE001 - the visitor must never see a difference
+        logger.warning("canary.alert_failed", extra={"err": type(exc).__name__})
+
+
 def _answer() -> Response:
     return Response(content=_GIF, media_type="image/gif", headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
@@ -102,13 +171,8 @@ async def canary_visit(token_id: str, request: Request) -> Response:
     if not _allowed(str(parsed), time.monotonic()):
         return _answer()
     headers = {k: request.headers[k][:500] for k in _FORWARDED_HEADERS if k in request.headers}
-    await _forward(
-        {
-            "token_id": str(parsed),
-            "source_ip": client_ip(request.client.host if request.client else None, request.headers.get("x-forwarded-for")),
-            "user_agent": (request.headers.get("user-agent") or "")[:500] or None,
-            "headers": headers,
-            "body": {"via": "canary-link"},
-        }
-    )
+    ip = client_ip(request.client.host if request.client else None, request.headers.get("x-forwarded-for"))
+    user_agent = (request.headers.get("user-agent") or "")[:500] or None
+    await _forward({"token_id": str(parsed), "source_ip": ip, "user_agent": user_agent, "headers": headers, "body": {"via": "canary-link"}})
+    await _raise_alert(parsed, ip, user_agent)
     return _answer()
