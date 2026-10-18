@@ -2,6 +2,7 @@
 
 import asyncio
 import hmac
+import os
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -616,6 +617,23 @@ def _metrics_endpoint_label(request: Request) -> str:
     return "__unmatched__"
 
 
+def slow_request_threshold() -> float:
+    """Seconds above which a request is logged as slow (``AISOC_SLOW_REQUEST_SECONDS``, default 3; 0 or less turns the log off)."""
+    try:
+        return float(os.environ.get("AISOC_SLOW_REQUEST_SECONDS", "3"))
+    except ValueError:
+        return 3.0
+
+
+def log_if_slow(method: str, endpoint: str, status: int, duration: float, threshold: float | None = None) -> bool:
+    """Log a request that took longer than the threshold, with the route template (never the URL, which can carry ids or search text). Returns whether it logged."""
+    limit = slow_request_threshold() if threshold is None else threshold
+    if limit <= 0 or duration < limit:
+        return False
+    logger.warning("slow_request", method=method, endpoint=endpoint, status=status, seconds=round(duration, 2))
+    return True
+
+
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next) -> Response:
     """Collect Prometheus metrics for each request."""
@@ -624,6 +642,7 @@ async def metrics_middleware(request: Request, call_next) -> Response:
     duration = time.time() - start_time
 
     endpoint = _metrics_endpoint_label(request)
+    log_if_slow(request.method, endpoint, response.status_code, duration)
     REQUEST_COUNT.labels(request.method, endpoint, response.status_code).inc()
     REQUEST_LATENCY.labels(request.method, endpoint).observe(duration)
 

@@ -45,4 +45,15 @@ describe('PlatformHealth', () => {
     render(<PlatformHealth />);
     await waitFor(() => expect(screen.getByTestId('row-security').textContent).toContain('Could not check'));
   });
+
+  it('warns when the connection pool is nearly full, and stays quiet when it is not', async () => {
+    authFetch.mockResolvedValue(snapshot({ enforced: true, reason: 'ok', pool: { known: true, in_use: 27, limit: 30, percent: 90, near_limit: true } }));
+    render(<PlatformHealth />);
+    await waitFor(() => expect(screen.getByTestId('pool-warning').textContent).toContain('90% full (27 of 30 in use)'));
+    cleanup();
+    authFetch.mockResolvedValue(snapshot({ enforced: true, reason: 'ok', pool: { known: true, in_use: 2, limit: 30, percent: 7, near_limit: false } }));
+    render(<PlatformHealth />);
+    await waitFor(() => expect(screen.getByTestId('overall')).toBeInTheDocument());
+    expect(screen.queryByTestId('pool-warning')).not.toBeInTheDocument();
+  });
 });

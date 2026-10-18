@@ -19,6 +19,7 @@ interface DatabaseSecurity {
   enforced: boolean | null;
   reason: string;
   fix?: string;
+  pool?: { known: boolean; in_use?: number; limit?: number; percent?: number; near_limit?: boolean };
 }
 
 interface Snapshot {
@@ -68,6 +69,12 @@ export function PlatformHealth() {
             <p role="note" data-testid="row-security" className="rounded border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-200">
               {snapshot.database.enforced === false ? 'Tenant isolation in the database is not being enforced: ' : 'Could not check tenant isolation in the database: '}
               {snapshot.database.reason}.{snapshot.database.fix ? ` To fix: ${snapshot.database.fix}.` : ''}
+            </p>
+          )}
+          {snapshot.database?.pool?.known && snapshot.database.pool.near_limit && (
+            <p role="note" data-testid="pool-warning" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+              The database connection pool is {snapshot.database.pool.percent}% full ({snapshot.database.pool.in_use} of {snapshot.database.pool.limit} in use). When it is full, pages start failing with 500
+              errors until requests finish.
             </p>
           )}
           <table className="w-full text-left text-sm">

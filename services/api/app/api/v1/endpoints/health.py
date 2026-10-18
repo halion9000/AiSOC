@@ -586,6 +586,26 @@ async def _probe(client: Any, name: str, url: str) -> dict[str, Any]:
     return {"service": name, "status": "up" if ok else "down", "latency_ms": round((time.monotonic() - started) * 1000), "detail": detail}
 
 
+def pool_usage(pool: Any) -> dict[str, Any]:
+    """How full the database connection pool is. ``in_use`` counts connections checked out (including overflow); ``limit`` is the pool size plus its overflow allowance. A pool that is
+    nearly full is the early warning for the API starting to answer 500: requests queue for a connection and time out."""
+    try:
+        size = int(pool.size())
+        overflow_allowed = int(getattr(pool, "_max_overflow", 0))
+        in_use = int(pool.checkedout())
+    except Exception:  # noqa: BLE001 - a pool type that cannot say is "unknown", not a failed health check
+        return {"known": False}
+    limit = size + max(overflow_allowed, 0)
+    percent = round(100 * in_use / limit) if limit > 0 else 0
+    return {"known": True, "in_use": in_use, "limit": limit, "percent": percent, "near_limit": percent >= 80}
+
+
+def _pool_now() -> dict[str, Any]:
+    from app.db.database import engine
+
+    return pool_usage(engine.pool)
+
+
 async def database_row_security(db: Any) -> dict[str, Any]:
     """Whether the database role this API connects as can bypass row-level security. A superuser (or a role with BYPASSRLS) ignores every tenant-isolation policy, so the
     policies exist but protect nothing from this API's own queries. ``enforced`` is None when the role could not be read."""
@@ -621,4 +641,4 @@ async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
         rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
     rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
     down = [r["service"] for r in rows if r["status"] != "up"]
-    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": await database_row_security(db), "generated_at": datetime.now(UTC)}
+    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "generated_at": datetime.now(UTC)}
