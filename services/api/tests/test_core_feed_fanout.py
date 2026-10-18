@@ -44,8 +44,10 @@ class Db:
         if "parent_tenant_id" in sql:
             r.scalars.return_value.all.return_value = list(CLIENTS)
         elif "distinct" in sql and "from alerts" in sql:
-            wanted = [t for t in [OWNER, *CLIENTS] if t in self.holders]
-            r.scalars.return_value.all.return_value = wanted
+            # one (tenant, uid) row per holder tenant and requested uid (the requested ids are the string parameters that look like incident ids)
+            flat = [x for v in params.values() for x in (v if isinstance(v, list | tuple | set) else [v])]
+            requested = sorted({v for v in flat if isinstance(v, str) and ":" in v and v.split(":")[0].isalpha()})
+            r.all.return_value = [(tid, uid) for tid in [OWNER, *CLIENTS] if tid in self.holders for uid in requested]
         elif sql.startswith("update alerts"):
             self.updates += 1
             tenant = next((v for v in params.values() if isinstance(v, uuid.UUID)), None)
@@ -113,3 +115,24 @@ async def test_the_owners_own_tenant_is_included_when_it_holds_alerts():
     db = Db(holders=[OWNER])
     out = await cf.report_core_feed_state("tok", cf.StateReport(vendor="huntress", items=[cf.StateItem(uid="huntress:1", status="sent")]), db)
     assert out.updated == 1 and db.updated_in == [OWNER]
+
+
+@pytest.mark.asyncio
+async def test_each_tenant_is_given_only_the_items_it_holds():
+    """With holders A and B, an item held only by A must not be applied in B: the cost is the number of (item, tenant) pairs that exist, not items x holders."""
+
+    class Split(Db):
+        async def execute(self, stmt, *a, **k):
+            sql, params = _sql(stmt)
+            if "distinct" in sql and "from alerts" in sql:
+                self.total += 1
+                r = MagicMock()
+                r.all.return_value = [(HOLDER_A, "huntress:1"), (HOLDER_A, "huntress:2"), (HOLDER_B, "huntress:2")]
+                return r
+            return await super().execute(stmt, *a, **k)
+
+    db = Split(holders=[HOLDER_A, HOLDER_B])
+    items = [cf.StateItem(uid=f"huntress:{i}", status="sent") for i in (1, 2)]
+    out = await cf.report_core_feed_state("tok", cf.StateReport(vendor="huntress", items=items), db)
+    assert out.updated == 3  # A: items 1 and 2; B: item 2 only
+    assert db.updates == 3

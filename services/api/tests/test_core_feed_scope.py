@@ -29,6 +29,7 @@ def _db(child_ids=(), returning=None, rowcounts=()):
         db.executed.append(stmt)
         r = MagicMock(rowcount=counts.pop(0) if counts else 0)
         r.scalars.return_value.all.return_value = list(child_ids)
+        r.all.return_value = [(cid, "huntress:7") for cid in child_ids]  # the holder lookup: each client tenant holds incident huntress:7
         r.first.return_value = (returning.pop(0) if returning else None) if returning is not None else None
         return r
 
