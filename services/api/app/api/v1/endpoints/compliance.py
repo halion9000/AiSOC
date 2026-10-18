@@ -141,6 +141,7 @@ class CollectJobResponse(BaseModel):
     scope: str
     status: str
     queued_at: datetime
+    collected: int = 0
 
 
 class CompliancePosture(BaseModel):
@@ -229,38 +230,139 @@ async def list_framework_controls(framework_id: str) -> ControlsResponse:
     )
 
 
+# Which platform facts evidence which controls. Only controls the platform can really speak to are listed: nobody can prove "Commitment to Competence" from a database.
+_USER_CONTROLS = {("SOC2", "CC6.1"), ("SOC2", "CC6.3"), ("PCI-DSS", "Req-8"), ("HIPAA", "164.312(d)"), ("ISO27001", "A.9.2.1")}
+_MONITORING_CONTROLS = {
+    ("SOC2", "CC7.2"),
+    ("PCI-DSS", "Req-10"),
+    ("HIPAA", "164.312(b)"),
+    ("ISO27001", "A.12.4.1"),
+    ("NIST-CSF", "DE.CM-1"),
+}
+_RESPONSE_CONTROLS = {("NIST-CSF", "RS.AN-1"), ("ISO27001", "A.16.1.2")}
+
+
+async def _system_facts(db: DBSession, tenant_id: uuid.UUID) -> dict[str, dict[str, Any]]:
+    """What the platform itself can state about this tenant right now (counts only; no names, addresses or secrets)."""
+    users = (
+        await db.execute(text("SELECT role, is_active, COUNT(*) AS n FROM users WHERE tenant_id = :t GROUP BY role, is_active").bindparams(t=tenant_id))
+    ).fetchall()
+    by_role: dict[str, int] = {}
+    inactive = 0
+    for r in users:
+        if r.is_active:
+            by_role[str(r.role)] = by_role.get(str(r.role), 0) + int(r.n)
+        else:
+            inactive += int(r.n)
+    conn = (
+        await db.execute(
+            text(
+                "SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_enabled) AS enabled,"
+                " COUNT(*) FILTER (WHERE is_enabled AND health_status = 'healthy') AS healthy FROM connectors WHERE tenant_id = :t"
+            ).bindparams(t=tenant_id)
+        )
+    ).fetchone()
+    alerts = (
+        await db.execute(
+            text(
+                "SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status IN ('resolved','closed','false_positive')) AS handled"
+                " FROM alerts WHERE tenant_id = :t AND created_at > NOW() - INTERVAL '30 days'"
+            ).bindparams(t=tenant_id)
+        )
+    ).fetchone()
+    return {
+        "users": {"active_by_role": by_role, "active_total": sum(by_role.values()), "deactivated": inactive},
+        "monitoring": {
+            "connectors_total": int(conn.total),
+            "connectors_enabled": int(conn.enabled),
+            "connectors_healthy": int(conn.healthy),
+            "alerts_last_30_days": int(alerts.total),
+        },
+        "response": {"alerts_last_30_days": int(alerts.total), "alerts_handled": int(alerts.handled)},
+    }
+
+
+def system_evidence_for(framework: str, facts: dict[str, dict[str, Any]]) -> list[tuple[str, str, dict[str, Any]]]:
+    """``(control_id, summary, payload)`` for each control of ``framework`` the platform's own data can evidence."""
+    out: list[tuple[str, str, dict[str, Any]]] = []
+    for fw, control in sorted(_USER_CONTROLS | _MONITORING_CONTROLS | _RESPONSE_CONTROLS):
+        if fw != framework:
+            continue
+        if (fw, control) in _USER_CONTROLS:
+            u = facts["users"]
+            summary = f"Account inventory: {u['active_total']} active user(s) across {len(u['active_by_role'])} role(s); {u['deactivated']} deactivated account(s) retained."
+            out.append((control, summary, {"source": "platform", "users": u}))
+        elif (fw, control) in _MONITORING_CONTROLS:
+            m = facts["monitoring"]
+            summary = (
+                f"Security monitoring: {m['connectors_enabled']} of {m['connectors_total']} connector(s) enabled, {m['connectors_healthy']} healthy; "
+                f"{m['alerts_last_30_days']} alert(s) raised in the last 30 days."
+            )
+            out.append((control, summary, {"source": "platform", "monitoring": m}))
+        else:
+            r = facts["response"]
+            summary = f"Incident handling: {r['alerts_handled']} of {r['alerts_last_30_days']} alert(s) from the last 30 days were handled (resolved, closed or marked false positive)."
+            out.append((control, summary, {"source": "platform", "response": r}))
+    return out
+
+
 @router.post(
     "/evidence/collect",
     response_model=CollectJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Trigger evidence collection job",
+    summary="Collect the evidence the platform itself can provide",
     dependencies=[Depends(require_permission("reports:write"))],
 )
-async def trigger_evidence_collection(body: CollectJobRequest) -> CollectJobResponse:
+async def trigger_evidence_collection(body: CollectJobRequest, db: DBSession, user: AuthUser) -> CollectJobResponse:
+    """Records evidence for the controls this platform's own data can speak to (account inventory, monitoring coverage, incident handling) as ``pending`` items a
+    person must still review. It used to answer ``queued`` and queue nothing. ``status`` is ``completed`` with the count in ``collected``; controls that need an
+    attestation or a document (policies, training) are never invented and stay missing in the posture report."""
     if body.framework not in FRAMEWORKS:
         raise HTTPException(status_code=404, detail=f"Framework '{body.framework}' not found.")
+    try:
+        items = system_evidence_for(body.framework, await _system_facts(db, user.tenant_id))
+        for control_id, summary, payload in items:
+            await _insert_evidence(
+                db,
+                tenant_id=user.tenant_id,
+                framework=body.framework,
+                control_id=control_id,
+                control_title=None,
+                evidence_kind="log",
+                summary=summary,
+                raw_payload=payload,
+            )
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Database error in compliance endpoint")
+        raise HTTPException(status_code=503, detail="Database error") from exc
     return CollectJobResponse(
         job_id=uuid.uuid4(),
         framework=body.framework,
         scope=body.scope,
-        status="queued",
+        status="completed",
         queued_at=datetime.now(UTC),
+        collected=len(items),
     )
 
 
-@router.post(
-    "/evidence",
-    response_model=EvidenceResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Collect evidence item",
-    dependencies=[Depends(require_permission("reports:write"))],
-)
-async def collect_evidence(body: CollectEvidenceRequest, db: DBSession, user: AuthUser) -> EvidenceResponse:
-    prev_hash = await _latest_hash(db, body.framework, user.tenant_id)
-    new_hash = _compute_hash(prev_hash, body.summary, body.raw_payload)
+async def _insert_evidence(
+    db: DBSession,
+    *,
+    tenant_id: uuid.UUID,
+    framework: str,
+    control_id: str,
+    control_title: str | None,
+    evidence_kind: str,
+    summary: str,
+    raw_payload: dict[str, Any],
+    case_id: uuid.UUID | None = None,
+) -> Any:
+    """Append one evidence item to the framework's hash chain (status ``pending``: a person still has to accept it). The caller commits."""
+    prev_hash = await _latest_hash(db, framework, tenant_id)
+    new_hash = _compute_hash(prev_hash, summary, raw_payload)
     now = datetime.now(UTC)
-    evidence_id = uuid.uuid4()
-
     q = text("""
         INSERT INTO aisoc_compliance_evidence (
             id, tenant_id, case_id, framework, control_id, control_title,
@@ -272,21 +374,42 @@ async def collect_evidence(body: CollectEvidenceRequest, db: DBSession, user: Au
             :now, 'pending', :now
         ) RETURNING *
     """).bindparams(
-        id=evidence_id,
-        tenant_id=user.tenant_id,
-        case_id=body.case_id,
-        fw=body.framework,
-        ctrl=body.control_id,
-        title=body.control_title or FRAMEWORKS.get(body.framework, {}).get(body.control_id),
-        kind=body.evidence_kind,
-        summary=body.summary,
-        payload=json.dumps(body.raw_payload),
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        case_id=case_id,
+        fw=framework,
+        ctrl=control_id,
+        title=control_title or FRAMEWORKS.get(framework, {}).get(control_id),
+        kind=evidence_kind,
+        summary=summary,
+        payload=json.dumps(raw_payload),
         hash=new_hash,
         prev=prev_hash,
         now=now,
     )
+    return (await db.execute(q)).fetchone()
+
+
+@router.post(
+    "/evidence",
+    response_model=EvidenceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Collect evidence item",
+    dependencies=[Depends(require_permission("reports:write"))],
+)
+async def collect_evidence(body: CollectEvidenceRequest, db: DBSession, user: AuthUser) -> EvidenceResponse:
     try:
-        row = (await db.execute(q)).fetchone()
+        row = await _insert_evidence(
+            db,
+            tenant_id=user.tenant_id,
+            framework=body.framework,
+            control_id=body.control_id,
+            control_title=body.control_title,
+            evidence_kind=body.evidence_kind,
+            summary=body.summary,
+            raw_payload=body.raw_payload,
+            case_id=body.case_id,
+        )
         await db.commit()
         return _row_to_evidence(row)
     except Exception as exc:

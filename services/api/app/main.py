@@ -390,8 +390,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.warning("weekly_digest worker failed to start", error=str(exc))
 
     # T3.4: Saved-hunt scheduler. Sweeps aisoc_saved_hunts on a tick and
-    # fires any hunt whose cron schedule says it's due. Default off until
-    # the executor is wired (see app.workers.hunt_scheduler TODO).
+    # fires any hunt whose cron schedule says it's due (the executor runs the
+    # hunt against the data lake: app.workers.hunt_scheduler._execute_hunt).
     hunt_scheduler_task: asyncio.Task | None = None
     if settings.HUNT_SCHEDULER_ENABLED:
         try:
