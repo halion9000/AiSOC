@@ -354,46 +354,155 @@ def _event_to_bytes(event: dict[str, Any]) -> bytes:
     return json.dumps(payload).encode("utf-8")
 
 
-# ─── KQL / EQL Runner (simulated) ─────────────────────────────────────────────
+# ─── KQL / EQL runner ─────────────────────────────────────────────────────────
+#
+# A small, honest evaluator. KQL: ``field:value`` (quoted or with ``*`` wildcards), free text, ``and`` / ``or`` / ``not`` and parentheses, with ``not`` binding tighter than ``and`` and ``and`` tighter
+# than ``or``. EQL: the same conditions after a ``<category> where`` prefix, plus ``==`` and ``!=``, for single events. EQL ``sequence`` rules need ordered matching across events, which this does
+# not do, so they come back as an error instead of quietly matching on one event of the sequence (which would raise alerts the rule never meant).
+
+_QUERY_TOKEN = re.compile(r'\s*(?:(\()|(\))|"((?:[^"\\]|\\.)*)"|((?:[^\s()"]|"(?:[^"\\]|\\.)*")+))')
 
 
-def _run_kql(rule_body: str, events: list[dict[str, Any]]) -> tuple[list[dict], str | None]:
-    """
-    Simplified KQL evaluator.
-    Supports field:value, wildcards, and boolean operators.
-    """
-    matched = []
-    error = None
-    try:
-        for event in events:
-            flat = _flatten_dict(event)
-            if _kql_match(rule_body.strip(), flat):
-                matched.append(event)
-    except Exception as exc:
-        error = str(exc)
-    return matched, error
+def _query_tokens(query: str) -> list[tuple[str, str]]:
+    """Split a query into (kind, text): ``(`` ``)``, quoted strings, and bare words."""
+    tokens: list[tuple[str, str]] = []
+    pos = 0
+    query = query.strip()
+    while pos < len(query):
+        m = _QUERY_TOKEN.match(query, pos)
+        if not m or m.end() == pos:
+            break
+        pos = m.end()
+        if m.group(1):
+            tokens.append(("(", "("))
+        elif m.group(2):
+            tokens.append((")", ")"))
+        elif m.group(3) is not None:
+            tokens.append(("quoted", m.group(3)))
+        else:
+            tokens.append(("word", m.group(4)))
+    return tokens
+
+
+def _term_matches(term: str, flat_event: dict[str, Any]) -> bool:
+    """One condition: ``field:value`` / ``field==value`` / ``field!=value`` or free text."""
+    for op in ("!=", "==", ":"):
+        if op in term:
+            field_name, _, value = term.partition(op)
+            field_name, value = field_name.strip().lower(), value.strip().strip('"').lower()
+            if field_name and value != "":
+                actual = str(flat_event.get(field_name, "")).lower()
+                if "*" in value:
+                    hit = bool(re.fullmatch(".*".join(re.escape(part) for part in value.split("*")), actual))
+                elif op == ":":
+                    hit = value in actual
+                else:
+                    hit = actual == value
+                return (not hit) if op == "!=" else hit
+    needle = term.strip().strip('"').lower()
+    return needle in " ".join(str(v) for v in flat_event.values()).lower()
+
+
+def _eval_query(tokens: list[tuple[str, str]], flat_event: dict[str, Any]) -> bool:
+    pos = 0
+
+    def peek() -> tuple[str, str] | None:
+        return tokens[pos] if pos < len(tokens) else None
+
+    def is_word(tok: tuple[str, str] | None, *words: str) -> bool:
+        return tok is not None and tok[0] == "word" and tok[1].lower() in words
+
+    def parse_or() -> bool:
+        nonlocal pos
+        value = parse_and()
+        while is_word(peek(), "or"):
+            pos += 1
+            right = parse_and()  # always parsed, so the cursor moves past it
+            value = value or right
+        return value
+
+    def parse_and() -> bool:
+        nonlocal pos
+        value = parse_not()
+        while is_word(peek(), "and"):
+            pos += 1
+            right = parse_not()
+            value = value and right
+        return value
+
+    def parse_not() -> bool:
+        nonlocal pos
+        if is_word(peek(), "not"):
+            pos += 1
+            return not parse_not()
+        return parse_atom()
+
+    def parse_atom() -> bool:
+        nonlocal pos
+        tok = peek()
+        if tok is None:
+            raise ValueError("the query ends where a condition was expected")
+        if tok[0] == "(":
+            pos += 1
+            value = parse_or()
+            if peek() is None or peek()[0] != ")":  # type: ignore[index]
+                raise ValueError("a ( is never closed")
+            pos += 1
+            return value
+        if tok[0] == ")":
+            raise ValueError("a ) has no matching (")
+        pos += 1
+        text = tok[1]
+        # EQL writes comparisons with spaces: ``field == "value"``.
+        if tok[0] == "word" and is_word(peek(), "==", "!=") and pos + 1 < len(tokens):
+            text = f"{text}{tokens[pos][1]}{tokens[pos + 1][1]}"
+            pos += 2
+            return _term_matches(text, flat_event)
+        # ``field: "quoted value"`` arrives as the word ``field:`` then a quoted token.
+        if tok[0] == "word" and text.endswith(":") and peek() is not None and peek()[0] == "quoted":  # type: ignore[index]
+            text = f"{text}{peek()[1]}"  # type: ignore[index]
+            pos += 1
+        elif tok[0] == "quoted":
+            text = f'"{text}"'
+        return _term_matches(text, flat_event)
+
+    result = parse_or()
+    if pos != len(tokens):
+        raise ValueError(f"unexpected {tokens[pos][1]!r} in the query")
+    return result
 
 
 def _kql_match(query: str, flat_event: dict[str, Any]) -> bool:
-    """Minimal KQL field:value matcher."""
-    # field:value pattern
-    m = re.match(r"(\w+)\s*:\s*\"?([^\"\s]+)\"?", query)
-    if m:
-        field_name = m.group(1).lower()
-        value = m.group(2).lower()
-        ev_val = str(flat_event.get(field_name, "")).lower()
-        if "*" in value:
-            pattern = value.replace("*", ".*")
-            return bool(re.search(pattern, ev_val))
-        return value in ev_val
-    # Free-text search
-    flat_str = " ".join(str(v) for v in flat_event.values()).lower()
-    return query.lower() in flat_str
+    tokens = _query_tokens(query)
+    if not tokens:
+        return False
+    return _eval_query(tokens, flat_event)
+
+
+def _run_kql(rule_body: str, events: list[dict[str, Any]]) -> tuple[list[dict], str | None]:
+    """KQL over a batch of events: the events that match, and an error message when the query cannot be read."""
+    matched: list[dict] = []
+    try:
+        for event in events:
+            if _kql_match(rule_body, _flatten_dict(event)):
+                matched.append(event)
+    except ValueError as exc:
+        return [], f"Could not read the query: {exc}"
+    except Exception as exc:  # noqa: BLE001 - one bad event must not hide the error from the rule's owner
+        return matched, str(exc)
+    return matched, None
+
+
+_EQL_PREFIX = re.compile(r"^\s*(\w+)\s+where\s+", re.IGNORECASE)
 
 
 def _run_eql(rule_body: str, events: list[dict[str, Any]]) -> tuple[list[dict], str | None]:
-    """Simplified EQL sequence evaluator (single-event matching only)."""
-    return _run_kql(rule_body, events)
+    """EQL for single events (``process where process.name == "cmd.exe" and ...``). Sequences are refused, not approximated."""
+    body = rule_body.strip()
+    if re.match(r"^sequence\b", body, re.IGNORECASE):
+        return [], "EQL sequence rules are not supported: they need events matched in order, and this evaluator matches one event at a time."
+    body = _EQL_PREFIX.sub("", body, count=1)
+    return _run_kql(body, events)
 
 
 # ─── Lucene Query Matcher ─────────────────────────────────────────────────────
