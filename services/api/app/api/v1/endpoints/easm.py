@@ -30,7 +30,8 @@ MAX_IP_TARGETS = 64
 
 
 class ScanRequest(BaseModel):
-    tenant_id: UUID
+    # Defaults to the signed-in user's own tenant (the console does not need to know its tenant id); naming a different tenant is refused.
+    tenant_id: UUID | None = None
     org_query: str | None = None
     # PUBLIC IP addresses only (an external attack surface scan): an internal address, a hostname or a CIDR would turn this into a port scanner of the API host's own network,
     # with the open ports then readable from /easm/assets.
@@ -92,13 +93,14 @@ async def trigger_easm_scan(
     if not s.AISOC_FEATURE_EASM:
         raise HTTPException(status_code=403, detail="EASM feature is disabled")
 
-    if body.tenant_id != current_user.tenant_id:
+    if body.tenant_id is not None and body.tenant_id != current_user.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot trigger EASM scan for a different tenant",
         )
+    scan_tenant = current_user.tenant_id
 
-    tenant = await db.get(Tenant, body.tenant_id)
+    tenant = await db.get(Tenant, scan_tenant)
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
@@ -106,14 +108,14 @@ async def trigger_easm_scan(
 
     background_tasks.add_task(
         _run_scan_job,
-        body.tenant_id,
+        scan_tenant,
         org_query,
         body.ip_targets,
     )
 
     return {
         "status": "accepted",
-        "tenant_id": str(body.tenant_id),
+        "tenant_id": str(scan_tenant),
         "org_query": org_query,
         "message": "EASM scan enqueued.",
     }

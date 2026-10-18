@@ -51,3 +51,8 @@ async def test_probes_run_with_bounded_concurrency(monkeypatch):
     await easm_discovery._active_scan([f"8.8.8.{i}" for i in range(1, 41)], [22, 80, 443, 3389])  # 160 probes
     assert live["max"] <= easm_discovery._MAX_CONCURRENT_PROBES
     assert easm_discovery._MAX_CONCURRENT_PROBES <= 64
+
+
+def test_the_tenant_is_optional_so_the_console_can_scan_its_own_tenant():
+    assert ScanRequest().tenant_id is None
+    assert ScanRequest(ip_targets=["8.8.8.8"]).ip_targets == ["8.8.8.8"]
