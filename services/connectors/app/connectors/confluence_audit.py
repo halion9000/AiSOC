@@ -177,6 +177,7 @@ class ConfluenceAuditConnector(BaseConnector):
                     params={"startDate": since_ms, "limit": _PAGE_SIZE, "start": start},
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning("confluence_audit.fetch_failed", status=resp.status_code, body=resp.text[:200])
                     break
                 body = resp.json() or {}

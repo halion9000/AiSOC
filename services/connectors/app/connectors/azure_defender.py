@@ -160,6 +160,7 @@ class AzureDefenderConnector(BaseConnector):
                     params=params,
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning(
                     "azure_defender.fetch_failed",
                     status=resp.status_code,

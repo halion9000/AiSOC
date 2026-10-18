@@ -100,6 +100,7 @@ class WindowsEventConnector(BaseConnector):
             async with httpx.AsyncClient(timeout=30.0, verify=self._verify) as client:
                 resp = await client.get(self._base, headers=self._headers(), params={"limit": _LIMIT, "since": since_seconds})
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("windows_event.fetch_failed", status=resp.status_code)
                 return out
             body = resp.json() or {}

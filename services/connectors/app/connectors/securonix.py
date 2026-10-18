@@ -95,6 +95,7 @@ class SecuronixConnector(BaseConnector):
                     params={"type": "list", "from": from_ms, "to": to_ms, "rangeType": "updated"},
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("securonix.fetch_failed", status=resp.status_code)
                 return out
             body = resp.json() or {}

@@ -223,6 +223,7 @@ class M365AuditConnector(BaseConnector):
                         params={**common_params, "contentType": content_type},
                     )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "m365_audit.list_failed",
                         content_type=content_type,

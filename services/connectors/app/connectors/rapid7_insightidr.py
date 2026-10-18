@@ -115,6 +115,7 @@ class Rapid7InsightIDRConnector(BaseConnector):
                     params={"start_time": since_iso, "size": 100, "sort": "created_time,desc"},
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "rapid7_insightidr.fetch_failed",
                         status=resp.status_code,

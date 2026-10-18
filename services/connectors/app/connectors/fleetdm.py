@@ -256,6 +256,7 @@ class FleetDMConnector(BaseConnector):
                                 headers=self._headers(),
                             )
                             if rep_resp.status_code != 200:
+                                self._fetch_failed()
                                 continue
                             rbody = rep_resp.json() or {}
                             rows = rbody.get("results") if isinstance(rbody, dict) else []

@@ -82,6 +82,7 @@ class CiscoUmbrellaConnector(BaseConnector):
                     data={"grant_type": "client_credentials"},
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "umbrella.token_failed",
                         status=resp.status_code,
@@ -129,6 +130,7 @@ class CiscoUmbrellaConnector(BaseConnector):
                     params=params,
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "umbrella.fetch_failed",
                         status=resp.status_code,

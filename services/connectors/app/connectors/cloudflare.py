@@ -159,6 +159,7 @@ class CloudflareConnector(BaseConnector):
                 params=params,
             )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning(
                     "cloudflare.fetch_failed",
                     status=resp.status_code,

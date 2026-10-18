@@ -248,6 +248,7 @@ class GCPCloudAuditConnector(BaseConnector):
                     },
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning(
                     "gcp_cloud_audit.fetch_failed",
                     status=resp.status_code,

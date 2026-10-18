@@ -212,6 +212,7 @@ class OsctrlConnector(BaseConnector):
                     headers=self._headers(),
                 )
                 if queries_resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "osctrl.queries_list_failed",
                         status=queries_resp.status_code,
@@ -237,6 +238,7 @@ class OsctrlConnector(BaseConnector):
                         headers=self._headers(),
                     )
                     if results_resp.status_code != 200:
+                        self._fetch_failed()
                         continue
 
                     payload = results_resp.json() or {}

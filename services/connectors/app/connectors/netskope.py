@@ -88,6 +88,7 @@ class NetskopeConnector(BaseConnector):
                     params={"limit": _LIMIT, "timeperiod": max(3600, since_seconds)},
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("netskope.fetch_failed", status=resp.status_code)
                 return out
             body = resp.json() or {}

@@ -217,6 +217,7 @@ class GCPSCCConnector(BaseConnector):
                     params={"filter": scc_filter, "pageSize": _PAGE_SIZE},
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning(
                     "gcp_scc.fetch_failed",
                     status=resp.status_code,

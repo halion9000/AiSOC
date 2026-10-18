@@ -123,6 +123,7 @@ class DatadogCloudSIEMConnector(BaseConnector):
                     },
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "datadog_cloud_siem.fetch_failed",
                         status=resp.status_code,

@@ -107,6 +107,7 @@ class LlmUsageConnector(BaseConnector):
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(self._endpoint(), headers=self._headers(), params=params)
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("llm_usage.fetch_failed", provider=self._provider, status=resp.status_code)
                 return out
             body = resp.json() or {}

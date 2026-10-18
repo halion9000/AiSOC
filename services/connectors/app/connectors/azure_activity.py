@@ -181,6 +181,7 @@ class AzureActivityConnector(BaseConnector):
                 await self._authenticate()
                 resp = await client.get(url, headers=self._headers(), params=params)
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning(
                     "azure_activity.fetch_failed",
                     status=resp.status_code,
@@ -198,6 +199,7 @@ class AzureActivityConnector(BaseConnector):
                     break
                 resp = await client.get(next_link, headers=self._headers())
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     break
                 events.extend(resp.json().get("value", []))
 

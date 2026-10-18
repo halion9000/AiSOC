@@ -130,6 +130,7 @@ class DropboxConnector(BaseConnector):
                     logger.warning("dropbox.fetch_network_error", error=str(exc))
                     break
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "dropbox.fetch_failed",
                         status=resp.status_code,

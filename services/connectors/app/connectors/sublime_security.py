@@ -126,6 +126,7 @@ class SublimeSecurityConnector(BaseConnector):
                     logger.warning("sublime_security.fetch_network_error", error=str(exc))
                     break
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "sublime_security.fetch_failed",
                         status=resp.status_code,

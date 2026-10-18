@@ -130,6 +130,7 @@ class AbnormalSecurityConnector(BaseConnector):
                         )
                         break
                     if resp.status_code != 200:
+                        self._fetch_failed()
                         logger.warning(
                             "abnormal_security.fetch_failed",
                             kind=kind,

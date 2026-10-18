@@ -130,6 +130,7 @@ class SumoLogicConnector(BaseConnector):
                     params={"q": f"created:>{since_iso}", "limit": 100},
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "sumo_logic.fetch_failed",
                         status=resp.status_code,

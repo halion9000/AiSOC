@@ -100,6 +100,7 @@ class ZeekSuricataConnector(BaseConnector):
                     params={"engine": self._engine, "limit": _LIMIT, "since": since_seconds},
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("zeek_suricata.fetch_failed", status=resp.status_code)
                 return out
             body = resp.json() or {}

@@ -202,6 +202,7 @@ class CloudflareZTConnector(BaseConnector):
                     params["cursor"] = cursor
                 resp = await client.get(self._endpoint(), headers=self._headers(), params=params)
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "cloudflare_zt.fetch_failed",
                         mode=self._mode,

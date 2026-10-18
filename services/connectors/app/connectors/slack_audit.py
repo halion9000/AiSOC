@@ -107,6 +107,7 @@ class SlackAuditConnector(BaseConnector):
                     params={"oldest": oldest, "limit": 200},
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "slack_audit.fetch_failed",
                         status=resp.status_code,

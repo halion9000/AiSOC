@@ -130,6 +130,7 @@ class MimecastConnector(BaseConnector):
                     },
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "mimecast.fetch_failed",
                         status=resp.status_code,

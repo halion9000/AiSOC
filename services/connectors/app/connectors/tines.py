@@ -211,6 +211,7 @@ class TinesConnector(BaseConnector):
             page_params = dict(params, page=page)
             resp = await client.get(f"{self._base_url}{path}", headers=self._headers(), params=page_params)
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("tines.fetch_failed", path=path, status=resp.status_code, body=resp.text[:200])
                 break
 

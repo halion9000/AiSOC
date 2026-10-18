@@ -223,6 +223,7 @@ class GoogleWorkspaceConnector(BaseConnector):
                         params={"startTime": start_time, "maxResults": _PAGE_SIZE},
                     )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "google_workspace.fetch_failed",
                         application=app_name,

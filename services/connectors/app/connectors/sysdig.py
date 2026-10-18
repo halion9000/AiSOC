@@ -149,6 +149,7 @@ class SysdigConnector(BaseConnector):
                     params=params,
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "sysdig.fetch_failed",
                         status=resp.status_code,

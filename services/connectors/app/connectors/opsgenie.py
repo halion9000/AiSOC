@@ -165,6 +165,7 @@ class OpsgenieConnector(BaseConnector):
         for _ in range(_MAX_PAGES):
             resp = await client.get(url, headers=self._headers(), params=call_params)
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("opsgenie.fetch_failed", path=path, status=resp.status_code, body=resp.text[:200])
                 break
             body = resp.json() or {}

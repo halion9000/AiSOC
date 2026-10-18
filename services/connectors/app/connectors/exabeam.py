@@ -83,6 +83,7 @@ class ExabeamConnector(BaseConnector):
                     params={"numberOfResults": _LIMIT, "unit": "second", "num": since_seconds},
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("exabeam.fetch_failed", status=resp.status_code)
                 return out
             body = resp.json() or {}

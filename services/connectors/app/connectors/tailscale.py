@@ -279,6 +279,7 @@ class TailscaleConnector(BaseConnector):
                     break
 
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "tailscale.audit_failed",
                         status=resp.status_code,

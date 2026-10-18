@@ -128,6 +128,7 @@ class PrismaCloudConnector(BaseConnector):
                     },
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "prisma_cloud.login_failed",
                         status=resp.status_code,
@@ -198,6 +199,7 @@ class PrismaCloudConnector(BaseConnector):
                     json=body,
                 )
                 if resp.status_code != 200:
+                    self._fetch_failed()
                     logger.warning(
                         "prisma_cloud.fetch_failed",
                         status=resp.status_code,

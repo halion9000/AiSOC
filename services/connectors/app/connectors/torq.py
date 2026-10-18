@@ -100,6 +100,7 @@ class TorqConnector(BaseConnector):
             headers={"Accept": "application/json"},
         )
         if resp.status_code != 200:
+            self._fetch_failed()
             raise RuntimeError(f"torq auth failed: HTTP {resp.status_code}: {resp.text[:200]}")
         body = resp.json() or {}
         token = body.get("access_token") or body.get("token")
@@ -182,6 +183,7 @@ class TorqConnector(BaseConnector):
                 call_params["page_token"] = next_token
             resp = await client.get(f"{self._base_url}{path}", headers=self._headers(), params=call_params)
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("torq.fetch_failed", path=path, status=resp.status_code, body=resp.text[:200])
                 break
             body = resp.json() or {}

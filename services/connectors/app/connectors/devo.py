@@ -93,6 +93,7 @@ class DevoConnector(BaseConnector):
                     params={"from": from_ms, "to": to_ms, "size": _LIMIT},
                 )
             if resp.status_code != 200:
+                self._fetch_failed()
                 logger.warning("devo.fetch_failed", status=resp.status_code)
                 return out
             body = resp.json() or {}
