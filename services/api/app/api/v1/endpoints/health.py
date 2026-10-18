@@ -77,10 +77,10 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import and_, func, select
 
-from app.api.v1.deps import AuthUser, DBSession
+from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.api.v1.endpoints.metrics import PipelineHealth, PipelineStage
 from app.core.config import settings
 from app.models.alert import Alert
@@ -605,11 +605,11 @@ async def database_row_security(db: Any) -> dict[str, Any]:
     return {"enforced": True, "reason": "the API's database role cannot bypass row-level security"}
 
 
-@router.get("/services", summary="Is each internal platform service answering its own health probe?")
+@router.get("/services", summary="Is each internal platform service answering its own health probe?", dependencies=[Depends(require_permission("alerts:read"))])
 async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
     """One row per internal service (fusion, connectors, agents, ...), probed live from the API. A service that does not answer in 3 s is ``down``.
 
-    Needs sign-in because it reveals the platform's internals; it never returns a URL, only the service name and what the probe saw.
+    Needs alerts:read (it reveals the platform's internals); it never returns a URL, only the service name and what the probe saw.
     """
     import asyncio
 

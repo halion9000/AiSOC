@@ -559,7 +559,8 @@ def test_an_entity_risk_tool_is_a_get_that_needs_exactly_alerts_read_which_the_k
     assert "alerts:read" in CORE_KEY_SCOPES
 
 
-def test_the_platform_health_tool_reads_service_names_and_status_only():
-    """GET /health/services needs a signed-in caller and no specific permission; it returns service names, up/down and latency, never a URL."""
+def test_the_platform_health_tool_needs_alerts_read_and_reads_service_names_and_status_only():
+    """GET /health/services needs alerts:read (which the key already holds); it returns service names, up/down and latency, never a URL."""
     _tool, method, path, *_ = _case("aisoc_platform_health")
-    assert method == "GET" and set(required_permissions(_route(method, path))) == set()
+    assert method == "GET" and set(required_permissions(_route(method, path))) == {"alerts:read"}
+    assert "alerts:read" in CORE_KEY_SCOPES

@@ -306,9 +306,6 @@ _EXCEPTIONS: dict[str, str] = {
     # but the bare /contextual prefix has no handler; frontend calls it for
     # discovery and tolerates 404.
     "/api/v1/contextual": "discovery-only prefix, no handler on any service",
-    # Graph overview — disabled in this build (B7); the endpoint exists in code
-    # but is not registered when the graph feature flag is off.
-    "/api/v1/graph": "graph overview disabled in this build (B7)",
     # Realtime service has its own host variable
     "/api/v1/realtime/healthz": "routed to REALTIME_HOST, separate service",
     # Enrichment service has its own host variable

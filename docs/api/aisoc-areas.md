@@ -34,7 +34,7 @@ AiSOC has **500** operations in **79** areas. This is a MAP, not a list of tools
 - **fusion**: 6 reads, 0 changes; protection: `alerts:read`, `settings:read`; e.g. Top entities by risk score; Entity-risk queue stats
 - **graph**: 6 reads, 4 changes; protection: `alerts:read`, `alerts:write`; e.g. Overview graph: entities and ATT&CK techniques seen on recent alerts; Get attack path graph for a case
 - **graphql**: 1 reads, 1 changes; protection: 2 signed-in with no permission declared; e.g. Handle http get; Handle http post
-- **health**: 4 reads, 0 changes; protection: 2 signed-in with no permission declared; 2 with no sign-in required; e.g. Reachability probe for the web UI (no auth, no DB); Health check
+- **health**: 4 reads, 0 changes; protection: `alerts:read`; 1 signed-in with no permission declared; 2 with no sign-in required; e.g. Reachability probe for the web UI (no auth, no DB); Health check
 - **honeytokens**: 3 reads, 3 changes; protection: `alerts:delete`, `alerts:read`, `alerts:write`; e.g. GET honeytokens (authenticated gateway to the honeytokens service); POST honeytokens (authenticated gateway to the honeytokens service)
 - **hunt**: 1 reads, 3 changes; protection: `alerts:read`, `hunts:read`, `lake:query`; e.g. List saved searches; Save search
 - **hunts**: 3 reads, 4 changes; protection: `hunts:read`, `lake:query`; e.g. List hunt hypotheses; Create hunt hypothesis

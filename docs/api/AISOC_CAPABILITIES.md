@@ -40,7 +40,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | [fusion](#fusion) | 6 | 0 | `alerts:read`, `settings:read` |
 | [graph](#graph) | 6 | 4 | `alerts:read`, `alerts:write` |
 | [graphql](#graphql) | 1 | 1 | 2 signed-in with no permission declared |
-| [health](#health) | 4 | 0 | 2 signed-in with no permission declared; 2 with no sign-in required |
+| [health](#health) | 4 | 0 | `alerts:read`; 1 signed-in with no permission declared; 2 with no sign-in required |
 | [honeytokens](#honeytokens) | 3 | 3 | `alerts:delete`, `alerts:read`, `alerts:write` |
 | [hunt](#hunt) | 1 | 3 | `alerts:read`, `hunts:read`, `lake:query` |
 | [hunts](#hunts) | 3 | 4 | `hunts:read`, `lake:query` |
@@ -446,7 +446,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | GET | `/health` | Reachability probe for the web UI (no auth, no DB) | no sign-in required (public, or secured another way) |
 | GET | `/health (outside `/api/v1`)` | Health check | no sign-in required (public, or secured another way) |
 | GET | `/health/pipeline` | Get pipeline health | signed in, no permission declared (a check may be inside the handler) |
-| GET | `/health/services` | Is each internal platform service answering its own health probe? | signed in, no permission declared (a check may be inside the handler) |
+| GET | `/health/services` | Is each internal platform service answering its own health probe? | `alerts:read` |
 
 ## honeytokens
 
