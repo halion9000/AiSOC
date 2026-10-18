@@ -67,6 +67,15 @@ FRAMEWORKS: dict[str, dict[str, str]] = {
         "A.16.1.2": "Reporting Information Security Events",
         "A.9.2.1": "User Registration and De-Registration",
     },
+    # EU Digital Operational Resilience Act (Regulation 2022/2554). Article numbers are the regulation's own; titles are shortened.
+    "DORA": {
+        "Art.6": "ICT risk management framework",
+        "Art.10": "Detection of anomalous activities",
+        "Art.17": "ICT-related incident management process",
+        "Art.19": "Reporting of major ICT-related incidents",
+        "Art.24": "General requirements for digital operational resilience testing",
+        "Art.28": "General principles for managing ICT third-party risk",
+    },
     "NIST-CSF": {
         "DE.AE-1": "Baseline of network operations established",
         "DE.CM-1": "Network monitored for potential events",
@@ -238,8 +247,9 @@ _MONITORING_CONTROLS = {
     ("HIPAA", "164.312(b)"),
     ("ISO27001", "A.12.4.1"),
     ("NIST-CSF", "DE.CM-1"),
+    ("DORA", "Art.10"),
 }
-_RESPONSE_CONTROLS = {("NIST-CSF", "RS.AN-1"), ("ISO27001", "A.16.1.2")}
+_RESPONSE_CONTROLS = {("NIST-CSF", "RS.AN-1"), ("ISO27001", "A.16.1.2"), ("DORA", "Art.17")}
 
 
 async def _system_facts(db: DBSession, tenant_id: uuid.UUID) -> dict[str, dict[str, Any]]:

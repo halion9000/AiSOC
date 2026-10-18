@@ -28,7 +28,7 @@ describe('FrameworkView', () => {
   });
 
   it('says plainly when the framework has no control list in this build', () => {
-    render(<FrameworkView framework="dora" />);
+    render(<FrameworkView framework="some-future-framework" />);
     expect(screen.getByText(/no control list in this AiSOC build/)).toBeTruthy();
     expect(authFetch).not.toHaveBeenCalled();
   });

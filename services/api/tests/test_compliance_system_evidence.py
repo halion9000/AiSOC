@@ -32,3 +32,9 @@ def test_controls_that_need_a_document_or_attestation_are_never_invented():
 
 def test_an_unknown_framework_yields_nothing():
     assert c.system_evidence_for("MADE-UP", FACTS) == []
+
+
+def test_dora_has_its_own_controls_and_the_platform_evidences_only_detection_and_incident_handling():
+    assert set(c.FRAMEWORKS["DORA"]) == {"Art.6", "Art.10", "Art.17", "Art.19", "Art.24", "Art.28"}
+    controls = {control for control, _, _ in c.system_evidence_for("DORA", FACTS)}
+    assert controls == {"Art.10", "Art.17"}  # risk framework, reporting, testing and third-party risk need documents, not database counts

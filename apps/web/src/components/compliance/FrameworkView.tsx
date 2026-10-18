@@ -15,13 +15,14 @@ interface Props {
   framework: string;
 }
 
-/** The URL ids on the Compliance page, and the framework keys the API knows them by (DORA has no control list in this build). */
+/** The URL ids on the Compliance page, and the framework keys the API knows them by. */
 const API_KEYS: Record<string, string> = {
   soc2: 'SOC2',
   iso27001: 'ISO27001',
   nist_csf: 'NIST-CSF',
   pci_dss: 'PCI-DSS',
   hipaa: 'HIPAA',
+  dora: 'DORA',
 };
 
 interface Control {
