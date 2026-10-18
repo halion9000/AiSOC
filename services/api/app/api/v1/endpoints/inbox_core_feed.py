@@ -728,6 +728,8 @@ class EntityItem(BaseModel):
     hostname: str | None = Field(default=None, max_length=255)
     username: str | None = Field(default=None, max_length=255)
     src_ip: str | None = Field(default=None, max_length=64)
+    # A link to the alert in the vendor's own tool. Only a plain https address; it is set only where the alert has no link yet.
+    url: str | None = Field(default=None, max_length=1000, pattern=r"^https://[^\s]+$")
 
 
 class EntitiesReport(BaseModel):
@@ -736,8 +738,8 @@ class EntitiesReport(BaseModel):
 
 
 async def apply_entities(db: Any, tenant_id: Any, report: EntitiesReport) -> int:
-    """Give stored alerts the host, user and address a vendor's evidence names, in ``tenant_id``. Each of the three is filled only where that list is EMPTY: what ingestion already set is never
-    overwritten, and nothing is re-scored. Returns how many alert fields were filled. The caller owns the transaction."""
+    """Give stored alerts the host, user and address a vendor's evidence names, and a link to the alert in the vendor's tool, in ``tenant_id``. Each is filled only where it is EMPTY: what ingestion
+    already set is never overwritten, and nothing is re-scored. Returns how many alert fields were filled. The caller owns the transaction."""
     prefix = f"{report.vendor}:"
     filled = 0
     for item in report.items:
@@ -755,6 +757,13 @@ async def apply_entities(db: Any, tenant_id: Any, report: EntitiesReport) -> int
                     func.jsonb_array_length(func.coalesce(column, literal([], type_=JSONB))) == 0,
                 )
                 .values({column.key: literal([cleaned], type_=JSONB)})
+            )
+            filled += result.rowcount or 0
+        if item.url:
+            result = await db.execute(
+                update(Alert)
+                .where(Alert.tenant_id == tenant_id, Alert.raw_event["finding"]["uid"].astext == item.uid, Alert.raw_event["url"].astext.is_(None))
+                .values(raw_event=Alert.raw_event.op("||")(literal({"url": item.url}, type_=JSONB)))
             )
             filled += result.rowcount or 0
     return filled

@@ -64,3 +64,19 @@ async def test_the_count_is_what_the_database_reports_updated():
     db = _db([0, 1])  # the first alert already has a user, the second did not
     report = EntitiesReport(vendor="blumira", items=[EntityItem(uid="blumira:1", username="a"), EntityItem(uid="blumira:2", username="b")])
     assert await apply_entities(db, TENANT, report) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_link_is_set_only_on_an_alert_that_has_none_and_only_when_it_is_https():
+    db = _db([1])
+    report = EntitiesReport(vendor="huntress", items=[EntityItem(uid="huntress:1", url="https://acme.huntress.io/account/infection_reports/1")])
+    assert await apply_entities(db, TENANT, report) == 1
+    assert len(db.executed) == 1
+    sql, params = _sql(db.executed[0])
+    assert sql.lower().startswith("update alerts") and TENANT in params.values() and "huntress:1" in params.values()
+    assert "raw_event" in sql and "IS NULL" in sql.upper(), "an alert that already has a link keeps it"
+    assert {"url": "https://acme.huntress.io/account/infection_reports/1"} in params.values()
+    with pytest.raises(ValidationError):
+        EntityItem(uid="huntress:1", url="javascript:alert(1)")
+    with pytest.raises(ValidationError):
+        EntityItem(uid="huntress:1", url="http://insecure.example.com/x")
