@@ -90,7 +90,7 @@ async def submit_action(request: ActionRequest, _auth: None = Depends(require_se
                 try:
                     result = await executor.execute(request)
                     record = await action_store.finish(
-                        db, request.id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error
+                        db, request.id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error, extra={"simulated": result.simulated}
                     )
                 except Exception as exc:
                     logger.error("Action execution failed", error=str(exc), exc_info=True)
@@ -162,7 +162,7 @@ async def approve_action(
         try:
             result = await executor.execute(request)
             record = await action_store.finish(
-                db, action_id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error
+                db, action_id, result.status, output=result.output, rollback_data=result.rollback_data, error=result.error, extra={"simulated": result.simulated}
             )
         except Exception as exc:
             logger.error("Approved action execution failed", action_id=action_id, error=str(exc), exc_info=True)

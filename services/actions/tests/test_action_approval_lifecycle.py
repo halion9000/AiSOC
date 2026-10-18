@@ -40,7 +40,8 @@ SECRET = "chatops-test-secret-0123456789abcdef"
 
 
 class FakeExecutor:
-    def __init__(self, *, status=ActionStatus.COMPLETED, raises=None, gate=None, error=None):
+    def __init__(self, *, status=ActionStatus.COMPLETED, raises=None, gate=None, error=None, simulated=False):
+        self.simulated = simulated
         self.calls = 0
         self.requests: list[ActionRequest] = []
         self._status, self._raises, self._gate, self._error = status, raises, gate, error
@@ -53,7 +54,7 @@ class FakeExecutor:
         if self._raises is not None:
             raise self._raises
         return SimpleNamespace(
-            status=self._status, output={"isolated": request.target}, rollback_data={"undo": "release_host"}, error=self._error
+            status=self._status, output={"isolated": request.target}, rollback_data={"undo": "release_host"}, error=self._error, simulated=self.simulated
         )
 
 
@@ -339,6 +340,19 @@ class TestAnActionRunsAtMostOnce:
         codes = asyncio.run(scenario())
         assert sorted(codes) == [200] + [400] * 5, codes
         assert executor.calls == 1
+
+
+class TestSimulatedOutcomes:
+    def test_a_rehearsed_action_is_stored_and_returned_as_simulated_and_a_real_one_is_not(self, db_path, monkeypatch):
+        register(monkeypatch, FakeExecutor(simulated=True), ActionType.NOTIFY_SLACK)
+        rehearsed = make_request(ActionType.NOTIFY_SLACK, target="#soc")
+        body = TestClient(make_app(db_path)).post("/actions", json=submit_json(rehearsed)).json()
+        assert body["status"] == "completed" and body["simulated"] is True
+        assert stored(db_path, str(rehearsed.id)).result["simulated"] is True
+
+        register(monkeypatch, FakeExecutor(), ActionType.NOTIFY_SLACK)
+        real = make_request(ActionType.NOTIFY_SLACK, target="#soc2")
+        assert TestClient(make_app(db_path)).post("/actions", json=submit_json(real)).json()["simulated"] is False
 
 
 class TestSubmitting:

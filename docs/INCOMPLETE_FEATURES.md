@@ -20,7 +20,7 @@ Each entry says what is missing, how it fails today (every one fails closed or s
 ## Not finished
 | Area | Today | To finish |
 |---|---|---|
-| **Simulated actions** | An action with no vendor credentials is rehearsed: the actions service marks the result `simulated: true`, but the case and audit pages in the console do not show that flag, so a rehearsal can read as a real containment. | Carry `simulated` through to the case timeline and audit log and label it in the console. |
+| **Simulated actions** | An action with no vendor credentials is rehearsed. The actions service now stores and returns `simulated: true` on its record (it used to drop the flag). Nothing in the console, the case timeline or the audit log reads action records yet: agents and the API do not call the actions service's `/actions`, so there is no page to label. | When playbooks start submitting actions, write the outcome (with `simulated`) to the case timeline and audit log and label it on the case page. |
 | **EQL sequences** | Refused with a clear error (they need ordered matching across events). | An event-sequence matcher over the lake. |
 | **Graph extractors** | Sources without their own extractor (CrowdStrike, Sentinel, Splunk, Cloudflare, PagerDuty and others) use the generic one: fewer nodes, no detail. | Write the per-source extractors listed in `services/ingest/internal/graph/extractor.go`. |
 | **SentinelOne** | Kill-by-PID and run-script raise NotImplementedError by design (the vendor has no such API); playbooks must choose CrowdStrike. | None on AiSOC's side. |
