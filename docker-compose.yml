@@ -549,6 +549,9 @@ services:
       AISOC_EMBEDDING_MODEL: ${AISOC_EMBEDDING_MODEL:-text-embedding-3-large}
       # Confidence at or above which a benign/false-positive verdict closes the alert without an analyst (0.0-1.0). Raise it to auto-close less.
       AISOC_AUTO_CLOSE_THRESHOLD: ${AISOC_AUTO_CLOSE_THRESHOLD:-0.85}
+      # Manual triage launches allowed per tenant per minute (0 = no limit), and the burst a tenant may spend at once. Auto-triage from Kafka is not limited by this.
+      AISOC_TRIAGE_PER_MINUTE: ${AISOC_TRIAGE_PER_MINUTE:-30}
+      AISOC_TRIAGE_BURST: ${AISOC_TRIAGE_BURST:-60}
       # The UEBA service listens on 8004 (the agents' built-in default is 8086, which nothing serves) and needs its bearer token.
       AISOC_UEBA_URL: http://ueba:8004
       AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
