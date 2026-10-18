@@ -112,6 +112,20 @@ async def halo_base_of(db: Any, owner_tenant_id: uuid.UUID) -> str | None:
     return value if isinstance(value, str) and re.match(r"^https://[a-z0-9][a-z0-9-]*\.halopsa\.com$", value) else None
 
 
+async def ticket_status_param(db: Any, owner_tenant_id: uuid.UUID, action: str) -> dict[str, str]:
+    """For a resolve: the HaloPSA ticket status CORE should move the incident's ticket to (the organization's own choice, else "Tech Update"). Nothing for approve or reject, which only add a
+    note. A problem reading the setting falls back to the default; it never stops the resolve."""
+    if action != "resolve":
+        return {}
+    from app.api.v1.endpoints.tenant_ticket_settings import close_status_of
+
+    try:
+        tenant = await db.get(Tenant, owner_tenant_id)
+        return {"ticket_status": close_status_of(tenant.settings if tenant is not None else None)}
+    except Exception:  # noqa: BLE001
+        return {"ticket_status": close_status_of(None)}
+
+
 class ManualTicketRequest(BaseModel):
     id: str = Field(min_length=1, max_length=41, description="The ticket number, with or without a leading #.")
     system: Literal["halopsa"] = "halopsa"
@@ -322,6 +336,8 @@ async def request_vendor_action(
                 params["account_id"] = account
         elif vendor == "fieldeffect":
             params = {"comment": (body.comment or "").strip()}
+        if vendor == SUPPORTED_VENDOR:  # Huntress: CORE knows the incident's ticket. (For the other tools it does not, so there is no ticket to move.)
+            params = {**params, **await ticket_status_param(db, current_user.tenant_id, body.action)}
         row = VendorAction(
             id=uuid.uuid4(),
             tenant_id=tid,

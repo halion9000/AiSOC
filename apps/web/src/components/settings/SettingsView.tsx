@@ -255,6 +255,31 @@ const TABS: { id: TabId; label: string; description: string; requires?: 'manage_
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+/** Settings pages that are their own screens. They were reachable only by typing their address; this lists them. */
+export const MORE_SETTINGS: { href: string; label: string; description: string }[] = [
+  { href: '/settings/platform-health', label: 'Platform health', description: 'Is every service answering, and is the database healthy' },
+  { href: '/settings/triage', label: 'Auto-close', description: 'How sure AI triage must be to close an alert itself' },
+  { href: '/settings/tickets', label: 'Tickets', description: 'The HaloPSA status a resolved incident moves its ticket to' },
+];
+
+function MoreSettings() {
+  return (
+    <div className="mt-3 rounded-xl border border-gray-800 bg-gray-900/40 p-2" data-testid="more-settings">
+      <p className="px-3 py-1 text-xs font-medium uppercase tracking-wider text-gray-500">More settings</p>
+      <ul className="space-y-1">
+        {MORE_SETTINGS.map((m) => (
+          <li key={m.href}>
+            <Link href={m.href} className="flex flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800/50 hover:text-gray-100">
+              <span className="font-medium">{m.label}</span>
+              <span className="text-xs text-gray-500">{m.description}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function SettingsView() {
   const [pickedTab, setTab] = useState<TabId>('profile');
   // What this person may do, from /auth/me at sign-in. Read after mount so the first paint is the same on the server and the client.
@@ -307,6 +332,7 @@ export function SettingsView() {
               );
             })}
           </ul>
+          <MoreSettings />
         </nav>
 
         {/* ── Panel ── */}
