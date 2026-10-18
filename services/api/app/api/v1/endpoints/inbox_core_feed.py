@@ -702,3 +702,60 @@ async def report_core_feed_devices(tenant_token: str, body: DevicesReport, db: D
     )
     await db.commit()
     return DevicesResponse(updated=updated)
+
+
+class EntityItem(BaseModel):
+    uid: str = Field(min_length=1, max_length=200)
+    hostname: str | None = Field(default=None, max_length=255)
+    username: str | None = Field(default=None, max_length=255)
+    src_ip: str | None = Field(default=None, max_length=64)
+
+
+class EntitiesReport(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    items: list[EntityItem] = Field(max_length=500)
+
+
+async def apply_entities(db: Any, tenant_id: Any, report: EntitiesReport) -> int:
+    """Give stored alerts the host, user and address a vendor's evidence names, in ``tenant_id``. Each of the three is filled only where that list is EMPTY: what ingestion already set is never
+    overwritten, and nothing is re-scored. Returns how many alert fields were filled. The caller owns the transaction."""
+    prefix = f"{report.vendor}:"
+    filled = 0
+    for item in report.items:
+        if not item.uid.startswith(prefix):
+            continue
+        for column, value in ((Alert.affected_hosts, item.hostname), (Alert.affected_users, item.username), (Alert.affected_ips, item.src_ip)):
+            cleaned = (value or "").strip()
+            if not cleaned:
+                continue
+            result = await db.execute(
+                update(Alert)
+                .where(
+                    Alert.tenant_id == tenant_id,
+                    Alert.raw_event["finding"]["uid"].astext == item.uid,
+                    func.jsonb_array_length(func.coalesce(column, literal([], type_=JSONB))) == 0,
+                )
+                .values({column.key: literal([cleaned], type_=JSONB)})
+            )
+            filled += result.rowcount or 0
+    return filled
+
+
+@router.post("/core-feed/{tenant_token}/entities", response_model=DevicesResponse)
+async def report_core_feed_entities(tenant_token: str, body: EntitiesReport, db: DBSession) -> DevicesResponse:
+    """Record the user, host and address a vendor's evidence names, for stored alerts that were forwarded without them (a Blumira finding carries none; its evidence does)."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    prefix = f"{body.vendor}:"
+    holders = await _tenants_holding(db, tenant_id, [i.uid for i in body.items if i.uid.startswith(prefix)])
+    held = dict(holders)
+    filled = sum(
+        await _across(
+            db,
+            tenant_id,
+            lambda tid: apply_entities(db, tid, body.model_copy(update={"items": [i for i in body.items if i.uid in held[tid]]})),
+            tenants=[tid for tid, _ in holders],
+        )
+    )
+    await db.commit()
+    return DevicesResponse(updated=filled)

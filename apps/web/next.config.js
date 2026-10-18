@@ -199,15 +199,8 @@ const nextConfig = {
         source: '/api/v1/hunt/search',
         destination: `${API_HOST}/api/v1/hunt/search`,
       },
-      // Other singular /hunt routes (distinct from /hunts corpus)
-      {
-        source: '/api/v1/hunt/:path*',
-        destination: `${AGENTS_HOST}/api/v1/hunt/:path*`,
-      },
-      {
-        source: '/api/v1/hunt',
-        destination: `${AGENTS_HOST}/api/v1/hunt`,
-      },
+      // No generic /api/v1/hunt rule: the agents service no longer serves anything under /api/v1/hunt (its only route, hunt search, answered 501 and was removed), so a rule sending
+      // the rest there would only forward requests to a 404. The hunt corpus lives under /api/v1/hunt-corpus.
       // Hal, live, 2026-09-22: "the chat in aisoc still responds with
       // random demo data" - traced through an entire night of otherwise
       // correct fixes (a stale vendor payload, a missing --build, a

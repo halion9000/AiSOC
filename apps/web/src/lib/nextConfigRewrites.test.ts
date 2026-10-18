@@ -50,28 +50,10 @@ describe('which service answers /api/v1/hunt*', () => {
     expect(await serviceFor('/api/v1/hunt/search')).toBe('api');
   });
 
-  it('/api/v1/hunt itself is still served by the agents service', async () => {
-    expect(await serviceFor('/api/v1/hunt')).toBe('agents');
-  });
-
-  it('the search rule sits ABOVE the generic agents hunt rule (first match wins)', async () => {
+  it('nothing under /api/v1/hunt is sent to the agents service any more (it serves nothing there)', async () => {
+    for (const path of ['/api/v1/hunt', '/api/v1/hunt/anything']) expect(await serviceFor(path)).not.toBe('agents');
     const all = await rules();
-    const search = all.findIndex((r) => r.source === '/api/v1/hunt/search');
-    const generic = all.findIndex((r) => r.source === '/api/v1/hunt/:path*');
-    expect(search).toBeGreaterThan(-1);
-    expect(search).toBeLessThan(generic);
-  });
-
-  it('the saved-search rules sit ABOVE the generic agents hunt rule (first match wins)', async () => {
-    const all = await rules();
-    const generic = all.findIndex((r) => r.source === '/api/v1/hunt/:path*');
-    const saved = all.findIndex((r) => r.source === '/api/v1/hunt/saved');
-    const savedWithId = all.findIndex((r) => r.source === '/api/v1/hunt/saved/:path*');
-    expect(generic).toBeGreaterThan(-1);
-    expect(saved).toBeGreaterThan(-1);
-    expect(savedWithId).toBeGreaterThan(-1);
-    expect(saved).toBeLessThan(generic);
-    expect(savedWithId).toBeLessThan(generic);
+    expect(all.some((r) => r.source === '/api/v1/hunt/:path*' || r.source === '/api/v1/hunt')).toBe(false);
   });
 
   it('the hunt corpus (/hunts, plural) is untouched by the saved-search rules', async () => {
