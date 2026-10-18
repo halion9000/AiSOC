@@ -31,14 +31,13 @@ class PeerGroupService:
     ) -> PeerGroup:
         result = await self._db.execute(
             select(PeerGroup).where(
-                PeerGroup.id == peer_group_id,
+                PeerGroup.label == (label or peer_group_id),
                 PeerGroup.tenant_id == tenant_id,
             )
         )
         row = result.scalar_one_or_none()
         if row is None:
             row = PeerGroup(
-                id=peer_group_id,
                 tenant_id=tenant_id,
                 entity_type=entity_type,
                 label=label or peer_group_id,
@@ -80,7 +79,7 @@ class PeerGroupService:
         """
         result = await self._db.execute(
             select(PeerGroup).where(
-                PeerGroup.id == peer_group_id,
+                PeerGroup.label == peer_group_id,
                 PeerGroup.tenant_id == tenant_id,
             )
         )

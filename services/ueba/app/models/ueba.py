@@ -82,7 +82,9 @@ class PeerGroup(Base):
 
     __tablename__ = "ueba_peer_groups"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # e.g. "dept:engineering"
+    # The table's key is a generated uuid (alembic 0001). The caller's own name for the group ("dept:engineering") is the LABEL: (tenant_id, label) is unique. The model used the
+    # string as the primary key, which a real database rejects (a uuid column), so the first message with a peer_group_id raised a DataError.
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
     label: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -90,4 +92,7 @@ class PeerGroup(Base):
     feature_stats: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_ueba_peergroup_tenant", "tenant_id", "entity_type"),)
+    __table_args__ = (
+        Index("ix_ueba_peergroup_tenant", "tenant_id", "entity_type"),
+        Index("ix_ueba_peer_groups_tenant_label", "tenant_id", "label", unique=True),
+    )

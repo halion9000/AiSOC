@@ -164,7 +164,7 @@ async def list_peer_groups(
     result = await db.execute(select(PeerGroup).where(PeerGroup.tenant_id == tenant_id))
     return [
         {
-            "id": pg.id,
+            "id": str(pg.id),
             "label": pg.label,
             "entity_type": pg.entity_type,
             "member_count": pg.member_count,
