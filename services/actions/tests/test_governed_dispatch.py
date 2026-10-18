@@ -211,3 +211,15 @@ def test_phase_b2_vendors_are_registered():
             assert registry.get_executor(vendor, capability) is not None, f"{vendor}/{capability} not registered"
     finally:
         registry.reset_for_tests()
+
+
+def test_a_queued_dispatch_says_plainly_that_nothing_was_recorded_and_where_to_ask_for_an_approval(monkeypatch, recording_executor):
+    """PENDING_APPROVAL from /live-actions/dispatch used to read as 'a human will decide', but nothing was stored anywhere, so nobody could ever approve it and the containment
+    never happened. The status stays (policy requires a human), and the result now says it is not recorded and how to get a real, approvable request."""
+    monkeypatch.delenv("AISOC_MATURITY_TIER", raising=False)
+    monkeypatch.setenv("AISOC_ACTIONS_DEFAULT_DRY_RUN", "0")
+    result = _run(LiveActionRequest(capability="isolate_host", vendor_id="govtest", target="srv-1"))
+    assert result.status == LiveActionStatus.PENDING_APPROVAL
+    assert result.details["recorded"] is False
+    assert "POST /actions" in result.details["next_step"]
+    assert "not recorded" in result.summary.lower()

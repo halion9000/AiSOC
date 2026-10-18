@@ -129,3 +129,33 @@ def test_route_fails_closed_without_token(monkeypatch):
 
 def teardown_module(_module):
     get_settings.cache_clear()
+
+
+# ── tenant binding ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_an_approver_from_another_tenant_is_refused():
+    """authorize_approver checked permissions and separation of duties but never that the approver belongs to the action's tenant."""
+    record = {"action_type": ActionType.ISOLATE_HOST.value, "requested_by_user_id": "someone", "tenant_id": str(_TENANT)}
+    mine = _principal(["actions:execute:high"], tenant=_TENANT, uid="approver")
+    theirs = _principal(["actions:execute:high"], tenant=uuid4(), uid="approver")
+    authorize_approver(record, mine)  # no raise
+    with pytest.raises(ActionAuthzError, match="tenant"):
+        authorize_approver(record, theirs)
+
+
+def test_an_approver_that_names_no_tenant_is_still_judged_by_permission_alone():
+    record = {"action_type": ActionType.ISOLATE_HOST.value, "requested_by_user_id": None, "tenant_id": str(_TENANT)}
+    authorize_approver(record, _principal(["actions:execute:high"], tenant=None, uid="svc"))
+
+
+def test_the_tenant_a_caller_asserts_must_match_the_record():
+    from app.security.authz import ensure_record_tenant
+
+    record = {"tenant_id": str(_TENANT)}
+    ensure_record_tenant(record, None)  # not asserted: unchanged behaviour
+    ensure_record_tenant(record, str(_TENANT))
+    ensure_record_tenant(record, str(_TENANT).upper())
+    for wrong in (str(uuid4()), "not-a-uuid"):
+        with pytest.raises(ActionAuthzError):
+            ensure_record_tenant(record, wrong)

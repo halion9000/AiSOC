@@ -96,9 +96,22 @@ def authorize_approver(
     if not has_action_permission(approver.permissions, required):
         raise ActionAuthzError(f"approver {approver.user_id} lacks '{required}' to approve {action_type.value}")
 
+    # An approver of another tenant could approve (and so execute) this tenant's action: the permission check above says nothing about whose action it is.
+    if approver.tenant_id is not None and str(approver.tenant_id).lower() != str(record.get("tenant_id", "")).lower():
+        raise ActionAuthzError("approver's tenant does not match the action's tenant")
+
     requester = record.get("requested_by_user_id")
     if separation_of_duties and requester and str(requester) == str(approver.user_id):
         raise ActionAuthzError("approver cannot be the requester (separation of duties)")
+
+
+def ensure_record_tenant(record: dict[str, Any], asserted_tenant: str | None) -> None:
+    """When the caller says which tenant it acts for (``?tenant_id=``), the action must belong to that tenant. Not asserted: unchanged (older callers, such as the Slack bot, name only the
+    action id). A caller that does assert can no longer reach another tenant's action by guessing or replaying its id."""
+    if asserted_tenant is None:
+        return
+    if str(asserted_tenant).strip().lower() != str(record.get("tenant_id", "")).lower():
+        raise ActionAuthzError("the action belongs to another tenant")
 
 
 async def require_service_auth(authorization: str | None = Header(default=None)) -> None:

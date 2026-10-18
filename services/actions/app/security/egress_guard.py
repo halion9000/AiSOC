@@ -15,6 +15,7 @@ import ipaddress
 import logging
 import os
 import socket
+import time
 
 import httpx
 
@@ -64,8 +65,25 @@ def _literal_ip(host: str) -> ipaddress._BaseAddress | None:
         return None
 
 
+_RESOLVE_TTL_SECONDS = 60.0
+_resolve_cache: dict[str, tuple[float, list[ipaddress._BaseAddress]]] = {}
+
+
 def _resolve(host: str) -> list[ipaddress._BaseAddress]:
-    """Every address `host` resolves to ([] if it does not resolve). A seam for tests."""
+    """Every address `host` resolves to ([] if it does not resolve), remembered for a minute: failures included, because a name that does not resolve costs a full resolver timeout each
+    time it is tried. A seam for tests (they replace this function)."""
+    now = time.monotonic()
+    hit = _resolve_cache.get(host)
+    if hit is not None and now - hit[0] < _RESOLVE_TTL_SECONDS:
+        return list(hit[1])
+    addrs = _lookup(host)
+    if len(_resolve_cache) > 1024:
+        _resolve_cache.clear()
+    _resolve_cache[host] = (now, addrs)
+    return list(addrs)
+
+
+def _lookup(host: str) -> list[ipaddress._BaseAddress]:
     try:
         infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
     except (socket.gaierror, UnicodeError, OSError):
@@ -91,7 +109,12 @@ def _refusal(url: httpx.URL, addresses: list[ipaddress._BaseAddress] | None = No
     if host == "localhost" or host.endswith(".localhost"):
         return None if _allow_loopback() else "loopback addresses are not allowed"
     literal = _literal_ip(host)
-    addrs = [literal] if literal is not None else (addresses if addresses is not None else _resolve(host))
+    if literal is not None:
+        addrs = [literal]
+    elif "." not in host:
+        addrs = []  # a single-label name is not resolved (see check_request_async)
+    else:
+        addrs = addresses if addresses is not None else _resolve(host)
     for ip in addrs:
         if address_is_blocked(ip):
             return f"{host} resolves to {_unwrap(ip)}, which is not a permitted destination"
@@ -110,7 +133,10 @@ async def check_request_async(request: httpx.Request) -> None:
         return
     host = (request.url.host or "").lower()
     addresses = None
-    if host and _literal_ip(host) is None and host not in _allowed_hosts():
+    # A name with no dot ("test", "testserver", a compose service name) cannot be attacker-registered public DNS (that is how a public name is pointed at 169.254.169.254), so it is not
+    # resolved: the lookup of a name that does not exist ran for the whole resolver timeout, which delayed in-process transports and made timing-sensitive tests fail. "localhost" is still
+    # refused by name in _refusal.
+    if host and "." in host and _literal_ip(host) is None and host not in _allowed_hosts():
         loop = asyncio.get_running_loop()
         addresses = await loop.run_in_executor(None, _resolve, host)  # never block the event loop on DNS
     reason = _refusal(request.url, addresses)

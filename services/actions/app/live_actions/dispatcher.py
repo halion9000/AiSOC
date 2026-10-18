@@ -89,19 +89,27 @@ def _govern(request: LiveActionRequest, action_type: ActionType) -> AutonomyDeci
 
 
 def _not_executed(request: LiveActionRequest, status: LiveActionStatus, decision: AutonomyDecision) -> LiveActionResult:
+    summary = f"{request.capability} on {request.target or 'target'}: {status.value} by autonomy policy — {decision.reason}"
+    details: dict[str, object] = {
+        "autonomy_mode": decision.mode.value,
+        "blast_radius": decision.blast_radius.value,
+        "tier": decision.tier.name,
+        "rollback": decision.rollback.value,
+        "reason": decision.reason,
+    }
+    if status is LiveActionStatus.PENDING_APPROVAL:
+        # Policy says a human must decide, but this endpoint stores nothing: there is no row anyone could approve, so the action would never happen and nobody would be told.
+        # Say so, and say where a real approval request is made (POST /actions records one, gates it and runs it on approval).
+        summary += " (not recorded: nothing here can be approved)"
+        details["recorded"] = False
+        details["next_step"] = "Submit the action through POST /actions to create an approval request a person can approve."
     return LiveActionResult(
         request_id=request.request_id,
         status=status,
         capability=request.capability,
         vendor_id=request.vendor_id,
-        summary=f"{request.capability} on {request.target or 'target'}: {status.value} by autonomy policy — {decision.reason}",
-        details={
-            "autonomy_mode": decision.mode.value,
-            "blast_radius": decision.blast_radius.value,
-            "tier": decision.tier.name,
-            "rollback": decision.rollback.value,
-            "reason": decision.reason,
-        },
+        summary=summary,
+        details=details,
     )
 
 

@@ -19,6 +19,7 @@ from app.security.authz import (
     ActionAuthzError,
     authorize_action,
     authorize_approver,
+    ensure_record_tenant,
     require_service_auth,
 )
 from app.security.chatops_token import ChatOpsTokenError, verify_token
@@ -37,6 +38,14 @@ gate = BlastRadiusGate()
 # ChatOps replay protection for responses to actions that have NO row (e.g. a verification prompt whose action was never stored). For an action that has a row, the first response is recorded
 # atomically in the database (chatops_responded_at), so it survives a restart and a double click.
 _chatops_replied: set[str] = set()
+
+
+def _not_found_unless_tenant(record: dict[str, Any], asserted_tenant: str | None) -> None:
+    """A caller that names its tenant (``?tenant_id=``) gets a plain 404 for an action of another tenant: the same answer as for an id that does not exist, so it is no oracle."""
+    try:
+        ensure_record_tenant(record, asserted_tenant)
+    except ActionAuthzError as exc:
+        raise HTTPException(status_code=404, detail="Action not found") from exc
 
 
 def _status_text(record: dict[str, Any]) -> str:
@@ -60,6 +69,10 @@ async def submit_action(request: ActionRequest, _auth: None = Depends(require_se
 
     record, created = await action_store.create(db, request, status=status, blast_radius=blast_radius, gate_reason=reason)
     if not created:
+        if str(record.get("tenant_id", "")).lower() != str(request.tenant_id).lower():
+            # The id belongs to another tenant's action. Returning the stored record would hand over its target, rationale and result; say only that the id is taken.
+            logger.warning("Action id already used by another tenant", action_id=str(request.id))
+            raise HTTPException(status_code=409, detail="Action id already in use")
         # The same action id again (a client retry, say). It used to overwrite the stored record AND execute the action a second time.
         logger.info(
             "Action already submitted; returning the existing record without executing it again",
@@ -103,6 +116,7 @@ async def submit_action(request: ActionRequest, _auth: None = Depends(require_se
 async def approve_action(
     action_id: str,
     approver: ActionPrincipal | None = None,
+    tenant_id: str | None = Query(None, description="The tenant the caller acts for; an action of another tenant answers 404"),
     _auth: None = Depends(require_service_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -115,6 +129,7 @@ async def approve_action(
     record = await action_store.get(db, action_id)
     if not record:
         raise HTTPException(status_code=404, detail="Action not found")
+    _not_found_unless_tenant(record, tenant_id)
     if record["status"] != ActionStatus.AWAITING_APPROVAL:
         raise HTTPException(status_code=400, detail=f"Action is not awaiting approval (current: {_status_text(record)})")
 
@@ -160,8 +175,17 @@ async def approve_action(
 
 
 @router.post("/actions/{action_id}/reject")
-async def reject_action(action_id: str, _auth: None = Depends(require_service_auth), db: AsyncSession = Depends(get_db)):
+async def reject_action(
+    action_id: str,
+    tenant_id: str | None = Query(None, description="The tenant the caller acts for; an action of another tenant answers 404"),
+    _auth: None = Depends(require_service_auth),
+    db: AsyncSession = Depends(get_db),
+):
     """Reject an action that is awaiting approval. Atomic: an action that is running or has already run is left exactly as it was."""
+    if tenant_id is not None:
+        existing = await action_store.get(db, action_id)
+        if existing is not None:
+            _not_found_unless_tenant(existing, tenant_id)
     outcome, record = await action_store.reject(db, action_id)
     if outcome == "not_found":
         raise HTTPException(status_code=404, detail="Action not found")
@@ -213,11 +237,17 @@ async def resolve_action(
 
 
 @router.get("/actions/{action_id}")
-async def get_action(action_id: str, _auth: None = Depends(require_service_auth), db: AsyncSession = Depends(get_db)):
+async def get_action(
+    action_id: str,
+    tenant_id: str | None = Query(None, description="The tenant the caller acts for; an action of another tenant answers 404"),
+    _auth: None = Depends(require_service_auth),
+    db: AsyncSession = Depends(get_db),
+):
     """Get an action's record."""
     record = await action_store.get(db, action_id)
     if not record:
         raise HTTPException(status_code=404, detail="Action not found")
+    _not_found_unless_tenant(record, tenant_id)
     return record
 
 

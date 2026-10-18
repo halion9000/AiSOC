@@ -8,6 +8,7 @@ import pytest
 from app.security import egress_guard as g
 
 g.install_egress_guard()
+REAL_RESOLVE = g._resolve  # the autouse fixture below replaces g._resolve with a stub
 
 
 @pytest.fixture(autouse=True)
@@ -66,3 +67,37 @@ def test_the_guard_can_be_turned_off_for_development(monkeypatch):
     monkeypatch.setenv("ACTIONS_EGRESS_GUARD", "0")
     req = httpx.Request("GET", "http://169.254.169.254/")
     g.check_request_sync(req)  # no raise
+
+
+def test_name_resolutions_are_cached_including_failures(monkeypatch):
+    """Every request re-resolved its host in a worker thread. A name that does not resolve (an ASGI test transport's 'testserver', a mistyped host) cost a full resolver timeout EVERY time,
+    which made unrelated tests time-dependent. Results, empty ones included, are now remembered briefly."""
+    import socket
+
+    g._resolve_cache.clear()
+    calls = []
+
+    def fake_getaddrinfo(host, *a, **k):
+        calls.append(host)
+        raise socket.gaierror("no such host")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    assert REAL_RESOLVE("nowhere.example") == []
+    assert REAL_RESOLVE("nowhere.example") == []
+    assert calls == ["nowhere.example"]
+    g._resolve_cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_a_single_label_host_is_not_resolved_so_an_in_process_transport_is_not_delayed(monkeypatch):
+    """A name with no dot ("test", "testserver", a compose service like "aisoc-api") cannot be attacker-registered public DNS, so the guard does not resolve it (the lookup of a name that
+    does not exist ran for the whole resolver timeout and made a timing-sensitive test fail). Loopback is still refused by name, and a dotted name is still resolved."""
+    looked_up = []
+    monkeypatch.setattr(g, "_resolve", lambda host: looked_up.append(host) or [])
+    await g.check_request_async(httpx.Request("GET", "http://test/x"))
+    await g.check_request_async(httpx.Request("GET", "http://aisoc-api:8000/x"))
+    assert looked_up == []
+    with pytest.raises(httpx.RequestError):
+        await g.check_request_async(httpx.Request("GET", "http://localhost/x"))
+    await g.check_request_async(httpx.Request("GET", "https://hooks.example.test/x"))
+    assert looked_up == ["hooks.example.test"]
