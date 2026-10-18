@@ -1,5 +1,6 @@
 'use client';
 
+import { AlertContext } from './AlertContext';
 import { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -911,6 +912,8 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
               eyebrow="Ask AiSOC about this alert"
             />
 
+            <AlertContext alert={alert} />
+
             <Section title="Description">
               <p className="text-sm text-gray-300 leading-relaxed">{alert.description}</p>
             </Section>
@@ -928,7 +931,6 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
               <div className="space-y-3">
                 <Field label="Source" value={alert.source} />
                 <Field label="Source Ref" value={alert.sourceRef || '—'} />
-                <Field label="Tenant" value={alert.tenantId} />
                 <Field label="Assignee" value={alert.assignee || <span className="text-gray-500">Unassigned</span>} />
                 <Field label="Created" value={<span suppressHydrationWarning>{safeFormat(alert.createdAt, 'MMM d, yyyy HH:mm:ss')}</span>} />
                 {alert.resolvedAt && (

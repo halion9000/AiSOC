@@ -8,17 +8,20 @@ Permission: ``connectors:write`` to ask for an action (these change a live secur
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
+from urllib.parse import quote
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
 from app.models.alert import Alert
+from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.alert_scope import alert_scope
 from app.services.audit import emit_audit
@@ -70,10 +73,65 @@ class VendorActionsResponse(BaseModel):
     tickets: list[dict[str, Any]] = []
 
 
-def linked_tickets(enrichment: Any) -> list[dict[str, Any]]:
-    """The tickets CORE linked to the alert (``enrichment_data.tickets``), or none. Anything not shaped like a ticket is left out."""
-    found = enrichment.get("tickets") if isinstance(enrichment, dict) else None
+MAX_MANUAL_TICKETS = 20
+_TICKET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$")
+
+
+def _shaped(found: Any) -> list[dict[str, Any]]:
     return [t for t in found if isinstance(t, dict) and t.get("id")] if isinstance(found, list) else []
+
+
+def linked_tickets(enrichment: Any) -> list[dict[str, Any]]:
+    """The tickets linked to the alert: the ones CORE matched (``enrichment_data.tickets``) and the ones a person entered (``enrichment_data.manual_tickets``, flagged ``manual``). Anything not
+    shaped like a ticket is left out. A ticket both CORE and a person named appears once, as CORE reported it (it knows the summary and status)."""
+    if not isinstance(enrichment, dict):
+        return []
+    core = _shaped(enrichment.get("tickets"))
+    seen = {(str(t.get("system") or "halopsa"), str(t["id"])) for t in core}
+    manual = [{**t, "manual": True} for t in _shaped(enrichment.get("manual_tickets")) if (str(t.get("system") or "halopsa"), str(t["id"])) not in seen]
+    return core + manual
+
+
+def with_halo_urls(tickets: list[dict[str, Any]], base: str | None) -> list[dict[str, Any]]:
+    """Give a HaloPSA ticket that has no link the link to it in Halo (``<address>/tickets?id=<number>``), when the HaloPSA address is known. A ticket that already has a link keeps it."""
+    if not base:
+        return tickets
+    return [
+        {**t, "url": f"{base}/tickets?id={quote(str(t['id']), safe='')}"} if str(t.get("system") or "halopsa") == "halopsa" and not t.get("url") else t
+        for t in tickets
+    ]
+
+
+async def halo_base_of(db: Any, owner_tenant_id: uuid.UUID) -> str | None:
+    """The HaloPSA address CORE's tickets have used, remembered on the organization the feed belongs to. None when CORE has not linked a ticket yet (or on any problem reading it)."""
+    try:
+        tenant = await db.get(Tenant, owner_tenant_id)
+        value = (tenant.settings or {}).get("halopsa_base_url") if tenant is not None else None
+    except Exception:  # noqa: BLE001 - a missing link must never fail the page
+        return None
+    return value if isinstance(value, str) and re.match(r"^https://[a-z0-9][a-z0-9-]*\.halopsa\.com$", value) else None
+
+
+class ManualTicketRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=41, description="The ticket number, with or without a leading #.")
+    system: Literal["halopsa"] = "halopsa"
+    summary: str | None = Field(default=None, max_length=300, description="Optional: what the ticket is about, shown on the alert.")
+    url: str | None = Field(default=None, max_length=500, description="Optional: a link to the ticket. Only https addresses are kept.")
+
+
+def clean_manual_ticket(body: ManualTicketRequest, user_id: Any, now: datetime) -> dict[str, Any]:
+    """The ticket as it is stored: the number tidied (``#4521`` becomes ``4521``), the link kept only when it is a plain https address, and who added it and when. Raises ``ValueError``
+    with a plain message for a number that cannot be one."""
+    ticket_id = body.id.strip().lstrip("#").strip()
+    if not _TICKET_ID.match(ticket_id):
+        raise ValueError("A ticket number is letters, digits, dashes and underscores (up to 40), for example 4521.")
+    url = (body.url or "").strip()
+    out: dict[str, Any] = {"system": body.system, "id": ticket_id, "added_by": str(user_id), "added_at": now.isoformat()}
+    if (body.summary or "").strip():
+        out["summary"] = body.summary.strip()
+    if re.match(r"^https://[^\s]+$", url, re.IGNORECASE):
+        out["url"] = url
+    return out
 
 
 def _item(row: VendorAction, now: datetime) -> VendorActionItem:
@@ -104,7 +162,7 @@ async def list_vendor_actions(
     async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
         alert = await _alert(db, alert_id, tid)
         found = alert_vendor_and_uid(alert.raw_event)
-        tickets = linked_tickets(alert.enrichment_data)
+        tickets = with_halo_urls(linked_tickets(alert.enrichment_data), await halo_base_of(db, current_user.tenant_id))
         if found is None:
             return VendorActionsResponse(supported=False, actions=[], tickets=tickets)
         vendor, uid = found
@@ -130,6 +188,79 @@ async def list_vendor_actions(
             actions=[_item(r, now) for r in rows],
             tickets=tickets,
         )
+
+
+class TicketsResponse(BaseModel):
+    tickets: list[dict[str, Any]]
+
+
+@router.post("/{alert_id}/tickets", response_model=TicketsResponse)
+async def add_manual_ticket(
+    alert_id: uuid.UUID,
+    body: ManualTicketRequest,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:write"))],
+    db: TenantDBSession,
+) -> TicketsResponse:
+    """Link a ticket to this alert by hand, for the case CORE could not match one. Kept apart from the tickets CORE matched, so its next sync never removes it. Adding a number that is
+    already linked updates its summary and link."""
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        alert = await _alert(db, alert_id, tid)
+        now = datetime.now(UTC)
+        try:
+            ticket = clean_manual_ticket(body, current_user.user_id, now)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        enrichment = dict(alert.enrichment_data) if isinstance(alert.enrichment_data, dict) else {}
+        existing = [t for t in _shaped(enrichment.get("manual_tickets")) if not (t.get("system") == ticket["system"] and str(t["id"]) == ticket["id"])]
+        if len(existing) >= MAX_MANUAL_TICKETS:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An alert can have at most {MAX_MANUAL_TICKETS} tickets entered by hand.")
+        enrichment["manual_tickets"] = [*existing, ticket]
+        await db.execute(update(Alert).where(Alert.id == alert.id, Alert.tenant_id == tid).values(enrichment_data=enrichment))
+        await emit_audit(
+            db=db,
+            tenant_id=tid,
+            actor_id=current_user.user_id,
+            action="alerts:ticket_linked",
+            resource="alert",
+            resource_id=str(alert.id),
+            changes={"system": ticket["system"], "ticket": ticket["id"]},
+            request=request,
+        )
+        await db.commit()
+        return TicketsResponse(tickets=with_halo_urls(linked_tickets(enrichment), await halo_base_of(db, current_user.tenant_id)))
+
+
+@router.delete("/{alert_id}/tickets/{ticket_id}", response_model=TicketsResponse)
+async def remove_manual_ticket(
+    alert_id: uuid.UUID,
+    ticket_id: str,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:write"))],
+    db: TenantDBSession,
+) -> TicketsResponse:
+    """Remove a ticket somebody entered by hand. A ticket CORE matched is not removable here (CORE would just report it again)."""
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        alert = await _alert(db, alert_id, tid)
+        enrichment = dict(alert.enrichment_data) if isinstance(alert.enrichment_data, dict) else {}
+        manual = _shaped(enrichment.get("manual_tickets"))
+        kept = [t for t in manual if str(t["id"]) != ticket_id]
+        if len(kept) == len(manual):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No ticket with that number was entered by hand on this alert.")
+        enrichment["manual_tickets"] = kept
+        await db.execute(update(Alert).where(Alert.id == alert.id, Alert.tenant_id == tid).values(enrichment_data=enrichment))
+        await emit_audit(
+            db=db,
+            tenant_id=tid,
+            actor_id=current_user.user_id,
+            action="alerts:ticket_unlinked",
+            resource="alert",
+            resource_id=str(alert.id),
+            changes={"ticket": ticket_id},
+            request=request,
+        )
+        await db.commit()
+        return TicketsResponse(tickets=with_halo_urls(linked_tickets(enrichment), await halo_base_of(db, current_user.tenant_id)))
 
 
 @router.post("/{alert_id}/vendor-actions", response_model=VendorActionItem, status_code=status.HTTP_202_ACCEPTED)

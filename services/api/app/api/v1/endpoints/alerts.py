@@ -106,6 +106,8 @@ class AlertResponse(BaseModel):
     client_name: str | None = None
     # The tool CORE says the alert came from (raw_event.source: huntress, petra, ninjaone...). connector_type is just the generic JSON inbox for all of them.
     source: str | None = None
+    # A link to this alert in the tool that raised it (Blumira finding, Petra incident, Field Effect alert), when the tool sent one: only a plain https address.
+    source_url: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -924,6 +926,7 @@ async def get_alert(
         return payload.model_copy(
             update={
                 "source": _tool_of(alert),
+                "source_url": _source_url_of(alert),
                 "client_name": client_name,
                 "narrative": alert.narrative,
                 "related_entities": envelope.related_entities,
@@ -931,6 +934,13 @@ async def get_alert(
                 "recommended_actions": envelope.recommended_actions,
             }
         )
+
+
+def _source_url_of(alert: Any) -> str | None:
+    """The tool's own link to this alert (``raw_event.url``), kept only when it is a plain https address."""
+    raw = alert.raw_event if isinstance(getattr(alert, "raw_event", None), dict) else {}
+    url = raw.get("url")
+    return url if isinstance(url, str) and len(url) <= 1000 and re.match(r"^https://[^\s]+$", url, re.IGNORECASE) else None
 
 
 @router.patch("/{alert_id}", response_model=AlertResponse)

@@ -118,13 +118,13 @@ class TestTheRoutes:
             assert required_permissions(route) == {"alerts:write"}, f"{method} {path}"
         assert NAMED_WRITE_ONLY <= WRITE_ONLY and not (_satisfied_by(["alerts:triage"]) & WRITE_ONLY)
 
-    def test_there_are_26_other_alerts_write_routes_and_whoever_held_alerts_write_still_reaches_all_29(self):
-        assert len(WRITE_ONLY) == 26, "a route moved onto or off alerts:write: re-read why, and update this number deliberately"
+    def test_there_are_28_other_alerts_write_routes_and_whoever_held_alerts_write_still_reaches_all_31(self):
+        assert len(WRITE_ONLY) == 28, "a route moved onto or off alerts:write: re-read why, and update this number deliberately"
         assert _satisfied_by(["alerts:write"]) >= TRIAGE_ROUTES | WRITE_ONLY
 
 
 class TestCoresKeyNoLongerReachesTheOtherWrites:
-    def test_cores_real_key_scopes_satisfy_none_of_the_26_other_alerts_write_routes(self):
+    def test_cores_real_key_scopes_satisfy_none_of_the_28_other_alerts_write_routes(self):
         reached = _satisfied_by(bp.CORE_KEY_SCOPES)
         assert not (reached & WRITE_ONLY), sorted(reached & WRITE_ONLY)
 

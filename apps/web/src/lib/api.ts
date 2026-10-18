@@ -805,6 +805,12 @@ export interface Alert {
   clientName?: string;
   /** First host the alert names (affected_hosts[0]); the alerts page can filter by it. */
   device?: string;
+  /** A link to this alert in the tool that raised it (Blumira, Petra, Field Effect...), when the tool sent one. */
+  sourceUrl?: string;
+  /** Every host, user and address the alert names. */
+  affectedHosts?: string[];
+  affectedUsers?: string[];
+  affectedIps?: string[];
   riskScore: number;
   mitreAttack?: MitreAttack[];
   iocs?: AlertIOC[];
@@ -831,6 +837,12 @@ export interface Alert {
   relatedEntities?: RelatedEntity[];
   miniTimeline?: MiniTimelineEvent[];
   recommendedActions?: RecommendedAction[];
+}
+
+function strings(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map((x) => x.trim());
+  return out.length > 0 ? out : undefined;
 }
 
 function firstHost(v: unknown): string | undefined {
@@ -1009,6 +1021,10 @@ function normalizeAlert(raw: unknown): Alert {
     tenantId: pickStr('tenant_id', 'tenantId') ?? '',
     clientName: pickStr('client_name', 'clientName'),
     device: firstHost(r.affected_hosts ?? r.affectedHosts),
+    sourceUrl: pickStr('source_url', 'sourceUrl'),
+    affectedHosts: strings(r.affected_hosts ?? r.affectedHosts),
+    affectedUsers: strings(r.affected_users ?? r.affectedUsers),
+    affectedIps: strings(r.affected_ips ?? r.affectedIps),
     riskScore,
     mitreAttack,
     iocs: pickArr<AlertIOC>('iocs', 'iocs'),
@@ -1112,6 +1128,8 @@ export interface LinkedTicket {
   status?: string;
   client?: string;
   url?: string;
+  /** True for a ticket a person entered by hand (CORE did not match it). */
+  manual?: boolean;
 }
 
 export interface VendorActionRequest {
@@ -1175,6 +1193,14 @@ export const alertsApi = {
   /** Queue an approve / reject / resolve for CORE to carry out at the vendor. Nothing has happened at the vendor when this returns. */
   requestVendorAction: (id: string, body: VendorActionRequest) =>
     request<VendorActionItem>(`/api/v1/alerts/${id}/vendor-actions`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** Link a ticket to the alert by hand, for one CORE could not match. Returns every ticket now linked. */
+  addTicket: (id: string, body: { id: string; summary?: string; url?: string }) =>
+    request<{ tickets: LinkedTicket[] }>(`/api/v1/alerts/${id}/tickets`, { method: 'POST', body: JSON.stringify({ system: 'halopsa', ...body }) }),
+
+  /** Remove a ticket entered by hand (one CORE matched cannot be removed). */
+  removeTicket: (id: string, ticketId: string) =>
+    request<{ tickets: LinkedTicket[] }>(`/api/v1/alerts/${id}/tickets/${encodeURIComponent(ticketId)}`, { method: 'DELETE' }),
 
   update: async (id: string, data: Partial<Alert>) => {
     const raw = await request<unknown>(`/api/v1/alerts/${id}`, {

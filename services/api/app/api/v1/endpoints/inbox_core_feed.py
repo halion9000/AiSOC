@@ -12,6 +12,7 @@ cannot write here. The report can only create or update this tenant's own ``core
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -628,11 +629,29 @@ async def apply_tickets(db: Any, tenant_id: Any, report: TicketsReport) -> int:
     return updated
 
 
+_HALO_BASE = re.compile(r"^(https://[a-z0-9][a-z0-9-]*\.halopsa\.com)/tickets\?id=", re.IGNORECASE)
+
+
+def halo_base_from(report: TicketsReport) -> str | None:
+    """The HaloPSA address (``https://acme.halopsa.com``) the tickets in this report link to, so a ticket someone enters by number alone can be given its link too. Only a HaloPSA address is kept."""
+    for item in report.items:
+        for t in item.tickets:
+            m = _HALO_BASE.match(t.url or "")
+            if m:
+                return m.group(1).lower()
+    return None
+
+
 @router.post("/core-feed/{tenant_token}/tickets", response_model=TicketsResponse)
 async def report_core_feed_tickets(tenant_token: str, body: TicketsReport, db: DBSession) -> TicketsResponse:
     """Record the PSA (HaloPSA) tickets linked to open vendor incidents, so each alert shows its tickets."""
     tenant_id = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, tenant_id)
+    halo = halo_base_from(body)
+    if halo is not None:
+        owner = await db.get(Tenant, tenant_id)
+        if owner is not None and (owner.settings or {}).get("halopsa_base_url") != halo:
+            owner.settings = {**(owner.settings or {}), "halopsa_base_url": halo}
     prefix = f"{body.vendor}:"
     holders = await _tenants_holding(db, tenant_id, [i.uid for i in body.items if i.uid.startswith(prefix)])
     held = dict(holders)

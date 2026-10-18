@@ -32,7 +32,8 @@ export default function DevicesView() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
+  // A link from an alert (/devices?search=PC-1) opens the page already searching for that device.
+  const [search, setSearch] = useState(() => (typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get('search') ?? '').slice(0, 100)));
   const [clientId, setClientId] = useState('');
   const [vendor, setVendor] = useState('');
   const [gapsOnly, setGapsOnly] = useState(false);
