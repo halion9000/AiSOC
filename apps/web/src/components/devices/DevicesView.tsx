@@ -15,7 +15,7 @@ import { vendorLabel } from '@/components/mssp/ClientMapping';
 
 const MASTER_CHOICES = ['ninjaone', 'addigy', 'threatmate'];
 
-type Missing = 'addigy' | 'threatmate';
+type Missing = 'addigy' | 'threatmate' | 'huntress';
 
 export function toolsOf(d: DeviceRow): string[] {
   return [...new Set(d.sources.map((s) => s.vendor))].sort();
@@ -37,6 +37,7 @@ export default function DevicesView() {
   const [vendor, setVendor] = useState('');
   const [gapsOnly, setGapsOnly] = useState(false);
   const [missing, setMissing] = useState<Missing | null>(null);
+  const [attentionOnly, setAttentionOnly] = useState(false);
   const [offlineOnly, setOfflineOnly] = useState(false);
   const [alertsOnly, setAlertsOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -45,13 +46,13 @@ export default function DevicesView() {
     setLoading(true);
     setError('');
     try {
-      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined }));
+      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load devices.');
     } finally {
       setLoading(false);
     }
-  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly]);
+  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), search ? 250 : 0);
@@ -127,8 +128,22 @@ export default function DevicesView() {
             {master ? (data?.summary.not_in_master ?? '—') : '—'}
           </div>
         </button>
-        {(['addigy', 'threatmate'] as const).map((tool) => {
-          const count = data?.summary[tool === 'addigy' ? 'not_in_addigy' : 'not_in_threatmate'];
+        <button
+          type="button"
+          onClick={() => {
+            setAttentionOnly(!attentionOnly);
+            setPage(1);
+          }}
+          aria-pressed={attentionOnly}
+          className={`rounded-lg border p-3 text-left ${attentionOnly ? 'border-red-500 bg-red-500/10' : 'border-gray-800 bg-gray-900/60'}`}
+        >
+          <div className="text-xs text-gray-400">Needs attention</div>
+          <div className="text-2xl font-semibold text-red-300" data-testid="devices-attention">
+            {data?.summary.needs_attention ?? '—'}
+          </div>
+        </button>
+        {(['addigy', 'threatmate', 'huntress'] as const).map((tool) => {
+          const count = data?.summary[tool === 'addigy' ? 'not_in_addigy' : tool === 'threatmate' ? 'not_in_threatmate' : 'not_in_huntress'];
           const on = missing === tool;
           return (
             <button
@@ -356,6 +371,16 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
                 </ul>
               </>
             )}
+            {attentionOf(d).length > 0 && (
+              <div className="mt-3 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-200" data-testid="device-attention">
+                <div className="mb-1 font-semibold uppercase">Needs attention</div>
+                <ul className="list-disc pl-4">
+                  {attentionOf(d).map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <h3 className="mb-1 mt-3 text-xs font-semibold uppercase text-gray-400">Feeding this device</h3>
             <ul className="space-y-1">
               {d.sources.map((s) => (
@@ -385,6 +410,11 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
       )}
     </>
   );
+}
+
+/** What the tools say needs a person's attention on this device (Huntress: not checking in, Defender or firewall unhealthy, tamper protection not in force). */
+export function attentionOf(d: DeviceRow): string[] {
+  return d.sources.flatMap((s) => (Array.isArray(s.details?.needs_attention) ? (s.details.needs_attention as unknown[]).filter((x): x is string => typeof x === 'string' && x !== '') : []));
 }
 
 /** True when a tool says it only found this device by scanning the network (ThreatMate's asset source), not through an agent. */

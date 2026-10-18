@@ -547,7 +547,7 @@ export interface DeviceAlert {
 
 export interface DeviceList {
   master_vendor: string | null;
-  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; offline?: number; with_alerts?: number };
+  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; needs_attention?: number; offline?: number; with_alerts?: number };
   items: DeviceRow[];
   total: number;
   page: number;
@@ -563,7 +563,9 @@ export interface DeviceQuery {
   vendor?: string;
   notInMaster?: boolean;
   /** Only devices this tool should report but does not (Addigy counts Macs only). */
-  missing?: 'addigy' | 'threatmate';
+  missing?: 'addigy' | 'threatmate' | 'huntress';
+  /** Only devices a tool reports a problem with. */
+  attention?: boolean;
   /** Only devices no tool has seen online for a week or more. */
   offline?: boolean;
   /** Only devices with at least one open alert. */
@@ -597,6 +599,7 @@ export const devicesApi = {
     if (q.vendor) p.set('vendor', q.vendor);
     if (q.notInMaster) p.set('not_in_master', 'true');
     if (q.missing) p.set('missing', q.missing);
+    if (q.attention) p.set('attention', 'true');
     if (q.offline) p.set('offline', 'true');
     if (q.hasAlerts) p.set('has_alerts', 'true');
     const qs = p.toString();

@@ -87,6 +87,9 @@ class DeviceSummary(BaseModel):
     # Devices a tool should be covering but does not report (Addigy: Macs only, so Windows machines are never counted).
     not_in_addigy: int = 0
     not_in_threatmate: int = 0
+    not_in_huntress: int = 0
+    # Devices a tool reports a problem with (Huntress: agent not checking in, Defender or firewall unhealthy, tamper protection not in force).
+    needs_attention: int = 0
     # Devices no tool has seen online for OFFLINE_AFTER_DAYS or more, and devices with at least one open alert.
     offline: int = 0
     with_alerts: int = 0
@@ -158,6 +161,16 @@ def online_now_of(sources: list[Any]) -> bool | None:
     if not flags:
         return None
     return any(flags)
+
+
+def attention_of(d: DeviceOut) -> list[str]:
+    """What the tools say needs a person's attention on this device (each source's ``needs_attention`` list), in plain words."""
+    out: list[str] = []
+    for s in d.sources:
+        items = s.details.get("needs_attention")
+        if isinstance(items, list):
+            out.extend(str(i) for i in items if isinstance(i, str) and i)
+    return out
 
 
 def is_missing_from(d: DeviceOut, tool: str) -> bool:
@@ -304,10 +317,11 @@ async def list_devices(
     vendor: str | None = Query(default=None, pattern=_VENDOR, description="Only devices this tool reports."),
     not_in_master: bool = Query(default=False, description="Only devices the master tool does not report."),
     missing: str | None = Query(
-        default=None, pattern="^(addigy|threatmate)$", description="Only devices this tool should report but does not."
+        default=None, pattern="^(addigy|threatmate|huntress)$", description="Only devices this tool should report but does not."
     ),
     offline: bool = Query(default=False, description="Only devices no tool has seen online for a week or more."),
     has_alerts: bool = Query(default=False, description="Only devices with at least one open alert."),
+    attention: bool = Query(default=False, description="Only devices a tool reports a problem with."),
 ) -> DeviceListOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
@@ -318,6 +332,8 @@ async def list_devices(
         not_in_master=sum(1 for d in everything if not d.in_master),
         not_in_addigy=sum(1 for d in everything if is_missing_from(d, "addigy")),
         not_in_threatmate=sum(1 for d in everything if is_missing_from(d, "threatmate")),
+        not_in_huntress=sum(1 for d in everything if is_missing_from(d, "huntress")),
+        needs_attention=sum(1 for d in everything if attention_of(d)),
         offline=sum(1 for d in everything if d.offline_days is not None),
         with_alerts=sum(1 for d in everything if d.open_alerts > 0),
     )
@@ -340,6 +356,8 @@ async def list_devices(
         rows = [d for d in rows if d.offline_days is not None]
     if has_alerts:
         rows = [d for d in rows if d.open_alerts > 0]
+    if attention:
+        rows = [d for d in rows if attention_of(d)]
     rows.sort(key=lambda d: (d.client_name or "", d.hostname.lower()))
     total = len(rows)
     start = (page - 1) * page_size

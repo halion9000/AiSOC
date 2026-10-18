@@ -12,7 +12,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import DevicesView, { facts, specs } from './DevicesView';
+import DevicesView, { attentionOf, facts, specs } from './DevicesView';
 
 const NOW = '2026-10-15T15:00:00Z';
 function device(over: Partial<DeviceRow> & { hostname: string }): DeviceRow {
@@ -245,5 +245,27 @@ describe('missing-from-tool cards', () => {
     expect(within(await row('UP-PC')).getByRole('img', { name: 'Online' })).toBeInTheDocument();
     expect(within(await row('DOWN-PC')).getByRole('img', { name: 'Offline' })).toBeInTheDocument();
     expect(within(await row('UNKNOWN-PC')).queryByRole('img', { name: /line/ })).toBeNull();
+  });
+});
+
+describe('what a tool says needs attention', () => {
+  it('collects the problems every source reports and ignores anything that is not a list of words', () => {
+    const d = device({
+      hostname: 'WS-01',
+      sources: [
+        { vendor: 'huntress', name: 'WS-01', last_seen: NOW, details: { needs_attention: ['Defender: Unhealthy', ''] } },
+        { vendor: 'ninjaone', name: 'WS-01', last_seen: NOW, details: { needs_attention: 'nope' } },
+      ],
+    });
+    expect(attentionOf(d)).toEqual(['Defender: Unhealthy']);
+    expect(attentionOf(device({ hostname: 'CLEAN' }))).toEqual([]);
+  });
+
+  it('asks only for devices with a reported problem when the Needs attention card is picked', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'WS-01' })], { summary: { total: 1, not_in_master: 0, needs_attention: 3 } }));
+    render(<DevicesView />);
+    await waitFor(() => expect(screen.getByTestId('devices-attention')).toHaveTextContent('3'));
+    await userEvent.setup().click(screen.getByRole('button', { name: /Needs attention/ }));
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ attention: true })));
   });
 });
