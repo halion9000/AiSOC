@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -170,6 +171,15 @@ func (s *Store) Resolve(ctx context.Context, token string) (*Token, error) {
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			// A per-connector push URL ("Reveal push URL" in the connector wizard) carries an ait_ token that lives on the connector row, not in tenant_inbox_tokens. It used to 404 here.
+			if isConnectorPushToken(token) {
+				if ct, cerr := s.resolveConnectorToken(ctx, token); cerr == nil {
+					s.cacheHit(token, ct)
+					return ct, nil
+				} else if !errors.Is(cerr, pgx.ErrNoRows) {
+					return nil, fmt.Errorf("inbox: connector token query failed: %w", cerr)
+				}
+			}
 			s.cacheMiss(token, true) // negative cache: prevents lookup storm on bogus URLs
 			return nil, ErrTokenNotFound
 		}
@@ -185,6 +195,40 @@ func (s *Store) Resolve(ctx context.Context, token string) (*Token, error) {
 	s.cacheHit(token, &t)
 	go s.touchLastUsed(token)
 	return &t, nil
+}
+
+// connectorTokenPrefix marks the push token the API mints per connector (POST /connectors/{id}/push/refresh); the inbox-wide tokens use aitnb_.
+const connectorTokenPrefix = "ait_"
+
+func isConnectorPushToken(token string) bool {
+	return strings.HasPrefix(token, connectorTokenPrefix) && !strings.HasPrefix(token, "aitnb_")
+}
+
+// connectorPushTemplate is the template a connector's push payloads are read with: the generic JSON shape, the same one CORE's feed uses.
+const connectorPushTemplate = "generic-json"
+
+// tokenForConnector is the resolved token for a connector's push URL. The tenant is the connector's tenant, so an event can only ever land in the tenant that owns the connector.
+func tokenForConnector(token string, tenant uuid.UUID, connectorName string, created time.Time) *Token {
+	return &Token{Token: token, TenantID: tenant, TemplateID: connectorPushTemplate, Label: connectorName, CreatedAt: created}
+}
+
+// resolveConnectorToken looks the token up on the connectors table. A disabled connector does not accept pushes. pgx.ErrNoRows means no connector has this token.
+func (s *Store) resolveConnectorToken(ctx context.Context, token string) (*Token, error) {
+	var (
+		tenant  uuid.UUID
+		name    string
+		created time.Time
+	)
+	err := s.pool.QueryRow(ctx, `
+		SELECT tenant_id, COALESCE(name, ''), created_at
+		FROM connectors
+		WHERE ingest_token = $1 AND COALESCE(is_enabled, TRUE)
+		LIMIT 1
+	`, token).Scan(&tenant, &name, &created)
+	if err != nil {
+		return nil, err
+	}
+	return tokenForConnector(token, tenant, name, created), nil
 }
 
 func (s *Store) cacheHit(token string, t *Token) {

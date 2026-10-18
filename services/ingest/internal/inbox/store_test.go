@@ -253,3 +253,31 @@ func TestStore_Cache_ConcurrentAccessIsSafe(t *testing.T) {
 	wg.Wait()
 	// If we got here without a deadlock or panic, we're fine.
 }
+
+func TestIsConnectorPushToken(t *testing.T) {
+	cases := map[string]bool{
+		"ait_abc123":    true,
+		"aitnb_abc123":  false, // an inbox-wide token, resolved from tenant_inbox_tokens
+		"aisoc_key":     false,
+		"":              false,
+		"xait_abc":      false,
+		"AIT_UPPERCASE": false,
+	}
+	for token, want := range cases {
+		if got := isConnectorPushToken(token); got != want {
+			t.Errorf("isConnectorPushToken(%q) = %v, want %v", token, got, want)
+		}
+	}
+}
+
+func TestTokenForConnector_UsesTheConnectorsTenantAndTheGenericTemplate(t *testing.T) {
+	tenant := uuid.New()
+	created := time.Now()
+	tok := tokenForConnector("ait_x", tenant, "Acme firewall", created)
+	if tok.TenantID != tenant || tok.TemplateID != "generic-json" || tok.Label != "Acme firewall" || tok.Token != "ait_x" {
+		t.Fatalf("unexpected token: %+v", tok)
+	}
+	if tok.HMACSecret != "" {
+		t.Fatalf("a connector push token carries no HMAC secret: %+v", tok)
+	}
+}
