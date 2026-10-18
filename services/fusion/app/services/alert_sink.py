@@ -85,6 +85,11 @@ SELECT
 WHERE NOT EXISTS (
     SELECT 1 FROM alerts WHERE tenant_id = $2 AND dedup_hash = $11::text
 )
+-- The vendor's own incident id (CORE puts it at raw_event.finding.uid) is the alert's identity: the fingerprint changes whenever the entity extraction or the fingerprint itself
+-- does, and each change stored every re-forwarded incident a second time. The expression matches idx_alerts_tenant_finding_uid.
+AND ($27::text IS NULL OR NOT EXISTS (
+    SELECT 1 FROM alerts WHERE tenant_id = $2 AND ((raw_event -> 'finding') ->> 'uid') = $27::text
+))
 ON CONFLICT (id) DO NOTHING
 RETURNING id
 """
@@ -103,7 +108,7 @@ RETURNING id
 _TOUCH_SQL = """
 UPDATE alerts
 SET last_seen = GREATEST(last_seen, COALESCE($3, NOW())), updated_at = NOW()
-WHERE tenant_id = $1 AND dedup_hash = $2::text
+WHERE tenant_id = $1 AND (dedup_hash = $2::text OR ($4::text IS NOT NULL AND ((raw_event -> 'finding') ->> 'uid') = $4::text))
 """
 
 
@@ -115,6 +120,14 @@ JOIN tenants t ON t.id = a.child_tenant_id AND t.parent_tenant_id = a.tenant_id
 WHERE a.tenant_id = $1 AND a.vendor = $2 AND a.vendor_client_id = $3
   AND a.ignored = FALSE AND a.child_tenant_id IS NOT NULL
 """
+
+
+def _finding_uid(alert: RawAlert) -> str | None:
+    """The vendor incident id CORE forwarded (``raw_event.finding.uid``, e.g. ``huntress:123``), or None for an alert that carries none."""
+    raw = alert.raw_event if isinstance(alert.raw_event, dict) else {}
+    finding = raw.get("finding")
+    uid = finding.get("uid") if isinstance(finding, dict) else None
+    return uid if isinstance(uid, str) and 0 < len(uid) <= 200 else None
 
 
 def _asyncpg_dsn(url: str) -> str:
@@ -201,7 +214,7 @@ class AlertSink:
         """Move the stored alert's last_seen forward. Best effort: the alert is already safe, so a failure here is only logged."""
         try:
             async with pool.acquire() as conn:
-                await conn.execute(_TOUCH_SQL, alert.tenant_id, alert.fingerprint(), alert.event_time)
+                await conn.execute(_TOUCH_SQL, alert.tenant_id, alert.fingerprint(), alert.event_time, _finding_uid(alert))
         except Exception as exc:  # noqa: BLE001
             logger.warning("alert_sink.touch_failed", error=str(exc))
 
@@ -255,6 +268,7 @@ class AlertSink:
                     json.dumps(_affected(alert.src_ip, alert.dst_ip)),
                     json.dumps(_affected(alert.hostname)),
                     json.dumps(_affected(alert.username)),
+                    _finding_uid(alert),
                 )
             if row is None:
                 logger.debug("alert_sink.dedup_skip", fingerprint=alert.fingerprint())

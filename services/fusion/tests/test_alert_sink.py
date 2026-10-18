@@ -228,3 +228,60 @@ async def test_start_twice_opens_one_pool(monkeypatch):
     await sink.start()
     await sink.start()
     assert len(opened) == 1 and sink._pool is opened[0]
+
+
+# ---- the vendor's incident id is the alert's identity (not only its fingerprint) --------------------------------------------------------------------------
+
+
+def _fused_from_core(uid: str | None):
+    """An alert CORE forwarded: its raw event carries the vendor incident id at finding.uid."""
+    f = _fused()
+    f.alert.raw_event = {"finding": {"uid": uid}} if uid else {}
+    return f
+
+
+def test_the_incident_id_helper_reads_finding_uid():
+    from app.services.alert_sink import _finding_uid
+
+    assert _finding_uid(_fused_from_core("petra:abc").alert) == "petra:abc"
+    assert _finding_uid(_fused_from_core(None).alert) is None
+    f = _fused()
+    f.alert.raw_event = {"finding": "not-an-object"}
+    assert _finding_uid(f.alert) is None
+    f.alert.raw_event = {"finding": {"uid": ["x"]}}
+    assert _finding_uid(f.alert) is None
+    f.alert.raw_event = {"finding": {"uid": "x" * 500}}
+    assert _finding_uid(f.alert) is None, "an absurd id is not an identity"
+
+
+@pytest.mark.asyncio
+async def test_the_insert_is_told_the_incident_id_so_a_changed_fingerprint_cannot_make_a_second_row():
+    """Same tenant, same Petra incident, a different fingerprint (the promoter started extracting a user, then the fingerprint gained the client id): each change stored the incident
+    AGAIN, 620 extra rows in one day. The insert now skips a (tenant, incident id) that already exists, whatever the fingerprint says."""
+    pool = _StubPool(row={"id": uuid.uuid4()})
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    await sink.persist(_fused_from_core("petra:abc"))
+    sql, args = pool.conn.calls[0]
+    assert "finding" in sql and "NOT EXISTS" in sql
+    assert args[-1] == "petra:abc"
+
+
+@pytest.mark.asyncio
+async def test_an_alert_without_an_incident_id_is_judged_by_its_fingerprint_alone():
+    pool = _StubPool(row={"id": uuid.uuid4()})
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    await sink.persist(_fused_from_core(None))
+    assert pool.conn.calls[0][1][-1] is None
+
+
+@pytest.mark.asyncio
+async def test_a_dedup_hit_by_incident_id_refreshes_the_stored_alert():
+    pool = _StubPool(row=None)
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    fused = _fused_from_core("petra:abc")
+    await sink.persist(fused)
+    (sql, args), = pool.conn.executed
+    assert "finding" in sql and args[-1] == "petra:abc"
