@@ -1,4 +1,4 @@
-"""Cipher (CORE's agent) operates AiSOC through 50 tools: 17 written out by hand and 33 read-only tools (12 detection engineering, 5
+"""Cipher (CORE's agent) operates AiSOC through 53 tools: 17 written out by hand and 36 read-only tools (12 detection engineering, 5
 hunting, 5 threat intelligence, 11 estate: assets, vulnerabilities, cloud posture, identity graph, client devices) declared as a table in CORE
 (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
 
@@ -121,6 +121,9 @@ CIPHER_CALLS = [
     ("aisoc_list_posture_scans", "GET", "/posture/scans", ["limit", "offset"], None, False),
     ("aisoc_list_identity_nodes", "GET", "/identity-graph/nodes", ["node_type", "source_system", "limit", "offset"], None, False),
     ("aisoc_get_identity_node", "GET", "/identity-graph/nodes/{node_id}", [], None, False),
+    ("aisoc_platform_health", "GET", "/health/services", [], None, False),
+    ("aisoc_entity_risk_stats", "GET", "/fusion/entity-risk/stats", ["tenant_id"], None, False),
+    ("aisoc_entity_risk_queue", "GET", "/fusion/entity-risk/queue", ["tenant_id", "limit", "promoted_only"], None, False),
 ]
 CALL_IDS = [c[0] for c in CIPHER_CALLS]
 MAX_PAGE_SIZE_CORE_SENDS = 200  # hud/src/aisoc-requests.ts: MAX_PAGE_SIZE
@@ -245,9 +248,9 @@ def test_the_page_size_cap_is_at_least_what_core_sends(path):
     assert page_size["schema"].get("maximum", 10**9) >= MAX_PAGE_SIZE_CORE_SENDS
 
 
-def test_the_table_covers_all_fifty_tools():
+def test_the_table_covers_all_fifty_three_tools():
     tools = {re.sub(r" \(.*\)$", "", name) for name in CALL_IDS}
-    assert len(tools) == 50, sorted(tools)
+    assert len(tools) == 53, sorted(tools)
 
 
 READ_ONLY_TOOLS = [c for c in CIPHER_CALLS if c[1] == "GET"]
@@ -318,7 +321,7 @@ def test_every_tool_in_the_contract_is_a_get():
 
 def test_the_contract_has_no_tool_listed_twice():
     names = [r["tool"] for r in CONTRACT]
-    assert len(names) == len(set(names)) == 33
+    assert len(names) == len(set(names)) == 36
 
 
 def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_to_this_repo():
@@ -543,3 +546,20 @@ def test_the_devices_filter_values_are_the_ones_the_endpoint_really_accepts():
     row = next(r for r in CONTRACT if r["tool"] == "aisoc_list_devices")
     assert row["enums"] == {"missing": ["addigy", "threatmate"]}
     assert _allowed_values(_query_parameters(row)["missing"]["schema"]) == {"addigy", "threatmate"}
+
+
+OPERATIONS_TOOLS = ["aisoc_entity_risk_stats", "aisoc_entity_risk_queue"]
+
+
+@pytest.mark.parametrize("name", OPERATIONS_TOOLS)
+def test_an_entity_risk_tool_is_a_get_that_needs_exactly_alerts_read_which_the_key_already_holds(name):
+    """The entity-risk queue and stats are alerts:read: these tools add NO scope and NO width to CORE's key."""
+    _tool, method, path, *_ = _case(name)
+    assert method == "GET" and set(required_permissions(_route(method, path))) == {"alerts:read"}, f"{name}: {method} {path}"
+    assert "alerts:read" in CORE_KEY_SCOPES
+
+
+def test_the_platform_health_tool_reads_service_names_and_status_only():
+    """GET /health/services needs a signed-in caller and no specific permission; it returns service names, up/down and latency, never a URL."""
+    _tool, method, path, *_ = _case("aisoc_platform_health")
+    assert method == "GET" and set(required_permissions(_route(method, path))) == set()

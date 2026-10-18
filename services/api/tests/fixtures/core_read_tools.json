@@ -442,5 +442,40 @@
     "query": [],
     "enums": {},
     "numbers": {}
+  },
+  {
+    "tool": "aisoc_platform_health",
+    "method": "GET",
+    "path": "/health/services",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_entity_risk_stats",
+    "method": "GET",
+    "path": "/fusion/entity-risk/stats",
+    "query": [
+      "tenant_id"
+    ],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_entity_risk_queue",
+    "method": "GET",
+    "path": "/fusion/entity-risk/queue",
+    "query": [
+      "tenant_id",
+      "limit",
+      "promoted_only"
+    ],
+    "enums": {},
+    "numbers": {
+      "limit": {
+        "min": 1,
+        "max": 200
+      }
+    }
   }
 ]
