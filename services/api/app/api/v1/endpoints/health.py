@@ -529,3 +529,60 @@ async def get_pipeline_health(
         stages=stages,
         generated_at=now,
     )
+
+
+# ───────────────────────────── platform services ─────────────────────────────
+
+# Where each internal service answers its own health probe (compose hostnames; ``AISOC_SERVICE_HEALTH_<NAME>`` overrides a URL, empty omits the service).
+_SERVICE_PROBES: dict[str, str] = {
+    "fusion": "http://fusion:8003/readyz",
+    "enrichment": "http://enrichment:8082/health",
+    "agents": "http://agents:8084/readyz",
+    "actions": "http://actions:8085/readyz",
+    "connectors": "http://connectors:8087/readyz",
+    "threatintel": "http://threatintel:8005/readyz",
+    "ueba": "http://ueba:8004/readyz",
+    "ingest": "http://ingest-worker:8080/health",
+    "realtime": "http://realtime:4000/health",
+}
+
+
+def _service_probes() -> dict[str, str]:
+    import os
+
+    probes = {}
+    for name, url in _SERVICE_PROBES.items():
+        url = os.environ.get(f"AISOC_SERVICE_HEALTH_{name.upper()}", url)
+        if url:
+            probes[name] = url
+    return probes
+
+
+async def _probe(client: Any, name: str, url: str) -> dict[str, Any]:
+    import time
+
+    started = time.monotonic()
+    try:
+        resp = await client.get(url)
+        ok = resp.status_code == 200
+        detail = "" if ok else f"HTTP {resp.status_code}"
+    except Exception as exc:  # noqa: BLE001 - any failure to answer is the finding
+        ok, detail = False, type(exc).__name__
+    return {"service": name, "status": "up" if ok else "down", "latency_ms": round((time.monotonic() - started) * 1000), "detail": detail}
+
+
+@router.get("/services", summary="Is each internal platform service answering its own health probe?")
+async def platform_services(user: AuthUser) -> dict[str, Any]:
+    """One row per internal service (fusion, connectors, agents, ...), probed live from the API. A service that does not answer in 3 s is ``down``.
+
+    Needs sign-in because it reveals the platform's internals; it never returns a URL, only the service name and what the probe saw.
+    """
+    import asyncio
+
+    import httpx
+
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
+    rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
+    down = [r["service"] for r in rows if r["status"] != "up"]
+    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "generated_at": datetime.now(UTC)}

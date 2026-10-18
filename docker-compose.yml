@@ -406,6 +406,12 @@ services:
       AISOC_NEO4J_URI: bolt://neo4j:7687
       AISOC_NEO4J_USER: neo4j
       AISOC_NEO4J_PASSWORD: neo4j_dev_secret
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - aisoc
     restart: unless-stopped
@@ -883,6 +889,12 @@ services:
       REDIS_URL: redis://:redis_dev_secret@redis:6379/9
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       CORE_API_URL: http://api:8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8005/livez', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - aisoc
     restart: unless-stopped
@@ -912,6 +924,12 @@ services:
       REDIS_URL: redis://:redis_dev_secret@redis:6379/10
       CORE_API_URL: http://api:8000
       ATTCK_DATA_PATH: /app/data/enterprise-attack.json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8006/livez', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - aisoc
     restart: unless-stopped
