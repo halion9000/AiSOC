@@ -324,6 +324,22 @@ def _load_stub_corpus() -> None:
 
 # ─── Qdrant Embedding ─────────────────────────────────────────────────────────
 
+_DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
+
+
+def embedding_model() -> str:
+    """The embedding model, from ``AISOC_EMBEDDING_MODEL``. Empty or ``off`` disables ATT&CK embedding (the gateway may have no embedding model behind it)."""
+    value = os.environ.get("AISOC_EMBEDDING_MODEL")
+    if value is None:
+        return _DEFAULT_EMBEDDING_MODEL
+    value = value.strip()
+    return "" if value.lower() in {"", "off", "none", "disabled"} else value
+
+
+def _embed_kwargs(model: str) -> dict[str, Any]:
+    # ``dimensions`` is an OpenAI text-embedding-3 option; other providers reject it.
+    return {"dimensions": 3072} if model.startswith("text-embedding-3-large") else {}
+
 
 async def embed_techniques_into_qdrant(
     qdrant_url: str,
@@ -334,6 +350,11 @@ async def embed_techniques_into_qdrant(
     Embed ATT&CK technique descriptions into Qdrant for semantic RAG.
     Only embeds techniques that are not already present in the collection.
     """
+    model = embedding_model()
+    if not model:
+        logger.info("ATT&CK embedding disabled (AISOC_EMBEDDING_MODEL is empty or off)")
+        return
+
     if not _loaded:
         await load_attck_corpus()
 
@@ -348,16 +369,7 @@ async def embed_techniques_into_qdrant(
     oai = openai.AsyncOpenAI(api_key=openai_api_key)
     qdrant = AsyncQdrantClient(url=qdrant_url)
 
-    # Ensure collection exists
-    try:
-        await qdrant.create_collection(
-            collection_name=collection,
-            vectors_config=VectorParams(size=3072, distance=Distance.COSINE),
-            on_disk_payload=True,
-        )
-        logger.info("Created Qdrant collection for ATT&CK", collection=collection)
-    except Exception:
-        pass  # Collection already exists
+    collection_ready = False
 
     techniques_list = list(_techniques.values())
     total = len(techniques_list)
@@ -367,12 +379,20 @@ async def embed_techniques_into_qdrant(
         batch = techniques_list[i : i + _EMBED_BATCH_SIZE]
         texts = [f"{t.id} {t.name}: {t.description or ''} Tactics: {', '.join(t.tactic_names or [])}" for t in batch]
         try:
-            resp = await oai.embeddings.create(
-                model="text-embedding-3-large",
-                input=texts,
-                dimensions=3072,
-            )
+            resp = await oai.embeddings.create(model=model, input=texts, **_embed_kwargs(model))
             vectors = [e.embedding for e in resp.data]
+            if not collection_ready:
+                # The vector size is whatever the model returns, so the collection is created from the first batch.
+                try:
+                    await qdrant.create_collection(
+                        collection_name=collection,
+                        vectors_config=VectorParams(size=len(vectors[0]), distance=Distance.COSINE),
+                        on_disk_payload=True,
+                    )
+                    logger.info("Created Qdrant collection for ATT&CK", collection=collection)
+                except Exception:
+                    pass  # Collection already exists
+                collection_ready = True
             points = [
                 PointStruct(
                     id=technique_point_id(t.id),
@@ -395,6 +415,10 @@ async def embed_techniques_into_qdrant(
                 total=total,
             )
         except Exception as exc:
+            if embedded == 0:
+                # Nothing embedded yet: the model is unavailable (or not served by the gateway), and every other batch would fail the same way.
+                logger.warning("ATT&CK embedding skipped: the embedding model is not available (set AISOC_EMBEDDING_MODEL, or 'off')", model=model, error=str(exc))
+                break
             logger.warning("Batch embedding error", batch_start=i, error=str(exc))
 
     logger.info("ATT&CK embedding complete", total_embedded=embedded)
@@ -422,11 +446,10 @@ async def semantic_technique_search(
     qdrant = AsyncQdrantClient(url=qdrant_url)
 
     try:
-        emb_resp = await oai.embeddings.create(
-            model="text-embedding-3-large",
-            input=[query],
-            dimensions=3072,
-        )
+        model = embedding_model()
+        if not model:
+            return []
+        emb_resp = await oai.embeddings.create(model=model, input=[query], **_embed_kwargs(model))
         query_vector = emb_resp.data[0].embedding
 
         hits = await qdrant.search(
