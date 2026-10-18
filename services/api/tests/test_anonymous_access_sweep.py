@@ -97,9 +97,18 @@ def _all_routes() -> list[tuple[str, str]]:
 
 async def _status(client: httpx.AsyncClient, method: str, path: str):
     url = re.sub(r"\{[^}]+\}", UUID, path)
-    try:
-        r = await asyncio.wait_for(client.request(method, url, json={} if method in BODY_METHODS else None), timeout=6)
+
+    async def ask(timeout: float):
+        r = await asyncio.wait_for(client.request(method, url, json={} if method in BODY_METHODS else None), timeout=timeout)
         return r.status_code
+
+    try:
+        try:
+            # All routes are asked at once, so on a busy machine a route that WILL refuse can miss a short deadline. A timeout is only believed once the route has been
+            # asked again with a longer one, by when the rest of the sweep is done: a route that really streams still times out then.
+            return await ask(6)
+        except TimeoutError:
+            return await ask(20)
     except TimeoutError:
         return "kept the connection open (streaming) without credentials"
     except Exception as exc:  # a route that blows up without credentials has not refused them
