@@ -1,6 +1,7 @@
 """What a tool reports as wrong with a device (Huntress agent health) reaches the Devices page, and "not in Huntress" works like the other coverage gaps."""
 
 import uuid
+from types import SimpleNamespace
 from datetime import UTC, datetime
 
 from app.api.v1.endpoints.devices import DeviceOut, DeviceSourceOut, attention_of, is_missing_from
@@ -122,3 +123,16 @@ async def test_a_dismissal_clears_the_cache_before_it_commits(counted_load, monk
     assert Db.committed_with_cache_empty is True
     await devices_module._load_cached(None, owner, [tid], {}, None)
     assert len(counted_load) == 2
+
+
+def test_iphones_and_ipads_are_recognised_by_model_alone_and_never_counted_as_missing():
+    from app.api.v1.endpoints.devices import is_mobile
+
+    assert is_mobile(SimpleNamespace(os=None, model="iPhone17,3"))
+    assert is_mobile(SimpleNamespace(os=None, model="iPad13,1"))
+    assert is_mobile(SimpleNamespace(os="iPadOS", model=None))
+    assert not is_mobile(SimpleNamespace(os="Windows 11", model="Surface Pro"))
+    phone = device("iOS", [("addigy", {})])
+    assert not is_missing_from(phone, "threatmate") and not is_missing_from(phone, "huntress")
+    by_model = DeviceOut(id=uuid.uuid4(), tenant_id=uuid.uuid4(), hostname="h", os=None, model="iPhone17,3", last_seen=datetime.now(UTC), first_seen=datetime.now(UTC), sources=[])
+    assert not is_missing_from(by_model, "threatmate") and not is_missing_from(by_model, "huntress")

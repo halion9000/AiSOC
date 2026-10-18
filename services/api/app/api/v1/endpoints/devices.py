@@ -113,7 +113,7 @@ class DeviceSettings(BaseModel):
 
 _APPLE_OS = re.compile(r"mac\s?os|os\s?x|darwin")
 # iPhones and iPads are managed in Addigy only: they never run the RMM or security agents, so they are not "missing" from those tools.
-_MOBILE = re.compile(r"\b(ios|ipados|iphone|ipad)\b")
+_MOBILE = re.compile(r"\b(ios|ipados|iphone|ipad)\d*\b")
 
 
 def is_mobile(d: Any) -> bool:

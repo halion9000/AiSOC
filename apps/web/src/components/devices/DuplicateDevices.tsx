@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { devicesApi, type DeviceRow, type DuplicatePair } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
+import { vendorLabel } from '@/components/mssp/ClientMapping';
 
 /**
  * Devices that share a name but have no serial number to prove they are the same machine are never merged automatically. They are listed here for a person to decide:
@@ -12,6 +13,121 @@ import VendorBadge from '@/components/mssp/VendorBadge';
 
 function tools(d: DeviceRow): string[] {
   return [...new Set(d.sources.map((s) => s.vendor))].sort();
+}
+
+const VENDOR_FACTS: [string, string][] = [
+  ['agent_version', 'Agent version'],
+  ['edr_version', 'EDR version'],
+  ['node_class', 'Type'],
+  ['discovery_source', 'Found by'],
+  ['last_online', 'Last online'],
+  ['last_contact', 'Last contact'],
+  ['last_callback_at', 'Last check-in'],
+  ['public_ip', 'Public IP'],
+];
+
+function stamp(value: string | null | undefined): string {
+  if (!value) return '—';
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? String(value) : new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+}
+
+/** The rows of the side-by-side comparison: what a person weighs up before merging two machines. A row is "same" when both sides agree. */
+export function compareRows(a: DeviceRow, b: DeviceRow): { label: string; a: string; b: string; same: boolean }[] {
+  const text = (v: unknown): string => (v === null || v === undefined || v === '' ? '—' : String(v));
+  const rows: [string, string, string][] = [
+    ['Name', a.hostname, b.hostname],
+    ['Serial number', text(a.serial_number), text(b.serial_number)],
+    ['Operating system', [a.os, a.os_version].filter(Boolean).join(' ') || '—', [b.os, b.os_version].filter(Boolean).join(' ') || '—'],
+    ['Make and model', [a.manufacturer, a.model].filter(Boolean).join(' ') || '—', [b.manufacturer, b.model].filter(Boolean).join(' ') || '—'],
+    ['IP addresses', a.ip_addresses.join(', ') || '—', b.ip_addresses.join(', ') || '—'],
+    ['First seen', stamp(a.first_seen), stamp(b.first_seen)],
+    ['Last online', stamp(a.last_online), stamp(b.last_online)],
+    ['Online now', a.online === null || a.online === undefined ? '—' : a.online ? 'Yes' : 'No', b.online === null || b.online === undefined ? '—' : b.online ? 'Yes' : 'No'],
+    ['Open alerts', String(a.open_alerts ?? 0), String(b.open_alerts ?? 0)],
+  ];
+  return rows.map(([label, x, y]) => ({ label, a: x, b: y, same: x.toLowerCase() === y.toLowerCase() }));
+}
+
+/** The tool-reported facts worth comparing for one side, e.g. "NinjaOne: Last online 2026-10-18 20:35 UTC". */
+export function sourceFacts(d: DeviceRow): { vendor: string; name: string; seen: string; facts: [string, string][]; attention: string[] }[] {
+  return d.sources.map((s) => {
+    const details = (s.details ?? {}) as Record<string, unknown>;
+    const facts: [string, string][] = [];
+    for (const [key, label] of VENDOR_FACTS) {
+      const v = details[key];
+      if (typeof v === 'string' && v) facts.push([label, key.includes('last') ? stamp(v) : v]);
+    }
+    const attention = Array.isArray(details.needs_attention) ? (details.needs_attention as unknown[]).filter((x): x is string => typeof x === 'string' && x !== '') : [];
+    return { vendor: s.vendor, name: s.name ?? '', seen: stamp(s.last_seen), facts, attention };
+  });
+}
+
+/** Tools that list BOTH devices (as separate records). When one tool already counts them as two machines, that is a reason to think they really are two. */
+export function sharedTools(a: DeviceRow, b: DeviceRow): string[] {
+  const mine = new Set(a.sources.map((s) => s.vendor));
+  return [...new Set(b.sources.map((s) => s.vendor))].filter((v) => mine.has(v)).sort();
+}
+
+function Compare({ a, b }: { a: DeviceRow; b: DeviceRow }) {
+  const rows = compareRows(a, b);
+  const shared = sharedTools(a, b);
+  const sides = [a, b];
+  return (
+    <div className="mt-3 w-full border-t border-gray-800 pt-3 text-xs" data-testid="duplicate-compare">
+      {shared.length > 0 && (
+        <p className="mb-2 rounded border border-sky-500/30 bg-sky-500/10 p-2 text-sky-200">
+          {shared.map((v) => vendorLabel(v)).join(' and ')} already lists these as two separate machines, so they may really be two.
+        </p>
+      )}
+      <table className="w-full text-left">
+        <thead>
+          <tr className="text-gray-500">
+            <th className="w-36 py-1 font-normal" />
+            <th className="py-1 font-medium text-gray-300">First</th>
+            <th className="py-1 font-medium text-gray-300">Second</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} className="border-t border-gray-800/70">
+              <th className="py-1 pr-2 font-normal text-gray-500">{r.label}</th>
+              <td className={r.same ? 'py-1 text-gray-400' : 'py-1 text-amber-300'}>{r.a}</td>
+              <td className={r.same ? 'py-1 text-gray-400' : 'py-1 text-amber-300'}>{r.b}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">
+        {sides.map((d, i) => (
+          <div key={d.id}>
+            <div className="mb-1 font-medium text-gray-300">{i === 0 ? 'First' : 'Second'}: reported by</div>
+            {sourceFacts(d).map((s) => (
+              <div key={`${s.vendor}-${s.name}`} className="mb-1 text-gray-400">
+                <span className="text-gray-200">{vendorLabel(s.vendor)}</span>
+                {s.name ? <> as “{s.name}”</> : null}, synced {s.seen}
+                {s.facts.map(([k, v]) => (
+                  <div key={k} className="pl-3">
+                    {k}: {v}
+                  </div>
+                ))}
+                {s.attention.map((x) => (
+                  <div key={x} className="pl-3 text-red-300">
+                    ⚠ {x}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {(d.alerts ?? []).slice(0, 3).map((al) => (
+              <div key={al.id} className="pl-3 text-gray-400">
+                Alert: {al.title}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Side({ d }: { d: DeviceRow }) {
@@ -31,6 +147,7 @@ function Side({ d }: { d: DeviceRow }) {
 export default function DuplicateDevices({ clientId, onChanged }: { clientId?: string; onChanged: () => void }) {
   const [pairs, setPairs] = useState<DuplicatePair[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
 
   const [reloads, setReloads] = useState(0);
 
@@ -67,12 +184,29 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
       <ul className="mt-3 space-y-2">
         {pairs.map(({ a, b }) => {
           const key = `${a.id}:${b.id}`;
+          const expanded = open === key;
           return (
-            <li key={key} className="flex flex-wrap items-center gap-3 rounded-md border border-gray-800 bg-gray-900/60 p-3">
+            <li
+              key={key}
+              className="flex cursor-pointer flex-wrap items-center gap-3 rounded-md border border-gray-800 bg-gray-900/60 p-3 hover:border-gray-700"
+              onClick={() => setOpen(expanded ? null : key)}
+            >
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-label={`${expanded ? 'Hide' : 'Show'} details of ${a.hostname}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(expanded ? null : key);
+                }}
+                className="shrink-0 text-xs text-gray-400 hover:text-white"
+              >
+                {expanded ? '▾' : '▸'}
+              </button>
               <span className="w-28 shrink-0 truncate text-xs text-gray-400">{a.client_name}</span>
               <Side d={a} />
               <Side d={b} />
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
                   disabled={busy === key}
@@ -100,6 +234,7 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
                   Not a duplicate
                 </button>
               </div>
+              {expanded && <Compare a={a} b={b} />}
             </li>
           );
         })}

@@ -8,7 +8,7 @@ vi.mock('@/lib/api', () => ({ devicesApi: api }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('react-hot-toast', () => ({ default: toast }));
 
-import DuplicateDevices from './DuplicateDevices';
+import DuplicateDevices, { compareRows, sharedTools, sourceFacts } from './DuplicateDevices';
 
 const NOW = '2026-10-15T15:00:00Z';
 const dev = (id: string, hostname: string, vendor: string): DeviceRow =>
@@ -85,5 +85,47 @@ describe('DuplicateDevices', () => {
     const { container } = render(<DuplicateDevices onChanged={vi.fn()} />);
     await waitFor(() => expect(api.duplicates).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('opens a side-by-side comparison when the row is clicked, and closes it again', async () => {
+    render(<DuplicateDevices onChanged={vi.fn()} />);
+    const user = userEvent.setup();
+    expect(screen.queryByTestId('duplicate-compare')).not.toBeInTheDocument();
+    await user.click(await screen.findByText('FRONT-DESK'));
+    const compare = await screen.findByTestId('duplicate-compare');
+    expect(compare).toHaveTextContent('Serial number');
+    expect(compare).toHaveTextContent('Operating system');
+    await user.click(screen.getByRole('button', { name: /Hide details of FRONT-DESK/ }));
+    expect(screen.queryByTestId('duplicate-compare')).not.toBeInTheDocument();
+  });
+
+  it('does not open the comparison when a merge or dismiss button is pressed', async () => {
+    render(<DuplicateDevices onChanged={vi.fn()} />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Not a duplicate' }));
+    expect(screen.queryByTestId('duplicate-compare')).not.toBeInTheDocument();
+  });
+});
+
+describe('what the comparison shows', () => {
+  const base = dev('a', 'PC-1', 'ninjaone');
+  it('marks a field the same when both sides agree and different when they do not', () => {
+    const other = { ...dev('b', 'pc-1', 'addigy'), os: 'macOS', serial_number: 'SN9' } as DeviceRow;
+    const rows = Object.fromEntries(compareRows(base, other).map((r) => [r.label, r.same]));
+    expect(rows['Name']).toBe(true); // names differ only in case
+    expect(rows['Operating system']).toBe(false);
+    expect(rows['Serial number']).toBe(false);
+    expect(rows['First seen']).toBe(true);
+  });
+
+  it('says when a tool already lists both devices, which is a reason to think they are two machines', () => {
+    expect(sharedTools(dev('a', 'x', 'ninjaone'), dev('b', 'x', 'ninjaone'))).toEqual(['ninjaone']);
+    expect(sharedTools(dev('a', 'x', 'ninjaone'), dev('b', 'x', 'addigy'))).toEqual([]);
+  });
+
+  it('lists the tool-reported facts and any problem the tool flagged', () => {
+    const d = { ...base, sources: [{ vendor: 'huntress', name: 'PC-1', last_seen: NOW, details: { edr_version: '1.2', last_callback_at: '2026-10-18T10:00:00Z', needs_attention: ['Defender: Unhealthy'] } }] } as unknown as DeviceRow;
+    const [s] = sourceFacts(d);
+    expect(s.facts).toEqual([['EDR version', '1.2'], ['Last check-in', '2026-10-18 10:00 UTC']]);
+    expect(s.attention).toEqual(['Defender: Unhealthy']);
   });
 });
