@@ -100,6 +100,7 @@ class DevoConnector(BaseConnector):
             for alert in body.get("object") or body.get("alerts") or []:
                 out.append(self.normalize(alert))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("devo.fetch_error", error=str(exc))
         return out
 

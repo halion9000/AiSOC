@@ -94,6 +94,7 @@ class CiscoUmbrellaConnector(BaseConnector):
                 self._token_expiry = time.time() + int(payload.get("expires_in", 3600))
                 return self._token
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("umbrella.token_exception", error=str(exc))
             return None
 

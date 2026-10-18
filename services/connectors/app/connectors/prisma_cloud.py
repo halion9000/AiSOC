@@ -142,6 +142,7 @@ class PrismaCloudConnector(BaseConnector):
                 self._token = token
                 return token
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("prisma_cloud.login_exception", error=str(exc))
             return None
 

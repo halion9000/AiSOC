@@ -118,6 +118,7 @@ class SalesforceConnector(BaseConnector):
                 )
                 return None
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("salesforce.refresh_exception", error=str(exc))
             return None
 

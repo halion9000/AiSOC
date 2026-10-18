@@ -103,6 +103,7 @@ class SecuronixConnector(BaseConnector):
             for inc in incidents:
                 out.append(self.normalize(inc))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("securonix.fetch_error", error=str(exc))
         return out
 

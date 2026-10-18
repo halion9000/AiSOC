@@ -123,6 +123,7 @@ class SublimeSecurityConnector(BaseConnector):
                 try:
                     resp = await client.get(f"{self._base}/v1/messages", headers=self._headers(), params=params)
                 except (httpx.HTTPError, httpx.InvalidURL) as exc:
+                    self._fetch_failed()
                     logger.warning("sublime_security.fetch_network_error", error=str(exc))
                     break
                 if resp.status_code != 200:

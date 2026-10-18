@@ -95,6 +95,7 @@ class Auth0Connector(BaseConnector):
                 )
                 return None
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("auth0.token_exception", error=str(exc))
             return None
 

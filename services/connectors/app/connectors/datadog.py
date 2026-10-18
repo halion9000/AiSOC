@@ -187,6 +187,7 @@ class DatadogConnector(BaseConnector):
                 except (httpx.HTTPError, httpx.InvalidURL) as exc:
                     # Network errors must not abort the polling loop —
                     # log and stop paginating; the next cycle retries.
+                    self._fetch_failed()
                     logger.warning("datadog.logs_network_error", error=str(exc))
                     break
                 if resp.status_code != 200:
@@ -222,6 +223,7 @@ class DatadogConnector(BaseConnector):
                     params=params,
                 )
             except (httpx.HTTPError, httpx.InvalidURL) as exc:
+                self._fetch_failed()
                 logger.warning("datadog.events_network_error", error=str(exc))
                 return []
             if resp.status_code != 200:

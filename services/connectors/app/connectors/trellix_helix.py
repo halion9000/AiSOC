@@ -139,6 +139,7 @@ class TrellixHelixConnector(BaseConnector):
                 for alert in (resp.json() or {}).get("data", []):
                     events.append(alert)
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("trellix_helix.exception", error=str(exc))
 
         return [self.normalize(e) for e in events]

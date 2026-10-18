@@ -93,6 +93,7 @@ class MimecastConnector(BaseConnector):
                 )
                 return None
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("mimecast.token_exception", error=str(exc))
             return None
 

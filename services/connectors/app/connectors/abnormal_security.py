@@ -123,6 +123,7 @@ class AbnormalSecurityConnector(BaseConnector):
                         # Network failure (DNS, TLS, timeout) must not abort
                         # the polling loop — log and stop paginating *this*
                         # stream; the next poll cycle gets a fresh attempt.
+                        self._fetch_failed()
                         logger.warning(
                             "abnormal_security.fetch_network_error",
                             kind=kind,

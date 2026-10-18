@@ -95,6 +95,7 @@ class NetskopeConnector(BaseConnector):
             for alert in body.get("result") or body.get("data") or []:
                 out.append(self.normalize(alert))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("netskope.fetch_error", error=str(exc))
         return out
 

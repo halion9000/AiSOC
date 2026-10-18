@@ -148,6 +148,7 @@ class SyslogCefConnector(BaseConnector):
                 msg = line.get("message") if isinstance(line, dict) else str(line)
                 out.append(self.normalize({"message": msg, "_meta": line if isinstance(line, dict) else {}}))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("syslog_cef.fetch_error", error=str(exc))
         return out
 

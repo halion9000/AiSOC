@@ -197,6 +197,7 @@ class CarbonBlackConnector(BaseConnector):
                         body=alerts_resp.text[:300],
                     )
             except Exception as exc:
+                self._fetch_failed()
                 logger.warning("carbon_black.alerts_exception", error=str(exc))
 
             # Audit log feed.
@@ -210,6 +211,7 @@ class CarbonBlackConnector(BaseConnector):
                         entry["_aisoc_stream"] = "audit"
                         events.append(entry)
             except Exception as exc:
+                self._fetch_failed()
                 logger.warning("carbon_black.audit_exception", error=str(exc))
 
         return [self.normalize(e) for e in events]

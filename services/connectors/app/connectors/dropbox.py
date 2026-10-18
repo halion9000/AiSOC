@@ -127,6 +127,7 @@ class DropboxConnector(BaseConnector):
                 try:
                     resp = await client.post(url, headers=self._headers(), json=body)
                 except (httpx.HTTPError, httpx.InvalidURL) as exc:
+                    self._fetch_failed()
                     logger.warning("dropbox.fetch_network_error", error=str(exc))
                     break
                 if resp.status_code != 200:

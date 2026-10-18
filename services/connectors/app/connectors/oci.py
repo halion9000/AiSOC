@@ -175,6 +175,7 @@ class OCIConnector(BaseConnector):
                 try:
                     resp = await client.get(f"{self._base}/20190901/auditEvents", params=params)
                 except (httpx.HTTPError, httpx.InvalidURL) as exc:
+                    self._fetch_failed()
                     logger.warning("oci.fetch_network_error", error=str(exc))
                     break
                 if resp.status_code != 200:

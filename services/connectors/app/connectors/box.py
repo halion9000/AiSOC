@@ -125,6 +125,7 @@ class BoxConnector(BaseConnector):
                 try:
                     resp = await client.get(f"{_BASE}/2.0/events", headers=self._headers(), params=params)
                 except (httpx.HTTPError, httpx.InvalidURL) as exc:
+                    self._fetch_failed()
                     logger.warning("box.fetch_network_error", error=str(exc))
                     break
                 if resp.status_code != 200:

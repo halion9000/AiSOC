@@ -99,6 +99,7 @@ class LaceworkConnector(BaseConnector):
                 )
                 return None
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("lacework.token_exception", error=str(exc))
             return None
 
@@ -180,6 +181,7 @@ class LaceworkConnector(BaseConnector):
                         status=ce_resp.status_code,
                     )
         except Exception as exc:
+            self._fetch_failed()
             logger.warning("lacework.fetch_exception", error=str(exc))
         return [self.normalize(i) for i in items]
 

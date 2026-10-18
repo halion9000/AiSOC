@@ -112,6 +112,7 @@ class QRadarConnector(BaseConnector):
             for off in resp.json() or []:
                 out.append(self.normalize(off))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("qradar.fetch_error", error=str(exc))
         return out
 

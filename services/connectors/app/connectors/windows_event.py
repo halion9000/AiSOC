@@ -108,6 +108,7 @@ class WindowsEventConnector(BaseConnector):
             for ev in events or []:
                 out.append(self.normalize(ev))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("windows_event.fetch_error", error=str(exc))
         return out
 

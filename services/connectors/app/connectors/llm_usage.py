@@ -114,6 +114,7 @@ class LlmUsageConnector(BaseConnector):
             for ev in body.get("data") or []:
                 out.append(self.normalize(ev))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("llm_usage.fetch_error", error=str(exc))
         return out
 

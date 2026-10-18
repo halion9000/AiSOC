@@ -35,3 +35,24 @@ def test_every_non_200_branch_in_the_polling_path_records_the_failure():
             if not any("_fetch_failed" in ast.dump(stmt) for stmt in node.body):
                 missing.append(f"{path.name}:{node.lineno} in {name}")
     assert not missing, "non-200 treated as an empty poll: " + ", ".join(missing)
+
+
+# Handlers that swallow on purpose: they skip one bad record or one optional value, not the whole poll.
+_PER_RECORD = {("vault.py", "fetch_alerts"), ("qradar.py", "fetch_alerts"), ("aws_cloudtrail.py", "fetch_alerts")}
+
+
+def test_every_poll_level_exception_handler_records_or_reraises():
+    missing = []
+    for path in sorted(_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for fn in ast.walk(tree):
+            if not (isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and fn.name in _POLLING):
+                continue
+            for h in ast.walk(fn):
+                if not isinstance(h, ast.ExceptHandler) or (h.type is not None and ast.unparse(h.type) == "ValueError"):
+                    continue
+                if (path.name, fn.name) in _PER_RECORD:
+                    continue
+                if not any("_fetch_failed" in ast.dump(s) for s in h.body) and not any(isinstance(x, ast.Raise) for x in ast.walk(h)):
+                    missing.append(f"{path.name}:{h.lineno} in {fn.name}")
+    assert not missing, "swallowed without recording: " + ", ".join(missing)

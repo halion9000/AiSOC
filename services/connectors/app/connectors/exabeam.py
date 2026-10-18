@@ -90,6 +90,7 @@ class ExabeamConnector(BaseConnector):
             for sess in body.get("sessions") or body.get("users") or []:
                 out.append(self.normalize(sess))
         except Exception as exc:  # noqa: BLE001
+            self._fetch_failed()
             logger.warning("exabeam.fetch_error", error=str(exc))
         return out
 

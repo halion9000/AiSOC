@@ -141,6 +141,7 @@ class TrendVisionOneConnector(BaseConnector):
                         body=wb.text[:300],
                     )
             except Exception as exc:
+                self._fetch_failed()
                 logger.warning("trend_vision_one.workbench_exception", error=str(exc))
 
             try:
@@ -154,6 +155,7 @@ class TrendVisionOneConnector(BaseConnector):
                         item["_aisoc_stream"] = "oat"
                         events.append(item)
             except Exception as exc:
+                self._fetch_failed()
                 logger.warning("trend_vision_one.oat_exception", error=str(exc))
 
         return [self.normalize(e) for e in events]
