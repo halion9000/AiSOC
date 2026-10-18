@@ -20,7 +20,7 @@ async def test_a_service_that_answers_200_is_up_and_anything_else_is_down(monkey
 
     real = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
-    out = await health.platform_services(user=object())
+    out = await health.platform_services(user=object(), db=_Db(("app_user", False, False)))
     assert out["overall"] == "degraded"
     assert sorted(out["down"]) == ["agents", "ueba"]
     by = {r["service"]: r for r in out["services"]}
@@ -35,3 +35,40 @@ async def test_an_env_override_replaces_a_url_and_empty_omits_the_service(monkey
     monkeypatch.setenv("AISOC_SERVICE_HEALTH_FUSION", "http://elsewhere/ok")
     monkeypatch.setenv("AISOC_SERVICE_HEALTH_UEBA", "")
     assert health._service_probes() == {"fusion": "http://elsewhere/ok"}
+
+
+class _Result:
+    def __init__(self, row):
+        self._row = row
+
+    def fetchone(self):
+        return self._row
+
+
+class _Db:
+    def __init__(self, row=None, error=None):
+        self._row, self._error = row, error
+
+    async def execute(self, *_a, **_k):
+        if self._error:
+            raise self._error
+        return _Result(self._row[1:] if self._row else None)
+
+
+@pytest.mark.asyncio
+async def test_a_superuser_connection_is_reported_as_not_enforcing_row_security():
+    out = await health.database_row_security(_Db(("aisoc", True, False)))
+    assert out["enforced"] is False and "superuser" in out["reason"] and "fix" in out
+
+
+@pytest.mark.asyncio
+async def test_a_bypassrls_role_is_reported_too():
+    out = await health.database_row_security(_Db(("app", False, True)))
+    assert out["enforced"] is False and "BYPASSRLS" in out["reason"]
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_role_is_enforced_and_an_unreadable_one_is_unknown_not_an_error():
+    assert (await health.database_row_security(_Db(("app", False, False))))["enforced"] is True
+    assert (await health.database_row_security(_Db(error=RuntimeError("no catalog access"))))["enforced"] is None
+    assert (await health.database_row_security(_Db(None)))["enforced"] is None

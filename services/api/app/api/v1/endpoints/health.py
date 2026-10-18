@@ -571,8 +571,29 @@ async def _probe(client: Any, name: str, url: str) -> dict[str, Any]:
     return {"service": name, "status": "up" if ok else "down", "latency_ms": round((time.monotonic() - started) * 1000), "detail": detail}
 
 
+async def database_row_security(db: Any) -> dict[str, Any]:
+    """Whether the database role this API connects as can bypass row-level security. A superuser (or a role with BYPASSRLS) ignores every tenant-isolation policy, so the
+    policies exist but protect nothing from this API's own queries. ``enforced`` is None when the role could not be read."""
+    from sqlalchemy import text
+
+    try:
+        row = (await db.execute(text("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"))).fetchone()
+    except Exception:  # noqa: BLE001 - the answer is "unknown", not an error page
+        return {"enforced": None, "reason": "the database role could not be read"}
+    if row is None:
+        return {"enforced": None, "reason": "the database role could not be read"}
+    superuser, bypass = bool(row[0]), bool(row[1])
+    if superuser or bypass:
+        return {
+            "enforced": False,
+            "reason": "the API connects as a database superuser" if superuser else "the API connects as a role with BYPASSRLS",
+            "fix": "connect the API as a role without SUPERUSER and BYPASSRLS (tenant isolation then rests on the database, not only on the application's own filters)",
+        }
+    return {"enforced": True, "reason": "the API's database role cannot bypass row-level security"}
+
+
 @router.get("/services", summary="Is each internal platform service answering its own health probe?")
-async def platform_services(user: AuthUser) -> dict[str, Any]:
+async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
     """One row per internal service (fusion, connectors, agents, ...), probed live from the API. A service that does not answer in 3 s is ``down``.
 
     Needs sign-in because it reveals the platform's internals; it never returns a URL, only the service name and what the probe saw.
@@ -585,4 +606,4 @@ async def platform_services(user: AuthUser) -> dict[str, Any]:
         rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
     rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
     down = [r["service"] for r in rows if r["status"] != "up"]
-    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "generated_at": datetime.now(UTC)}
+    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": await database_row_security(db), "generated_at": datetime.now(UTC)}

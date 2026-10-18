@@ -15,10 +15,17 @@ interface ServiceRow {
   detail: string;
 }
 
+interface DatabaseSecurity {
+  enforced: boolean | null;
+  reason: string;
+  fix?: string;
+}
+
 interface Snapshot {
   overall: "ok" | "degraded";
   down: string[];
   services: ServiceRow[];
+  database?: DatabaseSecurity;
   generated_at: string;
 }
 
@@ -57,6 +64,12 @@ export function PlatformHealth() {
           <p className={snapshot.overall === "ok" ? "text-emerald-700" : "text-red-700"} data-testid="overall">
             {snapshot.overall === "ok" ? "Every service is answering." : `Not answering: ${snapshot.down.join(", ")}`}
           </p>
+          {snapshot.database && snapshot.database.enforced !== true && (
+            <p role="note" data-testid="row-security" className="rounded border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-200">
+              {snapshot.database.enforced === false ? 'Tenant isolation in the database is not being enforced: ' : 'Could not check tenant isolation in the database: '}
+              {snapshot.database.reason}.{snapshot.database.fix ? ` To fix: ${snapshot.database.fix}.` : ''}
+            </p>
+          )}
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b text-slate-500">
