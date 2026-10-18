@@ -93,6 +93,8 @@ class Settings(BaseSettings):
     rba_severity_weights_low: float = Field(default=3.0, alias="RBA_W_LOW")
     rba_severity_weights_info: float = Field(default=1.0, alias="RBA_W_INFO")
     rba_max_top_entities: int = Field(default=100, alias="RBA_MAX_TOP_ENTITIES")
+    # Open a case when an entity is newly promoted (its risk score crosses the threshold). Off by default: promotion then only marks the entity in the queue.
+    rba_open_case: bool = Field(default=False, alias="AISOC_RBA_OPEN_CASE")
 
     # Detection confidence + explainability — every fused alert carries a
     # high/medium/low label and an evidence chain. Disabled only as a

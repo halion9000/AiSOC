@@ -28,6 +28,7 @@ from enum import Enum
 import asyncpg
 import structlog
 
+from app.core.config import settings
 from app.models.alert import FusedAlert, FusionDecision, RawAlert
 
 logger = structlog.get_logger()
@@ -171,6 +172,49 @@ def _affected(*values: str | None) -> list[str]:
     return out
 
 
+
+# A newly promoted entity (its risk score crossed the threshold) can open a case, so the work reaches the queue analysts actually use. One open case per entity: a second promotion while the
+# first case is still open (not resolved or closed) opens nothing. Off unless AISOC_RBA_OPEN_CASE is set.
+_PROMOTION_CASE_SQL = """
+INSERT INTO aisoc_cases (tenant_id, title, description, severity, alert_ids, created_by, tags)
+SELECT $1, $2, $3, $4, $5::uuid[], 'aisoc-rba', $6::jsonb
+WHERE NOT EXISTS (
+    SELECT 1 FROM aisoc_cases
+    WHERE tenant_id = $1 AND status NOT IN ('resolved', 'closed') AND tags ->> 'rba_entity' = $7::text
+)
+RETURNING id
+"""
+_LINK_ALERTS_SQL = "UPDATE alerts SET case_id = $1 WHERE tenant_id = $2 AND id = ANY($3::uuid[]) AND case_id IS NULL"
+
+
+def case_for_promotion(promotion: dict, alert_title: str, threshold: float) -> dict | None:
+    """The case to open for one promotion record (as ``EntityRiskRecord.to_dict`` writes it), or None when it names no entity. Pure."""
+    kind, value = str(promotion.get("entity_type") or "").strip(), str(promotion.get("entity_value") or "").strip()
+    if not kind or not value:
+        return None
+    score = float(promotion.get("score") or 0.0)
+    ids: list[str] = []
+    for raw in promotion.get("contributing_alerts") or []:
+        try:
+            ids.append(str(uuid.UUID(str(raw))))
+        except ValueError:
+            continue
+    severities = ", ".join(f"{n} {name}" for name, n in sorted((promotion.get("severities") or {}).items(), key=lambda kv: -kv[1]) if n)
+    description = (
+        f"Risk-based alerting promoted {kind} {value}: its risk score reached {score:.0f} (promotion threshold {threshold:.0f}) from {promotion.get('alert_count', len(ids))} recent alert(s)"
+        + (f" ({severities})" if severities else "")
+        + f". Latest alert: {alert_title[:300]}."
+    )
+    return {
+        "title": f"Risk-based alert: {kind} {value}"[:500],
+        "description": description,
+        "severity": "critical" if score >= 2 * threshold else "high",
+        "alert_ids": ids,
+        "tags": {"rba_entity": f"{kind}:{value}", "source": "rba"},
+        "entity_key": f"{kind}:{value}",
+    }
+
+
 class AlertSink:
     """asyncpg-backed writer from the fusion pipeline into the alert store."""
 
@@ -219,6 +263,41 @@ class AlertSink:
                 await conn.execute(_TOUCH_SQL, alert.tenant_id, alert.fingerprint(), alert.event_time, _finding_uid(alert))
         except Exception as exc:  # noqa: BLE001
             logger.warning("alert_sink.touch_failed", error=str(exc))
+
+    async def open_cases_for_promotions(self, fused: FusedAlert) -> int:
+        """Open a case for each entity this alert newly promoted (when AISOC_RBA_OPEN_CASE is on). Returns how many were opened; never raises."""
+        promotions = fused.enrichments.get("rba_promotions") if isinstance(fused.enrichments, dict) else None
+        if not settings.rba_open_case or not promotions:
+            return 0
+        pool = await self._ensure_pool()
+        if pool is None:
+            return 0
+        opened = 0
+        try:
+            async with pool.acquire() as conn:
+                for promotion in promotions:
+                    case = case_for_promotion(promotion, fused.alert.title, settings.rba_promotion_threshold)
+                    if case is None:
+                        continue
+                    row = await conn.fetchrow(
+                        _PROMOTION_CASE_SQL,
+                        fused.alert.tenant_id,
+                        case["title"],
+                        case["description"],
+                        case["severity"],
+                        case["alert_ids"],
+                        json.dumps(case["tags"]),
+                        case["entity_key"],
+                    )
+                    if row is None:
+                        continue  # an open case for this entity already exists
+                    opened += 1
+                    if case["alert_ids"]:
+                        await conn.execute(_LINK_ALERTS_SQL, row["id"], fused.alert.tenant_id, case["alert_ids"])
+                    logger.info("alert_sink.rba_case_opened", entity=case["entity_key"], case_id=str(row["id"]))
+        except Exception as exc:  # noqa: BLE001 - a case that could not be opened must not lose the alert
+            logger.warning("alert_sink.rba_case_failed", error=str(exc))
+        return opened
 
     async def persist(self, fused: FusedAlert) -> PersistResult:
         """Insert one fused alert, returning a structured :class:`PersistResult`.
@@ -276,7 +355,9 @@ class AlertSink:
             if row is None:
                 logger.debug("alert_sink.dedup_skip", fingerprint=alert.fingerprint())
                 await self._touch_existing(pool, alert)
+                await self.open_cases_for_promotions(fused)
                 return PersistResult(PersistOutcome.DUPLICATE, canonical_id)
+            await self.open_cases_for_promotions(fused)
             return PersistResult(PersistOutcome.INSERTED, str(row["id"]))
         except asyncpg.ForeignKeyViolationError:
             # Unknown tenant — a mis-provisioned connector, not a pipeline bug.

@@ -309,3 +309,131 @@ async def test_an_alert_with_no_incident_stores_an_empty_enrichment_object_not_n
     sink._pool = pool
     await sink.persist(fused)
     assert json.loads(pool.conn.calls[0][1][27]) == {}
+
+
+# ── a newly promoted entity opens a case (opt-in) ────────────────────────────────────────────────────────────────────────
+
+PROMOTION = {
+    "entity_type": "host",
+    "entity_value": "WIN-DC01",
+    "score": 95.0,
+    "alert_count": 4,
+    "contributing_alerts": [str(uuid.uuid4()), "not-a-uuid", str(uuid.uuid4())],
+    "severities": {"high": 3, "medium": 1},
+}
+
+
+def test_the_case_for_a_promotion_names_the_entity_score_and_alerts_and_skips_bad_ids():
+    from app.services.alert_sink import case_for_promotion
+
+    case = case_for_promotion(PROMOTION, "Credential dumping via LSASS access", 80.0)
+    assert case["title"] == "Risk-based alert: host WIN-DC01"
+    assert "reached 95" in case["description"] and "threshold 80" in case["description"] and "3 high, 1 medium" in case["description"]
+    assert "Credential dumping via LSASS access" in case["description"]
+    assert len(case["alert_ids"]) == 2  # the malformed id is dropped, not sent to Postgres
+    assert case["tags"] == {"rba_entity": "host:WIN-DC01", "source": "rba"} and case["entity_key"] == "host:WIN-DC01"
+    assert case["severity"] == "high"
+
+
+def test_a_score_at_twice_the_threshold_is_critical_and_a_record_with_no_entity_opens_nothing():
+    from app.services.alert_sink import case_for_promotion
+
+    assert case_for_promotion({**PROMOTION, "score": 160.0}, "t", 80.0)["severity"] == "critical"
+    assert case_for_promotion({"entity_type": "", "entity_value": "x"}, "t", 80.0) is None
+    assert case_for_promotion({"entity_type": "host", "entity_value": " "}, "t", 80.0) is None
+
+
+class _CaseConn(_StubConn):
+    def __init__(self, row, case_row):
+        super().__init__(row)
+        self.case_row = case_row
+        self.cases: list[tuple] = []
+
+    async def fetchrow(self, sql, *args):
+        if "INTO aisoc_cases" in sql:
+            self.cases.append(args)
+            return self.case_row
+        return await super().fetchrow(sql, *args)
+
+
+def _sink_with(row, case_row):
+    pool = _StubPool(row)
+    pool.conn = _CaseConn(row, case_row)
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    return sink, pool.conn
+
+
+def _promoted_alert():
+    fused = _fused()
+    fused.enrichments["rba_promotions"] = [PROMOTION]
+    return fused
+
+
+@pytest.mark.asyncio
+async def test_with_the_setting_off_a_promotion_opens_no_case(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "rba_open_case", False)
+    fused = _promoted_alert()
+    sink, conn = _sink_with({"id": fused.id}, {"id": uuid.uuid4()})
+    await sink.persist(fused)
+    assert conn.cases == []
+
+
+@pytest.mark.asyncio
+async def test_with_the_setting_on_a_promotion_opens_one_case_and_links_its_alerts(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "rba_open_case", True)
+    fused = _promoted_alert()
+    case_id = uuid.uuid4()
+    sink, conn = _sink_with({"id": fused.id}, {"id": case_id})
+    await sink.persist(fused)
+    assert len(conn.cases) == 1
+    tenant, title, _desc, severity, alert_ids, tags_json, entity_key = conn.cases[0]
+    assert tenant == TENANT and "host WIN-DC01" in title and severity == "high" and len(alert_ids) == 2
+    assert json.loads(tags_json)["rba_entity"] == "host:WIN-DC01" == entity_key
+    (sql, args), = conn.executed
+    assert "UPDATE alerts SET case_id" in sql and args[0] == case_id and args[1] == TENANT
+
+
+@pytest.mark.asyncio
+async def test_an_entity_that_already_has_an_open_case_opens_no_second_one_and_links_nothing(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "rba_open_case", True)
+    fused = _promoted_alert()
+    sink, conn = _sink_with({"id": fused.id}, None)  # the INSERT ... WHERE NOT EXISTS returned no row
+    await sink.persist(fused)
+    assert len(conn.cases) == 1 and not hasattr(conn, "executed")
+
+
+@pytest.mark.asyncio
+async def test_a_promotion_on_a_duplicate_alert_still_opens_the_case(monkeypatch):
+    """A re-sent record is stored once but still scores the entity; the promotion it causes must not be lost."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "rba_open_case", True)
+    fused = _promoted_alert()
+    sink, conn = _sink_with(None, {"id": uuid.uuid4()})  # insert filtered out: a duplicate
+    result = await sink.persist(fused)
+    assert result.outcome is PersistOutcome.DUPLICATE and len(conn.cases) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failure_opening_the_case_never_loses_the_alert(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "rba_open_case", True)
+    fused = _promoted_alert()
+    sink, conn = _sink_with({"id": fused.id}, {"id": uuid.uuid4()})
+
+    async def boom(sql, *args):
+        if "INTO aisoc_cases" in sql:
+            raise RuntimeError("cases table missing")
+        return {"id": fused.id}
+
+    conn.fetchrow = boom  # type: ignore[method-assign]
+    result = await sink.persist(fused)
+    assert result.outcome is PersistOutcome.INSERTED

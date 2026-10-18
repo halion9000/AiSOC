@@ -471,6 +471,8 @@ services:
     ports:
       - "127.0.0.1:8003:8003"
     environment:
+      # Open a case when an entity is newly promoted by risk-based alerting (one open case per entity). Off by default: promotion then only marks the entity in the Entities queue.
+      AISOC_RBA_OPEN_CASE: ${AISOC_RBA_OPEN_CASE:-false}
       # Bearer token required on every route except /health and /metrics; an empty token answers 503.
       ENVIRONMENT: ${AISOC_ENVIRONMENT:-production}
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
