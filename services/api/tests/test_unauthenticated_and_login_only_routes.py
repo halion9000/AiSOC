@@ -94,6 +94,10 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
     ): "CORE's devices: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add devices under that feed's own mapped client tenants",
     (
         "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/device-names",
+    ): "CORE's device names for vendor incidents: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only fill an empty host list on that feed's own alerts",
+    (
+        "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/tickets",
     ): "CORE's linked PSA tickets: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add ticket details to that feed's own alerts",
     (

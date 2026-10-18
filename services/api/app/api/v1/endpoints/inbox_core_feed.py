@@ -646,3 +646,59 @@ async def report_core_feed_tickets(tenant_token: str, body: TicketsReport, db: D
     )
     await db.commit()
     return TicketsResponse(updated=updated)
+
+
+class DeviceItem(BaseModel):
+    uid: str = Field(min_length=1, max_length=200)
+    hostname: str = Field(min_length=1, max_length=255)
+
+
+class DevicesReport(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    items: list[DeviceItem] = Field(max_length=500)
+
+
+class DevicesResponse(BaseModel):
+    updated: int
+
+
+async def apply_devices(db: Any, tenant_id: Any, report: DevicesReport) -> int:
+    """Name the device on stored alerts that have none (``affected_hosts``), in ``tenant_id``. Only an EMPTY host list is filled: what ingestion already set is never overwritten, and nothing is re-scored.
+    The caller owns the transaction."""
+    prefix = f"{report.vendor}:"
+    updated = 0
+    for item in report.items:
+        host = item.hostname.strip()
+        if not host or not item.uid.startswith(prefix):
+            continue
+        result = await db.execute(
+            update(Alert)
+            .where(
+                Alert.tenant_id == tenant_id,
+                Alert.raw_event["finding"]["uid"].astext == item.uid,
+                func.jsonb_array_length(func.coalesce(Alert.affected_hosts, literal([], type_=JSONB))) == 0,
+            )
+            .values(affected_hosts=literal([host], type_=JSONB))
+        )
+        updated += result.rowcount or 0
+    return updated
+
+
+@router.post("/core-feed/{tenant_token}/device-names", response_model=DevicesResponse)
+async def report_core_feed_devices(tenant_token: str, body: DevicesReport, db: DBSession) -> DevicesResponse:
+    """Record the device a vendor's incidents were raised on, for stored alerts that were forwarded without one (a Huntress incident names only its agent)."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    prefix = f"{body.vendor}:"
+    holders = await _tenants_holding(db, tenant_id, [i.uid for i in body.items if i.uid.startswith(prefix)])
+    held = dict(holders)
+    updated = sum(
+        await _across(
+            db,
+            tenant_id,
+            lambda tid: apply_devices(db, tid, body.model_copy(update={"items": [i for i in body.items if i.uid in held[tid]]})),
+            tenants=[tid for tid, _ in holders],
+        )
+    )
+    await db.commit()
+    return DevicesResponse(updated=updated)

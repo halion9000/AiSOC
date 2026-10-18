@@ -60,6 +60,9 @@ PUBLIC = {
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/tickets"): (
         "CORE's list of the PSA tickets linked to open incidents: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add ticket details to that feed's own alerts (the 422 here is the empty body)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/device-names"): (
+        "CORE's names for the devices vendor incidents were raised on: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only fill an EMPTY host list on that feed's own alerts (the 422 here is the empty body)"
+    ),
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/devices"): (
         "CORE's list of a tool's devices: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add or update devices under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
     ),
