@@ -264,7 +264,7 @@ async def test_the_insert_is_told_the_incident_id_so_a_changed_fingerprint_canno
     await sink.persist(_fused_from_core("petra:abc"))
     sql, args = pool.conn.calls[0]
     assert "finding" in sql and "NOT EXISTS" in sql
-    assert args[-1] == "petra:abc"
+    assert args[26] == "petra:abc"
 
 
 @pytest.mark.asyncio
@@ -273,7 +273,7 @@ async def test_an_alert_without_an_incident_id_is_judged_by_its_fingerprint_alon
     sink = AlertSink("postgresql://x")
     sink._pool = pool
     await sink.persist(_fused_from_core(None))
-    assert pool.conn.calls[0][1][-1] is None
+    assert pool.conn.calls[0][1][26] is None
 
 
 @pytest.mark.asyncio
@@ -285,3 +285,27 @@ async def test_a_dedup_hit_by_incident_id_refreshes_the_stored_alert():
     await sink.persist(fused)
     (sql, args), = pool.conn.executed
     assert "finding" in sql and args[-1] == "petra:abc"
+
+
+@pytest.mark.asyncio
+async def test_the_fusion_incident_id_is_kept_on_the_alert_row():
+    """Fusion groups related alerts into an incident (Redis only); the alert row used to carry no trace of it, so nothing could say which alerts belong together."""
+    fused = _fused()
+    fused.incident_id = uuid.uuid4()
+    pool = _StubPool(row={"id": fused.id})
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    await sink.persist(fused)
+    (sql, args) = pool.conn.calls[0]
+    assert "enrichment_data" in sql and "$28::jsonb" in sql
+    assert json.loads(args[27]) == {"fusion_incident_id": str(fused.incident_id)}
+
+
+@pytest.mark.asyncio
+async def test_an_alert_with_no_incident_stores_an_empty_enrichment_object_not_null():
+    fused = _fused()
+    pool = _StubPool(row={"id": fused.id})
+    sink = AlertSink("postgresql://x")
+    sink._pool = pool
+    await sink.persist(fused)
+    assert json.loads(pool.conn.calls[0][1][27]) == {}

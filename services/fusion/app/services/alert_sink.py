@@ -72,7 +72,8 @@ INSERT INTO alerts (
     narrative, anomaly_score, event_time,
     connector_id, connector_type, source_event_ids, ocsf_class_uid,
     rule_id, rule_name,
-    affected_ips, affected_hosts, affected_users
+    affected_ips, affected_hosts, affected_users,
+    enrichment_data
 )
 SELECT
     $1, $2, $3, $4, $5, 'new',
@@ -81,7 +82,8 @@ SELECT
     $15, $16, COALESCE($17, NOW()),
     $18, $19, $20::jsonb, $21,
     $22, $23,
-    $24::jsonb, $25::jsonb, $26::jsonb
+    $24::jsonb, $25::jsonb, $26::jsonb,
+    $28::jsonb
 WHERE NOT EXISTS (
     SELECT 1 FROM alerts WHERE tenant_id = $2 AND dedup_hash = $11::text
 )
@@ -269,6 +271,7 @@ class AlertSink:
                     json.dumps(_affected(alert.hostname)),
                     json.dumps(_affected(alert.username)),
                     _finding_uid(alert),
+                    json.dumps({"fusion_incident_id": str(fused.incident_id)} if fused.incident_id else {}),
                 )
             if row is None:
                 logger.debug("alert_sink.dedup_skip", fingerprint=alert.fingerprint())
