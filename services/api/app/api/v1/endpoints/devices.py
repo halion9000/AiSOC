@@ -10,8 +10,10 @@ what is flagged; every tool's devices are stored the same way, so changing it la
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
+import time
 import re
 import uuid
 from datetime import UTC, datetime
@@ -245,6 +247,34 @@ async def _alerts_by_host(db: Any, tid: uuid.UUID) -> dict[str, list[DeviceAlert
     return grouped
 
 
+# Building every device of a client (or of all of them) takes seconds and a database connection, and the page asks for the list AND the duplicates together, often twice. Left alone those
+# requests queue up in one worker, each holding a connection, until the pool runs dry and the API answers 500. So concurrent loads of the same scope share one, and the result is kept for a few
+# seconds. Anything that changes devices (a sync, a merge, a dismissal, the master setting) clears it, so a change is never hidden behind it.
+LOAD_CACHE_SECONDS = 20.0
+_loaded: dict[tuple, tuple[float, list[DeviceOut]]] = {}
+_load_locks: dict[tuple, asyncio.Lock] = {}
+
+
+def forget_loaded() -> None:
+    _loaded.clear()
+
+
+async def _load_cached(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[uuid.UUID, str], master: str | None) -> list[DeviceOut]:
+    key = (owner, tuple(tids), master)
+    lock = _load_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        hit = _loaded.get(key)
+        if hit is not None and time.monotonic() - hit[0] < LOAD_CACHE_SECONDS:
+            return hit[1]
+        devices = await _load(db, owner, tids, clients, master)
+        _loaded[key] = (time.monotonic(), devices)
+        if len(_loaded) > 64:  # never grow without bound: drop whatever is oldest
+            for old in sorted(_loaded, key=lambda k: _loaded[k][0])[:32]:
+                _loaded.pop(old, None)
+                _load_locks.pop(old, None)
+        return devices
+
+
 async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[uuid.UUID, str], master: str | None) -> list[DeviceOut]:
     out: list[DeviceOut] = []
     for tid in tids:
@@ -302,6 +332,7 @@ async def put_settings(
         devices.pop("master_vendor", None)
     settings["devices"] = devices
     tenant.settings = settings
+    forget_loaded()
     await db.commit()
     return DeviceSettings(master_vendor=body.master_vendor or None)
 
@@ -326,7 +357,7 @@ async def list_devices(
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
     master = _master_of(await db.get(Tenant, owner))
-    everything = await _load(db, owner, scope, clients, master)
+    everything = await _load_cached(db, owner, scope, clients, master)
     summary = DeviceSummary(
         total=len(everything),
         not_in_master=sum(1 for d in everything if not d.in_master),
@@ -407,7 +438,7 @@ async def list_duplicates(
             pairs = await possible_duplicates(db, tid)
         if not pairs:
             continue
-        by_id = {d.id: d for d in await _load(db, owner, [tid], clients, master)}
+        by_id = {d.id: d for d in await _load_cached(db, owner, [tid], clients, master)}
         items.extend(DuplicatePairOut(a=by_id[a], b=by_id[b]) for a, b in pairs if a in by_id and b in by_id)
     items.sort(key=lambda p: ((p.a.client_name or ""), p.a.hostname.lower()))
     return DuplicatesOut(items=items)
@@ -434,6 +465,7 @@ async def dismiss_duplicate(
             await dismiss_pair(db, tid, body.device_a, body.device_b)
     except DeviceMergeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    forget_loaded()
     await db.commit()
 
 
@@ -449,6 +481,7 @@ async def merge_duplicate(
             kept = await merge_devices(db, tid, body.keep, body.remove)
     except DeviceMergeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    forget_loaded()
     await db.commit()
     scope, clients = await _scope(db, owner, tid if tid != owner else None)
     master = _master_of(await db.get(Tenant, owner))
@@ -571,5 +604,6 @@ async def report_core_feed_devices(tenant_token: str, body: DevicesReport, db: D
     owner = await _verify_core_feed_token(db, tenant_token)
     await adopt_tenant(db, owner)
     result = await apply_devices(db, owner, body)
+    forget_loaded()
     await db.commit()
     return result
