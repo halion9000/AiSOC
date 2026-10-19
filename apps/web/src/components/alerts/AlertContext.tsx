@@ -9,7 +9,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import useSWR from 'swr';
-import { alertsApi, type Alert, type LinkedTicket } from '@/lib/api';
+import { alertsApi, type Alert, type LinkedTicket, type RelatedAlert } from '@/lib/api';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
 import { safeTicketUrl } from './LinkedTicketsSection';
 
@@ -63,6 +63,31 @@ export function TicketRows({ tickets, onRemove }: { tickets: LinkedTicket[]; onR
 export function alertContextOf(alert: Pick<Alert, 'clientName' | 'affectedHosts' | 'affectedUsers' | 'affectedIps' | 'device'>) {
   const hosts = alert.affectedHosts && alert.affectedHosts.length > 0 ? alert.affectedHosts : alert.device ? [alert.device] : [];
   return { company: alert.clientName ?? null, hosts, users: alert.affectedUsers ?? [], ips: alert.affectedIps ?? [] };
+}
+
+/** Other alerts about the same device or person: where they came from, why they match, and a link to each. Shows nothing when there are none. */
+export function RelatedAlertsList({ items, more }: { items: RelatedAlert[]; more: number }) {
+  if (items.length === 0) return null;
+  const shown = items.slice(0, 5);
+  const rest = items.length - shown.length + more;
+  return (
+    <section aria-label="Related alerts" className="rounded-xl border border-gray-800/60 bg-gray-900/60 p-5" data-testid="related-alerts">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Also seen on this device or user (last 30 days)</h3>
+      <ul className="space-y-2 text-sm">
+        {shown.map((a) => (
+          <li key={a.id} className="flex flex-wrap items-baseline gap-x-2">
+            <Link href={`/alerts/${a.id}`} className="text-blue-400 hover:text-blue-300">
+              {a.title}
+            </Link>
+            <span className="text-xs text-gray-500">
+              {a.source ? vendorLabel(a.source) : 'unknown tool'} · {a.severity ?? 'unknown'} · same {a.matched} · {a.created_at.slice(0, 10)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {rest > 0 && <p className="mt-2 text-xs text-gray-500">and {rest} more</p>}
+    </section>
+  );
 }
 
 /** The form to link a ticket by hand. The number is required; the summary and link are optional. */
@@ -143,7 +168,9 @@ export function AlertContext({ alert }: { alert: Alert }) {
   }
   const { company, hosts, users, ips } = alertContextOf(alert);
   const tool = toolLinks(alert);
+  const related = useSWR(['alerts', alert.id, 'related'] as const, () => alertsApi.related(alert.id));
   return (
+    <>
     <section aria-label="Where and who" className="rounded-xl border border-gray-800/60 bg-gray-900/60 p-5" data-testid="alert-context">
       <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">Where and who</h3>
       <div className="space-y-3">
@@ -199,5 +226,7 @@ export function AlertContext({ alert }: { alert: Alert }) {
         </Row>
       </div>
     </section>
+    <RelatedAlertsList items={related.data?.items ?? []} more={related.data?.more ?? 0} />
+    </>
   );
 }

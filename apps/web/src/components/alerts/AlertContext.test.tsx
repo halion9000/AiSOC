@@ -5,9 +5,10 @@ import { SWRConfig } from 'swr';
 import type { Alert } from '@/lib/api';
 
 const vendorActions = vi.hoisted(() => vi.fn());
+const related = vi.hoisted(() => vi.fn());
 const addTicket = vi.hoisted(() => vi.fn());
 const removeTicket = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/api', () => ({ alertsApi: { vendorActions, addTicket, removeTicket } }));
+vi.mock('@/lib/api', () => ({ alertsApi: { vendorActions, addTicket, removeTicket, related } }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('react-hot-toast', () => ({ default: toast }));
 
@@ -25,6 +26,7 @@ const renderCtx = (a: Alert) =>
 
 beforeEach(() => {
   vendorActions.mockReset().mockResolvedValue({ supported: false, actions: [], tickets: [] });
+  related.mockReset().mockResolvedValue({ items: [], more: 0 });
   addTicket.mockReset().mockResolvedValue({ tickets: [] });
   removeTicket.mockReset().mockResolvedValue({ tickets: [] });
   toast.success.mockReset();
@@ -147,5 +149,27 @@ describe('links to the device and the user in the tool', () => {
     expect(toolLinks(alert({ source: 'huntress', links: { device_url: 'javascript:alert(1)', user_url: 'http://insecure.example.com' } }))).toEqual({ device: null, user: null });
     renderCtx(alert({ source: 'huntress', affectedHosts: ['PC-1'] }));
     expect(screen.queryByRole('link', { name: 'Open in Huntress' })).not.toBeInTheDocument();
+  });
+});
+
+describe('other alerts about the same device or user', () => {
+  it('lists them with the tool, why they match and a link, and counts the ones not shown', async () => {
+    related.mockResolvedValue({
+      items: Array.from({ length: 7 }, (_, i) => ({ id: `r${i}`, title: `Earlier ${i}`, severity: 'high', status: 'new', source: i === 0 ? 'petra' : 'huntress', created_at: '2026-10-1' + (i % 9) + 'T00:00:00Z', matched: i === 0 ? 'user' : 'device' })),
+      more: 1,
+    });
+    renderCtx(alert({ affectedHosts: ['PC-1'] }));
+    const section = await screen.findByTestId('related-alerts');
+    expect(section).toHaveTextContent('Petra');
+    expect(section).toHaveTextContent('same user');
+    expect(screen.getByRole('link', { name: 'Earlier 0' })).toHaveAttribute('href', '/alerts/r0');
+    expect(screen.getAllByRole('link', { name: /^Earlier/ })).toHaveLength(5);
+    expect(section).toHaveTextContent('and 3 more');
+  });
+
+  it('shows nothing at all when there are no related alerts', async () => {
+    renderCtx(alert({ affectedHosts: ['PC-1'] }));
+    await waitFor(() => expect(related).toHaveBeenCalled());
+    expect(screen.queryByTestId('related-alerts')).not.toBeInTheDocument();
   });
 });

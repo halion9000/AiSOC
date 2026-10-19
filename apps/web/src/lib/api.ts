@@ -1157,6 +1157,16 @@ export interface VendorActions {
   tickets: LinkedTicket[];
 }
 
+export interface RelatedAlert {
+  id: string;
+  title: string;
+  severity?: string | null;
+  status?: string | null;
+  source?: string | null;
+  created_at: string;
+  matched: 'device' | 'user' | 'device and user';
+}
+
 export interface LinkedTicket {
   id: string;
   system: 'halopsa';
@@ -1229,6 +1239,9 @@ export const alertsApi = {
   /** Queue an approve / reject / resolve for CORE to carry out at the vendor. Nothing has happened at the vendor when this returns. */
   requestVendorAction: (id: string, body: VendorActionRequest) =>
     request<VendorActionItem>(`/api/v1/alerts/${id}/vendor-actions`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** Other alerts from the last 30 days that name the same device or user, from any tool. */
+  related: (id: string) => request<{ items: RelatedAlert[]; more: number }>(`/api/v1/alerts/${id}/related`),
 
   /** Link a ticket to the alert by hand, for one CORE could not match. Returns every ticket now linked. */
   addTicket: (id: string, body: { id: string; summary?: string; url?: string }) =>
