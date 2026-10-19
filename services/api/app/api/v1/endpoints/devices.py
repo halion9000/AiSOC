@@ -131,7 +131,7 @@ def is_mobile(d: Any) -> bool:
 
 OFFLINE_AFTER_DAYS = 7
 # A device no tool has seen online for this long stops counting toward every number and filter except the offline count: a machine in a drawer is not a problem to chase. It stays in the list.
-LONG_OFFLINE_DAYS = 30
+LONG_OFFLINE_DAYS = 10
 
 
 def offline_days_of(last_online: datetime | None, now: datetime | None = None) -> int | None:

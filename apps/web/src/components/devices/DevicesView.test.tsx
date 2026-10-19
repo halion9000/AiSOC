@@ -407,7 +407,7 @@ describe('devices offline for a month', () => {
   it('says how many are left out of the other numbers', async () => {
     listMock.mockResolvedValue(list([device({ hostname: 'A' })], { summary: { total: 3, not_in_master: 0, long_offline: 2 } }));
     render(<DevicesView />);
-    expect(await screen.findByTestId('long-offline-note')).toHaveTextContent('2 devices offline for 30 days or more');
+    expect(await screen.findByTestId('long-offline-note')).toHaveTextContent('2 devices offline for 10 days or more');
   });
 
   it('says nothing when there are none', async () => {

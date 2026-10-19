@@ -285,7 +285,7 @@ export default function DevicesView() {
       </div>
       {(data?.summary.long_offline ?? 0) > 0 && (
         <p data-testid="long-offline-note" className="text-xs text-gray-500">
-          {data?.summary.long_offline} device{data?.summary.long_offline === 1 ? '' : 's'} offline for 30 days or more still show in the list and the offline count, but are left out of the other numbers.
+          {data?.summary.long_offline} device{data?.summary.long_offline === 1 ? '' : 's'} offline for 10 days or more still show in the list and the offline count, but are left out of the other numbers.
         </p>
       )}
 

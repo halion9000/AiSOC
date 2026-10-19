@@ -301,15 +301,15 @@ def aged(name, days, **kw):
     return dev(name, **kw).model_copy(update={"offline_days": days})
 
 
-def test_a_device_offline_for_thirty_days_is_long_offline_and_a_younger_one_is_not():
-    assert LONG_OFFLINE_DAYS == 30
-    assert long_offline(aged("A", 30)) and long_offline(aged("B", 200))
-    assert not long_offline(aged("C", 29)) and not long_offline(aged("D", None))
+def test_a_device_offline_for_ten_days_is_long_offline_and_a_younger_one_is_not():
+    assert LONG_OFFLINE_DAYS == 10
+    assert long_offline(aged("A", 10)) and long_offline(aged("B", 200))
+    assert not long_offline(aged("C", 9)) and not long_offline(aged("D", None))
 
 
 def test_the_problem_filters_leave_a_long_offline_device_out_but_the_offline_filter_and_plain_list_keep_it():
     drawer = aged("DRAWER", 45, sources=[("huntress", {"needs_attention": ["Defender: Unhealthy"]})]).model_copy(update={"open_alerts": 2})
-    fresh = aged("FRESH", 10, sources=[("huntress", {"needs_attention": ["Defender: Unhealthy"]})]).model_copy(update={"open_alerts": 1})
+    fresh = aged("FRESH", 8, sources=[("huntress", {"needs_attention": ["Defender: Unhealthy"]})]).model_copy(update={"open_alerts": 1})
     rows = [drawer, fresh]
     names = lambda found: [d.hostname for d in found]  # noqa: E731
     assert names(filter_devices(rows)) == ["DRAWER", "FRESH"]
@@ -322,7 +322,7 @@ def test_the_problem_filters_leave_a_long_offline_device_out_but_the_offline_fil
 def test_the_client_rollup_counts_a_long_offline_device_as_offline_only():
     rows = [
         aged("DRAWER", 45, sources=[("huntress", {"needs_attention": ["Defender: Unhealthy"]})]),
-        aged("FRESH", 10, sources=[("huntress", {"needs_attention": ["Defender: Unhealthy"]})]),
+        aged("FRESH", 8, sources=[("huntress", {"needs_attention": ["Defender: Unhealthy"]})]),
         aged("NO-HUNTRESS-OLD", 90),
     ]
     same = uuid.uuid4()
