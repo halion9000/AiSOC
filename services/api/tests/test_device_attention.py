@@ -136,3 +136,48 @@ def test_iphones_and_ipads_are_recognised_by_model_alone_and_never_counted_as_mi
     assert not is_missing_from(phone, "threatmate") and not is_missing_from(phone, "huntress")
     by_model = DeviceOut(id=uuid.uuid4(), tenant_id=uuid.uuid4(), hostname="h", os=None, model="iPhone17,3", last_seen=datetime.now(UTC), first_seen=datetime.now(UTC), sources=[])
     assert not is_missing_from(by_model, "threatmate") and not is_missing_from(by_model, "huntress")
+
+
+# ---- stale agents, a disagreement between tools, and the per-client rollup --------------------------------------------------------------------------------
+
+from app.api.v1.endpoints.devices import STALE_AGENT_DAYS, rollup_of, stale_days_of  # noqa: E402
+
+
+def with_online(d, online):
+    return d.model_copy(update={"online": online})
+
+
+def test_a_stale_agent_is_one_that_has_not_checked_in_for_two_weeks_and_the_worst_one_counts():
+    fresh = device("Windows 11", [("huntress", {"days_since_checkin": STALE_AGENT_DAYS - 1})])
+    old = device("Windows 11", [("huntress", {"days_since_checkin": 20}), ("other", {"days_since_checkin": 40})])
+    assert stale_days_of(fresh) is None
+    assert stale_days_of(old) == 40
+    assert stale_days_of(device("Windows 11", [("huntress", {"days_since_checkin": "20"})])) is None, "only a whole number counts"
+    assert stale_days_of(device("Windows 11", [("ninjaone", {})])) is None
+
+
+def test_another_tool_saying_online_while_huntress_is_stale_is_a_reason_to_look():
+    d = device("Windows 11", [("huntress", {"days_since_checkin": 30}), ("ninjaone", {})])
+    assert attention_of(with_online(d, True)) == ["Another tool says this machine is online, but its Huntress agent has not checked in for 30 days"]
+    assert attention_of(with_online(d, False)) == [] and attention_of(with_online(d, None)) == [], "only a machine another tool calls online is a disagreement"
+    quiet = with_online(device("Windows 11", [("huntress", {"days_since_checkin": 3})]), True)
+    assert attention_of(quiet) == []
+
+
+def test_the_rollup_counts_each_client_and_puts_the_worst_first():
+    a, b = uuid.uuid4(), uuid.uuid4()
+
+    def dev(tenant, name, sources, online=None):
+        d = device("Windows 11", sources).model_copy(update={"tenant_id": tenant, "client_name": name, "online": online})
+        return d
+
+    rows = rollup_of([
+        dev(a, "Acme", [("huntress", {"needs_attention": ["Defender: Unhealthy"], "days_since_checkin": 30})]),
+        dev(a, "Acme", [("ninjaone", {})]),
+        dev(b, "Zed", [("huntress", {})]),
+    ])
+    assert [r.client_name for r in rows] == ["Acme", "Zed"]
+    acme, zed = rows
+    assert (acme.devices, acme.needs_attention, acme.stale_agents, acme.not_in_huntress) == (2, 1, 1, 1)
+    assert (zed.devices, zed.needs_attention, zed.stale_agents, zed.not_in_huntress) == (1, 0, 0, 0)
+    assert rollup_of([]) == []

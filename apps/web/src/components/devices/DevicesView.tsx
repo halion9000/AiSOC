@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import DuplicateDevices from './DuplicateDevices';
+import { ClientRollupTable } from './ClientRollupTable';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
 
 /**
@@ -39,6 +40,7 @@ export default function DevicesView() {
   const [gapsOnly, setGapsOnly] = useState(false);
   const [missing, setMissing] = useState<Missing | null>(null);
   const [attentionOnly, setAttentionOnly] = useState(false);
+  const [staleOnly, setStaleOnly] = useState(false);
   const [offlineOnly, setOfflineOnly] = useState(false);
   const [alertsOnly, setAlertsOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -47,13 +49,13 @@ export default function DevicesView() {
     setLoading(true);
     setError('');
     try {
-      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined }));
+      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined }));
     } catch (err) {
       setError(devicesLoadError(err));
     } finally {
       setLoading(false);
     }
-  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly]);
+  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly, staleOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), search ? 250 : 0);
@@ -127,6 +129,21 @@ export default function DevicesView() {
           <div className="text-xs text-gray-400">{master ? `Not in ${vendorLabel(master)}` : 'Not in master (pick a master)'}</div>
           <div className="text-2xl font-semibold text-amber-300" data-testid="devices-gaps">
             {master ? (data?.summary.not_in_master ?? '—') : '—'}
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setStaleOnly(!staleOnly);
+            setPage(1);
+          }}
+          aria-pressed={staleOnly}
+          title="Protection agents that have not checked in for two weeks: often a retired machine that still holds a licence"
+          className={`rounded-lg border p-3 text-left ${staleOnly ? 'border-amber-500 bg-amber-500/10' : 'border-gray-800 bg-gray-900/60'}`}
+        >
+          <div className="text-xs text-gray-400">Stale agents</div>
+          <div className="text-2xl font-semibold text-amber-300" data-testid="devices-stale">
+            {data?.summary.stale_agents ?? '—'}
           </div>
         </button>
         <button
@@ -236,6 +253,13 @@ export default function DevicesView() {
           ))}
         </select>
       </div>
+
+      <ClientRollupTable
+        onPick={(id) => {
+          setClientId(id);
+          setPage(1);
+        }}
+      />
 
       <DuplicateDevices clientId={clientId || undefined} onChanged={() => void load()} />
 

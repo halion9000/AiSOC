@@ -7,7 +7,7 @@ const listMock = vi.fn();
 const masterMock = vi.fn();
 const childrenMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  devicesApi: { list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), duplicates: async () => ({ items: [] }) },
+  devicesApi: { rollup: async () => [], list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), duplicates: async () => ({ items: [] }) },
   msspApi: { listChildren: () => childrenMock() },
   apiErrorDetail: () => null,
 }));
@@ -314,5 +314,15 @@ describe('clearer rows and messages', () => {
   it('builds the message from the status and the reason', () => {
     expect(devicesLoadError(Object.assign(new Error('boom'), { status: 502 }))).toMatch(/^Could not load devices \(error 502\): boom\./);
     expect(devicesLoadError('???')).toMatch(/^Could not load devices\. Try again/);
+  });
+});
+
+describe('stale agents', () => {
+  it('shows how many agents have gone quiet and asks only for those when the card is picked', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'OLD-1' })], { summary: { total: 1, not_in_master: 0, stale_agents: 7 } }));
+    render(<DevicesView />);
+    await waitFor(() => expect(screen.getByTestId('devices-stale')).toHaveTextContent('7'));
+    await userEvent.setup().click(screen.getByRole('button', { name: /Stale agents/ }));
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ stale: true })));
   });
 });

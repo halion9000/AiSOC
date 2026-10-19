@@ -92,6 +92,8 @@ class DeviceSummary(BaseModel):
     not_in_huntress: int = 0
     # Devices a tool reports a problem with (Huntress: agent not checking in, Defender or firewall unhealthy, tamper protection not in force).
     needs_attention: int = 0
+    # Devices whose protection agent has not checked in for STALE_AGENT_DAYS or more (Huntress), often a machine that was retired but still holds a licence.
+    stale_agents: int = 0
     # Devices no tool has seen online for OFFLINE_AFTER_DAYS or more, and devices with at least one open alert.
     offline: int = 0
     with_alerts: int = 0
@@ -165,14 +167,54 @@ def online_now_of(sources: list[Any]) -> bool | None:
     return any(flags)
 
 
+STALE_AGENT_DAYS = 14
+
+
+def stale_days_of(d: DeviceOut) -> int | None:
+    """The longest any of the device's protection agents has gone without checking in (``days_since_checkin`` a tool reports), when that is STALE_AGENT_DAYS or more; None otherwise."""
+    worst: int | None = None
+    for s in d.sources:
+        days = s.details.get("days_since_checkin")
+        if isinstance(days, int) and not isinstance(days, bool) and days >= STALE_AGENT_DAYS and (worst is None or days > worst):
+            worst = days
+    return worst
+
+
 def attention_of(d: DeviceOut) -> list[str]:
-    """What the tools say needs a person's attention on this device (each source's ``needs_attention`` list), in plain words."""
+    """What needs a person's attention on this device: what each tool reports (its ``needs_attention`` list), and a disagreement between tools that no single tool could see: another tool says the
+    machine is online while its Huntress agent has gone quiet, so either the machine is in use unprotected or one of the two records is stale."""
     out: list[str] = []
     for s in d.sources:
         items = s.details.get("needs_attention")
         if isinstance(items, list):
             out.extend(str(i) for i in items if isinstance(i, str) and i)
+    stale = stale_days_of(d)
+    if stale is not None and d.online is True:
+        out.append(f"Another tool says this machine is online, but its Huntress agent has not checked in for {stale} days")
     return out
+
+
+class ClientRollup(BaseModel):
+    client_id: uuid.UUID
+    client_name: str | None
+    devices: int
+    needs_attention: int
+    stale_agents: int
+    not_in_huntress: int
+    offline: int
+
+
+def rollup_of(devices: list[DeviceOut]) -> list[ClientRollup]:
+    """One row per client: how many devices, and how many of them need attention, have a stale agent, are not in Huntress or have been offline a week. Worst first, then by name."""
+    rows: dict[uuid.UUID, ClientRollup] = {}
+    for d in devices:
+        r = rows.setdefault(d.tenant_id, ClientRollup(client_id=d.tenant_id, client_name=d.client_name, devices=0, needs_attention=0, stale_agents=0, not_in_huntress=0, offline=0))
+        r.devices += 1
+        r.needs_attention += 1 if attention_of(d) else 0
+        r.stale_agents += 1 if stale_days_of(d) is not None else 0
+        r.not_in_huntress += 1 if is_missing_from(d, "huntress") else 0
+        r.offline += 1 if d.offline_days is not None else 0
+    return sorted(rows.values(), key=lambda r: (-r.needs_attention, -r.stale_agents, (r.client_name or "").lower()))
 
 
 def is_missing_from(d: DeviceOut, tool: str) -> bool:
@@ -304,6 +346,7 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     sources=[DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}) for s in srcs],
                     in_master=master is None or any(s.vendor == master for s in srcs) or is_mobile(d),
                     last_online=(online := last_online_of(srcs)),
+                    online=online_now_of(srcs),
                     offline_days=offline_days_of(online),
                     open_alerts=len(alerts.get(host_key(d.hostname), [])),
                     alerts=alerts.get(host_key(d.hostname), [])[:_ALERTS_PER_DEVICE],
@@ -353,6 +396,7 @@ async def list_devices(
     offline: bool = Query(default=False, description="Only devices no tool has seen online for a week or more."),
     has_alerts: bool = Query(default=False, description="Only devices with at least one open alert."),
     attention: bool = Query(default=False, description="Only devices a tool reports a problem with."),
+    stale: bool = Query(default=False, description="Only devices whose protection agent has not checked in for two weeks or more."),
 ) -> DeviceListOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
@@ -365,6 +409,7 @@ async def list_devices(
         not_in_threatmate=sum(1 for d in everything if is_missing_from(d, "threatmate")),
         not_in_huntress=sum(1 for d in everything if is_missing_from(d, "huntress")),
         needs_attention=sum(1 for d in everything if attention_of(d)),
+        stale_agents=sum(1 for d in everything if stale_days_of(d) is not None),
         offline=sum(1 for d in everything if d.offline_days is not None),
         with_alerts=sum(1 for d in everything if d.open_alerts > 0),
     )
@@ -389,6 +434,8 @@ async def list_devices(
         rows = [d for d in rows if d.open_alerts > 0]
     if attention:
         rows = [d for d in rows if attention_of(d)]
+    if stale:
+        rows = [d for d in rows if stale_days_of(d) is not None]
     rows.sort(key=lambda d: (d.client_name or "", d.hostname.lower()))
     total = len(rows)
     start = (page - 1) * page_size
@@ -420,6 +467,14 @@ class DismissIn(BaseModel):
 class MergeIn(BaseModel):
     keep: uuid.UUID = Field(description="The device that stays; every tool that reported the other one now reports this one.")
     remove: uuid.UUID
+
+
+@router.get("/rollup", response_model=list[ClientRollup], summary="Per client: devices, how many need attention, have a stale agent, are not in Huntress or are offline")
+async def devices_rollup(current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> list[ClientRollup]:
+    owner = current_user.tenant_id
+    scope, clients = await _scope(db, owner, None)
+    master = _master_of(await db.get(Tenant, owner))
+    return rollup_of(await _load_cached(db, owner, scope, clients, master))
 
 
 @router.get("/duplicates", response_model=DuplicatesOut)

@@ -290,6 +290,8 @@
       "client_id",
       "search",
       "missing",
+      "attention",
+      "stale",
       "not_in_master",
       "offline",
       "has_alerts",
@@ -299,7 +301,8 @@
     "enums": {
       "missing": [
         "addigy",
-        "threatmate"
+        "threatmate",
+        "huntress"
       ]
     },
     "numbers": {

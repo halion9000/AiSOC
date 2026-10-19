@@ -547,7 +547,7 @@ export interface DeviceAlert {
 
 export interface DeviceList {
   master_vendor: string | null;
-  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; needs_attention?: number; offline?: number; with_alerts?: number };
+  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; needs_attention?: number; stale_agents?: number; offline?: number; with_alerts?: number };
   items: DeviceRow[];
   total: number;
   page: number;
@@ -566,6 +566,8 @@ export interface DeviceQuery {
   missing?: 'addigy' | 'threatmate' | 'huntress';
   /** Only devices a tool reports a problem with. */
   attention?: boolean;
+  /** Only devices whose protection agent has not checked in for two weeks or more. */
+  stale?: boolean;
   /** Only devices no tool has seen online for a week or more. */
   offline?: boolean;
   /** Only devices with at least one open alert. */
@@ -577,7 +579,21 @@ export interface DuplicatePair {
   b: DeviceRow;
 }
 
+export interface ClientRollup {
+  client_id: string;
+  client_name: string | null;
+  devices: number;
+  needs_attention: number;
+  stale_agents: number;
+  not_in_huntress: number;
+  offline: number;
+}
+
 export const devicesApi = {
+  /** Per client: devices, how many need attention, have a stale agent, are not in Huntress or are offline. Worst first. */
+  async rollup(): Promise<ClientRollup[]> {
+    return request<ClientRollup[]>('/api/v1/devices/rollup');
+  },
   /** Pairs of a client's devices that share a name but have no serial number proving they differ. Dismissed pairs are not listed. */
   async duplicates(clientId?: string): Promise<{ items: DuplicatePair[] }> {
     return request(`/api/v1/devices/duplicates${clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''}`);
@@ -600,6 +616,7 @@ export const devicesApi = {
     if (q.notInMaster) p.set('not_in_master', 'true');
     if (q.missing) p.set('missing', q.missing);
     if (q.attention) p.set('attention', 'true');
+    if (q.stale) p.set('stale', 'true');
     if (q.offline) p.set('offline', 'true');
     if (q.hasAlerts) p.set('has_alerts', 'true');
     const qs = p.toString();
