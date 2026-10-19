@@ -13,6 +13,8 @@ vi.mock('@/lib/api', () => ({
   msspApi: { listChildren: () => childrenMock() },
   apiErrorDetail: () => null,
 }));
+const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
+vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
 import DevicesView, { attentionOf, devicesLoadError, facts, protectionLines, ransomwareLinked, specs } from './DevicesView';
@@ -415,5 +417,37 @@ describe('devices offline for a month', () => {
     render(<DevicesView />);
     await screen.findByText('B');
     expect(screen.queryByTestId('long-offline-note')).not.toBeInTheDocument();
+  });
+});
+
+describe('Show alerts button', () => {
+  it('opens the alerts page on every alert about the device, from the expanded row', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'GLF10-002D', open_alerts: 2 })]));
+    render(<DevicesView />);
+    await userEvent.click(await screen.findByText('GLF10-002D'));
+    const link = screen.getByRole('link', { name: 'Show alerts (2 open)' });
+    expect(link).toHaveAttribute('href', '/alerts?device=GLF10-002D&status=all');
+  });
+
+  it('is there even when the device has no open alerts', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'QUIET-1' })]));
+    render(<DevicesView />);
+    await userEvent.click(await screen.findByText('QUIET-1'));
+    expect(screen.getByRole('link', { name: 'Show alerts' })).toHaveAttribute('href', '/alerts?device=QUIET-1&status=all');
+  });
+});
+
+describe('opening from a link with ?search=', () => {
+  it('starts filtered on the device named in the address the ROUTER gives (window.location lags during a client-side navigation)', async () => {
+    routerParams.current = new URLSearchParams('search=Mac');
+    try {
+      listMock.mockResolvedValue(list([device({ hostname: 'Mac' })]));
+      render(<DevicesView />);
+      await screen.findByText('Mac');
+      expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ search: 'Mac' }));
+      expect((screen.getByPlaceholderText(/Search name, serial or client/i) as HTMLInputElement).value).toBe('Mac');
+    } finally {
+      routerParams.current = new URLSearchParams('');
+    }
   });
 });

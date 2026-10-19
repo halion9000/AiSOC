@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
@@ -27,14 +28,30 @@ function when(iso: string): string {
   return Number.isNaN(t.getTime()) ? '' : t.toLocaleString();
 }
 
+/** A URL parameter, from the router when there is one. Reading window.location during a client-side navigation gives the PREVIOUS page's address (the router changes it after the new page renders), so a link with ?search= opened an unfiltered list. */
+function urlParam(params: URLSearchParams | null, name: string): string {
+  const fromRouter = params?.get(name);
+  if (fromRouter != null) return fromRouter;
+  return typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? '');
+}
+
 export default function DevicesView() {
+  const urlParams = useSearchParams();
   const [data, setData] = useState<DeviceList | null>(null);
   const [clients, setClients] = useState<ChildTenant[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   // A link from an alert (/devices?search=PC-1) opens the page already searching for that device.
-  const [search, setSearch] = useState(() => (typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get('search') ?? '').slice(0, 100)));
+  const urlSearch = urlParam(urlParams, 'search').slice(0, 100);
+  const [search, setSearch] = useState(urlSearch);
+  // Following another device link while already on this page (the address changes, the page stays mounted).
+  const [seenUrlSearch, setSeenUrlSearch] = useState(urlSearch);
+  if (seenUrlSearch !== urlSearch) {
+    setSeenUrlSearch(urlSearch);
+    setSearch(urlSearch);
+    setPage(1);
+  }
   const [clientId, setClientId] = useState('');
   const [vendor, setVendor] = useState('');
   const [gapsOnly, setGapsOnly] = useState(false);
@@ -463,6 +480,15 @@ function DeviceRowView({ d, master, open, onToggle, onHide }: { d: DeviceRow; ma
                 <Field key={label} label={label} value={value} />
               ))}
             </dl>
+            <div className="mt-3">
+              <Link
+                href={`/alerts?device=${encodeURIComponent(d.hostname)}&status=all`}
+                onClick={(e) => e.stopPropagation()}
+                className="inline-block rounded border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs text-blue-300 hover:bg-blue-500/20"
+              >
+                Show alerts{(d.open_alerts ?? 0) > 0 ? ` (${d.open_alerts} open)` : ''}
+              </Link>
+            </div>
             {(d.alerts ?? []).length > 0 && (
               <>
                 <h3 className="mb-1 mt-3 text-xs font-semibold uppercase text-gray-400">Open alerts on this device</h3>

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { alertsApi, connectorsApi, msspApi, type Alert, type AlertFilters, type ConfidenceLabel } from '@/lib/api';
 import { clsx } from 'clsx';
 import { safeDistance } from '@/lib/safe-date';
@@ -317,17 +318,32 @@ export function AlertRow({
 
 // ─── Main View ────────────────────────────────────────────────────────────────
 
+/** The list's starting filters from the address: ?device=HOST narrows to a machine, ?status=all|open|new|... picks a status tab (the default is Open all). */
+export function filtersFromUrl(params: URLSearchParams | null): AlertFilters {
+  const read = (name: string): string => {
+    const fromRouter = params?.get(name);
+    if (fromRouter != null) return fromRouter;
+    return typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? '');
+  };
+  const device = read('device').trim() || undefined;
+  const wanted = read('status');
+  let status: string | undefined = 'open';
+  if (wanted === 'all') status = undefined;
+  else if (['open', 'new', 'investigating', 'resolved', 'false_positive'].includes(wanted)) status = wanted;
+  return { page: 1, pageSize: 25, ...(status ? { status } : {}), ...(device ? { device } : {}) };
+}
+
 export function AlertsView() {
-  // /alerts?device=HOST opens the list already narrowed to that machine (the devices page links here).
-  const [filters, setFilters] = useState<AlertFilters>(() => {
-    let device: string | undefined;
-    try {
-      device = new URLSearchParams(window.location.search).get('device')?.trim() || undefined;
-    } catch {
-      device = undefined;
-    }
-    return { page: 1, pageSize: 25, status: 'open', ...(device ? { device } : {}) };
-  });
+  // Reading window.location during a client-side navigation gives the PREVIOUS page's address, so the router's parameters are used.
+  const urlParams = useSearchParams();
+  const urlKey = `${urlParams?.get('device') ?? ''}|${urlParams?.get('status') ?? ''}`;
+  const [filters, setFilters] = useState<AlertFilters>(() => filtersFromUrl(urlParams));
+  const [seenUrlKey, setSeenUrlKey] = useState(urlKey);
+  if (seenUrlKey !== urlKey) {
+    // Another link to this page while it is already open (for example from a device row).
+    setSeenUrlKey(urlKey);
+    setFilters(filtersFromUrl(urlParams));
+  }
   // Default to the entity-centric queue — that's the whole point of Wave 1's
   // RBA work. Analysts can flip back to the raw alert grid for legacy
   // workflows or when triaging a specific alert ID.

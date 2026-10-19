@@ -103,3 +103,13 @@ describe('status tabs', () => {
     expect(onChange).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, status: 'new' });
   });
 });
+
+describe('filters from the address', () => {
+  it('starts on Open all, narrows to a device, and honours status=all', async () => {
+    const { filtersFromUrl } = await import('./AlertsView');
+    expect(filtersFromUrl(new URLSearchParams(''))).toEqual({ page: 1, pageSize: 25, status: 'open' });
+    expect(filtersFromUrl(new URLSearchParams('device=Mac&status=all'))).toEqual({ page: 1, pageSize: 25, device: 'Mac' });
+    expect(filtersFromUrl(new URLSearchParams('status=resolved'))).toEqual({ page: 1, pageSize: 25, status: 'resolved' });
+    expect(filtersFromUrl(new URLSearchParams('status=bogus'))).toEqual({ page: 1, pageSize: 25, status: 'open' });
+  });
+});
