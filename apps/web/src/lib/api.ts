@@ -638,6 +638,27 @@ export const devicesApi = {
     const qs = p.toString();
     return request<DeviceList>(`/api/v1/devices${qs ? `?${qs}` : ''}`);
   },
+  /** The query string for the same filters the list uses, without paging: what the CSV export takes. */
+  exportQuery(q: DeviceQuery = {}): string {
+    const p = new URLSearchParams();
+    if (q.clientId) p.set('client_id', q.clientId);
+    if (q.search?.trim()) p.set('search', q.search.trim());
+    if (q.vendor) p.set('vendor', q.vendor);
+    if (q.notInMaster) p.set('not_in_master', 'true');
+    if (q.missing) p.set('missing', q.missing);
+    if (q.attention) p.set('attention', 'true');
+    if (q.stale) p.set('stale', 'true');
+    if (q.offline) p.set('offline', 'true');
+    if (q.hasAlerts) p.set('has_alerts', 'true');
+    return p.toString();
+  },
+  /** The devices matching the filters, as CSV text. */
+  async exportCsv(q: DeviceQuery = {}): Promise<string> {
+    const qs = devicesApi.exportQuery(q);
+    const response = await authFetch(`${API_BASE}/api/v1/devices/export.csv${qs ? `?${qs}` : ''}`);
+    if (!response.ok) throw new Error(`Export failed (${response.status})`);
+    return response.text();
+  },
   /** Name the tool whose device list is the master (null for none). Devices it does not report are flagged. */
   async setMaster(vendor: string | null): Promise<{ master_vendor: string | null }> {
     return request('/api/v1/devices/settings', { method: 'PUT', body: JSON.stringify({ master_vendor: vendor }) });

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app import main as app_main
-from app.api.v1.endpoints.health import note_pool_usage, pool_peak, pool_usage, reset_pool_history
+from app.api.v1.endpoints.health import core_feed_row, note_pool_usage, pool_peak, pool_usage, reset_pool_history
 
 
 def test_a_request_over_the_threshold_is_logged_and_one_under_it_is_not(monkeypatch):
@@ -110,3 +110,13 @@ def test_a_failure_reading_the_device_feeds_leaves_the_health_page_working():
 
     assert asyncio.run(_device_feeds_or_none(Broken(), SimpleNamespace(tenant_id=uuid_module.uuid4()))) == []
     assert asyncio.run(_device_feeds_or_none(Broken(), object())) == [], "even a caller object without a tenant"
+
+
+def test_core_going_quiet_is_flagged_after_fifteen_minutes_and_never_having_reported_counts_as_silent():
+    now = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    fresh = core_feed_row(now - timedelta(minutes=3), 7, now)
+    quiet = core_feed_row(now - timedelta(minutes=40), 7, now)
+    assert (fresh["minutes_ago"], fresh["silent"], fresh["sources"]) == (3, False, 7)
+    assert (quiet["minutes_ago"], quiet["silent"]) == (40, True)
+    assert core_feed_row(None, 7, now)["silent"] is True
+    assert core_feed_row(datetime(2026, 10, 19, 11, 50), 1, now)["minutes_ago"] == 10, "a time without a zone is read as UTC"

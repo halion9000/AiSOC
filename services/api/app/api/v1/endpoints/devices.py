@@ -19,7 +19,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -134,11 +134,11 @@ def offline_days_of(last_online: datetime | None, now: datetime | None = None) -
 
 
 def last_online_of(sources: list[Any]) -> datetime | None:
-    """The newest time any tool says the device was actually online (Addigy ``last_online``, NinjaOne ``last_contact``). ``last_seen`` is only when CORE last synced it."""
+    """The newest time any tool says the device was actually online (Addigy ``last_online``, NinjaOne ``last_contact``, Huntress ``last_callback_at``: when its agent last checked in). ``last_seen`` is only when CORE last synced it."""
     best: datetime | None = None
     for s in sources:
         det = s.details or {}
-        raw = det.get("last_online") or det.get("last_contact")
+        raw = det.get("last_online") or det.get("last_contact") or det.get("last_callback_at")
         if not isinstance(raw, str):
             continue
         try:
@@ -380,6 +380,80 @@ async def put_settings(
     return DeviceSettings(master_vendor=body.master_vendor or None)
 
 
+def filter_devices(
+    everything: list[DeviceOut],
+    *,
+    search: str | None = None,
+    vendor: str | None = None,
+    not_in_master: bool = False,
+    missing: str | None = None,
+    offline: bool = False,
+    has_alerts: bool = False,
+    attention: bool = False,
+    stale: bool = False,
+) -> list[DeviceOut]:
+    """The devices a page (or an export) asked for: every filter given must hold. ``search`` matches the name, serial number, client name or any IP address, ignoring case. Sorted by client, then name."""
+    rows = everything
+    if search:
+        needle = search.strip().lower()
+        rows = [
+            d
+            for d in rows
+            if needle in d.hostname.lower()
+            or needle in (d.serial_number or "").lower()
+            or needle in (d.client_name or "").lower()
+            or any(needle in ip.lower() for ip in d.ip_addresses)
+        ]
+    if vendor:
+        rows = [d for d in rows if any(s.vendor == vendor for s in d.sources)]
+    if not_in_master:
+        rows = [d for d in rows if not d.in_master]
+    if missing:
+        rows = [d for d in rows if is_missing_from(d, missing)]
+    if offline:
+        rows = [d for d in rows if d.offline_days is not None]
+    if has_alerts:
+        rows = [d for d in rows if d.open_alerts > 0]
+    if attention:
+        rows = [d for d in rows if attention_of(d)]
+    if stale:
+        rows = [d for d in rows if stale_days_of(d) is not None]
+    return sorted(rows, key=lambda d: (d.client_name or "", d.hostname.lower()))
+
+
+_CSV_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_cell(value: Any) -> str:
+    """A cell that a spreadsheet will show as text: one that starts with =, +, - or @ would be run as a formula, so it is given a leading apostrophe."""
+    text = "" if value is None else str(value)
+    return "'" + text if text.startswith(_CSV_FORMULA_START) else text
+
+
+def devices_csv(rows: list[DeviceOut]) -> str:
+    """The devices as CSV: client, name, serial, OS, tools, last online, what needs attention, open alerts."""
+    import csv
+    import io
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["Client", "Device", "Serial number", "OS", "Tools", "Last online", "Needs attention", "Open alerts"])
+    for d in rows:
+        writer.writerow(
+            [
+                csv_cell(d.client_name),
+                csv_cell(d.hostname),
+                csv_cell(d.serial_number),
+                csv_cell(" ".join(x for x in (d.os, d.os_version) if x)),
+                csv_cell(", ".join(sorted({s.vendor for s in d.sources}))),
+                csv_cell(d.last_online.isoformat() if d.last_online else ""),
+                csv_cell("; ".join(attention_of(d))),
+                d.open_alerts,
+            ]
+        )
+    return out.getvalue()
+
+
 @router.get("", response_model=DeviceListOut)
 async def list_devices(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
@@ -414,29 +488,7 @@ async def list_devices(
         with_alerts=sum(1 for d in everything if d.open_alerts > 0),
     )
 
-    rows = everything
-    if search:
-        needle = search.strip().lower()
-        rows = [
-            d
-            for d in rows
-            if needle in d.hostname.lower() or needle in (d.serial_number or "").lower() or needle in (d.client_name or "").lower()
-        ]
-    if vendor:
-        rows = [d for d in rows if any(s.vendor == vendor for s in d.sources)]
-    if not_in_master:
-        rows = [d for d in rows if not d.in_master]
-    if missing:
-        rows = [d for d in rows if is_missing_from(d, missing)]
-    if offline:
-        rows = [d for d in rows if d.offline_days is not None]
-    if has_alerts:
-        rows = [d for d in rows if d.open_alerts > 0]
-    if attention:
-        rows = [d for d in rows if attention_of(d)]
-    if stale:
-        rows = [d for d in rows if stale_days_of(d) is not None]
-    rows.sort(key=lambda d: (d.client_name or "", d.hostname.lower()))
+    rows = filter_devices(everything, search=search, vendor=vendor, not_in_master=not_in_master, missing=missing, offline=offline, has_alerts=has_alerts, attention=attention, stale=stale)
     total = len(rows)
     start = (page - 1) * page_size
     return DeviceListOut(
@@ -467,6 +519,29 @@ class DismissIn(BaseModel):
 class MergeIn(BaseModel):
     keep: uuid.UUID = Field(description="The device that stays; every tool that reported the other one now reports this one.")
     remove: uuid.UUID
+
+
+@router.get("/export.csv", summary="The devices the page is showing, as a CSV file")
+async def export_devices(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: DBSession,
+    client_id: uuid.UUID | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=100),
+    vendor: str | None = Query(default=None, pattern=_VENDOR),
+    not_in_master: bool = Query(default=False),
+    missing: str | None = Query(default=None, pattern="^(addigy|threatmate|huntress)$"),
+    offline: bool = Query(default=False),
+    has_alerts: bool = Query(default=False),
+    attention: bool = Query(default=False),
+    stale: bool = Query(default=False),
+) -> Response:
+    owner = current_user.tenant_id
+    scope, clients = await _scope(db, owner, client_id)
+    master = _master_of(await db.get(Tenant, owner))
+    everything = await _load_cached(db, owner, scope, clients, master)
+    rows = filter_devices(everything, search=search, vendor=vendor, not_in_master=not_in_master, missing=missing, offline=offline, has_alerts=has_alerts, attention=attention, stale=stale)
+    body = devices_csv(rows)
+    return Response(content=body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="devices.csv"', "Cache-Control": "no-store"})
 
 
 @router.get("/rollup", response_model=list[ClientRollup], summary="Per client: devices, how many need attention, have a stale agent, are not in Huntress or are offline")

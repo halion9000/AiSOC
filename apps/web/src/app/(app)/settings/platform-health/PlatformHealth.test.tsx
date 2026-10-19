@@ -117,3 +117,24 @@ describe('pool history', () => {
     expect(screen.queryByTestId('pool-peak')).not.toBeInTheDocument();
   });
 });
+
+describe('CORE feed silence', () => {
+  const withFeed = (core_feed: unknown) => ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({ overall: 'ok', down: [], services: [{ service: 'fusion', status: 'up', latency_ms: 20, detail: '' }], core_feed, generated_at: '2026-10-19T02:00:00Z' }),
+  });
+
+  it('warns when CORE has gone quiet', async () => {
+    authFetch.mockResolvedValue(withFeed({ sources: 7, last_report: '2026-10-19T01:00:00Z', minutes_ago: 60, silent: true }));
+    render(<PlatformHealth />);
+    expect(await screen.findByTestId('core-silent')).toHaveTextContent('CORE has not reported to AiSOC since 60 minutes ago');
+  });
+
+  it('says nothing while CORE is reporting', async () => {
+    authFetch.mockResolvedValue(withFeed({ sources: 7, last_report: '2026-10-19T01:58:00Z', minutes_ago: 2, silent: false }));
+    render(<PlatformHealth />);
+    await waitFor(() => expect(screen.getByTestId('overall')).toBeInTheDocument());
+    expect(screen.queryByTestId('core-silent')).not.toBeInTheDocument();
+  });
+});

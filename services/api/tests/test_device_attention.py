@@ -181,3 +181,54 @@ def test_the_rollup_counts_each_client_and_puts_the_worst_first():
     assert (acme.devices, acme.needs_attention, acme.stale_agents, acme.not_in_huntress) == (2, 1, 1, 1)
     assert (zed.devices, zed.needs_attention, zed.stale_agents, zed.not_in_huntress) == (1, 0, 0, 0)
     assert rollup_of([]) == []
+
+
+# ---- search by IP, export, and Huntress check-ins as "last online" ---------------------------------------------------------------------------------------
+
+from app.api.v1.endpoints.devices import csv_cell, devices_csv, filter_devices, last_online_of  # noqa: E402
+
+
+def dev(name, ips=(), client="Acme", sources=None, serial=None):
+    d = device("Windows 11", sources or [("ninjaone", {})]).model_copy(update={"hostname": name, "ip_addresses": list(ips), "client_name": client, "serial_number": serial})
+    return d
+
+
+def test_search_finds_a_device_by_name_serial_client_or_any_ip_address_ignoring_case():
+    rows = [dev("FRONT-DESK", ["10.0.0.5", "192.168.1.20"]), dev("BACK-OFFICE", ["10.9.9.9"], client="Zed", serial="ABC123")]
+    names = lambda found: [d.hostname for d in found]  # noqa: E731
+    assert names(filter_devices(rows, search="front")) == ["FRONT-DESK"]
+    assert names(filter_devices(rows, search="abc1")) == ["BACK-OFFICE"]
+    assert names(filter_devices(rows, search="zed")) == ["BACK-OFFICE"]
+    assert names(filter_devices(rows, search="192.168.1.2")) == ["FRONT-DESK"]
+    assert names(filter_devices(rows, search="nothing")) == []
+
+
+def test_filters_combine_and_the_result_is_sorted_by_client_then_name():
+    rows = [dev("B", client="Zed"), dev("a", client="Acme"), dev("C", client="Acme", sources=[("huntress", {"needs_attention": ["Defender: Unhealthy"]})])]
+    assert [d.hostname for d in filter_devices(rows)] == ["a", "C", "B"]
+    assert [d.hostname for d in filter_devices(rows, attention=True)] == ["C"]
+    assert [d.hostname for d in filter_devices(rows, vendor="huntress", attention=True)] == ["C"]
+    assert filter_devices(rows, vendor="addigy") == []
+
+
+def test_a_cell_that_would_run_as_a_formula_is_made_plain_text():
+    assert csv_cell("=HYPERLINK(\"http://evil\")") == "'=HYPERLINK(\"http://evil\")"
+    assert csv_cell("+1") == "'+1" and csv_cell("-2") == "'-2" and csv_cell("@x") == "'@x"
+    assert csv_cell("PC-1") == "PC-1" and csv_cell(None) == "" and csv_cell(7) == "7"
+
+
+def test_the_export_has_a_header_one_row_per_device_and_safe_cells():
+    rows = [dev("=cmd|calc", client="Acme"), dev("PC-2", client="Acme", sources=[("huntress", {"needs_attention": ["Defender: Unhealthy", "Tamper"]}), ("ninjaone", {})])]
+    lines = devices_csv(rows).strip().splitlines()
+    assert lines[0] == "Client,Device,Serial number,OS,Tools,Last online,Needs attention,Open alerts"
+    assert len(lines) == 3
+    assert lines[1].split(",")[1] == "'=cmd|calc"
+    assert "Defender: Unhealthy; Tamper" in lines[2] and "huntress, ninjaone" in lines[2]
+
+
+def test_a_huntress_check_in_counts_as_the_device_having_been_online():
+    stamp = "2026-10-18T10:00:00Z"
+    d = device("Windows 11", [("huntress", {"last_callback_at": stamp})])
+    assert last_online_of(d.sources) == datetime(2026, 10, 18, 10, 0, tzinfo=UTC)
+    newer = device("Windows 11", [("huntress", {"last_callback_at": stamp}), ("addigy", {"last_online": "2026-10-18T11:00:00Z"})])
+    assert last_online_of(newer.sources) == datetime(2026, 10, 18, 11, 0, tzinfo=UTC), "the newest of the tools"

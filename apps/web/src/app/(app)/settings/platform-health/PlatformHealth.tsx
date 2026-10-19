@@ -51,6 +51,7 @@ interface Snapshot {
   down: string[];
   services: ServiceRow[];
   device_feeds?: DeviceFeed[];
+  core_feed?: { sources: number; last_report: string | null; minutes_ago: number | null; silent: boolean } | null;
   database?: DatabaseSecurity;
   generated_at: string;
 }
@@ -106,6 +107,12 @@ export function PlatformHealth() {
             <p role="note" data-testid="pool-warning" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
               The database connection pool is {snapshot.database.pool.percent}% full ({snapshot.database.pool.in_use} of {snapshot.database.pool.limit} in use). When it is full, pages start failing with 500
               errors until requests finish.
+            </p>
+          )}
+          {snapshot.core_feed?.silent && (
+            <p role="note" data-testid="core-silent" className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+              CORE has not reported to AiSOC {snapshot.core_feed.minutes_ago === null ? "yet" : `since ${agoLabel(snapshot.core_feed.minutes_ago).replace(" ago", "")} ago`}. While it is silent, no new alerts, devices or
+              links arrive from Huntress, Petra, NinjaOne and the other tools. Check that CORE is running and can reach AiSOC.
             </p>
           )}
           {snapshot.device_feeds && snapshot.device_feeds.length > 0 && (

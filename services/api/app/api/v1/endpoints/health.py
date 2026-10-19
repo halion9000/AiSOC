@@ -633,6 +633,36 @@ def reset_pool_history() -> None:
     _pool_samples.clear()
 
 
+CORE_FEED_SILENT_AFTER = timedelta(minutes=15)
+
+
+def core_feed_row(last_report: datetime | None, sources: int, now: datetime) -> dict[str, Any]:
+    """Is CORE still reporting to AiSOC? CORE reports every run, including runs that found nothing new, so a long silence means CORE is closed, asleep or cannot reach AiSOC, and nothing from
+    Huntress, Petra, NinjaOne and the rest is arriving. ``silent`` is true after fifteen minutes (or when it has never reported)."""
+    if last_report is None:
+        return {"sources": sources, "last_report": None, "minutes_ago": None, "silent": True}
+    if last_report.tzinfo is None:
+        last_report = last_report.replace(tzinfo=UTC)
+    return {"sources": sources, "last_report": last_report, "minutes_ago": max(0, int((now - last_report).total_seconds() // 60)), "silent": (now - last_report) > CORE_FEED_SILENT_AFTER}
+
+
+async def core_feed_status(db: Any, owner: Any, now: datetime | None = None) -> dict[str, Any] | None:
+    """CORE's last report about its sources, or None when CORE has never been connected to this organization (so there is nothing to warn about)."""
+    from app.models.connector import Connector
+
+    row = (await db.execute(select(func.max(Connector.last_health_check), func.count()).where(Connector.tenant_id == owner, Connector.connector_type == "core_feed"))).first()
+    if row is None or not row[1]:
+        return None
+    return core_feed_row(row[0], int(row[1]), now or datetime.now(UTC))
+
+
+async def _core_feed_or_none(db: Any, user: Any) -> dict[str, Any] | None:
+    try:
+        return await core_feed_status(db, user.tenant_id)
+    except Exception:  # noqa: BLE001 - extra detail on a health page must not take it down
+        return None
+
+
 DEVICE_SYNC_STALLED_AFTER = timedelta(hours=3)
 
 
@@ -724,4 +754,4 @@ async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
         rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
     rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
     down = [r["service"] for r in rows if r["status"] != "up"]
-    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "device_feeds": await _device_feeds_or_none(db, user), "generated_at": datetime.now(UTC)}
+    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "device_feeds": await _device_feeds_or_none(db, user), "core_feed": await _core_feed_or_none(db, user), "generated_at": datetime.now(UTC)}

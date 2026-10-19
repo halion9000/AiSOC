@@ -69,6 +69,20 @@ export default function DevicesView() {
       .catch(() => setClients([])); // an organisation with no clients has nothing to pick
   }, []);
 
+  const exportCsv = async () => {
+    try {
+      const text = await devicesApi.exportCsv({ clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined });
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'devices.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not export the devices.');
+    }
+  };
+
   const chooseMaster = async (value: string) => {
     try {
       await devicesApi.setMaster(value || null);
@@ -252,6 +266,9 @@ export default function DevicesView() {
             </option>
           ))}
         </select>
+        <button type="button" onClick={() => void exportCsv()} className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-white hover:bg-gray-800">
+          Export CSV
+        </button>
       </div>
 
       <ClientRollupTable
