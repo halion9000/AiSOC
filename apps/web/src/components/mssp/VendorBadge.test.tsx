@@ -12,7 +12,7 @@ describe('orderSources', () => {
   });
 
   it('knows every tool CORE feeds', () => {
-    for (const v of ['huntress', 'blumira', 'petra', 'ninjaone', 'threatmate', 'addigy', 'fieldeffect', 'dnsfilter']) expect(VENDOR_ORDER).toContain(v);
+    for (const v of ['huntress', 'blumira', 'petra', 'ninjaone', 'threatmate', 'addigy', 'fieldeffect', 'dnsfilter', 'autoelevate']) expect(VENDOR_ORDER).toContain(v);
   });
 });
 
@@ -44,5 +44,13 @@ describe('DNSFilter badge', () => {
 
   it('sorts after Field Effect in the fixed order', () => {
     expect(orderSources(['dnsfilter', 'huntress', 'fieldeffect'])).toEqual(['huntress', 'fieldeffect', 'dnsfilter']);
+  });
+});
+
+describe('AutoElevate badge', () => {
+  it('shows a labelled AE badge and sorts last', () => {
+    render(<VendorBadge vendor="autoelevate" />);
+    expect(screen.getByRole('img', { name: 'AutoElevate' })).toHaveTextContent('AE');
+    expect(orderSources(['autoelevate', 'dnsfilter', 'huntress'])).toEqual(['huntress', 'dnsfilter', 'autoelevate']);
   });
 });

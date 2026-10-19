@@ -11,12 +11,13 @@ const BADGES: Record<string, { text: string; className: string }> = {
   fieldeffect: { text: 'F', className: 'bg-blue-600/80 text-white' },
   // No logo file yet: a lettered badge until public/vendors/dnsfilter.png is added (then add 'dnsfilter' to LOGOS below).
   dnsfilter: { text: 'DNS', className: 'bg-amber-600/80 text-white' },
+  autoelevate: { text: 'AE', className: 'bg-rose-600/80 text-white' },
 };
 
 const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect']);
 
 /** Halo first, then the rest in one fixed order so every row lines up; tools not listed follow alphabetically. */
-export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter'];
+export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate'];
 
 export function orderSources(sources: string[]): string[] {
   const rank = (v: string) => {
