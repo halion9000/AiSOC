@@ -289,3 +289,28 @@ def test_device_filter_pages_across_client_tenants():
         assert p1.total == 2 and p1.pages == 2  # srv-010 and OTHER do not match
 
     run(go)
+
+
+def test_status_open_means_everything_not_finished():
+    async def go(s):
+        parent, a, *_ = await seed(s)
+        for status, title in (
+            ("resolved", "done"),
+            ("closed", "shut"),
+            ("false_positive", "noise"),
+            ("investigating", "working"),
+            ("triaging", "triage"),
+        ):
+            row = alert(a, title, 2)
+            row.status = status
+            s.add(row)
+        await s.commit()
+        titles = {i.title for i in (await call(s, parent.id, status="open", page_size=50)).items}
+        assert {"working", "triage", "setpoint-new", "tecovas", "own"} <= titles
+        assert not titles & {"done", "shut", "noise"}, "resolved, closed and false-positive alerts are not open"
+        assert {i.title for i in (await call(s, parent.id, status="resolved", page_size=50)).items} == {
+            "done"
+        }, "a named status still means exactly that status"
+        assert len((await call(s, parent.id, page_size=50)).items) == 9, "no status filter: everything"
+
+    run(go)

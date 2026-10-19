@@ -119,7 +119,8 @@ export function FiltersBar({
   const { data: clientData } = useSWR('alert-client-options', () => msspApi.listChildren(), { shouldRetryOnError: false });
   const clients = Array.isArray(clientData) ? [...clientData].sort((a, b) => a.name.localeCompare(b.name)) : [];
   const severities = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
-  const statuses = ['all', 'new', 'investigating', 'resolved', 'false_positive'] as const;
+  // "open" is every alert that is not finished (resolved, closed or a false positive); "all" has no status filter at all.
+  const statuses = ['open', 'new', 'investigating', 'resolved', 'false_positive', 'all'] as const;
 
   // The box is typed into freely; the list is only re-queried a moment after typing stops (and straight away on Enter or clear).
   const [text, setText] = useState(filters.search ?? '');
@@ -179,7 +180,7 @@ export function FiltersBar({
                 : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/60'
             )}
           >
-            {s === 'all' ? 'All status' : s.replace('_', ' ')}
+            {s === 'all' ? 'All status' : s === 'open' ? 'Open all' : s.replace('_', ' ')}
           </button>
         ))}
       </div>
@@ -325,7 +326,7 @@ export function AlertsView() {
     } catch {
       device = undefined;
     }
-    return { page: 1, pageSize: 25, ...(device ? { device } : {}) };
+    return { page: 1, pageSize: 25, status: 'open', ...(device ? { device } : {}) };
   });
   // Default to the entity-centric queue — that's the whole point of Wave 1's
   // RBA work. Analysts can flip back to the raw alert grid for legacy

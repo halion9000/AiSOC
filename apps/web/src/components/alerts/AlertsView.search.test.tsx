@@ -82,3 +82,24 @@ describe('alert row device', () => {
     expect(screen.queryByTestId('alert-device')).not.toBeInTheDocument();
   });
 });
+
+describe('status tabs', () => {
+  it('lists Open all first and All status last, and marks the active one', () => {
+    show(vi.fn(), { page: 1, pageSize: 25, status: 'open' });
+    const labels = ['Open all', 'new', 'investigating', 'resolved', 'false positive', 'All status'];
+    const buttons = labels.map((l) => screen.getByRole('button', { name: new RegExp(`^${l}$`, 'i') }));
+    for (let i = 1; i < buttons.length; i++) expect(buttons[i - 1].compareDocumentPosition(buttons[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(buttons[0].className).toContain('bg-gray-700');
+    expect(buttons[5].className).not.toContain('bg-gray-700');
+  });
+
+  it('asks for status open, for one named status, or for no status filter at all', () => {
+    const onChange = show(vi.fn(), { page: 2, pageSize: 25, status: 'resolved' });
+    fireEvent.click(screen.getByRole('button', { name: /^Open all$/i }));
+    expect(onChange).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, status: 'open' });
+    fireEvent.click(screen.getByRole('button', { name: /^All status$/i }));
+    expect(onChange).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, status: undefined });
+    fireEvent.click(screen.getByRole('button', { name: /^new$/i }));
+    expect(onChange).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, status: 'new' });
+  });
+});

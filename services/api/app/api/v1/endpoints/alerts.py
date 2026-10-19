@@ -164,6 +164,9 @@ class AlertSummary(BaseModel):
     unresolved: int
 
 
+# ``status=open`` on the list means every alert that is not finished (resolved, closed or a false positive): the console's "Open all" tab.
+OPEN_STATUS = "open"
+FINISHED_STATUSES = ("resolved", "closed", "false_positive", "fp")
 _UNRESOLVED = {"new", "triaging", "in_progress", "investigating"}
 
 
@@ -704,7 +707,9 @@ async def list_alerts(
         filters = [Alert.tenant_id == tenant_id]
         if severity:
             filters.append(Alert.severity == severity)
-        if status:
+        if status == OPEN_STATUS:
+            filters.append(Alert.status.notin_(FINISHED_STATUSES))
+        elif status:
             filters.append(Alert.status == status)
         if category:
             filters.append(Alert.category == category)
