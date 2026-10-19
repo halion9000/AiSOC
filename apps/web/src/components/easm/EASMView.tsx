@@ -25,6 +25,22 @@ interface Drift {
   detected_at: string;
 }
 
+/** The public IP addresses typed in the box: separated by commas, spaces or new lines, blanks and repeats dropped. */
+export function parseTargets(text: string): string[] {
+  return [...new Set(text.split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean))];
+}
+
+async function refusal(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: unknown };
+    const first = Array.isArray(body.detail) ? (body.detail[0] as { msg?: string } | undefined)?.msg : body.detail;
+    if (typeof first === 'string' && first) return first.replace(/^Value error, /, '');
+  } catch {
+    // no readable reason: fall through
+  }
+  return 'The IP addresses were not accepted. Only public IP addresses are allowed (no names, ranges or internal addresses).';
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await authFetch(path);
   if (!res.ok) throw new Error(`The API answered ${res.status}`);
@@ -37,6 +53,7 @@ export function EASMView() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [targets, setTargets] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -57,7 +74,8 @@ export function EASMView() {
     setScanning(true);
     setNote(null);
     try {
-      const res = await authFetch('/api/v1/easm/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const res = await authFetch('/api/v1/easm/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip_targets: parseTargets(targets) }) });
+      if (res.status === 422) throw new Error(await refusal(res));
       if (res.status === 403) throw new Error('EASM is disabled for this deployment, or your role cannot start a scan.');
       if (!res.ok) throw new Error(`The API answered ${res.status}`);
       setNote('Scan started. Discovery runs in the background; reload in a minute to see what it found.');
@@ -80,6 +98,23 @@ export function EASMView() {
         <button type="button" onClick={() => void scan()} disabled={scanning} className="px-3 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50">
           {scanning ? 'Starting...' : 'Run a scan'}
         </button>
+      </div>
+
+      <div>
+        <label htmlFor="easm-targets" className="block text-sm text-gray-300">
+          Public IP addresses to check (optional)
+        </label>
+        <textarea
+          id="easm-targets"
+          value={targets}
+          onChange={(e) => setTargets(e.target.value)}
+          rows={2}
+          placeholder="203.0.113.10, 198.51.100.7"
+          className="mt-1 w-full max-w-xl rounded border border-gray-700 bg-gray-900 px-2 py-1 font-mono text-sm text-gray-100"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Separate with commas, spaces or new lines. Public addresses only. These are only probed for open ports when the server has <span className="font-mono">AISOC_EASM_ACTIVE_SCAN_ENABLED=true</span> (off by default).
+        </p>
       </div>
 
       {note && <p className="text-sm text-gray-300">{note}</p>}

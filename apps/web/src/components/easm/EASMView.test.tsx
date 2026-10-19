@@ -41,3 +41,11 @@ describe('EASMView', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('500'));
   });
 });
+
+describe('IP targets', () => {
+  it('splits what was typed into unique addresses', async () => {
+    const { parseTargets } = await import('./EASMView');
+    expect(parseTargets('203.0.113.10, 198.51.100.7\n203.0.113.10;  ')).toEqual(['203.0.113.10', '198.51.100.7']);
+    expect(parseTargets('   ')).toEqual([]);
+  });
+});
