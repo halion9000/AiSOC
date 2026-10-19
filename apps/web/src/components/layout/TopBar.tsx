@@ -173,9 +173,10 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
       }`}
     >
       {/* Page title */}
-      <div>
-        <h1 className="text-base font-semibold text-fg-primary leading-tight">{routeInfo.title}</h1>
-        <p className="text-xs text-fg-subtle">{routeInfo.description}</p>
+      {/* The description is dropped on narrower windows (a laptop, or the console inside CORE): wrapped into a narrow column it ran out of the bar. */}
+      <div className="min-w-0 shrink-0 max-w-[16rem]">
+        <h1 className="truncate text-base font-semibold text-fg-primary leading-tight">{routeInfo.title}</h1>
+        <p className="hidden truncate text-xs text-fg-subtle xl:block">{routeInfo.description}</p>
       </div>
 
       {/* Center: command palette launcher */}
