@@ -1149,7 +1149,7 @@ export function normalizeAlert(raw: unknown): Alert {
 export interface AlertsResponse {
   alerts: Alert[];
   /** Counts over the whole scope (all clients, or the one chosen), not just this page or the severity / status filter. */
-  summary?: { total: number; critical: number; high: number; unresolved: number };
+  summary?: { total: number; critical: number; high: number; unresolved: number; noTicket: number };
   total: number;
   page: number;
   pageSize: number;
@@ -1170,6 +1170,8 @@ export interface AlertFilters {
   clientId?: string;
   /** Only alerts about this machine (the host name the alert carries). */
   device?: string;
+  /** linked: only alerts with a HaloPSA ticket (from CORE or entered by hand); none: only alerts without one. */
+  ticket?: 'linked' | 'none';
 }
 
 export interface VendorRemediation {
@@ -1243,7 +1245,7 @@ export const alertsApi = {
   create: (body: Record<string, unknown>) => request<{ id: string }>('/api/v1/alerts/submit', { method: 'POST', body: JSON.stringify(body) }),
   list: async (filters: AlertFilters = {}) => {
     const raw = await request<{
-      summary?: { total?: number; critical?: number; high?: number; unresolved?: number };
+      summary?: { total?: number; critical?: number; high?: number; unresolved?: number; no_ticket?: number };
       items?: unknown[];
       alerts?: unknown[];
       total?: number;
@@ -1266,6 +1268,7 @@ export const alertsApi = {
             critical: raw.summary.critical ?? 0,
             high: raw.summary.high ?? 0,
             unresolved: raw.summary.unresolved ?? 0,
+            noTicket: raw.summary.no_ticket ?? 0,
           }
         : undefined,
       total: typeof raw.total === 'number' ? raw.total : 0,

@@ -113,3 +113,20 @@ describe('filters from the address', () => {
     expect(filtersFromUrl(new URLSearchParams('status=bogus'))).toEqual({ page: 1, pageSize: 25, status: 'open' });
   });
 });
+
+describe('Halo ticket filter', () => {
+  it('offers any / has a ticket / no ticket and goes back to page 1', () => {
+    const onChange = show(vi.fn(), { page: 4, pageSize: 25, status: 'open' });
+    const select = screen.getByLabelText('Halo ticket') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Any Halo ticket', 'Has a Halo ticket', 'No Halo ticket']);
+    fireEvent.change(select, { target: { value: 'none' } });
+    expect(onChange).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, status: 'open', ticket: 'none' });
+    fireEvent.change(select, { target: { value: '' } });
+    expect(onChange).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, status: 'open', ticket: undefined });
+  });
+
+  it('shows the current choice', () => {
+    show(vi.fn(), { page: 1, pageSize: 25, ticket: 'linked' });
+    expect((screen.getByLabelText('Halo ticket') as HTMLSelectElement).value).toBe('linked');
+  });
+});

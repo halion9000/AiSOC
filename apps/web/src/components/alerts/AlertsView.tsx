@@ -221,6 +221,17 @@ export function FiltersBar({
           </select>
         </>
       )}
+      <div className="w-px h-4 bg-gray-700" />
+      <select
+        aria-label="Halo ticket"
+        value={filters.ticket ?? ''}
+        onChange={(e) => onChange({ ...filters, ticket: (e.target.value || undefined) as AlertFilters['ticket'], page: 1 })}
+        className="text-xs bg-gray-900 border border-gray-700 text-gray-300 rounded-lg px-2 py-1"
+      >
+        <option value="">Any Halo ticket</option>
+        <option value="linked">Has a Halo ticket</option>
+        <option value="none">No Halo ticket</option>
+      </select>
       {filters.device && (
         <button
           type="button"
@@ -347,7 +358,7 @@ export function AlertsView() {
   // Default to the entity-centric queue — that's the whole point of Wave 1's
   // RBA work. Analysts can flip back to the raw alert grid for legacy
   // workflows or when triaging a specific alert ID.
-  const [viewMode, setViewMode] = useState<ViewMode>('entities');
+  const [viewMode, setViewMode] = useState<ViewMode>('alerts');
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data, error, isLoading, mutate } = useSWR(
@@ -370,6 +381,7 @@ export function AlertsView() {
   const critCount = data?.summary?.critical ?? alerts.filter((a) => a.severity === 'critical').length;
   const highCount = data?.summary?.high ?? alerts.filter((a) => a.severity === 'high').length;
   const newCount = data?.summary?.unresolved ?? alerts.filter((a) => a.status === 'new').length;
+  const noTicketCount = data?.summary?.noTicket;
 
   return (
     <div className="space-y-4">
@@ -393,20 +405,6 @@ export function AlertsView() {
             <button
               type="button"
               role="tab"
-              aria-selected={viewMode === 'entities'}
-              onClick={() => setViewMode('entities')}
-              className={clsx(
-                'text-xs px-3 py-1.5 rounded-md transition-colors',
-                viewMode === 'entities'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-gray-200',
-              )}
-            >
-              Entities
-            </button>
-            <button
-              type="button"
-              role="tab"
               aria-selected={viewMode === 'alerts'}
               onClick={() => setViewMode('alerts')}
               className={clsx(
@@ -417,6 +415,20 @@ export function AlertsView() {
               )}
             >
               Alerts
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'entities'}
+              onClick={() => setViewMode('entities')}
+              className={clsx(
+                'text-xs px-3 py-1.5 rounded-md transition-colors',
+                viewMode === 'entities'
+                  ? 'bg-gray-700 text-gray-100'
+                  : 'text-gray-400 hover:text-gray-200',
+              )}
+            >
+              Entities
             </button>
           </div>
           <div className="flex items-center gap-2">
@@ -441,6 +453,7 @@ export function AlertsView() {
           critCount={critCount}
           highCount={highCount}
           newCount={newCount}
+          noTicketCount={noTicketCount}
           filters={filters}
           isLoading={isLoading}
           error={error}
@@ -460,6 +473,7 @@ function AlertsTable({
   critCount,
   highCount,
   newCount,
+  noTicketCount,
   filters,
   isLoading,
   error,
@@ -471,6 +485,7 @@ function AlertsTable({
   critCount: number;
   highCount: number;
   newCount: number;
+  noTicketCount?: number;
   filters: AlertFilters;
   isLoading: boolean;
   error: unknown;
@@ -485,7 +500,7 @@ function AlertsTable({
   return (
     <div className="space-y-4">
       {/* Stats strip (full width) */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-5 gap-3">
         {[
           { label: 'Total', value: scopeTotal, color: 'text-gray-200' },
           { label: 'Critical', value: critCount, color: 'text-red-400' },
@@ -497,6 +512,17 @@ function AlertsTable({
             <p className={clsx('text-2xl font-bold mt-1', stat.color)}>{stat.value}</p>
           </div>
         ))}
+        <button
+          type="button"
+          data-testid="no-ticket-tile"
+          aria-pressed={filters.ticket === 'none'}
+          title="Open alerts with no HaloPSA ticket linked. Click to list them."
+          onClick={() => onFilterChange({ ...filters, ticket: filters.ticket === 'none' ? undefined : 'none', status: filters.ticket === 'none' ? filters.status : 'open', page: 1 })}
+          className={clsx('text-left rounded-xl px-4 py-3 border', filters.ticket === 'none' ? 'border-amber-500 bg-amber-500/10' : 'bg-gray-900/60 border-gray-800/60')}
+        >
+          <p className="text-xs text-gray-500">No Halo ticket</p>
+          <p className="text-2xl font-bold mt-1 text-amber-300">{noTicketCount ?? '—'}</p>
+        </button>
       </div>
 
       {/*

@@ -86,9 +86,9 @@ describe('alertsApi.list', () => {
   });
 
   it('passes the server tally through', async () => {
-    vi.stubGlobal('fetch', async () => json({ summary: { total: 540, critical: 26, high: 21, unresolved: 255 }, items: [], total: 21 }));
+    vi.stubGlobal('fetch', async () => json({ summary: { total: 540, critical: 26, high: 21, unresolved: 255, no_ticket: 12 }, items: [], total: 21 }));
     const out = await alertsApi.list({ severity: 'high' });
-    expect(out.summary).toEqual({ total: 540, critical: 26, high: 21, unresolved: 255 });
+    expect(out.summary).toEqual({ total: 540, critical: 26, high: 21, unresolved: 255, noTicket: 12 });
     expect(out.total).toBe(21);
   });
 });

@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import Text, and_, cast, func, or_, select, update
+from sqlalchemy import Text, and_, cast, func, not_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
@@ -162,6 +162,21 @@ class AlertSummary(BaseModel):
     critical: int
     high: int
     unresolved: int
+    # Open alerts (not resolved, closed or a false positive) that no HaloPSA ticket is linked to, found by CORE or entered by hand.
+    no_ticket: int = 0
+
+
+def _ticket_list_text(name: str) -> Any:
+    return Alert.enrichment_data[name].as_string()
+
+
+def has_ticket_expr() -> Any:
+    """SQL condition: the alert has at least one linked HaloPSA ticket (``enrichment_data.tickets``, from CORE) or manual ticket (``enrichment_data.manual_tickets``)."""
+    conditions = []
+    for key in ("tickets", "manual_tickets"):
+        text_of = _ticket_list_text(key)
+        conditions.append(and_(text_of.is_not(None), text_of.not_in(["[]", "null", ""])))
+    return or_(*conditions)
 
 
 # ``status=open`` on the list means every alert that is not finished (resolved, closed or a false positive): the console's "Open all" tab.
@@ -671,6 +686,9 @@ async def list_alerts(
     source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$"),
     client_id: uuid.UUID | None = Query(default=None),
     device: str | None = Query(default=None, max_length=255),
+    ticket: str | None = Query(
+        default=None, pattern="^(linked|none)$", description="linked: only alerts with a HaloPSA ticket; none: only alerts without one."
+    ),
 ) -> AlertListResponse:
     """List alerts for the current tenant and its client tenants, with filtering and pagination.
 
@@ -713,6 +731,10 @@ async def list_alerts(
             filters.append(Alert.status == status)
         if category:
             filters.append(Alert.category == category)
+        if ticket == "linked":
+            filters.append(has_ticket_expr())
+        elif ticket == "none":
+            filters.append(not_(has_ticket_expr()))
         if assigned_to_me:
             filters.append(Alert.assigned_to_id == current_user.user_id)
         if source:
@@ -768,15 +790,20 @@ async def list_alerts(
         rows = merged[offset : offset + page_size]
 
     # The tally covers the whole scope, so it doesn't change as the severity / status buttons are used.
-    tally = {"total": 0, "critical": 0, "high": 0, "unresolved": 0}
+    tally = {"total": 0, "critical": 0, "high": 0, "unresolved": 0, "no_ticket": 0}
     for tid in scope:
         base = and_(Alert.tenant_id == tid, Alert.raw_event["source"].astext == source) if source else Alert.tenant_id == tid
         query = select(Alert.severity, Alert.status, func.count()).where(base).group_by(Alert.severity, Alert.status)
+        open_without_ticket = (
+            select(func.count()).select_from(Alert).where(and_(base, Alert.status.notin_(FINISHED_STATUSES), not_(has_ticket_expr())))
+        )
         if len(scope) == 1 and scope[0] == current_user.tenant_id:
             grouped = (await db.execute(query)).all()
+            tally["no_ticket"] += (await db.execute(open_without_ticket)).scalar_one() or 0
         else:
             async with acting_as_tenant(db, tid):
                 grouped = (await db.execute(query)).all()
+                tally["no_ticket"] += (await db.execute(open_without_ticket)).scalar_one() or 0
         for sev, st, n in grouped:
             tally["total"] += n
             tally["critical"] += n if sev == "critical" else 0

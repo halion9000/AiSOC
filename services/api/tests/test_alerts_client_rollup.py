@@ -89,6 +89,7 @@ def call(s, user_tenant, **kw):
         "source": None,
         "client_id": None,
         "device": None,
+        "ticket": None,
     }
     args.update(kw)
     return ep.list_alerts(user, s, **args)
@@ -177,9 +178,9 @@ def test_summary_counts_the_whole_scope_whatever_the_severity_and_status_filters
         out = await call(s, parent.id, severity="critical")
         assert [i.title for i in out.items] == ["crit"]  # the list is filtered...
         # ...the tally is not: 4 + 3 new alerts across own + clients, none of them the unrelated tenant's
-        assert out.summary.model_dump() == {"total": 7, "critical": 1, "high": 2, "unresolved": 6}
+        assert out.summary.model_dump() == {"total": 7, "critical": 1, "high": 2, "unresolved": 6, "no_ticket": 6}
         narrowed = await call(s, parent.id, client_id=b.id)
-        assert narrowed.summary.model_dump() == {"total": 3, "critical": 0, "high": 2, "unresolved": 2}
+        assert narrowed.summary.model_dump() == {"total": 3, "critical": 0, "high": 2, "unresolved": 2, "no_ticket": 2}
 
     run(go)
 
@@ -312,5 +313,34 @@ def test_status_open_means_everything_not_finished():
             "done"
         }, "a named status still means exactly that status"
         assert len((await call(s, parent.id, page_size=50)).items) == 9, "no status filter: everything"
+
+    run(go)
+
+
+def test_ticket_filter_and_the_count_of_open_alerts_without_a_halo_ticket():
+    async def go(s):
+        parent, a, *_ = await seed(s)
+        rows = []
+        for title, data, status in (
+            ("from core", {"tickets": [{"id": "55", "system": "halopsa"}]}, "new"),
+            ("by hand", {"manual_tickets": [{"id": "66", "system": "halopsa"}]}, "new"),
+            ("empty lists", {"tickets": [], "manual_tickets": []}, "new"),
+            ("done and untouched", {}, "resolved"),
+        ):
+            row = alert(a, title, 2)
+            row.enrichment_data = data
+            row.status = status
+            rows.append(row)
+        s.add_all(rows)
+        await s.commit()
+        titles = lambda out: {i.title for i in out.items}  # noqa: E731
+        linked = await call(s, parent.id, ticket="linked", page_size=50)
+        assert titles(linked) == {"from core", "by hand"}
+        none = await call(s, parent.id, ticket="none", page_size=50)
+        assert {"empty lists", "done and untouched", "own", "setpoint-new"} <= titles(none)
+        assert not titles(none) & {"from core", "by hand"}
+        # seeded: own, setpoint-new, setpoint-old, tecovas (all new, no tickets) + "empty lists" = 5 open and unlinked; the resolved one is not counted
+        assert none.summary.no_ticket == 5
+        assert linked.summary.no_ticket == 5, "the tile does not change with the filters"
 
     run(go)

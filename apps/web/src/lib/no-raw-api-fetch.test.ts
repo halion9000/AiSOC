@@ -95,7 +95,7 @@ describe('no bare fetch() in a file that builds API URLs', () => {
 
   it('every console file that talks to the API uses authFetch (except the documented public/server ones)', () => {
     expect(findBareFetchInApiFiles(load()), 'use authFetch() from @/lib/auth-session').toEqual([]);
-  });
+  }, 30_000); // reads every source file: slower than the default 5 s once the tree is large or the machine is busy
 
   it('every exception is still needed (delete it when the file stops needing it)', () => {
     const files = load();
@@ -105,7 +105,7 @@ describe('no bare fetch() in a file that builds API URLs', () => {
       expect(findBareFetchInApiFiles([f!], {}).length, `${rel} no longer has a bare fetch: remove it from NO_TOKEN_ON_PURPOSE`).toBeGreaterThan(0);
       expect(reason.length).toBeGreaterThan(10);
     }
-  });
+  }, 30_000);
 
   it('flags the patterns the first detector missed', () => {
     const bad = [
