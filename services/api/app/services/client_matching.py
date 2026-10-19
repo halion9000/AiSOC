@@ -143,3 +143,85 @@ def merge_suggestions(by_name: list[Suggestion], by_devices: list[Suggestion], l
     merged = [Suggestion(s.tenant_id, s.name, s.score, s.reason or reasons.get(s.tenant_id)) for s in best.values()]
     merged.sort(key=lambda s: (-s.score, s.name.lower()))
     return merged[:limit]
+
+
+# ---- machine names too common to prove anything -----------------------------------------------------------------------------------------------------------------
+
+# Names every client has some of ("MacBook-Pro", "Server", "DESKTOP"), and the "Johns-MacBook-Pro" pattern Apple suggests, say nothing about WHICH client a machine belongs to. Windows' own random
+# names (DESKTOP-4F8K2QH) are different: they are unique per machine, so they are good evidence and are kept.
+_GENERIC_NAMES = frozenset(
+    {
+        "mac",
+        "macbook",
+        "macbookpro",
+        "macbookair",
+        "imac",
+        "macmini",
+        "macstudio",
+        "macpro",
+        "user",
+        "users",
+        "server",
+        "servers",
+        "desktop",
+        "laptop",
+        "pc",
+        "computer",
+        "workstation",
+        "localhost",
+        "host",
+        "admin",
+        "administrator",
+        "test",
+        "testing",
+        "win",
+        "windows",
+        "win10",
+        "win11",
+        "unknown",
+        "default",
+        "guest",
+        "dc",
+        "ws",
+        "vm",
+        "iphone",
+        "ipad",
+        "android",
+    }
+)
+_GENERIC_WITH_NUMBER = re.compile(
+    r"^(pc|server|srv|desktop|laptop|workstation|computer|ws|user|mac|win|dc|vm|host|test|admin)[-_ ]?\d{0,3}$"
+)
+_APPLE_PERSONAL = re.compile(
+    r"^[a-z]+s?[-_ ]?(macbook|imac|mac[-_ ]?mini|mac[-_ ]?studio|mac|iphone|ipad)([-_ ]?(pro|air|mini|studio))?([-_ ]?\d+)?$"
+)
+MIN_USABLE_HOSTNAMES = 3
+
+
+def is_generic_hostname(name: str) -> bool:
+    """True when a machine name is too common to say which client it belongs to: a stock word (mac, server, user, laptop...), a stock word with a short number (server2, pc-01), Apple's
+    "<Name>s-MacBook-Pro" pattern, or anything shorter than four characters. Compared lower-cased, ignoring ``.local`` and the domain."""
+    n = (name or "").strip().lower().split(".")[0]
+    if len(n) < 4:
+        return True
+    squashed = re.sub(r"[-_ ]", "", n)
+    if n in _GENERIC_NAMES or squashed in _GENERIC_NAMES or _GENERIC_WITH_NUMBER.match(n):
+        return True
+    return bool(_APPLE_PERSONAL.match(n))
+
+
+def usable_hostnames(keys: set[str] | list[str]) -> set[str]:
+    """The machine names that can serve as evidence: the generic ones removed."""
+    return {k for k in keys if k and not is_generic_hostname(k)}
+
+
+def device_auto_match(overlaps: list[DeviceOverlap], min_names: int = MIN_USABLE_HOSTNAMES) -> str | None:
+    """The one client a tool client can be linked to without asking, or None. ALL of the tool client's usable (non-generic) machine names must already be machines under that one client,
+    there must be at least ``min_names`` of them (two machines agreeing is a coincidence waiting to happen; a client that small is only ever SUGGESTED), and no other client may share any of
+    them. ``DeviceOverlap.total`` must already be counted over usable names only.
+    """
+    found = [o for o in overlaps if o.shared > 0]
+    if len(found) != 1:
+        return None
+    o = found[0]
+    return o.tenant_id if o.total >= min_names and o.shared == o.total else None

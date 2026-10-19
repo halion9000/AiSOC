@@ -165,3 +165,85 @@ async def test_at_most_three_hundred_names_per_client_are_kept_and_stale_ones_ar
     assert (
         await scalar("select count(*) from client_device_hints where tenant_id = :t and vendor_client_id = 'big'", t=msp) < 300
     ), "the stale ones were dropped"
+
+
+async def make_alias(owner, client_id, **over):
+    async def work(db):
+        base = {
+            "tenant_id": owner,
+            "vendor": "autoelevate",
+            "vendor_client_id": client_id,
+            "vendor_client_name": client_id,
+            "normalized_name": client_id,
+            "child_tenant_id": None,
+            "ignored": False,
+            "match_source": "suggested",
+        }
+        base.update(over)
+        db.add(ClientAlias(**base))
+
+    await run(owner, work)
+
+
+async def mapped_to(client_id):
+    return await scalar("select child_tenant_id from client_aliases where vendor_client_id = :v", v=client_id)
+
+
+async def test_when_every_specific_machine_name_is_already_under_one_client_the_tool_client_is_linked_without_asking(world):
+    msp = world["msp"]
+    await seed_devices(world["pirkey"], HOSTS)
+    await make_alias(msp, "ae-all")
+    out = await run(
+        msp,
+        lambda db: ep.apply_devices(
+            db, msp, report("ae-all", [h.lower() for h in HOSTS[:4]] + ["MacBook-Pro", "server", "Johns-MacBook-Air"])
+        ),
+    )
+    assert out.auto_linked == 1, "the generic names are ignored and the four specific ones all match"
+    assert await mapped_to("ae-all") == world["pirkey"]
+
+
+async def test_one_name_that_is_not_there_or_a_second_client_with_one_of_them_blocks_the_link(world):
+    msp = world["msp"]
+    await seed_devices(world["pirkey"], HOSTS)
+    await seed_devices(world["acme"], ["PC-FRONT-1", "ACME-9"], vendor="addigy")
+    await make_alias(msp, "ae-extra")
+    await make_alias(msp, "ae-shared")
+    extra = await run(msp, lambda db: ep.apply_devices(db, msp, report("ae-extra", HOSTS[:4] + ["PC-NOT-HERE"])))
+    assert extra.auto_linked == 0 and await mapped_to("ae-extra") is None, "four of five is a suggestion"
+    shared = await run(msp, lambda db: ep.apply_devices(db, msp, report("ae-shared", HOSTS[:4])))
+    assert shared.auto_linked == 0 and await mapped_to("ae-shared") is None, "another client has PC-FRONT-1 too"
+
+
+async def test_too_few_specific_names_or_only_generic_ones_never_link(world):
+    msp = world["msp"]
+    await seed_devices(world["pirkey"], HOSTS)
+    await make_alias(msp, "ae-two")
+    await make_alias(msp, "ae-generic")
+    two = await run(msp, lambda db: ep.apply_devices(db, msp, report("ae-two", HOSTS[:2])))
+    assert two.auto_linked == 0 and await mapped_to("ae-two") is None
+    await seed_devices(world["pirkey"], ["server", "mac", "user"], vendor="ninjaone")
+    generic = await run(msp, lambda db: ep.apply_devices(db, msp, report("ae-generic", ["server", "mac", "user", "laptop"])))
+    assert generic.auto_linked == 0 and await mapped_to("ae-generic") is None
+
+
+async def test_a_clients_a_person_unmapped_ignored_or_already_mapped_is_left_alone(world):
+    msp = world["msp"]
+    await seed_devices(world["pirkey"], HOSTS)
+    await make_alias(msp, "ae-manual", match_source="manual")
+    await make_alias(msp, "ae-ignored", ignored=True)
+    await make_alias(msp, "ae-set", child_tenant_id=world["acme"], match_source="manual")
+    for cid in ("ae-manual", "ae-ignored"):
+        out = await run(msp, lambda db, cid=cid: ep.apply_devices(db, msp, report(cid, HOSTS[:4])))
+        assert out.auto_linked == 0
+    assert await mapped_to("ae-manual") is None and await mapped_to("ae-ignored") is None
+    await run(msp, lambda db: ep.apply_devices(db, msp, report("ae-set", HOSTS[:4])))
+    assert await mapped_to("ae-set") == world["acme"], "a person's choice is never replaced"
+
+
+async def test_a_client_with_no_entry_yet_in_the_list_is_not_linked_but_its_names_are_kept(world):
+    msp = world["msp"]
+    await seed_devices(world["pirkey"], HOSTS)
+    out = await run(msp, lambda db: ep.apply_devices(db, msp, report("ae-unlisted", HOSTS[:4])))
+    assert out.auto_linked == 0
+    assert await scalar("select count(*) from client_device_hints where tenant_id = :t and vendor_client_id = 'ae-unlisted'", t=msp) == 4

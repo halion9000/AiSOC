@@ -31,7 +31,7 @@ from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
 from app.models.device import Device, DeviceMergeLog, DeviceSnooze, DeviceSource
 from app.models.tenant import Tenant
-from app.services.client_mapping import record_device_hints, tenant_hidden
+from app.services.client_mapping import auto_link_by_devices, record_device_hints, tenant_hidden
 from app.services.device_merge import DeviceMergeError, can_undo, dismiss_pair, merge_devices, undo_merge
 from app.services.device_upsert import DeviceReport, possible_duplicates, upsert_device
 
@@ -870,6 +870,8 @@ class DevicesResponse(BaseModel):
     ignored: int = 0
     # The unmapped clients with the most devices, so the feed's card can name them.
     unmapped_clients: list[UnmappedClient] = Field(default_factory=list)
+    # Tool clients linked to a client just now because all their (non-generic) machines are already under it.
+    auto_linked: int = 0
 
 
 async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> DevicesResponse:
@@ -904,6 +906,8 @@ async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> Dev
     # The machine names of clients that are not mapped yet are kept, to suggest which client they belong to (see client_mapping.device_overlaps).
     for (vendor, vid), hostnames in waiting_names.items():
         await record_device_hints(db, owner, vendor, vid, hostnames)
+    # A client whose machines are ALL (and at least three) machines already under one client is linked to it now, without asking; the rest stay suggestions. Its own devices arrive on the next run.
+    auto_linked = await auto_link_by_devices(db, owner, set(waiting_names), lambda tid: acting_as_tenant(db, tid))
     unmapped_clients = [
         UnmappedClient(vendor_client_id=vid, name=known[(vendor, vid)].vendor_client_name if (vendor, vid) in known else None, devices=n)
         for (vendor, vid), n in sorted(waiting.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
@@ -929,7 +933,9 @@ async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> Dev
                     ),
                 )
                 accepted += 1
-    return DevicesResponse(accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=unmapped_clients)
+    return DevicesResponse(
+        accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=unmapped_clients, auto_linked=auto_linked
+    )
 
 
 @ingest_router.post("/core-feed/{tenant_token}/devices", response_model=DevicesResponse)

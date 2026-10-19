@@ -22,11 +22,13 @@ from app.services.client_matching import (
     Candidate,
     DeviceOverlap,
     Suggestion,
+    device_auto_match,
     device_suggestions,
     is_confident,
     merge_suggestions,
     normalize_name,
     suggest,
+    usable_hostnames,
 )
 
 SYNC_KEY = "client_sync_vendors"
@@ -289,7 +291,9 @@ async def record_device_hints(db: Any, owner: uuid.UUID, vendor: str, vendor_cli
     )
 
 
-async def device_overlaps(db: Any, owner: uuid.UUID, child_ids: list[uuid.UUID], acting: Any) -> dict[tuple[str, str], list[DeviceOverlap]]:
+async def device_overlaps(
+    db: Any, owner: uuid.UUID, child_ids: list[uuid.UUID], acting: Any, only: set[tuple[str, str]] | None = None
+) -> dict[tuple[str, str], list[DeviceOverlap]]:
     """For each (vendor, vendor client id) with remembered machine names, how many of them are machines under each client tenant.
 
     ``acting(tenant_id)`` returns the context manager that reads as that tenant (devices are tenant data). Machines are compared by lower-cased name.
@@ -304,6 +308,11 @@ async def device_overlaps(db: Any, owner: uuid.UUID, child_ids: list[uuid.UUID],
     hints: dict[tuple[str, str], set[str]] = {}
     for vendor, vcid, key in rows:
         hints.setdefault((vendor, vcid), set()).add(key)
+    # Generic names ("MacBook-Pro", "Server") are evidence of nothing: leave them out of the comparison and out of the totals.
+    usable = {k: usable_hostnames(v) for k, v in hints.items()}
+    hints = {k: v for k, v in usable.items() if v}
+    if only is not None:
+        hints = {k: v for k, v in hints.items() if k in only}
     if not hints:
         return {}
     out: dict[tuple[str, str], list[DeviceOverlap]] = {k: [] for k in hints}
@@ -328,3 +337,40 @@ def suggestions_with_devices(
     names = {c.tenant_id: c.name for c in candidates}
     by_devices = device_suggestions(overlaps.get((alias.vendor, alias.vendor_client_id), []), names)
     return merge_suggestions(suggest(alias.vendor_client_name, candidates), by_devices)
+
+
+async def auto_link_by_devices(db: Any, owner: uuid.UUID, keys: set[tuple[str, str]], acting: Any) -> int:
+    """Link unmapped tool clients to a client without asking when their machines say so (``device_auto_match``: every non-generic machine name is already a machine under ONE client, and
+    there are at least three). Never touches a client a person mapped, unmapped or ignored. Returns how many were linked. The caller owns the transaction."""
+    if not keys:
+        return 0
+    aliases = (
+        (
+            await db.execute(
+                select(ClientAlias).where(
+                    ClientAlias.tenant_id == owner,
+                    ClientAlias.child_tenant_id.is_(None),
+                    ClientAlias.ignored.is_(False),
+                    ClientAlias.match_source != "manual",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    wanted = [a for a in aliases if (a.vendor, a.vendor_client_id) in keys]
+    if not wanted:
+        return 0
+    candidates = await child_candidates(db, owner)  # hidden clients are never offered
+    allowed = {c.tenant_id for c in candidates}
+    overlaps = await device_overlaps(db, owner, [uuid.UUID(t) for t in allowed], acting, {(a.vendor, a.vendor_client_id) for a in wanted})
+    linked = 0
+    for a in wanted:
+        tenant = device_auto_match(overlaps.get((a.vendor, a.vendor_client_id), []))
+        if tenant is not None and tenant in allowed:
+            a.child_tenant_id = uuid.UUID(tenant)
+            a.match_source = "suggested"
+            linked += 1
+    if linked:
+        await db.flush()
+    return linked
