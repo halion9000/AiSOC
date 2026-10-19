@@ -89,3 +89,31 @@ describe('device feeds', () => {
     expect(feeds).toHaveTextContent('addigy: 1,799 devices, last synced 15 hours ago (nothing for hours');
   });
 });
+
+describe('pool history', () => {
+  const withPeak = (peak: unknown) => ({
+    ok: true,
+    status: 200,
+    json: () =>
+      Promise.resolve({
+        overall: 'ok',
+        down: [],
+        services: [{ service: 'fusion', status: 'up', latency_ms: 20, detail: '' }],
+        database: { enforced: true, reason: 'ok', pool: { known: true, in_use: 2, limit: 30, percent: 7, near_limit: false, peak_last_hour: peak } },
+        generated_at: '2026-10-19T02:00:00Z',
+      }),
+  });
+
+  it('says how full the connection pool got in the last hour, and when', async () => {
+    authFetch.mockResolvedValue(withPeak({ samples: 40, peak_in_use: 26, peak_limit: 30, peak_percent: 87, peak_minutes_ago: 12 }));
+    render(<PlatformHealth />);
+    expect(await screen.findByTestId('pool-peak')).toHaveTextContent('busiest in the last hour was 87% (26 of 30), 12 minutes ago');
+  });
+
+  it('says nothing when there are no readings yet', async () => {
+    authFetch.mockResolvedValue(withPeak({ samples: 0 }));
+    render(<PlatformHealth />);
+    await waitFor(() => expect(screen.getByTestId('overall')).toBeInTheDocument());
+    expect(screen.queryByTestId('pool-peak')).not.toBeInTheDocument();
+  });
+});

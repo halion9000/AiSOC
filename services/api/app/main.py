@@ -617,6 +617,9 @@ def _metrics_endpoint_label(request: Request) -> str:
     return "__unmatched__"
 
 
+from app.api.v1.endpoints.health import sample_pool_now  # noqa: E402
+
+
 def slow_request_threshold() -> float:
     """Seconds above which a request is logged as slow (``AISOC_SLOW_REQUEST_SECONDS``, default 3; 0 or less turns the log off)."""
     try:
@@ -643,6 +646,7 @@ async def metrics_middleware(request: Request, call_next) -> Response:
 
     endpoint = _metrics_endpoint_label(request)
     log_if_slow(request.method, endpoint, response.status_code, duration)
+    sample_pool_now()
     REQUEST_COUNT.labels(request.method, endpoint, response.status_code).inc()
     REQUEST_LATENCY.labels(request.method, endpoint).observe(duration)
 

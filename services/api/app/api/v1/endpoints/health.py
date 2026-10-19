@@ -74,6 +74,8 @@ rule in ``connector_freshness``.
 from __future__ import annotations
 
 import logging
+import time
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -600,6 +602,37 @@ def pool_usage(pool: Any) -> dict[str, Any]:
     return {"known": True, "in_use": in_use, "limit": limit, "percent": percent, "near_limit": percent >= 80}
 
 
+# How full the database pool has been, remembered in memory (it starts over when the API restarts): a sample is taken from the request path at most every POOL_SAMPLE_EVERY seconds, so a busy
+# spell, which is exactly when the pool fills, is captured without a background task. "How full is it NOW" says little after the moment has passed; this says how close it came.
+POOL_SAMPLE_EVERY = 15.0
+POOL_HISTORY_HOURS = 6
+_pool_samples: deque[tuple[float, int, int]] = deque(maxlen=int(POOL_HISTORY_HOURS * 3600 / POOL_SAMPLE_EVERY) + 8)
+
+
+def note_pool_usage(now: float, in_use: int, limit: int) -> bool:
+    """Remember a sample unless one was taken in the last POOL_SAMPLE_EVERY seconds. Returns whether it was kept. Ignores a pool that cannot say how big it is."""
+    if limit <= 0:
+        return False
+    if _pool_samples and now - _pool_samples[-1][0] < POOL_SAMPLE_EVERY:
+        return False
+    _pool_samples.append((now, in_use, limit))
+    return True
+
+
+def pool_peak(now: float, window_minutes: int = 60) -> dict[str, Any]:
+    """The fullest the pool has been in the last ``window_minutes``: how many connections, what share of the limit, and how many minutes ago. ``samples`` is how many readings that rests on."""
+    cutoff = now - window_minutes * 60
+    recent = [s for s in _pool_samples if s[0] >= cutoff]
+    if not recent:
+        return {"window_minutes": window_minutes, "samples": 0}
+    at, in_use, limit = max(recent, key=lambda s: (s[1] / s[2], s[0]))
+    return {"window_minutes": window_minutes, "samples": len(recent), "peak_in_use": in_use, "peak_limit": limit, "peak_percent": round(100 * in_use / limit), "peak_minutes_ago": max(0, int((now - at) // 60))}
+
+
+def reset_pool_history() -> None:
+    _pool_samples.clear()
+
+
 DEVICE_SYNC_STALLED_AFTER = timedelta(hours=3)
 
 
@@ -629,7 +662,23 @@ async def device_feeds(db: Any, owner: Any, now: datetime | None = None) -> list
 def _pool_now() -> dict[str, Any]:
     from app.db.database import engine
 
-    return pool_usage(engine.pool)
+    usage = pool_usage(engine.pool)
+    if usage.get("known"):
+        note_pool_usage(time.time(), usage["in_use"], usage["limit"])
+        usage["peak_last_hour"] = pool_peak(time.time())
+    return usage
+
+
+def sample_pool_now() -> None:
+    """Called from the request path: one cheap reading of the pool, kept if it is time for another. Never raises."""
+    try:
+        from app.db.database import engine
+
+        usage = pool_usage(engine.pool)
+        if usage.get("known"):
+            note_pool_usage(time.time(), usage["in_use"], usage["limit"])
+    except Exception:  # noqa: BLE001 - a health sample must never fail a request
+        pass
 
 
 async def database_row_security(db: Any) -> dict[str, Any]:

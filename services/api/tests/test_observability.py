@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app import main as app_main
-from app.api.v1.endpoints.health import pool_usage
+from app.api.v1.endpoints.health import note_pool_usage, pool_peak, pool_usage, reset_pool_history
 
 
 def test_a_request_over_the_threshold_is_logged_and_one_under_it_is_not(monkeypatch):
@@ -65,3 +65,34 @@ def test_a_time_without_a_zone_is_read_as_utc_and_none_counts_as_stalled():
     assert device_feed_row("x", 0, None, now)["stalled"] is True
     future = device_feed_row("x", 1, now + timedelta(minutes=5), now)
     assert future["minutes_ago"] == 0, "a clock a little ahead never shows negative minutes"
+
+
+# ---- how full the pool has been --------------------------------------------------------------------------------------------------------------------------
+
+
+def test_a_sample_is_kept_at_most_every_fifteen_seconds_and_a_pool_of_no_size_is_ignored():
+    reset_pool_history()
+    assert note_pool_usage(1000.0, 5, 30) is True
+    assert note_pool_usage(1010.0, 9, 30) is False, "too soon after the last"
+    assert note_pool_usage(1016.0, 9, 30) is True
+    assert note_pool_usage(2000.0, 1, 0) is False
+    assert pool_peak(1020.0)["samples"] == 2
+    reset_pool_history()
+
+
+def test_the_peak_is_the_fullest_reading_in_the_window_and_says_how_long_ago():
+    reset_pool_history()
+    for t, used in ((1000.0, 3), (1020.0, 27), (1040.0, 5)):
+        note_pool_usage(t, used, 30)
+    peak = pool_peak(1100.0)
+    assert (peak["peak_in_use"], peak["peak_limit"], peak["peak_percent"], peak["peak_minutes_ago"]) == (27, 30, 90, 1)
+    reset_pool_history()
+
+
+def test_readings_older_than_the_window_are_ignored_and_no_readings_is_said_plainly():
+    reset_pool_history()
+    note_pool_usage(1000.0, 29, 30)
+    assert pool_peak(1000.0 + 61 * 60, window_minutes=60) == {"window_minutes": 60, "samples": 0}
+    assert pool_peak(1000.0 + 61 * 60, window_minutes=120)["peak_percent"] == 97
+    reset_pool_history()
+    assert pool_peak(5.0) == {"window_minutes": 60, "samples": 0}
