@@ -39,6 +39,8 @@ class Suggestion:
     tenant_id: str
     name: str
     score: float
+    # Why, when it is not just the name (the machines they have in common).
+    reason: str | None = None
 
 
 def score(a: str, b: str) -> float:
@@ -97,3 +99,47 @@ def duplicate_groups(candidates: list[Candidate]) -> list[list[Candidate]]:
         groups.setdefault(find(i), []).append(c)
     out = [sorted(g, key=lambda c: c.name.lower()) for g in groups.values() if len(g) > 1]
     return sorted(out, key=lambda g: g[0].name.lower())
+
+
+@dataclass(frozen=True)
+class DeviceOverlap:
+    """How many of a tool client's machine names are also machines under one AiSOC client."""
+
+    tenant_id: str
+    shared: int
+    total: int
+
+
+def device_suggestions(overlaps: list[DeviceOverlap], names: dict[str, str]) -> list[Suggestion]:
+    """Suggestions from machines in common. It takes at least three shared machines and 40% of the tool client's machines, or (for a small client) two and 70%, so one stray
+    name never decides. The score stays below an exact name match (1.0): machines say "very likely", a matching name says "same".
+    """
+    out: list[Suggestion] = []
+    for o in overlaps:
+        if o.total <= 0 or o.tenant_id not in names:
+            continue
+        share = o.shared / o.total
+        if (o.shared >= 3 and share >= 0.4) or (o.shared >= 2 and share >= 0.7):
+            out.append(
+                Suggestion(
+                    o.tenant_id,
+                    names[o.tenant_id],
+                    round(min(0.99, 0.6 + 0.39 * share), 4),
+                    f"{o.shared} of its {o.total} devices are already under this client",
+                )
+            )
+    return out
+
+
+def merge_suggestions(by_name: list[Suggestion], by_devices: list[Suggestion], limit: int = 3) -> list[Suggestion]:
+    """One entry per tenant, the stronger of its name score and its device score (the device reason kept when it is the one shown), best first."""
+    best: dict[str, Suggestion] = {}
+    for s in [*by_name, *by_devices]:
+        cur = best.get(s.tenant_id)
+        if cur is None or s.score > cur.score or (s.score == cur.score and s.reason and not cur.reason):
+            best[s.tenant_id] = s
+    # a name match that the machines also back up says so
+    reasons = {s.tenant_id: s.reason for s in by_devices}
+    merged = [Suggestion(s.tenant_id, s.name, s.score, s.reason or reasons.get(s.tenant_id)) for s in best.values()]
+    merged.sort(key=lambda s: (-s.score, s.name.lower()))
+    return merged[:limit]

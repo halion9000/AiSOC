@@ -112,6 +112,17 @@ describe('the Client mapping section', () => {
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 
+  it('says why when machines in common point at a client, and picks it even though the names differ', async () => {
+    clientsMock.mockResolvedValue({
+      clients: [client({ vendor_client_name: 'Totally Different Name', vendor: 'autoelevate', suggestions: [{ tenant_id: 't-Birch Law', name: 'Birch Law', score: 0.93, reason: '5 of its 6 devices are already under this client' }] })],
+      unmapped: 1,
+    });
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const select = await screen.findByLabelText('Client for Totally Different Name');
+    expect(select).toHaveValue('t-Birch Law');
+    expect(screen.getByRole('option', { name: 'Birch Law (93%) — 5 of its 6 devices are already under this client' })).toBeInTheDocument();
+  });
+
   it('cannot map until a client is chosen, and can add the vendor client as a new client', async () => {
     clientsMock.mockResolvedValue({ clients: [client({ vendor_client_name: 'Zed Corp' })], unmapped: 1 });
     const user = userEvent.setup();

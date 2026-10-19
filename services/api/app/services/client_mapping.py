@@ -9,13 +9,25 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.models.client_alias import ClientAlias
+from app.models.client_alias import ClientAlias, ClientDeviceHint
+from app.models.device import Device
 from app.models.tenant import Tenant
-from app.services.client_matching import Candidate, Suggestion, is_confident, normalize_name, suggest
+from app.services.client_matching import (
+    Candidate,
+    DeviceOverlap,
+    Suggestion,
+    device_suggestions,
+    is_confident,
+    merge_suggestions,
+    normalize_name,
+    suggest,
+)
 
 SYNC_KEY = "client_sync_vendors"
 
@@ -247,3 +259,72 @@ async def merge_clients(db: Any, parent_id: uuid.UUID, source_id: uuid.UUID, tar
     settings["merged_into"] = str(target_id)
     source.settings = settings
     return source, target, result.rowcount or 0
+
+
+# ---- machine names as evidence ---------------------------------------------------------------------------------------------------------------------------------
+
+HINTS_PER_CLIENT = 300
+HINT_KEEP = timedelta(days=14)
+
+
+async def record_device_hints(db: Any, owner: uuid.UUID, vendor: str, vendor_client_id: str, hostnames: list[str]) -> None:
+    """Remember (lower-cased, at most HINTS_PER_CLIENT per client) the machine names a tool reports for a client that is not mapped yet. Refreshes the time on ones already kept and
+    forgets those not reported for HINT_KEEP. The caller owns the transaction."""
+    keys = sorted({h.strip().lower()[:255] for h in hostnames if h and h.strip()})[:HINTS_PER_CLIENT]
+    now = datetime.now(UTC)
+    if keys:
+        stmt = pg_insert(ClientDeviceHint).values(
+            [{"tenant_id": owner, "vendor": vendor, "vendor_client_id": vendor_client_id, "hostname_key": k, "seen_at": now} for k in keys]
+        )
+        await db.execute(
+            stmt.on_conflict_do_update(index_elements=["tenant_id", "vendor", "vendor_client_id", "hostname_key"], set_={"seen_at": now})
+        )
+    await db.execute(
+        delete(ClientDeviceHint).where(
+            ClientDeviceHint.tenant_id == owner,
+            ClientDeviceHint.vendor == vendor,
+            ClientDeviceHint.vendor_client_id == vendor_client_id,
+            ClientDeviceHint.seen_at < now - HINT_KEEP,
+        )
+    )
+
+
+async def device_overlaps(db: Any, owner: uuid.UUID, child_ids: list[uuid.UUID], acting: Any) -> dict[tuple[str, str], list[DeviceOverlap]]:
+    """For each (vendor, vendor client id) with remembered machine names, how many of them are machines under each client tenant.
+
+    ``acting(tenant_id)`` returns the context manager that reads as that tenant (devices are tenant data). Machines are compared by lower-cased name.
+    """
+    rows = (
+        await db.execute(
+            select(ClientDeviceHint.vendor, ClientDeviceHint.vendor_client_id, ClientDeviceHint.hostname_key).where(
+                ClientDeviceHint.tenant_id == owner
+            )
+        )
+    ).all()
+    hints: dict[tuple[str, str], set[str]] = {}
+    for vendor, vcid, key in rows:
+        hints.setdefault((vendor, vcid), set()).add(key)
+    if not hints:
+        return {}
+    out: dict[tuple[str, str], list[DeviceOverlap]] = {k: [] for k in hints}
+    for tid in child_ids:
+        async with acting(tid):
+            names = {n.lower() for n in (await db.execute(select(Device.hostname).where(Device.tenant_id == tid))).scalars().all() if n}
+        if not names:
+            continue
+        for key, wanted in hints.items():
+            shared = len(wanted & names)
+            if shared:
+                out[key].append(DeviceOverlap(str(tid), shared, len(wanted)))
+    return out
+
+
+def suggestions_with_devices(
+    alias: ClientAlias, candidates: list[Candidate], overlaps: dict[tuple[str, str], list[DeviceOverlap]]
+) -> list[Suggestion]:
+    """Name suggestions, strengthened (or joined) by machines in common. Only an unmapped, not-ignored client gets any."""
+    if alias.child_tenant_id is not None or alias.ignored:
+        return []
+    names = {c.tenant_id: c.name for c in candidates}
+    by_devices = device_suggestions(overlaps.get((alias.vendor, alias.vendor_client_id), []), names)
+    return merge_suggestions(suggest(alias.vendor_client_name, candidates), by_devices)

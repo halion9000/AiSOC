@@ -749,6 +749,8 @@ export interface ClientSuggestion {
   tenant_id: string;
   name: string;
   score: number;
+  /** Why, when it is not just the name: "5 of its 6 devices are already under this client". */
+  reason?: string | null;
 }
 
 export interface VendorClient {

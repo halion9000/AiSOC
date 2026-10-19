@@ -31,7 +31,7 @@ from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
 from app.models.device import Device, DeviceMergeLog, DeviceSnooze, DeviceSource
 from app.models.tenant import Tenant
-from app.services.client_mapping import tenant_hidden
+from app.services.client_mapping import record_device_hints, tenant_hidden
 from app.services.device_merge import DeviceMergeError, can_undo, dismiss_pair, merge_devices, undo_merge
 from app.services.device_upsert import DeviceReport, possible_duplicates, upsert_device
 
@@ -882,6 +882,7 @@ async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> Dev
     children = set((await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == owner))).scalars().all())
     by_tenant: dict[uuid.UUID, list[DeviceIn]] = {}
     waiting: dict[tuple[str, str], int] = {}
+    waiting_names: dict[tuple[str, str], list[str]] = {}
     unmapped = 0
     ignored = 0
     for item in report.items:
@@ -895,10 +896,14 @@ async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> Dev
                 unmapped += 1
                 key = (item.vendor, item.vendor_client_id)
                 waiting[key] = waiting.get(key, 0) + 1
+                waiting_names.setdefault(key, []).append(item.hostname)
                 continue
         else:
             target = owner
         by_tenant.setdefault(target, []).append(item)
+    # The machine names of clients that are not mapped yet are kept, to suggest which client they belong to (see client_mapping.device_overlaps).
+    for (vendor, vid), hostnames in waiting_names.items():
+        await record_device_hints(db, owner, vendor, vid, hostnames)
     unmapped_clients = [
         UnmappedClient(vendor_client_id=vid, name=known[(vendor, vid)].vendor_client_name if (vendor, vid) in known else None, devices=n)
         for (vendor, vid), n in sorted(waiting.items(), key=lambda kv: (-kv[1], kv[0]))[:10]

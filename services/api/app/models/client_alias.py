@@ -33,3 +33,15 @@ class ClientAlias(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
     )
+
+
+class ClientDeviceHint(Base):
+    """A machine name seen for a tool's client that is not mapped yet (migration 092): evidence for suggesting which AiSOC client it belongs to."""
+
+    __tablename__ = "client_device_hints"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    vendor: Mapped[str] = mapped_column(String(40), primary_key=True)
+    vendor_client_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    hostname_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

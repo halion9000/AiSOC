@@ -204,6 +204,7 @@ function UnmappedRow({
             {client.suggestions.map((s) => (
               <option key={s.tenant_id} value={s.tenant_id}>
                 {s.name} ({Math.round(s.score * 100)}%)
+                {s.reason ? ` — ${s.reason}` : ''}
               </option>
             ))}
           </optgroup>

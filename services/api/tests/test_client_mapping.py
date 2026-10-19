@@ -206,7 +206,7 @@ async def test_an_alias_of_another_tenant_is_404():
 async def test_listing_shows_suggestions_only_for_unmapped_clients_and_counts_them():
     acme = _tenant("Acme Dental")
     mapped, open_one, ignored = _alias("Done", child=acme.id), _alias("Acme Dental Group"), _alias("Skip", ignored=True)
-    out = await mc.list_clients(USER, _db([mapped, open_one, ignored], [acme], [acme]))
+    out = await mc.list_clients(USER, _db([mapped, open_one, ignored], [acme], [acme], []))
     by_name = {c.vendor_client_name: c for c in out.clients}
     assert out.unmapped == 1
     assert by_name["Done"].child_tenant_name == "Acme Dental" and by_name["Done"].suggestions == []
@@ -220,7 +220,7 @@ async def test_hiding_a_client_marks_it_hidden_and_stops_suggesting_it():
     cm.set_tenant_hidden(test_client, True)
     assert cm.tenant_hidden(test_client)
     mapped, open_one = _alias("Hal Test", child=test_client.id), _alias("Hal Test Two")
-    out = await mc.list_clients(USER, _db([mapped, open_one], [test_client], [test_client]))
+    out = await mc.list_clients(USER, _db([mapped, open_one], [test_client], [test_client], []))
     by_name = {c.vendor_client_name: c for c in out.clients}
     assert by_name["Hal Test"].child_tenant_hidden is True and by_name["Hal Test"].child_tenant_name == "Hal Test"
     assert by_name["Hal Test Two"].suggestions == []  # a hidden test client is never offered as a match
@@ -262,7 +262,7 @@ async def test_listing_reports_possible_duplicate_tenants_with_the_tool_clients_
     cm.set_tenant_hidden(hal2, True)
     aliases = [_alias("Acme Dental", child=a.id), _alias("ACME", child=b.id)]
     aliases[1].vendor = "huntress"
-    out = await mc.list_clients(USER, _db(aliases, [a, b, solo, hal, hal2], [a, b, solo, hal, hal2]))
+    out = await mc.list_clients(USER, _db(aliases, [a, b, solo, hal, hal2], [a, b, solo, hal, hal2], []))
     assert len(out.duplicates) == 1  # the two hidden test tenants are not reported
     assert [(t.name, t.mapped_from) for t in out.duplicates[0].tenants] == [
         ("Acme Dental", ["petra: Acme Dental"]),
@@ -283,11 +283,11 @@ async def test_a_dismissed_group_is_not_listed_but_comes_back_when_a_new_lookali
     await mc.dismiss_duplicates(mc.DismissRequest(tenant_ids=[a.id, b.id]), MagicMock(), USER, _db([a, b], [a, b], get={PARENT: parent}))
     assert cm.dismissed_duplicate_sets(parent) == {frozenset({str(a.id), str(b.id)})}
     # listing: gone
-    out = await mc.list_clients(USER, _db([], [a, b], [a, b], get={PARENT: parent}))
+    out = await mc.list_clients(USER, _db([], [a, b], [a, b], [], get={PARENT: parent}))
     assert out.duplicates == []
     # a third lookalike joins: the group is a different set, so it is shown again
     c = _tenant("ACME Dental Group")
-    out = await mc.list_clients(USER, _db([], [a, b, c], [a, b, c], get={PARENT: parent}))
+    out = await mc.list_clients(USER, _db([], [a, b, c], [a, b, c], [], get={PARENT: parent}))
     assert len(out.duplicates) == 1 and len(out.duplicates[0].tenants) == 3
 
 

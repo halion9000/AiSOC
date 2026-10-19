@@ -26,13 +26,14 @@ from app.services.client_mapping import (
     MergeError,
     NameTaken,
     child_candidates,
+    device_overlaps,
     dismiss_duplicate_group,
     import_unmapped,
     merge_clients,
     new_child,
     set_sync_vendors,
     set_tenant_hidden,
-    suggestions_for,
+    suggestions_with_devices,
     sync_vendors,
     tenant_hidden,
     without_dismissed,
@@ -55,6 +56,8 @@ class SuggestionOut(BaseModel):
     tenant_id: str
     name: str
     score: float
+    # Why, when it is not just the name: "5 of its 6 devices are already under this client".
+    reason: str | None = None
 
 
 class ClientAliasOut(BaseModel):
@@ -180,6 +183,12 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
         if tenant_hidden(t)
     }
     candidates = [c for c in candidates if c.tenant_id not in hidden_ids]  # never suggest a hidden test client
+    overlaps = await device_overlaps(
+        db,
+        current_user.tenant_id,
+        [uuid.UUID(c.tenant_id) for c in candidates],
+        lambda tid: acting_as_tenant(db, tid),
+    )
     out = [
         ClientAliasOut(
             id=a.id,
@@ -191,7 +200,10 @@ async def list_clients(current_user: Annotated[AuthUser, Depends(require_permiss
             child_tenant_hidden=str(a.child_tenant_id) in hidden_ids if a.child_tenant_id else False,
             ignored=a.ignored,
             match_source=a.match_source,
-            suggestions=[SuggestionOut(tenant_id=s.tenant_id, name=s.name, score=s.score) for s in suggestions_for(a, candidates)],
+            suggestions=[
+                SuggestionOut(tenant_id=s.tenant_id, name=s.name, score=s.score, reason=s.reason)
+                for s in suggestions_with_devices(a, candidates, overlaps)
+            ],
         )
         for a in aliases
     ]
