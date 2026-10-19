@@ -626,7 +626,14 @@ def pool_peak(now: float, window_minutes: int = 60) -> dict[str, Any]:
     if not recent:
         return {"window_minutes": window_minutes, "samples": 0}
     at, in_use, limit = max(recent, key=lambda s: (s[1] / s[2], s[0]))
-    return {"window_minutes": window_minutes, "samples": len(recent), "peak_in_use": in_use, "peak_limit": limit, "peak_percent": round(100 * in_use / limit), "peak_minutes_ago": max(0, int((now - at) // 60))}
+    return {
+        "window_minutes": window_minutes,
+        "samples": len(recent),
+        "peak_in_use": in_use,
+        "peak_limit": limit,
+        "peak_percent": round(100 * in_use / limit),
+        "peak_minutes_ago": max(0, int((now - at) // 60)),
+    }
 
 
 def reset_pool_history() -> None:
@@ -643,14 +650,25 @@ def core_feed_row(last_report: datetime | None, sources: int, now: datetime) -> 
         return {"sources": sources, "last_report": None, "minutes_ago": None, "silent": True}
     if last_report.tzinfo is None:
         last_report = last_report.replace(tzinfo=UTC)
-    return {"sources": sources, "last_report": last_report, "minutes_ago": max(0, int((now - last_report).total_seconds() // 60)), "silent": (now - last_report) > CORE_FEED_SILENT_AFTER}
+    return {
+        "sources": sources,
+        "last_report": last_report,
+        "minutes_ago": max(0, int((now - last_report).total_seconds() // 60)),
+        "silent": (now - last_report) > CORE_FEED_SILENT_AFTER,
+    }
 
 
 async def core_feed_status(db: Any, owner: Any, now: datetime | None = None) -> dict[str, Any] | None:
     """CORE's last report about its sources, or None when CORE has never been connected to this organization (so there is nothing to warn about)."""
     from app.models.connector import Connector
 
-    row = (await db.execute(select(func.max(Connector.last_health_check), func.count()).where(Connector.tenant_id == owner, Connector.connector_type == "core_feed"))).first()
+    row = (
+        await db.execute(
+            select(func.max(Connector.last_health_check), func.count()).where(
+                Connector.tenant_id == owner, Connector.connector_type == "core_feed"
+            )
+        )
+    ).first()
     if row is None or not row[1]:
         return None
     return core_feed_row(row[0], int(row[1]), now or datetime.now(UTC))
@@ -673,7 +691,13 @@ def device_feed_row(vendor: str, devices: int, newest: datetime | None, now: dat
     if newest.tzinfo is None:
         newest = newest.replace(tzinfo=UTC)
     minutes = max(0, int((now - newest).total_seconds() // 60))
-    return {"vendor": vendor, "devices": devices, "last_synced": newest, "minutes_ago": minutes, "stalled": (now - newest) > DEVICE_SYNC_STALLED_AFTER}
+    return {
+        "vendor": vendor,
+        "devices": devices,
+        "last_synced": newest,
+        "minutes_ago": minutes,
+        "stalled": (now - newest) > DEVICE_SYNC_STALLED_AFTER,
+    }
 
 
 async def device_feeds(db: Any, owner: Any, now: datetime | None = None) -> list[dict[str, Any]]:
@@ -684,7 +708,13 @@ async def device_feeds(db: Any, owner: Any, now: datetime | None = None) -> list
 
     scope = [owner, *[r[0] for r in (await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == owner))).all()]]
     async with cross_tenant_reads(db):
-        rows = (await db.execute(select(DeviceSource.vendor, func.count(), func.max(DeviceSource.last_seen)).where(DeviceSource.tenant_id.in_(scope)).group_by(DeviceSource.vendor))).all()
+        rows = (
+            await db.execute(
+                select(DeviceSource.vendor, func.count(), func.max(DeviceSource.last_seen))
+                .where(DeviceSource.tenant_id.in_(scope))
+                .group_by(DeviceSource.vendor)
+            )
+        ).all()
     moment = now or datetime.now(UTC)
     return sorted((device_feed_row(v, int(n), newest, moment) for v, n, newest in rows), key=lambda r: (not r["stalled"], r["vendor"]))
 
@@ -740,7 +770,11 @@ async def database_row_security(db: Any) -> dict[str, Any]:
     return {"enforced": True, "reason": "the API's database role cannot bypass row-level security"}
 
 
-@router.get("/services", summary="Is each internal platform service answering its own health probe?", dependencies=[Depends(require_permission("alerts:read"))])
+@router.get(
+    "/services",
+    summary="Is each internal platform service answering its own health probe?",
+    dependencies=[Depends(require_permission("alerts:read"))],
+)
 async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
     """One row per internal service (fusion, connectors, agents, ...), probed live from the API. A service that does not answer in 3 s is ``down``.
 
@@ -754,4 +788,12 @@ async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
         rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
     rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
     down = [r["service"] for r in rows if r["status"] != "up"]
-    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "device_feeds": await _device_feeds_or_none(db, user), "core_feed": await _core_feed_or_none(db, user), "generated_at": datetime.now(UTC)}
+    return {
+        "overall": "degraded" if down else "ok",
+        "down": down,
+        "services": rows,
+        "database": {**await database_row_security(db), "pool": _pool_now()},
+        "device_feeds": await _device_feeds_or_none(db, user),
+        "core_feed": await _core_feed_or_none(db, user),
+        "generated_at": datetime.now(UTC),
+    }

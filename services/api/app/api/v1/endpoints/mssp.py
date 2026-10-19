@@ -87,10 +87,12 @@ class MetricsOut(BaseModel):
 async def list_child_tenants(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    include_hidden: bool = Query(False, description="Also return hidden clients (test and archived ones)"),
 ) -> list[Tenant]:
-    """Return all child tenants of the current parent tenant."""
+    """Return the child tenants of the current parent tenant. Hidden ones (archived or test clients) are left out unless asked for, so pickers do not offer them."""
     result = await db.execute(select(Tenant).where(Tenant.parent_tenant_id == current_user.tenant_id))
-    return list(result.scalars().all())
+    rows = list(result.scalars().all())
+    return rows if include_hidden else [t for t in rows if not tenant_hidden(t)]
 
 
 @router.post("/children/{child_id}/onboard", status_code=status.HTTP_200_OK, dependencies=[Depends(require_permission("mssp:onboard"))])

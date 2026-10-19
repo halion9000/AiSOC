@@ -13,8 +13,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import time
 import re
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -29,8 +29,9 @@ from app.db.rls_scope import acting_as_tenant, cross_tenant_reads
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
-from app.models.device import Device, DeviceMergeLog, DeviceSource
+from app.models.device import Device, DeviceMergeLog, DeviceSnooze, DeviceSource
 from app.models.tenant import Tenant
+from app.services.client_mapping import tenant_hidden
 from app.services.device_merge import DeviceMergeError, can_undo, dismiss_pair, merge_devices, undo_merge
 from app.services.device_upsert import DeviceReport, possible_duplicates, upsert_device
 
@@ -81,6 +82,8 @@ class DeviceOut(BaseModel):
     # Open alerts whose record names this device (NinjaOne, ThreatMate, Addigy... send the device name). Counted by hostname within the client; the newest few are listed.
     open_alerts: int = 0
     alerts: list[DeviceAlertOut] = Field(default_factory=list)
+    # When a person hid this device until it checks back in, and it has not been seen online since. None for a device that is shown.
+    hidden_since: datetime | None = None
 
 
 class DeviceSummary(BaseModel):
@@ -97,6 +100,10 @@ class DeviceSummary(BaseModel):
     # Devices no tool has seen online for OFFLINE_AFTER_DAYS or more, and devices with at least one open alert.
     offline: int = 0
     with_alerts: int = 0
+    # Devices a person hid until they check back in (not counted in any other number here).
+    hidden: int = 0
+    # Devices offline for LONG_OFFLINE_DAYS or more: still in the list and in `offline`, but left out of the attention, stale, not-in-tool and open-alert numbers.
+    long_offline: int = 0
 
 
 class DeviceListOut(BaseModel):
@@ -123,6 +130,8 @@ def is_mobile(d: Any) -> bool:
 
 
 OFFLINE_AFTER_DAYS = 7
+# A device no tool has seen online for this long stops counting toward every number and filter except the offline count: a machine in a drawer is not a problem to chase. It stays in the list.
+LONG_OFFLINE_DAYS = 30
 
 
 def offline_days_of(last_online: datetime | None, now: datetime | None = None) -> int | None:
@@ -204,15 +213,26 @@ class ClientRollup(BaseModel):
     offline: int
 
 
+def long_offline(d: DeviceOut) -> bool:
+    """True when no tool has seen the device online for LONG_OFFLINE_DAYS or more. Such a device is left out of the problem counts (attention, stale agent, missing from a tool, open alerts)."""
+    return d.offline_days is not None and d.offline_days >= LONG_OFFLINE_DAYS
+
+
 def rollup_of(devices: list[DeviceOut]) -> list[ClientRollup]:
     """One row per client: how many devices, and how many of them need attention, have a stale agent, are not in Huntress or have been offline a week. Worst first, then by name."""
     rows: dict[uuid.UUID, ClientRollup] = {}
     for d in devices:
-        r = rows.setdefault(d.tenant_id, ClientRollup(client_id=d.tenant_id, client_name=d.client_name, devices=0, needs_attention=0, stale_agents=0, not_in_huntress=0, offline=0))
+        r = rows.setdefault(
+            d.tenant_id,
+            ClientRollup(
+                client_id=d.tenant_id, client_name=d.client_name, devices=0, needs_attention=0, stale_agents=0, not_in_huntress=0, offline=0
+            ),
+        )
         r.devices += 1
-        r.needs_attention += 1 if attention_of(d) else 0
-        r.stale_agents += 1 if stale_days_of(d) is not None else 0
-        r.not_in_huntress += 1 if is_missing_from(d, "huntress") else 0
+        counted = not long_offline(d)
+        r.needs_attention += 1 if counted and attention_of(d) else 0
+        r.stale_agents += 1 if counted and stale_days_of(d) is not None else 0
+        r.not_in_huntress += 1 if counted and is_missing_from(d, "huntress") else 0
         r.offline += 1 if d.offline_days is not None else 0
     return sorted(rows.values(), key=lambda r: (-r.needs_attention, -r.stale_agents, (r.client_name or "").lower()))
 
@@ -238,10 +258,13 @@ def _master_of(tenant: Tenant | None) -> str | None:
 
 
 async def _scope(db: Any, owner: uuid.UUID, client_id: uuid.UUID | None) -> tuple[list[uuid.UUID], dict[uuid.UUID, str]]:
-    clients = {r.id: r.name for r in (await db.execute(select(Tenant.id, Tenant.name).where(Tenant.parent_tenant_id == owner))).all()}
+    rows = (await db.execute(select(Tenant.id, Tenant.name, Tenant.settings).where(Tenant.parent_tenant_id == owner))).all()
+    clients = {r.id: r.name for r in rows}
+    # Archived and test clients (hidden) are left out of "all clients"; one can still be asked for by id.
+    shown = [r.id for r in rows if not tenant_hidden(r)]
     if client_id is not None and client_id != owner and client_id not in clients:
         raise HTTPException(status_code=404, detail="Client not found")
-    return ([client_id] if client_id is not None else [owner, *clients]), clients
+    return ([client_id] if client_id is not None else [owner, *shown]), clients
 
 
 def _as(db: Any, owner: uuid.UUID, tid: uuid.UUID) -> Any:
@@ -301,7 +324,9 @@ def forget_loaded() -> None:
     _loaded.clear()
 
 
-async def _load_cached(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[uuid.UUID, str], master: str | None) -> list[DeviceOut]:
+async def _load_cached(
+    db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[uuid.UUID, str], master: str | None
+) -> list[DeviceOut]:
     key = (owner, tuple(tids), master)
     lock = _load_locks.setdefault(key, asyncio.Lock())
     async with lock:
@@ -317,6 +342,20 @@ async def _load_cached(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients
         return devices
 
 
+def hidden_since_of(snoozed_at: datetime | None, last_online: datetime | None) -> datetime | None:
+    """When the device was hidden, while it still is: a device is hidden until a tool sees it online AFTER it was hidden. With no snooze, or a newer sighting, it is shown. A device no tool says
+    anything about stays hidden until a person shows it again."""
+    if snoozed_at is None:
+        return None
+    if snoozed_at.tzinfo is None:
+        snoozed_at = snoozed_at.replace(tzinfo=UTC)
+    if last_online is not None:
+        seen = last_online if last_online.tzinfo else last_online.replace(tzinfo=UTC)
+        if seen > snoozed_at:
+            return None
+    return snoozed_at
+
+
 async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[uuid.UUID, str], master: str | None) -> list[DeviceOut]:
     out: list[DeviceOut] = []
     for tid in tids:
@@ -324,6 +363,10 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
             devices = (await db.execute(select(Device).where(Device.tenant_id == tid))).scalars().all()
             sources = (await db.execute(select(DeviceSource).where(DeviceSource.tenant_id == tid))).scalars().all()
             alerts = await _alerts_by_host(db, tid)
+            snoozes = {
+                row.device_id: row.snoozed_at
+                for row in (await db.execute(select(DeviceSnooze).where(DeviceSnooze.tenant_id == tid))).scalars().all()
+            }
         by_device: dict[uuid.UUID, list[DeviceSource]] = {}
         for s in sources:
             by_device.setdefault(s.device_id, []).append(s)
@@ -350,6 +393,7 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     offline_days=offline_days_of(online),
                     open_alerts=len(alerts.get(host_key(d.hostname), [])),
                     alerts=alerts.get(host_key(d.hostname), [])[:_ALERTS_PER_DEVICE],
+                    hidden_since=hidden_since_of(snoozes.get(d.id), online),
                 )
             )
     return out
@@ -391,9 +435,13 @@ def filter_devices(
     has_alerts: bool = False,
     attention: bool = False,
     stale: bool = False,
+    hidden: bool = False,
 ) -> list[DeviceOut]:
     """The devices a page (or an export) asked for: every filter given must hold. ``search`` matches the name, serial number, client name or any IP address, ignoring case. Sorted by client, then name."""
-    rows = everything
+    rows = [d for d in everything if (d.hidden_since is not None) == hidden]
+    # The problem filters agree with the problem counts: a device offline for a month is not in them (the Offline filter still shows it).
+    if not_in_master or missing or has_alerts or attention or stale:
+        rows = [d for d in rows if not long_offline(d)]
     if search:
         needle = search.strip().lower()
         rows = [
@@ -471,24 +519,43 @@ async def list_devices(
     has_alerts: bool = Query(default=False, description="Only devices with at least one open alert."),
     attention: bool = Query(default=False, description="Only devices a tool reports a problem with."),
     stale: bool = Query(default=False, description="Only devices whose protection agent has not checked in for two weeks or more."),
+    hidden: bool = Query(
+        default=False,
+        description="Only devices a person hid until they check back in. Without this they are left out of the list and every count.",
+    ),
 ) -> DeviceListOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
     master = _master_of(await db.get(Tenant, owner))
-    everything = await _load_cached(db, owner, scope, clients, master)
+    loaded = await _load_cached(db, owner, scope, clients, master)
+    everything = [d for d in loaded if d.hidden_since is None]
+    counted = [d for d in everything if not long_offline(d)]
     summary = DeviceSummary(
+        hidden=len(loaded) - len(everything),
         total=len(everything),
-        not_in_master=sum(1 for d in everything if not d.in_master),
-        not_in_addigy=sum(1 for d in everything if is_missing_from(d, "addigy")),
-        not_in_threatmate=sum(1 for d in everything if is_missing_from(d, "threatmate")),
-        not_in_huntress=sum(1 for d in everything if is_missing_from(d, "huntress")),
-        needs_attention=sum(1 for d in everything if attention_of(d)),
-        stale_agents=sum(1 for d in everything if stale_days_of(d) is not None),
+        long_offline=sum(1 for d in everything if long_offline(d)),
+        not_in_master=sum(1 for d in counted if not d.in_master),
+        not_in_addigy=sum(1 for d in counted if is_missing_from(d, "addigy")),
+        not_in_threatmate=sum(1 for d in counted if is_missing_from(d, "threatmate")),
+        not_in_huntress=sum(1 for d in counted if is_missing_from(d, "huntress")),
+        needs_attention=sum(1 for d in counted if attention_of(d)),
+        stale_agents=sum(1 for d in counted if stale_days_of(d) is not None),
         offline=sum(1 for d in everything if d.offline_days is not None),
-        with_alerts=sum(1 for d in everything if d.open_alerts > 0),
+        with_alerts=sum(1 for d in counted if d.open_alerts > 0),
     )
 
-    rows = filter_devices(everything, search=search, vendor=vendor, not_in_master=not_in_master, missing=missing, offline=offline, has_alerts=has_alerts, attention=attention, stale=stale)
+    rows = filter_devices(
+        loaded,
+        search=search,
+        vendor=vendor,
+        not_in_master=not_in_master,
+        missing=missing,
+        offline=offline,
+        has_alerts=has_alerts,
+        attention=attention,
+        stale=stale,
+        hidden=hidden,
+    )
     total = len(rows)
     start = (page - 1) * page_size
     return DeviceListOut(
@@ -534,22 +601,44 @@ async def export_devices(
     has_alerts: bool = Query(default=False),
     attention: bool = Query(default=False),
     stale: bool = Query(default=False),
+    hidden: bool = Query(default=False),
 ) -> Response:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
     master = _master_of(await db.get(Tenant, owner))
     everything = await _load_cached(db, owner, scope, clients, master)
-    rows = filter_devices(everything, search=search, vendor=vendor, not_in_master=not_in_master, missing=missing, offline=offline, has_alerts=has_alerts, attention=attention, stale=stale)
+    rows = filter_devices(
+        everything,
+        search=search,
+        vendor=vendor,
+        not_in_master=not_in_master,
+        missing=missing,
+        offline=offline,
+        has_alerts=has_alerts,
+        attention=attention,
+        stale=stale,
+        hidden=hidden,
+    )
     body = devices_csv(rows)
-    return Response(content=body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="devices.csv"', "Cache-Control": "no-store"})
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="devices.csv"', "Cache-Control": "no-store"},
+    )
 
 
-@router.get("/rollup", response_model=list[ClientRollup], summary="Per client: devices, how many need attention, have a stale agent, are not in Huntress or are offline")
-async def devices_rollup(current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> list[ClientRollup]:
+@router.get(
+    "/rollup",
+    response_model=list[ClientRollup],
+    summary="Per client: devices, how many need attention, have a stale agent, are not in Huntress or are offline",
+)
+async def devices_rollup(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
+) -> list[ClientRollup]:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, None)
     master = _master_of(await db.get(Tenant, owner))
-    return rollup_of(await _load_cached(db, owner, scope, clients, master))
+    return rollup_of([d for d in await _load_cached(db, owner, scope, clients, master) if d.hidden_since is None])
 
 
 @router.get("/duplicates", response_model=DuplicatesOut)
@@ -581,6 +670,50 @@ async def _client_of(db: Any, owner: uuid.UUID, device_id: uuid.UUID) -> uuid.UU
             if (await db.execute(select(Device.id).where(Device.id == device_id, Device.tenant_id == tid))).first() is not None:
                 return tid
     raise HTTPException(status_code=404, detail="Device not found")
+
+
+class HideOut(BaseModel):
+    device_id: uuid.UUID
+    hidden_since: datetime | None
+
+
+@router.post("/{device_id}/hide", response_model=HideOut, summary="Hide a device until a tool sees it online again")
+async def hide_device(
+    device_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession
+) -> HideOut:
+    """For an offline machine that is cluttering the list: it is left out of the list and the counts until any tool reports it online after now. Hiding it again later starts over."""
+    owner = current_user.tenant_id
+    tid = await _client_of(db, owner, device_id)
+    now = datetime.now(UTC)
+    async with _as(db, owner, tid):
+        row = (
+            await db.execute(select(DeviceSnooze).where(DeviceSnooze.device_id == device_id, DeviceSnooze.tenant_id == tid))
+        ).scalar_one_or_none()
+        if row is None:
+            db.add(DeviceSnooze(device_id=device_id, tenant_id=tid, snoozed_at=now, created_by=current_user.user_id))
+        else:
+            row.snoozed_at = now
+            row.created_by = current_user.user_id
+    forget_loaded()
+    await db.commit()
+    return HideOut(device_id=device_id, hidden_since=now)
+
+
+@router.delete("/{device_id}/hide", response_model=HideOut, summary="Show a hidden device again")
+async def unhide_device(
+    device_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession
+) -> HideOut:
+    owner = current_user.tenant_id
+    tid = await _client_of(db, owner, device_id)
+    async with _as(db, owner, tid):
+        row = (
+            await db.execute(select(DeviceSnooze).where(DeviceSnooze.device_id == device_id, DeviceSnooze.tenant_id == tid))
+        ).scalar_one_or_none()
+        if row is not None:
+            await db.delete(row)
+    forget_loaded()
+    await db.commit()
+    return HideOut(device_id=device_id, hidden_since=None)
 
 
 @router.post("/duplicates/dismiss", status_code=204)
@@ -631,20 +764,41 @@ async def list_merges(current_user: Annotated[AuthUser, Depends(require_permissi
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, None)
     async with cross_tenant_reads(db):
-        rows = (await db.execute(select(DeviceMergeLog).where(DeviceMergeLog.tenant_id.in_(scope), DeviceMergeLog.undone_at.is_(None)).order_by(DeviceMergeLog.created_at.desc()).limit(50))).scalars().all()
+        rows = (
+            (
+                await db.execute(
+                    select(DeviceMergeLog)
+                    .where(DeviceMergeLog.tenant_id.in_(scope), DeviceMergeLog.undone_at.is_(None))
+                    .order_by(DeviceMergeLog.created_at.desc())
+                    .limit(50)
+                )
+            )
+            .scalars()
+            .all()
+        )
     return [
-        MergeOut(id=r.id, client_name=clients.get(r.tenant_id), removed_hostname=str((r.removed or {}).get("hostname") or ""), kept_device_id=r.kept_device_id, created_at=r.created_at)
+        MergeOut(
+            id=r.id,
+            client_name=clients.get(r.tenant_id),
+            removed_hostname=str((r.removed or {}).get("hostname") or ""),
+            kept_device_id=r.kept_device_id,
+            created_at=r.created_at,
+        )
         for r in rows
         if can_undo(r)
     ][:20]
 
 
 @router.post("/duplicates/merges/{merge_id}/undo", response_model=MergeOut, summary="Undo a recent merge")
-async def undo_merge_route(merge_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession) -> MergeOut:
+async def undo_merge_route(
+    merge_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession
+) -> MergeOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, None)
     async with cross_tenant_reads(db):
-        entry = (await db.execute(select(DeviceMergeLog).where(DeviceMergeLog.id == merge_id, DeviceMergeLog.tenant_id.in_(scope)))).scalar_one_or_none()
+        entry = (
+            await db.execute(select(DeviceMergeLog).where(DeviceMergeLog.id == merge_id, DeviceMergeLog.tenant_id.in_(scope)))
+        ).scalar_one_or_none()
     if entry is None:
         raise HTTPException(status_code=404, detail="That merge was not found.")
     try:
@@ -654,7 +808,13 @@ async def undo_merge_route(merge_id: uuid.UUID, current_user: Annotated[AuthUser
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     forget_loaded()
     await db.commit()
-    return MergeOut(id=entry.id, client_name=clients.get(entry.tenant_id), removed_hostname=str((entry.removed or {}).get("hostname") or ""), kept_device_id=entry.kept_device_id, created_at=entry.created_at)
+    return MergeOut(
+        id=entry.id,
+        client_name=clients.get(entry.tenant_id),
+        removed_hostname=str((entry.removed or {}).get("hostname") or ""),
+        kept_device_id=entry.kept_device_id,
+        created_at=entry.created_at,
+    )
 
 
 @router.get("/{device_id}", response_model=DeviceOut)

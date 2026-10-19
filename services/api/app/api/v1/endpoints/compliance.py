@@ -255,7 +255,9 @@ _RESPONSE_CONTROLS = {("NIST-CSF", "RS.AN-1"), ("ISO27001", "A.16.1.2"), ("DORA"
 async def _system_facts(db: DBSession, tenant_id: uuid.UUID) -> dict[str, dict[str, Any]]:
     """What the platform itself can state about this tenant right now (counts only; no names, addresses or secrets)."""
     users = (
-        await db.execute(text("SELECT role, is_active, COUNT(*) AS n FROM users WHERE tenant_id = :t GROUP BY role, is_active").bindparams(t=tenant_id))
+        await db.execute(
+            text("SELECT role, is_active, COUNT(*) AS n FROM users WHERE tenant_id = :t GROUP BY role, is_active").bindparams(t=tenant_id)
+        )
     ).fetchall()
     by_role: dict[str, int] = {}
     inactive = 0

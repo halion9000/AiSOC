@@ -38,7 +38,13 @@ def test_a_report_rejects_a_bad_vendor_and_too_many_items():
 @pytest.mark.asyncio
 async def test_each_given_field_updates_only_an_empty_list_of_this_vendors_alert_in_this_tenant():
     db = _db([1, 1, 1])
-    report = EntitiesReport(vendor="blumira", items=[EntityItem(uid="blumira:1", hostname="WS-1", username="  a@b.com ", src_ip="203.0.113.9"), EntityItem(uid="petra:9", username="x")])
+    report = EntitiesReport(
+        vendor="blumira",
+        items=[
+            EntityItem(uid="blumira:1", hostname="WS-1", username="  a@b.com ", src_ip="203.0.113.9"),
+            EntityItem(uid="petra:9", username="x"),
+        ],
+    )
     assert await apply_entities(db, TENANT, report) == 3
     assert len(db.executed) == 3, "one update per field given, and the other vendor's uid is skipped without a query"
     columns = []
@@ -46,7 +52,9 @@ async def test_each_given_field_updates_only_an_empty_list_of_this_vendors_alert
         sql, params = _sql(stmt)
         assert sql.lower().startswith("update alerts") and TENANT in params.values() and "blumira:1" in params.values()
         assert "jsonb_array_length" in sql.lower(), "only an EMPTY list may be filled"
-        columns.append([c for c in ("affected_hosts", "affected_users", "affected_ips") if f"{c} =" in sql.replace("  ", " ") or f"SET {c}" in sql][0])
+        columns.append(
+            [c for c in ("affected_hosts", "affected_users", "affected_ips") if f"{c} =" in sql.replace("  ", " ") or f"SET {c}" in sql][0]
+        )
     assert columns == ["affected_hosts", "affected_users", "affected_ips"]
     assert ["a@b.com"] in _sql(db.executed[1])[1].values(), "the value is trimmed"
 
@@ -69,7 +77,9 @@ async def test_the_count_is_what_the_database_reports_updated():
 @pytest.mark.asyncio
 async def test_a_link_is_set_only_on_an_alert_that_has_none_and_only_when_it_is_https():
     db = _db([1])
-    report = EntitiesReport(vendor="huntress", items=[EntityItem(uid="huntress:1", url="https://acme.huntress.io/account/infection_reports/1")])
+    report = EntitiesReport(
+        vendor="huntress", items=[EntityItem(uid="huntress:1", url="https://acme.huntress.io/account/infection_reports/1")]
+    )
     assert await apply_entities(db, TENANT, report) == 1
     assert len(db.executed) == 1
     sql, params = _sql(db.executed[0])
@@ -83,7 +93,15 @@ async def test_a_link_is_set_only_on_an_alert_that_has_none_and_only_when_it_is_
 
 
 def test_links_keep_only_the_known_keys_and_plain_https_addresses():
-    item = EntityItem(uid="huntress:1", links={"device_url": "https://a.huntress.io/org/1/agents/2", "user_url": "javascript:alert(1)", "other": "https://x.example", "evil": "http://x"})
+    item = EntityItem(
+        uid="huntress:1",
+        links={
+            "device_url": "https://a.huntress.io/org/1/agents/2",
+            "user_url": "javascript:alert(1)",
+            "other": "https://x.example",
+            "evil": "http://x",
+        },
+    )
     assert item.links == {"device_url": "https://a.huntress.io/org/1/agents/2"}
     assert EntityItem(uid="huntress:1", links={"user_url": "http://insecure"}).links is None
     assert EntityItem(uid="huntress:1").links is None
@@ -92,11 +110,27 @@ def test_links_keep_only_the_known_keys_and_plain_https_addresses():
 @pytest.mark.asyncio
 async def test_links_are_set_only_on_an_alert_that_has_none():
     db = _db([1])
-    report = EntitiesReport(vendor="huntress", items=[EntityItem(uid="huntress:1", links={"device_url": "https://a.huntress.io/org/1/agents/2", "user_url": "https://a.huntress.io/org/1/managed_identity/identities/3"})])
+    report = EntitiesReport(
+        vendor="huntress",
+        items=[
+            EntityItem(
+                uid="huntress:1",
+                links={
+                    "device_url": "https://a.huntress.io/org/1/agents/2",
+                    "user_url": "https://a.huntress.io/org/1/managed_identity/identities/3",
+                },
+            )
+        ],
+    )
     assert await apply_entities(db, TENANT, report) == 1
     sql, params = _sql(db.executed[0])
     assert "raw_event" in sql and "IS NULL" in sql.upper(), "an alert that already has links keeps them"
-    assert {"links": {"device_url": "https://a.huntress.io/org/1/agents/2", "user_url": "https://a.huntress.io/org/1/managed_identity/identities/3"}} in params.values()
+    assert {
+        "links": {
+            "device_url": "https://a.huntress.io/org/1/agents/2",
+            "user_url": "https://a.huntress.io/org/1/managed_identity/identities/3",
+        }
+    } in params.values()
 
 
 def test_an_alert_exposes_its_links_only_for_the_known_keys_and_https():

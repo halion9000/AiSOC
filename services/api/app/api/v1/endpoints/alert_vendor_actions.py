@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import UTC, datetime
-from urllib.parse import quote
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -88,7 +88,11 @@ def linked_tickets(enrichment: Any) -> list[dict[str, Any]]:
         return []
     core = _shaped(enrichment.get("tickets"))
     seen = {(str(t.get("system") or "halopsa"), str(t["id"])) for t in core}
-    manual = [{**t, "manual": True} for t in _shaped(enrichment.get("manual_tickets")) if (str(t.get("system") or "halopsa"), str(t["id"])) not in seen]
+    manual = [
+        {**t, "manual": True}
+        for t in _shaped(enrichment.get("manual_tickets"))
+        if (str(t.get("system") or "halopsa"), str(t["id"])) not in seen
+    ]
     return core + manual
 
 
@@ -97,7 +101,9 @@ def with_halo_urls(tickets: list[dict[str, Any]], base: str | None) -> list[dict
     if not base:
         return tickets
     return [
-        {**t, "url": f"{base}/tickets?id={quote(str(t['id']), safe='')}"} if str(t.get("system") or "halopsa") == "halopsa" and not t.get("url") else t
+        {**t, "url": f"{base}/tickets?id={quote(str(t['id']), safe='')}"}
+        if str(t.get("system") or "halopsa") == "halopsa" and not t.get("url")
+        else t
         for t in tickets
     ]
 
@@ -113,7 +119,7 @@ async def halo_base_of(db: Any, owner_tenant_id: uuid.UUID) -> str | None:
 
 
 async def ticket_status_param(db: Any, owner_tenant_id: uuid.UUID, action: str) -> dict[str, str]:
-    """For a resolve: the HaloPSA ticket status CORE should move the incident's ticket to (the organization's own choice, else "Tech Update"). Nothing for approve or reject, which only add a
+    """For a resolve: the HaloPSA ticket status CORE should move the incident's ticket to (the organization's own choice, else "Tech Updated"). Nothing for approve or reject, which only add a
     note. A problem reading the setting falls back to the default; it never stops the resolve."""
     if action != "resolve":
         return {}
@@ -226,9 +232,15 @@ async def add_manual_ticket(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         enrichment = dict(alert.enrichment_data) if isinstance(alert.enrichment_data, dict) else {}
-        existing = [t for t in _shaped(enrichment.get("manual_tickets")) if not (t.get("system") == ticket["system"] and str(t["id"]) == ticket["id"])]
+        existing = [
+            t
+            for t in _shaped(enrichment.get("manual_tickets"))
+            if not (t.get("system") == ticket["system"] and str(t["id"]) == ticket["id"])
+        ]
         if len(existing) >= MAX_MANUAL_TICKETS:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An alert can have at most {MAX_MANUAL_TICKETS} tickets entered by hand.")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=f"An alert can have at most {MAX_MANUAL_TICKETS} tickets entered by hand."
+            )
         enrichment["manual_tickets"] = [*existing, ticket]
         await db.execute(update(Alert).where(Alert.id == alert.id, Alert.tenant_id == tid).values(enrichment_data=enrichment))
         await emit_audit(
@@ -260,7 +272,9 @@ async def remove_manual_ticket(
         manual = _shaped(enrichment.get("manual_tickets"))
         kept = [t for t in manual if str(t["id"]) != ticket_id]
         if len(kept) == len(manual):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No ticket with that number was entered by hand on this alert.")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="No ticket with that number was entered by hand on this alert."
+            )
         enrichment["manual_tickets"] = kept
         await db.execute(update(Alert).where(Alert.id == alert.id, Alert.tenant_id == tid).values(enrichment_data=enrichment))
         await emit_audit(
@@ -336,7 +350,9 @@ async def request_vendor_action(
                 params["account_id"] = account
         elif vendor == "fieldeffect":
             params = {"comment": (body.comment or "").strip()}
-        if vendor == SUPPORTED_VENDOR:  # Huntress: CORE knows the incident's ticket. (For the other tools it does not, so there is no ticket to move.)
+        if (
+            vendor == SUPPORTED_VENDOR
+        ):  # Huntress: CORE knows the incident's ticket. (For the other tools it does not, so there is no ticket to move.)
             params = {**params, **await ticket_status_param(db, current_user.tenant_id, body.action)}
         row = VendorAction(
             id=uuid.uuid4(),

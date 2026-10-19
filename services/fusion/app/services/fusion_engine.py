@@ -265,7 +265,9 @@ class FusionEngine:
                         key=lambda r: (r.score, r.entity_value),
                     )
                     # The sink may open a case for each (AISOC_RBA_OPEN_CASE); the contributor detail is left out to keep the message small.
-                    fused.enrichments["rba_promotions"] = [{k: v for k, v in p.to_dict().items() if k != "contributors"} for p in promotions]
+                    fused.enrichments["rba_promotions"] = [
+                        {k: v for k, v in p.to_dict().items() if k != "contributors"} for p in promotions
+                    ]
                     logger.info(
                         "rba_promotions",
                         alert_id=str(alert.id),

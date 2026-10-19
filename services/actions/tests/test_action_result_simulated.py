@@ -27,13 +27,22 @@ def test_a_result_with_the_simulation_note_or_id_is_marked():
 
 
 def test_an_explicit_flag_is_kept():
-    assert ActionResult(action_id=uuid.uuid4(), status=ActionStatus.COMPLETED, blast_radius=BlastRadius.LOW, simulated=True).simulated is True
+    assert (
+        ActionResult(action_id=uuid.uuid4(), status=ActionStatus.COMPLETED, blast_radius=BlastRadius.LOW, simulated=True).simulated is True
+    )
 
 
 @pytest.mark.asyncio
 async def test_isolate_host_without_credentials_reports_simulated():
     request = ActionRequest(
-        id=uuid.uuid4(), tenant_id=uuid.uuid4(), incident_id=uuid.uuid4(), action_type=ActionType.ISOLATE_HOST, target="host-1", rationale="test", requested_by="agent", parameters={}
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        incident_id=uuid.uuid4(),
+        action_type=ActionType.ISOLATE_HOST,
+        target="host-1",
+        rationale="test",
+        requested_by="agent",
+        parameters={},
     )
     result = await IsolateHostExecutor().execute(request)
     assert result.status is ActionStatus.COMPLETED and result.simulated is True

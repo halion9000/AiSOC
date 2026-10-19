@@ -45,7 +45,9 @@ def _no_cross_tenant_session(monkeypatch):
 
 
 def _key(user_id):
-    return SimpleNamespace(id=uuid.uuid4(), tenant_id=TENANT, user_id=user_id, key_prefix="aisoc_x", expires_at=None, scopes=["*"], is_active=True)
+    return SimpleNamespace(
+        id=uuid.uuid4(), tenant_id=TENANT, user_id=user_id, key_prefix="aisoc_x", expires_at=None, scopes=["*"], is_active=True
+    )
 
 
 @pytest.mark.asyncio

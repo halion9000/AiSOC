@@ -194,9 +194,9 @@ def test_patch_changes_only_what_was_sent():
     db = FakeDB([key])
     user = admin()
     out = run(ak.update_api_key(key.id, ak.UpdateApiKeyRequest(name="new"), db, user))
-    assert str(user.tenant_id).replace("-", "") in literal(db.statements[0]).replace("-", ""), (
-        "update must be scoped to the caller's tenant"
-    )
+    assert str(user.tenant_id).replace("-", "") in literal(db.statements[0]).replace(
+        "-", ""
+    ), "update must be scoped to the caller's tenant"
     assert out.name == "new" and key.scopes == ["alerts:read"] and key.expires_at is None and db.commits == 1
 
 
@@ -229,9 +229,9 @@ def test_revoke_deactivates_without_deleting_and_404s_when_absent():
     user = admin()
     assert run(ak.revoke_api_key(key.id, db, user)) is None
     sql = literal(db.statements[0]).replace("-", "")
-    assert str(user.tenant_id).replace("-", "") in sql and str(key.id).replace("-", "") in sql, (
-        "revoke must be scoped to the caller's tenant"
-    )
+    assert (
+        str(user.tenant_id).replace("-", "") in sql and str(key.id).replace("-", "") in sql
+    ), "revoke must be scoped to the caller's tenant"
     assert key.is_active is False and db.commits == 1
     with pytest.raises(HTTPException) as exc:
         run(ak.revoke_api_key(uuid.uuid4(), FakeDB(), admin()))

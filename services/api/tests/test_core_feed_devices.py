@@ -40,7 +40,14 @@ def test_a_report_rejects_a_bad_vendor_an_empty_host_and_too_many_items():
 @pytest.mark.asyncio
 async def test_only_alerts_of_this_vendor_in_this_tenant_with_no_host_are_updated():
     db = _db([1, 1])
-    report = DevicesReport(vendor="huntress", items=[DeviceItem(uid="huntress:1", hostname="WS-1"), DeviceItem(uid="petra:9", hostname="X"), DeviceItem(uid="huntress:2", hostname="  WS-2  ")])
+    report = DevicesReport(
+        vendor="huntress",
+        items=[
+            DeviceItem(uid="huntress:1", hostname="WS-1"),
+            DeviceItem(uid="petra:9", hostname="X"),
+            DeviceItem(uid="huntress:2", hostname="  WS-2  "),
+        ],
+    )
     assert await apply_devices(db, TENANT, report) == 2
     assert len(db.executed) == 2, "the other vendor's uid is skipped without a query"
     sql, params = _sql(db.executed[0])
@@ -62,5 +69,7 @@ async def test_a_blank_hostname_after_trimming_changes_nothing():
 @pytest.mark.asyncio
 async def test_the_count_is_what_the_database_reports_updated():
     db = _db([0, 1])  # the first alert already has a host, the second did not
-    report = DevicesReport(vendor="huntress", items=[DeviceItem(uid="huntress:1", hostname="A"), DeviceItem(uid="huntress:2", hostname="B")])
+    report = DevicesReport(
+        vendor="huntress", items=[DeviceItem(uid="huntress:1", hostname="A"), DeviceItem(uid="huntress:2", hostname="B")]
+    )
     assert await apply_devices(db, TENANT, report) == 1

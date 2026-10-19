@@ -15,8 +15,17 @@ NOW = datetime(2026, 10, 18, 12, 0, tzinfo=UTC)
 
 
 def test_the_number_is_tidied_the_link_must_be_https_and_who_added_it_is_recorded():
-    t = av.clean_manual_ticket(av.ManualTicketRequest(id=" #4521 ", summary="  Ransomware canary ", url="https://halo.example.com/t?id=4521"), "u1", NOW)
-    assert t == {"system": "halopsa", "id": "4521", "added_by": "u1", "added_at": NOW.isoformat(), "summary": "Ransomware canary", "url": "https://halo.example.com/t?id=4521"}
+    t = av.clean_manual_ticket(
+        av.ManualTicketRequest(id=" #4521 ", summary="  Ransomware canary ", url="https://halo.example.com/t?id=4521"), "u1", NOW
+    )
+    assert t == {
+        "system": "halopsa",
+        "id": "4521",
+        "added_by": "u1",
+        "added_at": NOW.isoformat(),
+        "summary": "Ransomware canary",
+        "url": "https://halo.example.com/t?id=4521",
+    }
     plain = av.clean_manual_ticket(av.ManualTicketRequest(id="4522", url="javascript:alert(1)"), "u1", NOW)
     assert "url" not in plain and "summary" not in plain
 
@@ -34,7 +43,12 @@ def test_a_number_that_cannot_be_a_ticket_is_refused(bad):
 def test_manual_tickets_are_listed_after_core_s_and_flagged_and_a_duplicate_shows_once_as_core_reported_it():
     enrichment = {
         "tickets": [{"system": "halopsa", "id": "100", "summary": "From CORE", "status": "Open"}],
-        "manual_tickets": [{"system": "halopsa", "id": "100", "summary": "typed"}, {"system": "halopsa", "id": "200", "summary": "typed"}, "junk", {"no": "id"}],
+        "manual_tickets": [
+            {"system": "halopsa", "id": "100", "summary": "typed"},
+            {"system": "halopsa", "id": "200", "summary": "typed"},
+            "junk",
+            {"no": "id"},
+        ],
     }
     tickets = av.linked_tickets(enrichment)
     assert [(t["id"], t.get("manual", False), t["summary"]) for t in tickets] == [("100", False, "From CORE"), ("200", True, "typed")]
@@ -81,7 +95,9 @@ async def test_adding_stores_the_ticket_beside_core_s_audits_it_and_returns_both
     out = await av.add_manual_ticket(ALERT_ID, av.ManualTicketRequest(id="#4521", summary="Manual"), MagicMock(), _user(), db)
     assert [(t["id"], t.get("manual", False)) for t in out.tickets] == [("100", False), ("4521", True)]
     values = db.statements[-1].compile().params
-    assert any(isinstance(v, dict) and "manual_tickets" in v and v["tickets"] == [{"system": "halopsa", "id": "100"}] for v in values.values()), "CORE's tickets are left exactly as they were"
+    assert any(
+        isinstance(v, dict) and "manual_tickets" in v and v["tickets"] == [{"system": "halopsa", "id": "100"}] for v in values.values()
+    ), "CORE's tickets are left exactly as they were"
     db.commit.assert_awaited()
     assert audit[0]["action"] == "alerts:ticket_linked" and audit[0]["changes"] == {"system": "halopsa", "ticket": "4521"}
 
@@ -129,11 +145,15 @@ def test_the_ticket_routes_need_alerts_write():
 
 def test_a_halo_ticket_without_a_link_gets_one_from_the_halo_address_and_one_with_a_link_keeps_it():
     base = "https://acme.halopsa.com"
-    out = av.with_halo_urls([{"system": "halopsa", "id": "4521"}, {"system": "halopsa", "id": "7", "url": "https://other.example/t/7"}, {"id": "a b/c"}], base)
+    out = av.with_halo_urls(
+        [{"system": "halopsa", "id": "4521"}, {"system": "halopsa", "id": "7", "url": "https://other.example/t/7"}, {"id": "a b/c"}], base
+    )
     assert out[0]["url"] == "https://acme.halopsa.com/tickets?id=4521"
     assert out[1]["url"] == "https://other.example/t/7"
     assert out[2]["url"] == "https://acme.halopsa.com/tickets?id=a%20b%2Fc", "the number is encoded, never trusted into the address"
-    assert av.with_halo_urls([{"system": "halopsa", "id": "1"}], None) == [{"system": "halopsa", "id": "1"}], "no address known: nothing is invented"
+    assert av.with_halo_urls([{"system": "halopsa", "id": "1"}], None) == [
+        {"system": "halopsa", "id": "1"}
+    ], "no address known: nothing is invented"
 
 
 @pytest.mark.asyncio
@@ -156,7 +176,9 @@ def test_the_halo_address_is_learned_from_the_urls_core_sends_and_nothing_else()
     from app.api.v1.endpoints.inbox_core_feed import LinkedTicket, TicketsItem, TicketsReport, halo_base_from
 
     def report(*urls):
-        return TicketsReport(vendor="huntress", items=[TicketsItem(uid="huntress:1", tickets=[LinkedTicket(id=str(i), url=u) for i, u in enumerate(urls)])])
+        return TicketsReport(
+            vendor="huntress", items=[TicketsItem(uid="huntress:1", tickets=[LinkedTicket(id=str(i), url=u) for i, u in enumerate(urls)])]
+        )
 
     assert halo_base_from(report("https://Acme.HaloPSA.com/tickets?id=4521")) == "https://acme.halopsa.com"
     assert halo_base_from(report("https://evil.example.com/tickets?id=1", "https://acme.halopsa.com.evil.io/tickets?id=2")) is None
@@ -166,7 +188,10 @@ def test_the_halo_address_is_learned_from_the_urls_core_sends_and_nothing_else()
 def test_an_alert_links_to_its_tool_only_with_a_plain_https_address():
     from app.api.v1.endpoints.alerts import _source_url_of
 
-    assert _source_url_of(SimpleNamespace(raw_event={"url": "https://app.petrasecurity.com/tenant/x/incidents/1"})) == "https://app.petrasecurity.com/tenant/x/incidents/1"
+    assert (
+        _source_url_of(SimpleNamespace(raw_event={"url": "https://app.petrasecurity.com/tenant/x/incidents/1"}))
+        == "https://app.petrasecurity.com/tenant/x/incidents/1"
+    )
     for bad in ("javascript:alert(1)", "http://insecure.example.com", "https://with space.example.com", 5, None):
         assert _source_url_of(SimpleNamespace(raw_event={"url": bad})) is None
     assert _source_url_of(SimpleNamespace(raw_event=None)) is None

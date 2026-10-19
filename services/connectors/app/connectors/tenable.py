@@ -21,6 +21,7 @@ logger = structlog.get_logger()
 # Findings kept per poll (the rest are dropped, worst first kept).
 _MAX_ITEMS = 200
 
+
 class TenableConnector(BaseConnector):
     """Tenable.io VM."""
 

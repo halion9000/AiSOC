@@ -261,7 +261,9 @@ class TestUnscopedSearchOnAMultiTenantDeployment:
         monkeypatch.setattr(nq, "_translate", AsyncMock(return_value=(translated("FROM logs-*" + GOOD_TAIL), "deterministic")))
         monkeypatch.setattr(nq, "_execute_esql", run)
         monkeypatch.setattr(nq, "resolve_es_credentials", lambda: ("https://es.internal", "key"))
-        out = await nq.execute_query(body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=CountDB(tenants))
+        out = await nq.execute_query(
+            body=nq.NLQueryExecuteRequest(question="Show failed logins per user"), user=user(), db=CountDB(tenants)
+        )
         return out, run
 
     async def test_refused_when_there_are_several_tenants_and_no_tenant_field(self, monkeypatch):

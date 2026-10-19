@@ -417,7 +417,11 @@ async def embed_techniques_into_qdrant(
         except Exception as exc:
             if embedded == 0:
                 # Nothing embedded yet: the model is unavailable (or not served by the gateway), and every other batch would fail the same way.
-                logger.warning("ATT&CK embedding skipped: the embedding model is not available (set AISOC_EMBEDDING_MODEL, or 'off')", model=model, error=str(exc))
+                logger.warning(
+                    "ATT&CK embedding skipped: the embedding model is not available (set AISOC_EMBEDDING_MODEL, or 'off')",
+                    model=model,
+                    error=str(exc),
+                )
                 break
             logger.warning("Batch embedding error", batch_start=i, error=str(exc))
 

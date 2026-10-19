@@ -172,7 +172,6 @@ def _affected(*values: str | None) -> list[str]:
     return out
 
 
-
 # A newly promoted entity (its risk score crossed the threshold) can open a case, so the work reaches the queue analysts actually use. One open case per entity: a second promotion while the
 # first case is still open (not resolved or closed) opens nothing. Off unless AISOC_RBA_OPEN_CASE is set.
 _PROMOTION_CASE_SQL = """

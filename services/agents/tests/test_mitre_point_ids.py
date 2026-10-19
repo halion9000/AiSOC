@@ -22,7 +22,9 @@ def test_point_id_is_a_stable_non_negative_63_bit_int():
 def test_point_id_is_identical_in_a_fresh_process_with_a_different_hash_seed():
     code = "from app.tools.mitre_full import technique_point_id as f; print(f('T1059.001'))"
     outs = {
-        subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ, "PYTHONHASHSEED": seed}, check=True).stdout.strip()
+        subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ, "PYTHONHASHSEED": seed}, check=True
+        ).stdout.strip()
         for seed in ("1", "2")
     }
     assert len(outs) == 1 and outs == {str(technique_point_id("T1059.001"))}

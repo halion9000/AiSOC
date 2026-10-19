@@ -123,7 +123,9 @@ async def _tenants_holding(db: Any, owner: Any, uids: list[str]) -> list[tuple[A
         return []
     uid_expr = Alert.raw_event["finding"]["uid"].astext
     async with cross_tenant_reads(db):
-        rows = (await db.execute(select(Alert.tenant_id, uid_expr).where(Alert.tenant_id.in_(scope), uid_expr.in_(wanted)).distinct())).all()
+        rows = (
+            await db.execute(select(Alert.tenant_id, uid_expr).where(Alert.tenant_id.in_(scope), uid_expr.in_(wanted)).distinct())
+        ).all()
     held: dict[Any, set[str]] = {}
     for tid, uid in rows:
         held.setdefault(tid, set()).add(uid)
@@ -741,7 +743,11 @@ class EntityItem(BaseModel):
     def _links_are_safe(cls, value: dict[str, str] | None) -> dict[str, str] | None:
         if value is None:
             return None
-        clean = {k: v for k, v in value.items() if k in ALERT_LINK_KEYS and isinstance(v, str) and len(v) <= 1000 and re.match(r"^https://[^\s]+$", v)}
+        clean = {
+            k: v
+            for k, v in value.items()
+            if k in ALERT_LINK_KEYS and isinstance(v, str) and len(v) <= 1000 and re.match(r"^https://[^\s]+$", v)
+        }
         return clean or None
 
 
@@ -758,7 +764,11 @@ async def apply_entities(db: Any, tenant_id: Any, report: EntitiesReport) -> int
     for item in report.items:
         if not item.uid.startswith(prefix):
             continue
-        for column, value in ((Alert.affected_hosts, item.hostname), (Alert.affected_users, item.username), (Alert.affected_ips, item.src_ip)):
+        for column, value in (
+            (Alert.affected_hosts, item.hostname),
+            (Alert.affected_users, item.username),
+            (Alert.affected_ips, item.src_ip),
+        ):
             cleaned = (value or "").strip()
             if not cleaned:
                 continue
@@ -775,14 +785,22 @@ async def apply_entities(db: Any, tenant_id: Any, report: EntitiesReport) -> int
         if item.url:
             result = await db.execute(
                 update(Alert)
-                .where(Alert.tenant_id == tenant_id, Alert.raw_event["finding"]["uid"].astext == item.uid, Alert.raw_event["url"].astext.is_(None))
+                .where(
+                    Alert.tenant_id == tenant_id,
+                    Alert.raw_event["finding"]["uid"].astext == item.uid,
+                    Alert.raw_event["url"].astext.is_(None),
+                )
                 .values(raw_event=Alert.raw_event.op("||")(literal({"url": item.url}, type_=JSONB)))
             )
             filled += result.rowcount or 0
         if item.links:
             result = await db.execute(
                 update(Alert)
-                .where(Alert.tenant_id == tenant_id, Alert.raw_event["finding"]["uid"].astext == item.uid, Alert.raw_event["links"].astext.is_(None))
+                .where(
+                    Alert.tenant_id == tenant_id,
+                    Alert.raw_event["finding"]["uid"].astext == item.uid,
+                    Alert.raw_event["links"].astext.is_(None),
+                )
                 .values(raw_event=Alert.raw_event.op("||")(literal({"links": item.links}, type_=JSONB)))
             )
             filled += result.rowcount or 0

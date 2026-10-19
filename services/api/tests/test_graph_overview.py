@@ -6,7 +6,13 @@ from app.api.v1.endpoints.graph import _MAX_ENTITIES_PER_KIND, _MAX_TECHNIQUES, 
 
 
 def alert(severity="medium", hosts=(), users=(), ips=(), techniques=()):
-    return {"severity": severity, "affected_hosts": list(hosts), "affected_users": list(users), "affected_ips": list(ips), "mitre_techniques": list(techniques)}
+    return {
+        "severity": severity,
+        "affected_hosts": list(hosts),
+        "affected_users": list(users),
+        "affected_ips": list(ips),
+        "mitre_techniques": list(techniques),
+    }
 
 
 def by_id(graph):
@@ -18,7 +24,9 @@ def test_no_alerts_is_an_empty_graph_not_invented_nodes():
 
 
 def test_entities_and_techniques_become_nodes_and_an_edge_says_how_many_alerts_joined_them():
-    g = build_overview([alert("high", hosts=["WS-1"], users=["ann"], techniques=["T1059"]), alert("low", hosts=["WS-1"], techniques=["T1059"])])
+    g = build_overview(
+        [alert("high", hosts=["WS-1"], users=["ann"], techniques=["T1059"]), alert("low", hosts=["WS-1"], techniques=["T1059"])]
+    )
     nodes = by_id(g)
     assert set(nodes) == {"host:WS-1", "user:ann", "technique:T1059"}
     assert nodes["host:WS-1"]["kind"] == "host" and nodes["host:WS-1"]["attributes"]["alerts"] == 2
@@ -85,7 +93,11 @@ def row(i, severity="medium", **kw):
 def test_the_most_severe_alerts_become_nodes_joined_to_their_entities_even_with_no_technique():
     g = build_overview([row(1, "low", hosts=["WS-1"]), row(2, "critical", hosts=["WS-2"], users=["ann"])])
     nodes = by_id(g)
-    assert nodes["alert:a002"]["kind"] == "alert" and nodes["alert:a002"]["severity"] == "critical" and nodes["alert:a002"]["label"] == "Alert 2"
+    assert (
+        nodes["alert:a002"]["kind"] == "alert"
+        and nodes["alert:a002"]["severity"] == "critical"
+        and nodes["alert:a002"]["label"] == "Alert 2"
+    )
     targets = {e["target"] for e in g["edges"] if e["source"] == "alert:a002"}
     assert targets == {"host:WS-2", "user:ann"}
     assert all(e["label"] == "affects" for e in g["edges"] if e["source"] == "alert:a002")
@@ -110,7 +122,9 @@ def test_only_the_most_severe_alerts_are_drawn_newest_first_among_equals():
 
 
 def test_an_alert_never_points_at_an_entity_or_technique_that_was_cut():
-    rows = [row(i, "low", hosts=[f"h{i:03d}"], techniques=[f"T{i:03d}"]) for i in range(60)] + [row(100, "critical", hosts=["rare-host"], techniques=["T-RARE"])]
+    rows = [row(i, "low", hosts=[f"h{i:03d}"], techniques=[f"T{i:03d}"]) for i in range(60)] + [
+        row(100, "critical", hosts=["rare-host"], techniques=["T-RARE"])
+    ]
     g = build_overview(rows)
     ids = by_id(g)
     assert "host:rare-host" in ids and "technique:T-RARE" in ids

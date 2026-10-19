@@ -109,8 +109,10 @@ async def test_failing_to_reach_the_honeytokens_service_changes_nothing_for_the_
         def __init__(self, *a, **k): ...
         async def __aenter__(self):
             return self
+
         async def __aexit__(self, *a):
             return False
+
         async def post(self, *a, **k):
             raise httpx.ConnectError("down")
 
@@ -124,7 +126,12 @@ async def test_failing_to_reach_the_honeytokens_service_changes_nothing_for_the_
 
 from datetime import UTC, datetime  # noqa: E402
 
-TOKEN = {"id": uuid.UUID("11111111-1111-4111-8111-111111111111"), "tenant_id": uuid.UUID("00000000-0000-0000-0000-000000000001"), "name": "Finance wiki bait", "token_type": "url"}
+TOKEN = {
+    "id": uuid.UUID("11111111-1111-4111-8111-111111111111"),
+    "tenant_id": uuid.UUID("00000000-0000-0000-0000-000000000001"),
+    "name": "Finance wiki bait",
+    "token_type": "url",
+}
 NOW = datetime(2026, 10, 18, 15, 30, tzinfo=UTC)
 
 

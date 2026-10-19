@@ -69,7 +69,9 @@ def can_undo(entry: Any, now: datetime | None = None) -> bool:
     return entry.undone_at is None and moment - created <= UNDO_WINDOW
 
 
-async def merge_devices(db: Any, tenant_id: uuid.UUID, keep_id: uuid.UUID, remove_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> uuid.UUID:
+async def merge_devices(
+    db: Any, tenant_id: uuid.UUID, keep_id: uuid.UUID, remove_id: uuid.UUID, actor_id: uuid.UUID | None = None
+) -> uuid.UUID:
     """Fold ``remove_id`` into ``keep_id``: every tool that reported the removed device now reports the kept one, blanks on the kept device are filled from the removed one,
     and the removed device is deleted. Two devices with different serial numbers are different machines and are refused."""
     keep, remove = await _both(db, tenant_id, keep_id, remove_id)
@@ -101,7 +103,16 @@ async def merge_devices(db: Any, tenant_id: uuid.UUID, keep_id: uuid.UUID, remov
     db.expunge(remove)
     if carried_serial:
         keep.serial_number = carried_serial
-    db.add(DeviceMergeLog(tenant_id=tenant_id, kept_device_id=keep.id, removed=removed_snapshot, moved_source_ids=moved_ids, filled=filled, created_by=actor_id))
+    db.add(
+        DeviceMergeLog(
+            tenant_id=tenant_id,
+            kept_device_id=keep.id,
+            removed=removed_snapshot,
+            moved_source_ids=moved_ids,
+            filled=filled,
+            created_by=actor_id,
+        )
+    )
     await db.flush()
     return keep.id
 
@@ -111,7 +122,9 @@ async def undo_merge(db: Any, tenant_id: uuid.UUID, merge_id: uuid.UUID, now: da
 
     Refused (with a message safe to show) when the merge is too old, was already undone, or the kept device is gone. Dismissals the removed device had are not restored.
     """
-    entry = (await db.execute(select(DeviceMergeLog).where(DeviceMergeLog.id == merge_id, DeviceMergeLog.tenant_id == tenant_id))).scalar_one_or_none()
+    entry = (
+        await db.execute(select(DeviceMergeLog).where(DeviceMergeLog.id == merge_id, DeviceMergeLog.tenant_id == tenant_id))
+    ).scalar_one_or_none()
     if entry is None:
         raise DeviceMergeError("That merge was not found.")
     if entry.undone_at is not None:
@@ -150,7 +163,11 @@ async def undo_merge(db: Any, tenant_id: uuid.UUID, merge_id: uuid.UUID, now: da
     await db.flush()
     moved_ids = [uuid.UUID(x) for x in entry.moved_source_ids or []]
     if moved_ids:
-        for source in (await db.execute(select(DeviceSource).where(DeviceSource.id.in_(moved_ids), DeviceSource.device_id == keep.id))).scalars().all():
+        for source in (
+            (await db.execute(select(DeviceSource).where(DeviceSource.id.in_(moved_ids), DeviceSource.device_id == keep.id)))
+            .scalars()
+            .all()
+        ):
             source.device_id = restored_id
     for name in filled.get("fields", []):
         if getattr(keep, name) == removed.get(name):

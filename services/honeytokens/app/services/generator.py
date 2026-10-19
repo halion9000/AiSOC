@@ -5,13 +5,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import re
 import secrets
 import string
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
-
-import re
 
 from app.core.config import settings
 

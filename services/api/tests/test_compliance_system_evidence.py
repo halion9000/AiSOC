@@ -27,7 +27,9 @@ def test_soc2_gets_account_and_monitoring_evidence_with_the_real_numbers():
 def test_controls_that_need_a_document_or_attestation_are_never_invented():
     controls = {control for control, _, _ in c.system_evidence_for("SOC2", FACTS)}
     assert "CC1.1" not in controls and "CC8.1" not in controls and "A1.1" not in controls
-    assert c.system_evidence_for("HIPAA", FACTS) and not any(ctrl == "164.308(a)(5)" for ctrl, _, _ in c.system_evidence_for("HIPAA", FACTS))
+    assert c.system_evidence_for("HIPAA", FACTS) and not any(
+        ctrl == "164.308(a)(5)" for ctrl, _, _ in c.system_evidence_for("HIPAA", FACTS)
+    )
 
 
 def test_an_unknown_framework_yields_nothing():

@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Annotated, Any
-
 from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -316,7 +315,9 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
     pairs: dict[tuple[tuple[str, str], str], int] = {}
     together: dict[tuple[tuple[str, str], tuple[str, str]], int] = {}
     technique_counts: dict[str, int] = {}
-    drawn: list[tuple[int, int, dict[str, Any], str, list[tuple[str, str]], list[str]]] = []  # (-severity rank, order, row, severity, entities, techniques)
+    drawn: list[
+        tuple[int, int, dict[str, Any], str, list[tuple[str, str]], list[str]]
+    ] = []  # (-severity rank, order, row, severity, entities, techniques)
     for order, a in enumerate(alerts):
         severity = a.get("severity") if a.get("severity") in _SEVERITY_RANK else "info"
         entities = [(kind, name) for field, kind in _ENTITY_KINDS for name in _names(a.get(field))]
@@ -324,7 +325,9 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
             continue
         techniques = _technique_ids(a.get("mitre_techniques"))
         if a.get("id") and (entities or techniques):
-            drawn.append((-_SEVERITY_RANK[severity], order, a, severity, sorted(set(entities))[:_MAX_ENTITIES_PER_ALERT], sorted(set(techniques))))
+            drawn.append(
+                (-_SEVERITY_RANK[severity], order, a, severity, sorted(set(entities))[:_MAX_ENTITIES_PER_ALERT], sorted(set(techniques)))
+            )
         # Two different kinds of entity on one alert (a host and the user on it, a host and its address) are linked: that is how a user is connected to a machine when no technique is known.
         distinct = sorted(set(entities))[:_MAX_ENTITIES_PER_ALERT]
         for i, first in enumerate(distinct):
@@ -365,7 +368,7 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
             }
         )
     used_techniques = {t for (key, t) in pairs if key in kept and t in top_techniques}
-    for _neg, _order, row, sev, _entities, techniques_of in chosen:
+    for _neg, _order, _row, _sev, _entities, techniques_of in chosen:
         used_techniques.update(techniques_of)
     for _neg, _order, row, sev, _entities, _techniques in chosen:
         nodes.append(
@@ -381,18 +384,40 @@ def build_overview(alerts: list[dict[str, Any]], *, entity: str | None = None) -
     for tid in sorted(used_techniques):
         nodes.append({"id": f"technique:{tid}", "label": tid, "kind": "technique", "attributes": {"alerts": technique_counts[tid]}})
     edges = [
-        {"id": f"{key[0]}:{key[1]}->{tid}", "source": f"{key[0]}:{key[1]}", "target": f"technique:{tid}", "label": "alerts using technique", "weight": count}
+        {
+            "id": f"{key[0]}:{key[1]}->{tid}",
+            "source": f"{key[0]}:{key[1]}",
+            "target": f"technique:{tid}",
+            "label": "alerts using technique",
+            "weight": count,
+        }
         for (key, tid), count in sorted(pairs.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1].lower(), kv[0][1]))
         if key in kept and tid in top_techniques
     ]
     for _neg, _order, row, _sev, entities_of, techniques_of in chosen:
         alert_node = f"alert:{row['id']}"
         for kind, name in entities_of:
-            edges.append({"id": f"{alert_node}->{kind}:{name}", "source": alert_node, "target": f"{kind}:{name}", "label": "affects", "weight": 1})
+            edges.append(
+                {"id": f"{alert_node}->{kind}:{name}", "source": alert_node, "target": f"{kind}:{name}", "label": "affects", "weight": 1}
+            )
         for tid in techniques_of:
-            edges.append({"id": f"{alert_node}->technique:{tid}", "source": alert_node, "target": f"technique:{tid}", "label": "uses technique", "weight": 1})
+            edges.append(
+                {
+                    "id": f"{alert_node}->technique:{tid}",
+                    "source": alert_node,
+                    "target": f"technique:{tid}",
+                    "label": "uses technique",
+                    "weight": 1,
+                }
+            )
     edges += [
-        {"id": f"{a[0]}:{a[1]}--{b[0]}:{b[1]}", "source": f"{a[0]}:{a[1]}", "target": f"{b[0]}:{b[1]}", "label": "seen on the same alert", "weight": count}
+        {
+            "id": f"{a[0]}:{a[1]}--{b[0]}:{b[1]}",
+            "source": f"{a[0]}:{a[1]}",
+            "target": f"{b[0]}:{b[1]}",
+            "label": "seen on the same alert",
+            "weight": count,
+        }
         for (a, b), count in sorted(together.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1]))
         if a in kept and b in kept
     ]
@@ -408,7 +433,9 @@ async def get_overview(
     db: TenantDBSession,
     current_user: CurrentUser = Depends(get_current_user),
     entity: Annotated[str | None, Query(max_length=255, description="Only alerts that name this host, user or IP address.")] = None,
-    depth: Annotated[int, Query(ge=1, le=6, description="Accepted for compatibility; the overview is always one hop (entity to technique).")] = 3,
+    depth: Annotated[
+        int, Query(ge=1, le=6, description="Accepted for compatibility; the overview is always one hop (entity to technique).")
+    ] = 3,
 ) -> dict[str, Any]:
     """The graph the Attack Graph page draws, from the last 30 days of alerts across the caller's tenant and its client tenants (see the note above)."""
     since = datetime.now(UTC) - timedelta(days=_OVERVIEW_WINDOW_DAYS)
@@ -417,13 +444,29 @@ async def get_overview(
     for tenant_id in [current_user.tenant_id, *clients]:
         async with acting_as_tenant(db, tenant_id):
             result = await db.execute(
-                select(Alert.id, Alert.title, Alert.severity, Alert.affected_hosts, Alert.affected_users, Alert.affected_ips, Alert.mitre_techniques)
+                select(
+                    Alert.id,
+                    Alert.title,
+                    Alert.severity,
+                    Alert.affected_hosts,
+                    Alert.affected_users,
+                    Alert.affected_ips,
+                    Alert.mitre_techniques,
+                )
                 .where(Alert.tenant_id == tenant_id, Alert.created_at >= since)
                 .order_by(Alert.created_at.desc())
                 .limit(_OVERVIEW_ALERT_CAP)
             )
             rows.extend(
-                {"id": r.id, "title": r.title, "severity": r.severity, "affected_hosts": r.affected_hosts, "affected_users": r.affected_users, "affected_ips": r.affected_ips, "mitre_techniques": r.mitre_techniques}
+                {
+                    "id": r.id,
+                    "title": r.title,
+                    "severity": r.severity,
+                    "affected_hosts": r.affected_hosts,
+                    "affected_users": r.affected_users,
+                    "affected_ips": r.affected_ips,
+                    "mitre_techniques": r.mitre_techniques,
+                }
                 for r in result.all()
             )
     graph = build_overview(rows, entity=entity)

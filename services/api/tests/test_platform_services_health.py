@@ -9,7 +9,9 @@ from app.api.v1.endpoints import health
 
 @pytest.mark.asyncio
 async def test_a_service_that_answers_200_is_up_and_anything_else_is_down(monkeypatch):
-    monkeypatch.setattr(health, "_SERVICE_PROBES", {"fusion": "http://fusion/readyz", "agents": "http://agents/readyz", "ueba": "http://ueba/readyz"})
+    monkeypatch.setattr(
+        health, "_SERVICE_PROBES", {"fusion": "http://fusion/readyz", "agents": "http://agents/readyz", "ueba": "http://ueba/readyz"}
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "agents":

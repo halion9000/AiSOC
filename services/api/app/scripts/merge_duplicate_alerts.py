@@ -57,7 +57,9 @@ def plan_merge(rows: list[Row]) -> Plan:
     return plan
 
 
-def plan_cross_tenant(by_tenant: dict[Any, list[Row]], child_tenants: set[Any]) -> tuple[Any, uuid.UUID, list[tuple[Any, uuid.UUID]]] | None:
+def plan_cross_tenant(
+    by_tenant: dict[Any, list[Row]], child_tenants: set[Any]
+) -> tuple[Any, uuid.UUID, list[tuple[Any, uuid.UUID]]] | None:
     """One incident held by several tenants: ``(client tenant, keeper row id, [(tenant, row id) to close])``, or None when the rule does not apply.
 
     Applies only when exactly one of the holding tenants is a client (child) tenant. The rows closed are the closable ones in the OTHER (parent/owner) tenants.
@@ -117,7 +119,14 @@ async def merge(session: Any, *, apply: bool, cross_tenant: bool = False) -> dic
             client, keeper, closing = plan
             counts["cross_tenant_closed"] += len(closing)
             if apply:
-                note = {"merged_duplicate": {"of": str(keeper), "tenant": str(client), "at": now, "reason": "same vendor incident held by the client tenant"}}
+                note = {
+                    "merged_duplicate": {
+                        "of": str(keeper),
+                        "tenant": str(client),
+                        "at": now,
+                        "reason": "same vendor incident held by the client tenant",
+                    }
+                }
                 for other_tenant, row_id in closing:
                     await session.execute(
                         text(

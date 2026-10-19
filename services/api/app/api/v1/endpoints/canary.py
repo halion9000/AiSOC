@@ -100,7 +100,15 @@ def alert_for_visit(token: dict, ip: str | None, user_agent: str | None, now: da
     client: dict = {"ipAddress": ip} if ip else {}
     return {
         "tenant_id": token["tenant_id"],
-        "events": [{"eventType": "honeytoken_opened", "severity": "high", "client": client, "published": now.isoformat(), "honeytoken": {"id": str(token["id"]), "type": token.get("token_type")}}],
+        "events": [
+            {
+                "eventType": "honeytoken_opened",
+                "severity": "high",
+                "client": client,
+                "published": now.isoformat(),
+                "honeytoken": {"id": str(token["id"]), "type": token.get("token_type")},
+            }
+        ],
         "connector_type": "honeytoken",
         "override_title": f"Honeytoken opened: {token['name']}"[:500],
         "override_description": (
@@ -120,7 +128,13 @@ async def _lookup_token(token_id: uuid.UUID) -> dict | None:
 
     async with AsyncSessionLocal() as db:
         mark_platform(db)  # the visitor has no tenant: find the token's
-        row = (await db.execute(text("SELECT id, tenant_id, name, token_type FROM honeytokens WHERE id = :id AND status IN ('active', 'triggered')").bindparams(id=token_id))).first()
+        row = (
+            await db.execute(
+                text(
+                    "SELECT id, tenant_id, name, token_type FROM honeytokens WHERE id = :id AND status IN ('active', 'triggered')"
+                ).bindparams(id=token_id)
+            )
+        ).first()
     return dict(row._mapping) if row else None
 
 
@@ -135,7 +149,9 @@ async def _store_alert(spec: dict) -> bool:
 
     async with AsyncSessionLocal() as db:
         mark_tenant(db, spec["tenant_id"])
-        existing = (await db.execute(select(Alert.id).where(Alert.tenant_id == spec["tenant_id"], Alert.idempotency_key == spec["idempotency_key"]))).first()
+        existing = (
+            await db.execute(select(Alert.id).where(Alert.tenant_id == spec["tenant_id"], Alert.idempotency_key == spec["idempotency_key"]))
+        ).first()
         if existing:
             return False
         alert = _synthesise_alert_from_events(**spec)

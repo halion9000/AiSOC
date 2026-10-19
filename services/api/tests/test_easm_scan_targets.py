@@ -23,7 +23,21 @@ def test_public_ip_targets_are_accepted():
 
 @pytest.mark.parametrize(
     "bad",
-    ["169.254.169.254", "127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.9", "0.0.0.0", "::1", "redis", "aisoc-postgres", "evil.example.test", "8.8.8.0/24", "8.8.8.8:80", ""],
+    [
+        "169.254.169.254",
+        "127.0.0.1",
+        "10.0.0.5",
+        "192.168.1.1",
+        "172.16.0.9",
+        "0.0.0.0",
+        "::1",
+        "redis",
+        "aisoc-postgres",
+        "evil.example.test",
+        "8.8.8.0/24",
+        "8.8.8.8:80",
+        "",
+    ],
 )
 def test_non_public_or_non_ip_targets_are_refused(bad):
     with pytest.raises(ValidationError):

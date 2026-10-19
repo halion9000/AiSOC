@@ -35,9 +35,19 @@ def test_run_asks_every_endpoint_once_with_the_token_and_reports_each():
 def test_the_exit_status_is_zero_only_when_everything_answered_well(capsys, monkeypatch):
     monkeypatch.setattr(smoke, "ENDPOINTS", [("a", "/a")])
     monkeypatch.setattr(smoke, "fetch", lambda *a: (200, 0.1, ""))
-    monkeypatch.setattr(smoke, "run", lambda base, token, slow, timeout: [{"name": "a", "path": "/a", "status": 200, "seconds": 0.1, "detail": "", "verdict": "ok"}])
+    monkeypatch.setattr(
+        smoke,
+        "run",
+        lambda base, token, slow, timeout: [{"name": "a", "path": "/a", "status": 200, "seconds": 0.1, "detail": "", "verdict": "ok"}],
+    )
     assert smoke.main(["--token", "t"]) == 0
-    monkeypatch.setattr(smoke, "run", lambda base, token, slow, timeout: [{"name": "a", "path": "/a", "status": 500, "seconds": 0.1, "detail": "boom", "verdict": "failed"}])
+    monkeypatch.setattr(
+        smoke,
+        "run",
+        lambda base, token, slow, timeout: [
+            {"name": "a", "path": "/a", "status": 500, "seconds": 0.1, "detail": "boom", "verdict": "failed"}
+        ],
+    )
     assert smoke.main(["--token", "t"]) == 1
     assert "Look at: a" in capsys.readouterr().out
 

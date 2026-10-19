@@ -15,7 +15,14 @@ T0 = datetime(2026, 10, 14, tzinfo=UTC)
 
 
 def row(n: int, *, status="new", case_id=None, assigned_to_id=None, minutes=0, tickets=0) -> Row:
-    return Row(id=uuid.UUID(int=n), status=status, case_id=case_id, assigned_to_id=assigned_to_id, created_at=T0 + timedelta(minutes=minutes), has_tickets=bool(tickets))
+    return Row(
+        id=uuid.UUID(int=n),
+        status=status,
+        case_id=case_id,
+        assigned_to_id=assigned_to_id,
+        created_at=T0 + timedelta(minutes=minutes),
+        has_tickets=bool(tickets),
+    )
 
 
 def test_the_oldest_row_is_kept_when_nothing_distinguishes_them():

@@ -43,19 +43,20 @@ export default function DevicesView() {
   const [staleOnly, setStaleOnly] = useState(false);
   const [offlineOnly, setOfflineOnly] = useState(false);
   const [alertsOnly, setAlertsOnly] = useState(false);
+  const [hiddenOnly, setHiddenOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined }));
+      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined }));
     } catch (err) {
       setError(devicesLoadError(err));
     } finally {
       setLoading(false);
     }
-  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly, staleOnly]);
+  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly, staleOnly, hiddenOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), search ? 250 : 0);
@@ -71,7 +72,7 @@ export default function DevicesView() {
 
   const exportCsv = async () => {
     try {
-      const text = await devicesApi.exportCsv({ clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined });
+      const text = await devicesApi.exportCsv({ clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined });
       const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
       link.href = url;
@@ -80,6 +81,17 @@ export default function DevicesView() {
       URL.revokeObjectURL(url);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not export the devices.');
+    }
+  };
+
+  const setHidden = async (d: DeviceRow, hide: boolean) => {
+    try {
+      if (hide) await devicesApi.hide(d.id);
+      else await devicesApi.unhide(d.id);
+      toast.success(hide ? `${d.hostname} is hidden until a tool sees it online again.` : `${d.hostname} is shown again.`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not change that device.');
     }
   };
 
@@ -201,6 +213,7 @@ export default function DevicesView() {
         {([
           ['offline', 'Offline 7+ days', offlineOnly, () => setOfflineOnly((v) => !v), data?.summary.offline],
           ['alerts', 'With open alerts', alertsOnly, () => setAlertsOnly((v) => !v), data?.summary.with_alerts],
+          ['hidden', 'Hidden until online', hiddenOnly, () => setHiddenOnly((v) => !v), data?.summary.hidden],
         ] as const).map(([key, label, on, toggle, count]) => (
           <button
             key={key}
@@ -270,6 +283,11 @@ export default function DevicesView() {
           Export CSV
         </button>
       </div>
+      {(data?.summary.long_offline ?? 0) > 0 && (
+        <p data-testid="long-offline-note" className="text-xs text-gray-500">
+          {data?.summary.long_offline} device{data?.summary.long_offline === 1 ? '' : 's'} offline for 30 days or more still show in the list and the offline count, but are left out of the other numbers.
+        </p>
+      )}
 
       <ClientRollupTable
         onPick={(id) => {
@@ -304,7 +322,7 @@ export default function DevicesView() {
           </thead>
           <tbody>
             {data?.items.map((d) => (
-              <DeviceRowView key={d.id} d={d} master={master} open={open === d.id} onToggle={() => setOpen(open === d.id ? null : d.id)} />
+              <DeviceRowView key={d.id} d={d} master={master} open={open === d.id} onToggle={() => setOpen(open === d.id ? null : d.id)} onHide={(hide) => void setHidden(d, hide)} />
             ))}
             {loading && !data && (
               <tr>
@@ -341,7 +359,7 @@ export default function DevicesView() {
   );
 }
 
-function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: string | null; open: boolean; onToggle: () => void }) {
+function DeviceRowView({ d, master, open, onToggle, onHide }: { d: DeviceRow; master: string | null; open: boolean; onToggle: () => void; onHide: (hide: boolean) => void }) {
   const tools = toolsOf(d);
   return (
     <>
@@ -402,6 +420,33 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
         <td className="px-3 py-2 text-gray-400">
           {d.last_online ? when(d.last_online) : '—'}
           {d.offline_days != null && <span className="ml-2 rounded bg-gray-700/60 px-1.5 py-0.5 text-[11px] text-gray-300">Offline {d.offline_days}d</span>}
+          {d.hidden_since ? (
+            <button
+              type="button"
+              title="Show this device in the list again"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHide(false);
+              }}
+              className="ml-2 rounded border border-gray-600 px-1.5 py-0.5 text-[11px] text-gray-200 hover:bg-gray-800"
+            >
+              Show again
+            </button>
+          ) : (
+            d.offline_days != null && (
+              <button
+                type="button"
+                title="Leave this device out of the list and the counts until a tool sees it online again"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onHide(true);
+                }}
+                className="ml-2 rounded border border-gray-600 px-1.5 py-0.5 text-[11px] text-gray-200 hover:bg-gray-800"
+              >
+                Hide until online
+              </button>
+            )
+          )}
         </td>
         <td className="px-3 py-2 text-gray-500">{when(d.last_seen)}</td>
       </tr>

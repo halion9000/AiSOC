@@ -78,7 +78,9 @@ class TestGenerateTokenShape:
         assert record["metadata_"]["token_data"]["url"] == f"http://192.168.1.20:3000/api/v1/canary/{record['id']}"
         for bad in ("", "ftp://x", "javascript:alert(1)", "not a url", "http://has space"):
             monkeypatch.setattr(settings, "canary_base_url", bad)
-            assert generate_token("url", "u", None, TENANT, None)["metadata_"]["token_data"]["url"].startswith("http://localhost:3000/api/v1/canary/")
+            assert generate_token("url", "u", None, TENANT, None)["metadata_"]["token_data"]["url"].startswith(
+                "http://localhost:3000/api/v1/canary/"
+            )
 
     def test_a_file_token_carries_a_beacon_link_to_put_inside_the_document(self) -> None:
         record = generate_token("file", "f", None, TENANT, None)

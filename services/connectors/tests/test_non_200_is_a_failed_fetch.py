@@ -9,7 +9,17 @@ from __future__ import annotations
 import ast
 import pathlib
 
-_POLLING = {"fetch_alerts", "_paginate", "_paginate_offset", "_paginate_cursor", "_fetch_logs", "_fetch_events", "_bearer", "_login", "_refresh_token"}
+_POLLING = {
+    "fetch_alerts",
+    "_paginate",
+    "_paginate_offset",
+    "_paginate_cursor",
+    "_fetch_logs",
+    "_fetch_events",
+    "_bearer",
+    "_login",
+    "_refresh_token",
+}
 _DIR = pathlib.Path(__file__).resolve().parent.parent / "app" / "connectors"
 
 

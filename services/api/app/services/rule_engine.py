@@ -560,17 +560,23 @@ def _category_ok(category: str, flat_event: dict[str, Any]) -> bool:
 def _run_eql_sequence(body: str, events: list[dict[str, Any]]) -> tuple[list[dict], str | None]:
     head = _SEQ_HEAD.match(body)
     if head is None:
-        return [], "Could not read the sequence: it should look like  sequence by host.name with maxspan=5m [process where ...] [network where ...]"
+        return (
+            [],
+            "Could not read the sequence: it should look like  sequence by host.name with maxspan=5m [process where ...] [network where ...]",
+        )
     by_fields = [f.strip().lower() for f in re.sub(r"^\s*by\s+", "", head.group("by") or "", flags=re.IGNORECASE).split(",") if f.strip()]
     for field_name in by_fields:
         if not re.fullmatch(r"[\w.@-]+", field_name):
-            return [], f"Could not read the 'by' part of the sequence (got: {field_name[:40]!r}); it is a comma separated list of field names, then optionally  with maxspan=5m  using s, m, h or d."
+            return (
+                [],
+                f"Could not read the 'by' part of the sequence (got: {field_name[:40]!r}); it is a comma separated list of field names, then optionally  with maxspan=5m  using s, m, h or d.",
+            )
     span = None
     if head.group("span"):
         m = _SEQ_SPAN.search(head.group("span"))
         span = int(m.group(1)) * _SPAN_SECONDS[m.group(2).lower()] if m else None
     try:
-        raw_steps = _split_steps(body[head.end():])
+        raw_steps = _split_steps(body[head.end() :])
     except ValueError as exc:
         return [], f"Could not read the sequence: {exc}"
     if len(raw_steps) < 2:
@@ -580,14 +586,17 @@ def _run_eql_sequence(body: str, events: list[dict[str, Any]]) -> tuple[list[dic
         m = _EQL_PREFIX.match(text)
         if m is None:
             return [], f"Each step must read  category where condition  (got: {text[:60]!r})."
-        steps.append((m.group(1), text[m.end():]))
+        steps.append((m.group(1), text[m.end() :]))
     timed: list[tuple[float, int, dict[str, Any], dict[str, Any]]] = []
     try:
         for index, event in enumerate(events):
             flat = _flatten_dict(event)
             seconds = _event_seconds(flat)
             if seconds is None:
-                return [], "A sequence needs the time of each event, and at least one event has no readable time (timestamp, @timestamp, time or event_time)."
+                return (
+                    [],
+                    "A sequence needs the time of each event, and at least one event has no readable time (timestamp, @timestamp, time or event_time).",
+                )
             timed.append((seconds, index, flat, event))
         timed.sort(key=lambda t: (t[0], t[1]))
         groups: dict[tuple, list[tuple[float, int, dict[str, Any], dict[str, Any]]]] = {}
@@ -602,7 +611,7 @@ def _run_eql_sequence(body: str, events: list[dict[str, Any]]) -> tuple[list[dic
                 if not (_category_ok(steps[0][0], first[2]) and _kql_match(steps[0][1], first[2])):
                     continue
                 chain = [first]
-                for item in items[first_pos + 1:]:
+                for item in items[first_pos + 1 :]:
                     if span is not None and item[0] - first[0] > span:
                         break
                     want = steps[len(chain)]

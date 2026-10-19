@@ -14,10 +14,10 @@ afterEach(() => cleanup());
 
 describe("TicketSettings", () => {
   it("shows the default status and saves a different one", async () => {
-    authFetch.mockResolvedValueOnce(reply({ close_status: "Tech Update", is_default: true, default: "Tech Update" }));
+    authFetch.mockResolvedValueOnce(reply({ close_status: "Tech Updated", is_default: true, default: "Tech Updated" }));
     render(<TicketSettings />);
-    expect(await screen.findByTestId("current")).toHaveTextContent('"Tech Update" (the default)');
-    authFetch.mockResolvedValueOnce(reply({ close_status: "Closed", is_default: false, default: "Tech Update" }));
+    expect(await screen.findByTestId("current")).toHaveTextContent('"Tech Updated" (the default)');
+    authFetch.mockResolvedValueOnce(reply({ close_status: "Closed", is_default: false, default: "Tech Updated" }));
     const user = userEvent.setup();
     const input = screen.getByLabelText("Ticket status");
     await user.clear(input);
@@ -28,17 +28,17 @@ describe("TicketSettings", () => {
   });
 
   it("offers to go back to the default only when a choice has been made, and does so", async () => {
-    authFetch.mockResolvedValueOnce(reply({ close_status: "Closed", is_default: false, default: "Tech Update" }));
+    authFetch.mockResolvedValueOnce(reply({ close_status: "Closed", is_default: false, default: "Tech Updated" }));
     render(<TicketSettings />);
     await screen.findByTestId("current");
-    authFetch.mockResolvedValueOnce(reply({ close_status: "Tech Update", is_default: true, default: "Tech Update" }));
+    authFetch.mockResolvedValueOnce(reply({ close_status: "Tech Updated", is_default: true, default: "Tech Updated" }));
     await userEvent.setup().click(screen.getByRole("button", { name: "Use the default" }));
     await waitFor(() => expect(authFetch).toHaveBeenLastCalledWith("/api/v1/tenant-settings/tickets", expect.objectContaining({ method: "DELETE" })));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Use the default" })).not.toBeInTheDocument());
   });
 
   it("will not save an empty name and shows the API's reason when it refuses", async () => {
-    authFetch.mockResolvedValueOnce(reply({ close_status: "Tech Update", is_default: true, default: "Tech Update" }));
+    authFetch.mockResolvedValueOnce(reply({ close_status: "Tech Updated", is_default: true, default: "Tech Updated" }));
     render(<TicketSettings />);
     await screen.findByTestId("current");
     const user = userEvent.setup();

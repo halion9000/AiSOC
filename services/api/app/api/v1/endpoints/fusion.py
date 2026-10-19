@@ -69,7 +69,9 @@ def _validate_proxy_path(path: str) -> str:
     return path
 
 
-async def _forward(method: str, path: str, *, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> dict[str, Any] | None:
+async def _forward(
+    method: str, path: str, *, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """Send a request to fusion if configured. Return None on a 5xx or a transport error."""
     if not _FUSION_URL:
         return None
@@ -299,7 +301,13 @@ async def entity_risk_queue(
             return {
                 "tenant_id": tenant,
                 "threshold": threshold,
-                "entities": order_entities([_shape_entity({**e, "client_name": clients.get(str(e.get("tenant_id")))}, threshold) for e in rolled.get("entities", [])], sort),
+                "entities": order_entities(
+                    [
+                        _shape_entity({**e, "client_name": clients.get(str(e.get("tenant_id")))}, threshold)
+                        for e in rolled.get("entities", [])
+                    ],
+                    sort,
+                ),
                 "rolled_up": True,
             }
     return {

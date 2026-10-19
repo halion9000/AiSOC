@@ -20,13 +20,26 @@ def test_adding_the_same_rule_twice_returns_ok_and_stores_one_link():
     async def main():
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         async with engine.begin() as c:
-            await c.run_sync(lambda conn: Base.metadata.create_all(conn, tables=[m.__table__ for m in (Tenant, DetectionRule, MSSPRulePack, MSSPRulePackRule)]))
+            await c.run_sync(
+                lambda conn: Base.metadata.create_all(
+                    conn, tables=[m.__table__ for m in (Tenant, DetectionRule, MSSPRulePack, MSSPRulePackRule)]
+                )
+            )
         async with async_sessionmaker(engine, expire_on_commit=False)() as s:
             parent = Tenant(id=uuid.uuid4(), name="msp", slug=f"msp-{uuid.uuid4().hex[:6]}")
             s.add(parent)
             await s.flush()
             pack = MSSPRulePack(id=uuid.uuid4(), parent_tenant_id=parent.id, name="pack")
-            rule = DetectionRule(id=uuid.uuid4(), name="r", rule_language="sigma", rule_body="b", category="x", tenant_id=parent.id, is_builtin=False, status="active")
+            rule = DetectionRule(
+                id=uuid.uuid4(),
+                name="r",
+                rule_language="sigma",
+                rule_body="b",
+                category="x",
+                tenant_id=parent.id,
+                is_builtin=False,
+                status="active",
+            )
             s.add_all([pack, rule])
             await s.commit()
 

@@ -22,7 +22,9 @@ def ip(s):
     return ipaddress.ip_address(s)
 
 
-@pytest.mark.parametrize("addr", ["169.254.169.254", "127.0.0.1", "::1", "0.0.0.0", "224.0.0.1", "::ffff:169.254.169.254", "fd00:ec2::254", "100.100.100.200"])
+@pytest.mark.parametrize(
+    "addr", ["169.254.169.254", "127.0.0.1", "::1", "0.0.0.0", "224.0.0.1", "::ffff:169.254.169.254", "fd00:ec2::254", "100.100.100.200"]
+)
 def test_never_legitimate_destinations_are_blocked(addr):
     assert g.address_is_blocked(ip(addr))
 

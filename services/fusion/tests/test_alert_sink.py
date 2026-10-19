@@ -162,7 +162,7 @@ async def test_a_dedup_hit_refreshes_the_existing_alerts_last_seen():
     fused = _fused()
     result = await sink.persist(fused)
     assert result.outcome is PersistOutcome.DUPLICATE
-    (sql, args), = pool.conn.executed
+    ((sql, args),) = pool.conn.executed
     assert "last_seen" in sql and "updated_at" in sql
     assert args[0] == TENANT and args[1] == fused.alert.fingerprint()
 
@@ -283,7 +283,7 @@ async def test_a_dedup_hit_by_incident_id_refreshes_the_stored_alert():
     sink._pool = pool
     fused = _fused_from_core("petra:abc")
     await sink.persist(fused)
-    (sql, args), = pool.conn.executed
+    ((sql, args),) = pool.conn.executed
     assert "finding" in sql and args[-1] == "petra:abc"
 
 
@@ -394,7 +394,7 @@ async def test_with_the_setting_on_a_promotion_opens_one_case_and_links_its_aler
     tenant, title, _desc, severity, alert_ids, tags_json, entity_key = conn.cases[0]
     assert tenant == TENANT and "host WIN-DC01" in title and severity == "high" and len(alert_ids) == 2
     assert json.loads(tags_json)["rba_entity"] == "host:WIN-DC01" == entity_key
-    (sql, args), = conn.executed
+    ((sql, args),) = conn.executed
     assert "UPDATE alerts SET case_id" in sql and args[0] == case_id and args[1] == TENANT
 
 

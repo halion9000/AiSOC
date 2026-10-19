@@ -107,9 +107,7 @@ async def lifespan(app: FastAPI):
     # Start the Kafka worker as a supervised background task: readiness is only reported once the consumer is really running, and a consumer that dies (broker
     # down at boot, an unexpected error) drops readiness and is restarted instead of leaving the service "healthy" while it consumes nothing.
     worker.on_consuming = app.state.mark_ready
-    worker_task = asyncio.create_task(
-        supervise(worker.start, worker.stop, on_failure=lambda _exc: app.state.mark_not_ready())
-    )
+    worker_task = asyncio.create_task(supervise(worker.start, worker.stop, on_failure=lambda _exc: app.state.mark_not_ready()))
     app.state.worker_task = worker_task
     app.state.redis = redis_client
 

@@ -25,12 +25,27 @@ def _enforced() -> set[str]:
 
 def test_every_enforced_permission_is_grantable_to_a_non_wildcard_role():
     held = {p for role, perms in ROLE_PERMISSIONS.items() if "*" not in perms for p in perms}
-    unreachable = sorted(p for p in _enforced() if p not in held and p not in PLATFORM_PERMISSIONS and p not in DELIBERATELY_UNGRANTED and p not in known_permissions())
+    unreachable = sorted(
+        p
+        for p in _enforced()
+        if p not in held and p not in PLATFORM_PERMISSIONS and p not in DELIBERATELY_UNGRANTED and p not in known_permissions()
+    )
     assert unreachable == []
 
 
 def test_a_tenant_admin_can_use_the_features_of_their_own_tenant():
-    for permission in ("audit_log:read", "copilot:use", "graph:read", "roles:read", "roles:write", "sla:read", "sla:write", "shifts:read", "shifts:write", "plugins:read"):
+    for permission in (
+        "audit_log:read",
+        "copilot:use",
+        "graph:read",
+        "roles:read",
+        "roles:write",
+        "sla:read",
+        "sla:write",
+        "shifts:read",
+        "shifts:write",
+        "plugins:read",
+    ):
         assert has_permission("tenant_admin", permission), permission
 
 

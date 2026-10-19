@@ -38,7 +38,9 @@ def test_non_object_nested_fields_do_not_raise(event):
 
 
 def test_well_formed_nested_fields_are_still_read():
-    alert = _synth([{"actor": {"alternateId": "bob@example.test"}, "client": {"ipAddress": "1.2.3.4", "device": "PC-1"}, "severity": "high"}])
+    alert = _synth(
+        [{"actor": {"alternateId": "bob@example.test"}, "client": {"ipAddress": "1.2.3.4", "device": "PC-1"}, "severity": "high"}]
+    )
     assert alert.affected_users == ["bob@example.test"]
     assert alert.affected_ips == ["1.2.3.4"]
     assert alert.affected_hosts == ["PC-1"]

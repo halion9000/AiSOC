@@ -41,9 +41,21 @@ class FakeDB:
 
 
 def _row(**kw):
-    base = dict(
-        id=uuid.uuid4(), tenant_id=TENANT, status="pending", expires_at=None, required_user_id=None, decided_by_id=None, decided_at=None,
-        decision_comment=None, run_id=None, title="Isolate host", case_id=None, alert_id=None, risk_level="high", requested_by="agent",
+    base = dict(  # noqa: C408
+        id=uuid.uuid4(),
+        tenant_id=TENANT,
+        status="pending",
+        expires_at=None,
+        required_user_id=None,
+        decided_by_id=None,
+        decided_at=None,
+        decision_comment=None,
+        run_id=None,
+        title="Isolate host",
+        case_id=None,
+        alert_id=None,
+        risk_level="high",
+        requested_by="agent",
     )
     base.update(kw)
     return SimpleNamespace(**base)

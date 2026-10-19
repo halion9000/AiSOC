@@ -945,7 +945,11 @@ def _links_of(alert: Any) -> dict[str, str]:
     found = raw.get("links")
     if not isinstance(found, dict):
         return {}
-    return {k: v for k in ("device_url", "user_url") if isinstance(v := found.get(k), str) and len(v) <= 1000 and re.match(r"^https://[^\s]+$", v, re.IGNORECASE)}
+    return {
+        k: v
+        for k in ("device_url", "user_url")
+        if isinstance(v := found.get(k), str) and len(v) <= 1000 and re.match(r"^https://[^\s]+$", v, re.IGNORECASE)
+    }
 
 
 def _source_url_of(alert: Any) -> str | None:

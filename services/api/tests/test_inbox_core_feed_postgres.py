@@ -148,9 +148,9 @@ async def test_recovery_makes_it_healthy_again_and_clears_the_outage(world):
     await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="error")))
     await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="ok", sent=1)))
     (row,) = await rows(world, world["a"])
-    assert row.health_status == "healthy" and row.last_outage_at is None and row.error_count == 1, (
-        "the error count is history; the outage is over"
-    )
+    assert (
+        row.health_status == "healthy" and row.last_outage_at is None and row.error_count == 1
+    ), "the error count is history; the outage is over"
 
 
 async def test_two_sources_in_one_report_become_two_rows(world):
@@ -185,9 +185,9 @@ async def test_a_report_never_touches_a_connector_that_is_not_a_core_feed_row(wo
         )
     await run(world, world["feed_token"], report(SourceReport(vendor="huntress", category="edr", status="ok", sent=9)))
     by_name = {r.name: r for r in await rows(world, world["a"])}
-    assert by_name["Real Huntress"].events_ingested == 0 and by_name["Real Huntress"].health_status == "unknown", (
-        "a different connector type is left alone"
-    )
+    assert (
+        by_name["Real Huntress"].events_ingested == 0 and by_name["Real Huntress"].health_status == "unknown"
+    ), "a different connector type is left alone"
     assert by_name["Huntress (via CORE)"].events_ingested == 9
 
 
@@ -294,9 +294,9 @@ async def test_the_log_keeps_the_newest_200_entries_of_that_connector_only(world
         await run(world, t, ninja("warning", f"message {i}"))
     kept = await log_rows(world, world["a"])
     assert len(kept) == 200 and kept[0][1] == "message 5" and kept[-1][1] == "message 204"
-    assert await log_rows(world, world["a"], vendor="huntress") == [("error", "huntress is down", 0, 0)], (
-        "trimming one connector never touches another's log"
-    )
+    assert await log_rows(world, world["a"], vendor="huntress") == [
+        ("error", "huntress is down", 0, 0)
+    ], "trimming one connector never touches another's log"
 
 
 async def test_one_tenant_cannot_read_another_tenants_log_even_by_asking_for_its_connector(world):
@@ -350,9 +350,9 @@ async def test_a_pressed_sync_is_handed_to_core_once(world):
     answer = await press_sync(world, world["a"], await connector_id(world, world["a"]))
     assert answer["vendor"] == "ninjaone" and answer["requested_at"]
     (pending,) = await rows(world, world["a"])
-    assert pending.connector_config["sync_requested_at"] == answer["requested_at"], (
-        "the request is left on the connector for CORE to collect"
-    )
+    assert (
+        pending.connector_config["sync_requested_at"] == answer["requested_at"]
+    ), "the request is left on the connector for CORE to collect"
     assert await claim(world, world["feed_token"]) == ["ninjaone"]
     assert await claim(world, world["feed_token"]) == [], "collected means cleared: CORE does not run it again on its next check"
     (row,) = await rows(world, world["a"])

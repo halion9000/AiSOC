@@ -99,6 +99,14 @@ async def related_alerts(
             label = match_label(hosts, users, r.affected_hosts, r.affected_users)
             if label is not None:
                 items.append(
-                    RelatedAlert(id=r.id, title=r.title, severity=r.severity, status=r.status, source=_tool_of(r), created_at=r.created_at, matched=label)  # type: ignore[arg-type]
+                    RelatedAlert(
+                        id=r.id,
+                        title=r.title,
+                        severity=r.severity,
+                        status=r.status,
+                        source=_tool_of(r),
+                        created_at=r.created_at,
+                        matched=label,
+                    )  # type: ignore[arg-type]
                 )
         return RelatedAlerts(items=items[:MAX_RELATED], more=1 if len(items) > MAX_RELATED else 0)

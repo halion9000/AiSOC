@@ -13,7 +13,7 @@ vi.mock('swr', async () => {
   return {
     __esModule: true,
     mutate,
-    default: (key: string | null, fetcher: (k: string) => Promise<unknown>) => {
+    default: function useFakeSwr(key: string | null, fetcher: (k: string) => Promise<unknown>) {
       const [data, setData] = React.useState<unknown>(undefined);
       const [isLoading, setLoading] = React.useState(true);
       React.useEffect(() => {

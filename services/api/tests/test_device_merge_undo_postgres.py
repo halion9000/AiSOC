@@ -28,7 +28,9 @@ async def tenants():
         async with owner.begin() as conn:
             await conn.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
             for key, tid in ids.items():
-                await conn.execute(text("insert into tenants (id, name, slug) values (:i, :n, :s)"), {"i": tid, "n": f"{key}-{tag}", "s": f"{key}-{tag}"})
+                await conn.execute(
+                    text("insert into tenants (id, name, slug) values (:i, :n, :s)"), {"i": tid, "n": f"{key}-{tag}", "s": f"{key}-{tag}"}
+                )
         yield ids
     finally:
         async with owner.begin() as conn:
@@ -59,7 +61,12 @@ async def scalar(tenant_id, sql, **params):
 async def two_devices(t):
     """Two same-name devices with no serial: the kind a person is asked to merge. The first (ninja) has more filled in on the second (addigy)."""
     a = await run(t, lambda db: upsert_device(db, t, DeviceReport("ninjaone", "1", "FRONT-DESK", ip_addresses=[])))
-    b = await run(t, lambda db: upsert_device(db, t, DeviceReport("addigy", "2", "front-desk", serial="SER12345", os="macOS", model="MacBook", ip_addresses=["10.0.0.5"])))
+    b = await run(
+        t,
+        lambda db: upsert_device(
+            db, t, DeviceReport("addigy", "2", "front-desk", serial="SER12345", os="macOS", model="MacBook", ip_addresses=["10.0.0.5"])
+        ),
+    )
     assert a != b
     return a, b
 
@@ -70,7 +77,9 @@ async def test_a_merge_can_be_undone_and_everything_comes_back(tenants):
     await run(t, lambda db: merge_devices(db, t, keep, remove))
     assert await scalar(t, "select count(*) from devices where tenant_id = :t") == 1
     assert await scalar(t, "select count(*) from device_sources where device_id = :k", k=keep) == 2
-    merged = await run(t, lambda db: db.execute(text("select serial_number, os, model, ip_addresses from devices where id = :k"), {"k": keep}))
+    merged = await run(
+        t, lambda db: db.execute(text("select serial_number, os, model, ip_addresses from devices where id = :k"), {"k": keep})
+    )
     assert merged is not None
     log_id = await scalar(t, "select id from device_merge_log where tenant_id = :t and undone_at is null")
 
@@ -78,7 +87,9 @@ async def test_a_merge_can_be_undone_and_everything_comes_back(tenants):
     assert restored == remove, "the removed device comes back with its own id"
     assert await scalar(t, "select count(*) from devices where tenant_id = :t") == 2
     assert await scalar(t, "select serial_number from devices where id = :r", r=remove) == "SER12345", "its serial is back on it"
-    assert await scalar(t, "select count(*) from device_sources where device_id = :r and vendor = 'addigy'", r=remove) == 1, "its feed moved back"
+    assert (
+        await scalar(t, "select count(*) from device_sources where device_id = :r and vendor = 'addigy'", r=remove) == 1
+    ), "its feed moved back"
     assert await scalar(t, "select count(*) from device_sources where device_id = :k and vendor = 'ninjaone'", k=keep) == 1
     # What was filled in on the kept device from the removed one is blank again.
     assert await scalar(t, "select serial_number is null and os is null and model is null from devices where id = :k", k=keep) is True

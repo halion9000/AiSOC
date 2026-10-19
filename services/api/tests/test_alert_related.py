@@ -28,7 +28,17 @@ def test_the_match_says_what_is_shared_and_nothing_when_nothing_is():
 
 
 def _row(title, hosts=(), users=(), source="petra"):
-    return SimpleNamespace(id=uuid.uuid4(), title=title, severity="high", status="new", created_at=datetime(2026, 10, 18, tzinfo=UTC), affected_hosts=list(hosts), affected_users=list(users), raw_event={"source": source}, connector_type="generic")
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        title=title,
+        severity="high",
+        status="new",
+        created_at=datetime(2026, 10, 18, tzinfo=UTC),
+        affected_hosts=list(hosts),
+        affected_users=list(users),
+        raw_event={"source": source},
+        connector_type="generic",
+    )
 
 
 def _db(alert, related):
@@ -49,7 +59,18 @@ def _user():
 @pytest.mark.asyncio
 async def test_lists_other_alerts_for_the_same_device_or_user_with_why_they_match():
     me = _row("Huntress incident", hosts=["PC-1"], users=["kevin@acme.com"], source="huntress")
-    out = await ar.related_alerts(ALERT_ID, _user(), _db(me, [_row("Petra incident", users=["kevin@acme.com"]), _row("Earlier malware", hosts=["PC-1"], source="huntress"), _row("Unrelated", hosts=["PC-9"])]))
+    out = await ar.related_alerts(
+        ALERT_ID,
+        _user(),
+        _db(
+            me,
+            [
+                _row("Petra incident", users=["kevin@acme.com"]),
+                _row("Earlier malware", hosts=["PC-1"], source="huntress"),
+                _row("Unrelated", hosts=["PC-9"]),
+            ],
+        ),
+    )
     assert [(i.title, i.matched) for i in out.items] == [("Petra incident", "user"), ("Earlier malware", "device")]
     assert out.more == 0
 

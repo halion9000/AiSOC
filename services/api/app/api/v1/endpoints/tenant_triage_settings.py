@@ -34,7 +34,12 @@ class AutoCloseSetting(BaseModel):
 
 
 class SetAutoClose(BaseModel):
-    threshold: float = Field(..., ge=MIN_THRESHOLD, le=MAX_THRESHOLD, description="Confidence from 0.5 to 1.0 at or above which benign and false-positive verdicts close on their own.")
+    threshold: float = Field(
+        ...,
+        ge=MIN_THRESHOLD,
+        le=MAX_THRESHOLD,
+        description="Confidence from 0.5 to 1.0 at or above which benign and false-positive verdicts close on their own.",
+    )
 
 
 def stored_threshold(settings: object) -> float | None:
@@ -62,7 +67,9 @@ async def get_auto_close(user: Annotated[AuthUser, Depends(require_permission("s
 
 
 @router.put("/auto-close", response_model=AutoCloseSetting, summary="Set this tenant's own auto-close confidence")
-async def set_auto_close(body: SetAutoClose, user: Annotated[AuthUser, Depends(require_permission("settings:write"))], db: DBSession) -> AutoCloseSetting:
+async def set_auto_close(
+    body: SetAutoClose, user: Annotated[AuthUser, Depends(require_permission("settings:write"))], db: DBSession
+) -> AutoCloseSetting:
     tenant = await _tenant(db, user.tenant_id)
     settings = dict(tenant.settings or {})
     settings[KEY] = round(body.threshold, 4)

@@ -13,6 +13,7 @@ import pytest
 from app.hunt import scheduler
 from fastapi.testclient import TestClient
 
+
 class TestHuntSearchIsNotHere:
     """Hunt search lives in the core API (it searches the tenant's own alerts). This service used to carry a second route that answered 501 and that nothing called; it, and the invented
     events it once returned for every query, are gone, so nothing here can hand a hunter fabricated telemetry again."""

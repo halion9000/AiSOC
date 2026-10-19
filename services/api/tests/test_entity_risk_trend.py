@@ -44,9 +44,16 @@ def test_recent_order_puts_what_picked_up_the_most_first_then_by_score():
         {"entity": "warm-low", "score": 50, "recent_points": 5},
     ]
     assert [r["entity"] for r in order_entities(rows, "recent")] == ["hot", "warm-high", "warm-low", "old-high"]
-    assert [r["entity"] for r in order_entities(rows, "score")] == ["old-high", "hot", "warm-high", "warm-low"], "score order is whatever fusion ranked, untouched"
+    assert [r["entity"] for r in order_entities(rows, "score")] == [
+        "old-high",
+        "hot",
+        "warm-high",
+        "warm-low",
+    ], "score order is whatever fusion ranked, untouched"
 
 
 def test_the_shaped_entity_carries_the_trend_fields():
-    shaped = _shape_entity({"entity": "u@x", "entity_type": "user", "score": 33, "contributors": [{"points": 12, "at": at(1), "alert_id": "a"}]}, 50, NOW)
+    shaped = _shape_entity(
+        {"entity": "u@x", "entity_type": "user", "score": 33, "contributors": [{"points": 12, "at": at(1), "alert_id": "a"}]}, 50, NOW
+    )
     assert shaped["trend"] == "new" and shaped["recent_points"] == 12.0 and shaped["recent_alerts"] == 1

@@ -235,7 +235,8 @@ async def decide_approval(
     """
     row = (
         await db.execute(
-            select(AgentApproval).where(
+            select(AgentApproval)
+            .where(
                 AgentApproval.id == approval_id,
                 AgentApproval.tenant_id == user.tenant_id,
             )

@@ -103,7 +103,9 @@ async def test_a_closed_report_is_bounded_and_only_resolving_tenants_get_sla_eve
 @pytest.mark.asyncio
 async def test_nothing_is_touched_when_no_tenant_holds_the_alerts(_env):
     db = Db(holders=[])
-    out = await cf.report_core_feed_state("tok", cf.StateReport(vendor="huntress", items=[cf.StateItem(uid="huntress:1", status="sent")]), db)
+    out = await cf.report_core_feed_state(
+        "tok", cf.StateReport(vendor="huntress", items=[cf.StateItem(uid="huntress:1", status="sent")]), db
+    )
     assert out.updated == 0 and db.updates == 0
     closed = await cf.report_core_feed_closed("tok", cf.ClosedReport(vendor="huntress", closed=[cf.ClosedItem(uid="huntress:1")]), db)
     assert closed.resolved == 0 and db.updates == 0
@@ -113,7 +115,9 @@ async def test_nothing_is_touched_when_no_tenant_holds_the_alerts(_env):
 @pytest.mark.asyncio
 async def test_the_owners_own_tenant_is_included_when_it_holds_alerts():
     db = Db(holders=[OWNER])
-    out = await cf.report_core_feed_state("tok", cf.StateReport(vendor="huntress", items=[cf.StateItem(uid="huntress:1", status="sent")]), db)
+    out = await cf.report_core_feed_state(
+        "tok", cf.StateReport(vendor="huntress", items=[cf.StateItem(uid="huntress:1", status="sent")]), db
+    )
     assert out.updated == 1 and db.updated_in == [OWNER]
 
 

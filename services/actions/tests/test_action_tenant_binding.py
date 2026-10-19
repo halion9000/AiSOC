@@ -7,20 +7,20 @@ submitted it. Callers that name no tenant (the Slack bot) behave as before.
 import uuid
 
 import pytest
-from app.models.action import ActionPrincipal, ActionStatus
+from app.models.action import ActionPrincipal, ActionStatus, ActionType
+from app.services.executor_registry import EXECUTOR_REGISTRY
 from fastapi.testclient import TestClient
 
 from tests.test_action_approval_lifecycle import FakeExecutor, make_app, make_request, seed, stored  # noqa: F401
-from app.models.action import ActionType
-from app.services.executor_registry import EXECUTOR_REGISTRY
 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    from tests.test_action_approval_lifecycle import db_path as _unused  # noqa: F401
-    from sqlalchemy import create_engine
     from app.db import Base
     from app.models.action_record import ActionRecord
+    from sqlalchemy import create_engine
+
+    from tests.test_action_approval_lifecycle import db_path as _unused  # noqa: F401
 
     path = tmp_path / "actions.db"
     engine = create_engine(f"sqlite:///{path}")

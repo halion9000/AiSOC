@@ -5,9 +5,11 @@ import type { DeviceList, DeviceRow } from '@/lib/api';
 
 const listMock = vi.fn();
 const masterMock = vi.fn();
+const hideMock = vi.fn();
+const unhideMock = vi.fn();
 const childrenMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  devicesApi: { rollup: async () => [], merges: async () => [], list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), duplicates: async () => ({ items: [] }) },
+  devicesApi: { rollup: async () => [], merges: async () => [], list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), hide: (...a: unknown[]) => hideMock(...a), unhide: (...a: unknown[]) => unhideMock(...a), duplicates: async () => ({ items: [] }) },
   msspApi: { listChildren: () => childrenMock() },
   apiErrorDetail: () => null,
 }));
@@ -29,6 +31,8 @@ function list(items: DeviceRow[], over: Partial<DeviceList> = {}): DeviceList {
 beforeEach(() => {
   listMock.mockReset();
   masterMock.mockReset().mockResolvedValue({ master_vendor: 'ninjaone' });
+  hideMock.mockReset().mockResolvedValue({ device_id: 'x', hidden_since: NOW });
+  unhideMock.mockReset().mockResolvedValue({ device_id: 'x', hidden_since: null });
   childrenMock.mockReset().mockResolvedValue([{ id: 'c1', name: 'Acme', mssp_role: 'child' }]);
 });
 
@@ -361,5 +365,55 @@ describe('protection in plain words', () => {
     const panel = await screen.findByTestId('protection');
     expect(panel).toHaveTextContent('Microsoft Defender');
     expect(panel).toHaveTextContent('2 days ago');
+  });
+});
+
+describe('hiding an offline device until it checks back in', () => {
+  it('hides it from the row, then reloads the list', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'GLF-L02', last_online: '2026-09-28T00:00:00Z', offline_days: 21 })]));
+    render(<DevicesView />);
+    const row = (await screen.findByText('GLF-L02')).closest('tr') as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: 'Hide until online' }));
+    expect(hideMock).toHaveBeenCalledWith('d-GLF-L02');
+    await waitFor(() => expect(listMock.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('offers no hide button for a device that is not offline', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'ONLINE-1', offline_days: null })]));
+    render(<DevicesView />);
+    const row = (await screen.findByText('ONLINE-1')).closest('tr') as HTMLElement;
+    expect(within(row).queryByRole('button', { name: 'Hide until online' })).not.toBeInTheDocument();
+  });
+
+  it('shows hidden devices with a Show again button, and the count on the card', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'GLF-L03', offline_days: 58, hidden_since: NOW })], { summary: { total: 5, not_in_master: 0, hidden: 1 } }));
+    render(<DevicesView />);
+    const row = (await screen.findByText('GLF-L03')).closest('tr') as HTMLElement;
+    expect(screen.getByTestId('devices-hidden')).toHaveTextContent('1');
+    await userEvent.click(within(row).getByRole('button', { name: 'Show again' }));
+    expect(unhideMock).toHaveBeenCalledWith('d-GLF-L03');
+  });
+
+  it('asks the API for hidden devices when the card is pressed', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A' })]));
+    render(<DevicesView />);
+    await screen.findByText('A');
+    await userEvent.click(screen.getByRole('button', { name: /Hidden until online/ }));
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ hidden: true })));
+  });
+});
+
+describe('devices offline for a month', () => {
+  it('says how many are left out of the other numbers', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A' })], { summary: { total: 3, not_in_master: 0, long_offline: 2 } }));
+    render(<DevicesView />);
+    expect(await screen.findByTestId('long-offline-note')).toHaveTextContent('2 devices offline for 30 days or more');
+  });
+
+  it('says nothing when there are none', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'B' })], { summary: { total: 1, not_in_master: 0, long_offline: 0 } }));
+    render(<DevicesView />);
+    await screen.findByText('B');
+    expect(screen.queryByTestId('long-offline-note')).not.toBeInTheDocument();
   });
 });

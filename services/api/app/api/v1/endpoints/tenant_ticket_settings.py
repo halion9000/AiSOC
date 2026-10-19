@@ -1,7 +1,7 @@
 """Which HaloPSA ticket status a resolved incident moves its ticket to: GET / PUT / DELETE /api/v1/tenant-settings/tickets.
 
 When an analyst resolves a security incident from AiSOC, CORE (which holds the HaloPSA credentials) leaves a note on the incident's ticket and moves the ticket to this status. The platform default
-is "Tech Update"; an organization may choose another status by name (it must exist in its HaloPSA, which CORE checks when it makes the change). Stored in ``tenants.settings.ticket_close_status``;
+is "Tech Updated"; an organization may choose another status by name (it must exist in its HaloPSA, which CORE checks when it makes the change). Stored in ``tenants.settings.ticket_close_status``;
 setting it merges one key and leaves the rest of the tenant's settings alone.
 """
 
@@ -20,7 +20,7 @@ from app.models.tenant import Tenant
 router = APIRouter(prefix="/tenant-settings", tags=["tenant-settings"])
 
 KEY = "ticket_close_status"
-DEFAULT_CLOSE_STATUS = "Tech Update"
+DEFAULT_CLOSE_STATUS = "Tech Updated"
 MAX_LENGTH = 60
 
 
@@ -33,7 +33,9 @@ class TicketSettings(BaseModel):
 
 
 class SetTicketSettings(BaseModel):
-    close_status: str = Field(..., min_length=1, max_length=MAX_LENGTH, description="The exact name of a status in HaloPSA, for example Tech Update or Closed.")
+    close_status: str = Field(
+        ..., min_length=1, max_length=MAX_LENGTH, description="The exact name of a status in HaloPSA, for example Tech Updated or Closed."
+    )
 
 
 def stored_close_status(settings: object) -> str | None:
@@ -67,7 +69,9 @@ async def get_ticket_settings(user: Annotated[AuthUser, Depends(require_permissi
 
 
 @router.put("/tickets", response_model=TicketSettings, summary="Choose the HaloPSA status a resolved incident moves its ticket to")
-async def set_ticket_settings(body: SetTicketSettings, user: Annotated[AuthUser, Depends(require_permission("settings:write"))], db: DBSession) -> TicketSettings:
+async def set_ticket_settings(
+    body: SetTicketSettings, user: Annotated[AuthUser, Depends(require_permission("settings:write"))], db: DBSession
+) -> TicketSettings:
     cleaned = " ".join(body.close_status.split())
     if not cleaned:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The status name is empty.")
@@ -80,7 +84,7 @@ async def set_ticket_settings(body: SetTicketSettings, user: Annotated[AuthUser,
     return _view(settings)
 
 
-@router.delete("/tickets", response_model=TicketSettings, summary="Go back to the default ticket status (Tech Update)")
+@router.delete("/tickets", response_model=TicketSettings, summary="Go back to the default ticket status (Tech Updated)")
 async def clear_ticket_settings(user: Annotated[AuthUser, Depends(require_permission("settings:write"))], db: DBSession) -> TicketSettings:
     tenant = await _tenant(db, user.tenant_id)
     settings = dict(tenant.settings or {})

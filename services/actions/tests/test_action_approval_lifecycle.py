@@ -54,7 +54,11 @@ class FakeExecutor:
         if self._raises is not None:
             raise self._raises
         return SimpleNamespace(
-            status=self._status, output={"isolated": request.target}, rollback_data={"undo": "release_host"}, error=self._error, simulated=self.simulated
+            status=self._status,
+            output={"isolated": request.target},
+            rollback_data={"undo": "release_host"},
+            error=self._error,
+            simulated=self.simulated,
         )
 
 

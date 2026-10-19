@@ -424,6 +424,7 @@ class TestConfiguration:
 
 # ── alerts: opt-in, finished and case-less only ─────────────────────────────────────────────────────────────────────────
 
+
 def alert(status, age_days, case=None, tenant=A):
     aid = uuid.uuid4()
     with Session(DB.sync) as s:

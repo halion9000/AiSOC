@@ -17,7 +17,7 @@ vi.mock('swr', async () => {
   const React = await import('react');
   return {
     __esModule: true,
-    default: (key: unknown, fetcher: () => Promise<unknown>) => {
+    default: function useFakeSwr(key: unknown, fetcher: () => Promise<unknown>) {
       const [data, setData] = React.useState<unknown>(undefined);
       React.useEffect(() => {
         if (key === null) return;

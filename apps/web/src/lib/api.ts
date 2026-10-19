@@ -534,6 +534,8 @@ export interface DeviceRow {
   open_alerts?: number;
   /** The most severe few of those, newest first within a severity. */
   alerts?: DeviceAlert[];
+  /** When a person hid this device until it checks back in; null or absent for a shown device. */
+  hidden_since?: string | null;
 }
 
 export interface DeviceAlert {
@@ -547,7 +549,7 @@ export interface DeviceAlert {
 
 export interface DeviceList {
   master_vendor: string | null;
-  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; needs_attention?: number; stale_agents?: number; offline?: number; with_alerts?: number };
+  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; needs_attention?: number; stale_agents?: number; offline?: number; with_alerts?: number; hidden?: number; long_offline?: number };
   items: DeviceRow[];
   total: number;
   page: number;
@@ -572,6 +574,8 @@ export interface DeviceQuery {
   offline?: boolean;
   /** Only devices with at least one open alert. */
   hasAlerts?: boolean;
+  /** Only devices a person hid until they check back in (they are left out otherwise). */
+  hidden?: boolean;
 }
 
 export interface DuplicatePair {
@@ -635,8 +639,17 @@ export const devicesApi = {
     if (q.stale) p.set('stale', 'true');
     if (q.offline) p.set('offline', 'true');
     if (q.hasAlerts) p.set('has_alerts', 'true');
+    if (q.hidden) p.set('hidden', 'true');
     const qs = p.toString();
     return request<DeviceList>(`/api/v1/devices${qs ? `?${qs}` : ''}`);
+  },
+  /** Hide a device until a tool sees it online again. */
+  async hide(id: string): Promise<{ device_id: string; hidden_since: string | null }> {
+    return request(`/api/v1/devices/${encodeURIComponent(id)}/hide`, { method: 'POST' });
+  },
+  /** Show a hidden device again. */
+  async unhide(id: string): Promise<{ device_id: string; hidden_since: string | null }> {
+    return request(`/api/v1/devices/${encodeURIComponent(id)}/hide`, { method: 'DELETE' });
   },
   /** The query string for the same filters the list uses, without paging: what the CSV export takes. */
   exportQuery(q: DeviceQuery = {}): string {
@@ -650,6 +663,7 @@ export const devicesApi = {
     if (q.stale) p.set('stale', 'true');
     if (q.offline) p.set('offline', 'true');
     if (q.hasAlerts) p.set('has_alerts', 'true');
+    if (q.hidden) p.set('hidden', 'true');
     return p.toString();
   },
   /** The devices matching the filters, as CSV text. */

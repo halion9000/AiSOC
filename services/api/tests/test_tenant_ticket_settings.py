@@ -7,15 +7,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from app.api.v1.endpoints import alert_vendor_actions as av
 from app.api.v1.endpoints import tenant_ticket_settings as ts
-from fastapi import HTTPException
 from pydantic import ValidationError
 
 TENANT = uuid.uuid4()
 
 
 def test_the_default_is_tech_update_and_an_own_choice_is_tidied():
-    assert ts.close_status_of({}) == "Tech Update"
-    assert ts.close_status_of(None) == "Tech Update"
+    assert ts.close_status_of({}) == "Tech Updated"
+    assert ts.close_status_of(None) == "Tech Updated"
     assert ts.close_status_of({"ticket_close_status": "  Waiting   on Customer "}) == "Waiting on Customer"
     assert ts.stored_close_status({"ticket_close_status": 5}) is None
     assert ts.stored_close_status({"ticket_close_status": "x" * 61}) is None
@@ -57,7 +56,7 @@ async def test_setting_keeps_the_rest_of_the_organizations_settings_and_clearing
     assert db.tenant.settings == {"auto_close_threshold": 0.9, "ticket_close_status": "Closed"}
     db.commit.assert_awaited()
     cleared = await ts.clear_ticket_settings(_user(), db)
-    assert (cleared.close_status, cleared.is_default) == ("Tech Update", True)
+    assert (cleared.close_status, cleared.is_default) == ("Tech Updated", True)
     assert db.tenant.settings == {"auto_close_threshold": 0.9}
 
 
@@ -69,7 +68,7 @@ async def test_the_status_reaches_a_resolve_request_and_only_a_resolve():
         return await av.ticket_status_param(db, TENANT, "resolve")
 
     assert await with_settings({"ticket_close_status": "Closed"}) == {"ticket_status": "Closed"}
-    assert await with_settings({}) == {"ticket_status": "Tech Update"}
+    assert await with_settings({}) == {"ticket_status": "Tech Updated"}
     db = MagicMock()
     db.get = AsyncMock(return_value=SimpleNamespace(settings={"ticket_close_status": "Closed"}))
     assert await av.ticket_status_param(db, TENANT, "approve") == {}
@@ -80,7 +79,7 @@ async def test_the_status_reaches_a_resolve_request_and_only_a_resolve():
 async def test_a_problem_reading_the_setting_falls_back_to_the_default_and_never_blocks_the_resolve():
     broken = MagicMock()
     broken.get = AsyncMock(side_effect=RuntimeError("db down"))
-    assert await av.ticket_status_param(broken, TENANT, "resolve") == {"ticket_status": "Tech Update"}
+    assert await av.ticket_status_param(broken, TENANT, "resolve") == {"ticket_status": "Tech Updated"}
 
 
 def test_the_routes_need_the_settings_permissions():

@@ -50,7 +50,7 @@ def _alert():
 
 
 def _record(**over):
-    base = dict(
+    base = dict(  # noqa: C408
         tenant_id="t",
         entity_type="host",
         entity_value="WIN-DC01",

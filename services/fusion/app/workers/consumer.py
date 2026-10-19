@@ -5,9 +5,9 @@ results back to Kafka, and persists non-duplicate alerts to Postgres.
 """
 
 import asyncio
-from collections.abc import Callable
 import contextlib
 import json
+from collections.abc import Callable
 
 import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer

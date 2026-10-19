@@ -33,12 +33,11 @@ Anomalies are published to ``ueba.anomalies``:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import json
-import math
 import logging
+import math
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

@@ -57,9 +57,8 @@ def test_a_sequence_over_events_that_carry_no_time_is_an_error_not_a_guess():
     matched, error = _run_eql('sequence by host [process where process.name == "cmd.exe"] [process where user == "bob"]', EVENTS)
     assert matched == [] and error and "time" in error
 
-# ---- EQL sequences ----------------------------------------------------------------------------------------------------------------------------------------
 
-from app.services.rule_engine import _run_eql_sequence  # noqa: E402
+# ---- EQL sequences ----------------------------------------------------------------------------------------------------------------------------------------
 
 
 def ev(i, ts, host, **fields):
@@ -79,16 +78,28 @@ def test_a_sequence_matches_steps_seen_in_order_on_the_same_host_within_the_span
 
 
 def test_the_wrong_order_a_different_host_or_too_long_a_gap_is_not_a_match():
-    reverse = [ev(1, "2026-10-18T12:00:00Z", "A", dst="1.2.3.4", category="network"), ev(2, "2026-10-18T12:01:00Z", "A", process={"name": "cmd.exe"}, category="process")]
+    reverse = [
+        ev(1, "2026-10-18T12:00:00Z", "A", dst="1.2.3.4", category="network"),
+        ev(2, "2026-10-18T12:01:00Z", "A", process={"name": "cmd.exe"}, category="process"),
+    ]
     assert ids(_run_eql(SEQ, reverse)) == []
-    other_host = [ev(1, "2026-10-18T12:00:00Z", "A", process={"name": "cmd.exe"}, category="process"), ev(2, "2026-10-18T12:01:00Z", "B", dst="1.2.3.4", category="network")]
+    other_host = [
+        ev(1, "2026-10-18T12:00:00Z", "A", process={"name": "cmd.exe"}, category="process"),
+        ev(2, "2026-10-18T12:01:00Z", "B", dst="1.2.3.4", category="network"),
+    ]
     assert ids(_run_eql(SEQ, other_host)) == []
-    slow = [ev(1, "2026-10-18T12:00:00Z", "A", process={"name": "cmd.exe"}, category="process"), ev(2, "2026-10-18T12:06:00Z", "A", dst="1.2.3.4", category="network")]
+    slow = [
+        ev(1, "2026-10-18T12:00:00Z", "A", process={"name": "cmd.exe"}, category="process"),
+        ev(2, "2026-10-18T12:06:00Z", "A", dst="1.2.3.4", category="network"),
+    ]
     assert ids(_run_eql(SEQ, slow)) == [], "six minutes is past the five minute span"
 
 
 def test_input_order_does_not_matter_events_are_ordered_by_their_time():
-    shuffled = [ev(2, "2026-10-18T12:02:00Z", "A", dst="1.2.3.4", category="network"), ev(1, "2026-10-18T12:00:00Z", "A", process={"name": "cmd.exe"}, category="process")]
+    shuffled = [
+        ev(2, "2026-10-18T12:02:00Z", "A", dst="1.2.3.4", category="network"),
+        ev(1, "2026-10-18T12:00:00Z", "A", process={"name": "cmd.exe"}, category="process"),
+    ]
     assert ids(_run_eql(SEQ, shuffled)) == [1, 2]
 
 
@@ -105,7 +116,9 @@ def test_every_completed_sequence_contributes_its_events_once():
 
 def test_a_named_category_must_match_the_events_own_category_when_it_has_one():
     events = [ev(1, 1, "A", a=1, category="file"), ev(2, 2, "A", b=2, category="network")]
-    assert ids(_run_eql("sequence by host [process where a == 1] [network where b == 2]", events)) == [], "the first event is a file event, not a process"
+    assert (
+        ids(_run_eql("sequence by host [process where a == 1] [network where b == 2]", events)) == []
+    ), "the first event is a file event, not a process"
     assert ids(_run_eql("sequence by host [file where a == 1] [network where b == 2]", events)) == [1, 2]
 
 
@@ -117,7 +130,12 @@ def test_events_without_a_readable_time_or_a_by_value_are_handled_honestly():
 
 
 def test_unreadable_sequences_are_errors_not_guesses():
-    for bad in ("sequence [process where a == 1]", "sequence by host [process where a == 1", "sequence [not a step] [process where a == 1]", "sequence by host with maxspan=5x [any where a == 1] [any where b == 2]"):
+    for bad in (
+        "sequence [process where a == 1]",
+        "sequence by host [process where a == 1",
+        "sequence [not a step] [process where a == 1]",
+        "sequence by host with maxspan=5x [any where a == 1] [any where b == 2]",
+    ):
         matched, error = _run_eql(bad, [ev(1, 1, "A", a=1)])
         assert matched == [] and error, bad
 
@@ -128,4 +146,8 @@ def test_epoch_seconds_and_milliseconds_are_both_understood():
 
 
 def test_a_single_event_condition_still_works():
-    assert ids(_run_eql('process where process.name == "cmd.exe"', [ev(1, 1, "A", process={"name": "cmd.exe"}), ev(2, 2, "A", process={"name": "x"})])) == [1]
+    assert ids(
+        _run_eql(
+            'process where process.name == "cmd.exe"', [ev(1, 1, "A", process={"name": "cmd.exe"}), ev(2, 2, "A", process={"name": "x"})]
+        )
+    ) == [1]

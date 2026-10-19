@@ -52,7 +52,21 @@ def with_pool(monkeypatch, pool):
 
 @pytest.mark.parametrize(
     "raw,expected",
-    [("0.9", 0.9), (0.95, 0.95), ("1", 1.0), ("0.5", 0.5), (None, None), ("", None), ("abc", None), ("0.49", None), ("1.01", None), ("-1", None), ("nan", None), (True, None), ([], None)],
+    [
+        ("0.9", 0.9),
+        (0.95, 0.95),
+        ("1", 1.0),
+        ("0.5", 0.5),
+        (None, None),
+        ("", None),
+        ("abc", None),
+        ("0.49", None),
+        ("1.01", None),
+        ("-1", None),
+        ("nan", None),
+        (True, None),
+        ([], None),
+    ],
 )
 def test_a_stored_value_is_used_only_when_it_is_a_number_in_range(raw, expected):
     assert ata.parse_tenant_threshold(raw) == expected
