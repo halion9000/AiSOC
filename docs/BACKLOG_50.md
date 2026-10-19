@@ -179,3 +179,13 @@ All **Ready** unless marked; none has been started. Where a vendor API is involv
 148. CORE: backup of its settings file - Ready
 149. CORE: export the main log with one click - Ready
 150. CORE: self-test button that runs the smoke script - Ready
+
+---
+
+# Pending (decided)
+
+- **UEBA alerting**: raise an alert when a sign-in's anomaly score is high. Deliberately left out of the first version, which only collects and scores (decided 2026-10-19). Look at a few days of scores first, then choose the threshold and what an alert says.
+- **UEBA: see the scores**: a page or a section on the person/alert showing recent sign-ins and their scores, so the scores can be judged before alerts exist.
+- **CIPP: more than sign-ins**: risky users, mailbox rules and MFA status are all in CIPP's API.
+- **Sign-ins from Okta and Google Workspace**, same path.
+- **Real DNSFilter wordmark**: the badge uses DNSFilter's small site icon.

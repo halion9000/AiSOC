@@ -51,6 +51,7 @@ interface Snapshot {
   down: string[];
   services: ServiceRow[];
   device_feeds?: DeviceFeed[];
+  signins?: { last_24h: number; scored_last_24h: number; unscored: number; users_last_24h: number; newest_received: string | null } | null;
   core_feed?: { sources: number; last_report: string | null; minutes_ago: number | null; silent: boolean } | null;
   database?: DatabaseSecurity;
   generated_at: string;
@@ -113,6 +114,13 @@ export function PlatformHealth() {
             <p role="note" data-testid="core-silent" className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
               CORE has not reported to AiSOC {snapshot.core_feed.minutes_ago === null ? "yet" : `since ${agoLabel(snapshot.core_feed.minutes_ago).replace(" ago", "")} ago`}. While it is silent, no new alerts, devices or
               links arrive from Huntress, Petra, NinjaOne and the other tools. Check that CORE is running and can reach AiSOC.
+            </p>
+          )}
+          {snapshot.signins && (
+            <p data-testid="signins-line" className="text-sm text-slate-300">
+              Sign-ins collected through CORE: {snapshot.signins.last_24h.toLocaleString()} in the last 24 hours from {snapshot.signins.users_last_24h.toLocaleString()} people,{" "}
+              {snapshot.signins.scored_last_24h.toLocaleString()} scored for unusual behaviour
+              {snapshot.signins.unscored > 0 ? `, ${snapshot.signins.unscored.toLocaleString()} waiting to be scored (is the behaviour service up?)` : ""}.
             </p>
           )}
           {snapshot.device_feeds && snapshot.device_feeds.length > 0 && (

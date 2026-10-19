@@ -138,3 +138,26 @@ describe('CORE feed silence', () => {
     expect(screen.queryByTestId('core-silent')).not.toBeInTheDocument();
   });
 });
+
+describe('sign-in collection', () => {
+  const withSignins = (signins: unknown) => ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({ overall: 'ok', down: [], services: [{ service: 'fusion', status: 'up', latency_ms: 20, detail: '' }], signins, generated_at: '2026-10-19T02:00:00Z' }),
+  });
+
+  it('says how many sign-ins were collected and scored, and how many are waiting', async () => {
+    authFetch.mockResolvedValue(withSignins({ last_24h: 1500, scored_last_24h: 1400, unscored: 100, users_last_24h: 320, newest_received: '2026-10-19T01:50:00Z' }));
+    render(<PlatformHealth />);
+    const line = await screen.findByTestId('signins-line');
+    expect(line).toHaveTextContent('1,500 in the last 24 hours from 320 people');
+    expect(line).toHaveTextContent('1,400 scored for unusual behaviour, 100 waiting to be scored');
+  });
+
+  it('says nothing when none was ever collected', async () => {
+    authFetch.mockResolvedValue(withSignins(null));
+    render(<PlatformHealth />);
+    await waitFor(() => expect(screen.getByTestId('overall')).toBeInTheDocument());
+    expect(screen.queryByTestId('signins-line')).not.toBeInTheDocument();
+  });
+});

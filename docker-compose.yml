@@ -301,6 +301,9 @@ services:
       RETENTION_ALERTS_DAYS: ${RETENTION_ALERTS_DAYS:-0}
       RETENTION_DRY_RUN: ${RETENTION_DRY_RUN:-false}
       AISOC_FUSION_SERVICE_TOKEN: ${AISOC_FUSION_SERVICE_TOKEN:-}
+      # Sign-ins collected through CORE (CIPP) are scored by the UEBA service, which needs its bearer token. With no token they are stored and left unscored.
+      AISOC_UEBA_URL: http://ueba:8004
+      AISOC_UEBA_SERVICE_TOKEN: ${AISOC_UEBA_SERVICE_TOKEN:-}
       # The connectors service makes outbound calls with connector config + credentials the CALLER supplies, so it
       # requires this bearer token (the API is its only caller). It listens on 8087 (8003 is the fusion service).
       CONNECTORS_SERVICE_URL: http://connectors:8087

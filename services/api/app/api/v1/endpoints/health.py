@@ -674,6 +674,25 @@ async def core_feed_status(db: Any, owner: Any, now: datetime | None = None) -> 
     return core_feed_row(row[0], int(row[1]), now or datetime.now(UTC))
 
 
+async def _signins_or_none(db: Any, user: Any) -> dict[str, Any] | None:
+    """Sign-ins collected through CORE in the last 24 hours and how many were scored, or None when none has ever been collected (or this cannot be read)."""
+    try:
+        from app.api.v1.endpoints.signins import signin_summary
+
+        s = await signin_summary(user, db)
+        if s.last_24h == 0 and s.unscored == 0 and s.newest_received is None:
+            return None
+        return {
+            "last_24h": s.last_24h,
+            "scored_last_24h": s.scored_last_24h,
+            "unscored": s.unscored,
+            "users_last_24h": s.users_last_24h,
+            "newest_received": s.newest_received,
+        }
+    except Exception:  # noqa: BLE001 - extra detail on a health page must not take it down
+        return None
+
+
 async def _core_feed_or_none(db: Any, user: Any) -> dict[str, Any] | None:
     try:
         return await core_feed_status(db, user.tenant_id)
@@ -795,5 +814,6 @@ async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
         "database": {**await database_row_security(db), "pool": _pool_now()},
         "device_feeds": await _device_feeds_or_none(db, user),
         "core_feed": await _core_feed_or_none(db, user),
+        "signins": await _signins_or_none(db, user),
         "generated_at": datetime.now(UTC),
     }
