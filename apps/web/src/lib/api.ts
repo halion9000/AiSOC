@@ -807,6 +807,8 @@ export interface Alert {
   device?: string;
   /** A link to this alert in the tool that raised it (Blumira, Petra, Field Effect...), when the tool sent one. */
   sourceUrl?: string;
+  /** Links to the device and the user in the tool that raised the alert, when its data allowed them. */
+  links?: { device_url?: string; user_url?: string };
   /** Every host, user and address the alert names. */
   affectedHosts?: string[];
   affectedUsers?: string[];
@@ -837,6 +839,15 @@ export interface Alert {
   relatedEntities?: RelatedEntity[];
   miniTimeline?: MiniTimelineEvent[];
   recommendedActions?: RecommendedAction[];
+}
+
+function toolLinks(v: unknown): { device_url?: string; user_url?: string } | undefined {
+  if (v === null || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const ok = (x: unknown): string | undefined => (typeof x === 'string' && /^https:\/\/[^\s]+$/i.test(x) ? x : undefined);
+  const device_url = ok(o.device_url);
+  const user_url = ok(o.user_url);
+  return device_url || user_url ? { ...(device_url ? { device_url } : {}), ...(user_url ? { user_url } : {}) } : undefined;
 }
 
 function strings(v: unknown): string[] | undefined {
@@ -1031,6 +1042,7 @@ export function normalizeAlert(raw: unknown): Alert {
     clientName: pickStr('client_name', 'clientName'),
     device: firstHost(r.affected_hosts ?? r.affectedHosts),
     sourceUrl: pickStr('source_url', 'sourceUrl'),
+    links: toolLinks(r.links),
     affectedHosts: strings(r.affected_hosts ?? r.affectedHosts),
     affectedUsers: strings(r.affected_users ?? r.affectedUsers),
     affectedIps: strings(r.affected_ips ?? r.affectedIps),

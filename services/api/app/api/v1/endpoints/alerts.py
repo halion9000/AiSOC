@@ -108,6 +108,8 @@ class AlertResponse(BaseModel):
     source: str | None = None
     # A link to this alert in the tool that raised it (Blumira finding, Petra incident, Field Effect alert), when the tool sent one: only a plain https address.
     source_url: str | None = None
+    # Links to the device and the user in the tool that raised the alert (``device_url``, ``user_url``), when the tool's data allowed them: only plain https addresses.
+    links: dict[str, str] = {}
 
     model_config = {"from_attributes": True}
 
@@ -927,6 +929,7 @@ async def get_alert(
             update={
                 "source": _tool_of(alert),
                 "source_url": _source_url_of(alert),
+                "links": _links_of(alert),
                 "client_name": client_name,
                 "narrative": alert.narrative,
                 "related_entities": envelope.related_entities,
@@ -934,6 +937,15 @@ async def get_alert(
                 "recommended_actions": envelope.recommended_actions,
             }
         )
+
+
+def _links_of(alert: Any) -> dict[str, str]:
+    """The device and user links the tool's data gave (``raw_event.links``), kept only for the known keys and only as plain https addresses."""
+    raw = alert.raw_event if isinstance(getattr(alert, "raw_event", None), dict) else {}
+    found = raw.get("links")
+    if not isinstance(found, dict):
+        return {}
+    return {k: v for k in ("device_url", "user_url") if isinstance(v := found.get(k), str) and len(v) <= 1000 and re.match(r"^https://[^\s]+$", v, re.IGNORECASE)}
 
 
 def _source_url_of(alert: Any) -> str | None:

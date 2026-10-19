@@ -80,3 +80,30 @@ async def test_a_link_is_set_only_on_an_alert_that_has_none_and_only_when_it_is_
         EntityItem(uid="huntress:1", url="javascript:alert(1)")
     with pytest.raises(ValidationError):
         EntityItem(uid="huntress:1", url="http://insecure.example.com/x")
+
+
+def test_links_keep_only_the_known_keys_and_plain_https_addresses():
+    item = EntityItem(uid="huntress:1", links={"device_url": "https://a.huntress.io/org/1/agents/2", "user_url": "javascript:alert(1)", "other": "https://x.example", "evil": "http://x"})
+    assert item.links == {"device_url": "https://a.huntress.io/org/1/agents/2"}
+    assert EntityItem(uid="huntress:1", links={"user_url": "http://insecure"}).links is None
+    assert EntityItem(uid="huntress:1").links is None
+
+
+@pytest.mark.asyncio
+async def test_links_are_set_only_on_an_alert_that_has_none():
+    db = _db([1])
+    report = EntitiesReport(vendor="huntress", items=[EntityItem(uid="huntress:1", links={"device_url": "https://a.huntress.io/org/1/agents/2", "user_url": "https://a.huntress.io/org/1/managed_identity/identities/3"})])
+    assert await apply_entities(db, TENANT, report) == 1
+    sql, params = _sql(db.executed[0])
+    assert "raw_event" in sql and "IS NULL" in sql.upper(), "an alert that already has links keeps them"
+    assert {"links": {"device_url": "https://a.huntress.io/org/1/agents/2", "user_url": "https://a.huntress.io/org/1/managed_identity/identities/3"}} in params.values()
+
+
+def test_an_alert_exposes_its_links_only_for_the_known_keys_and_https():
+    from types import SimpleNamespace
+
+    from app.api.v1.endpoints.alerts import _links_of
+
+    raw = {"links": {"device_url": "https://a.huntress.io/org/1/agents/2", "user_url": "javascript:alert(1)", "other": "https://x.example"}}
+    assert _links_of(SimpleNamespace(raw_event=raw)) == {"device_url": "https://a.huntress.io/org/1/agents/2"}
+    assert _links_of(SimpleNamespace(raw_event={"links": "x"})) == {} and _links_of(SimpleNamespace(raw_event=None)) == {}

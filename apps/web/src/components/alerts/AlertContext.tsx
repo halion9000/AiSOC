@@ -115,6 +115,15 @@ export function AddTicket({ alertId, onAdded }: { alertId: string; onAdded: () =
   );
 }
 
+/** The links into the tool for this alert's device and user, only as plain https addresses, labelled with the tool's name. */
+export function toolLinks(alert: Pick<Alert, 'source' | 'links'>): { device: { href: string; label: string } | null; user: { href: string; label: string } | null } {
+  const make = (url: string | undefined): { href: string; label: string } | null => {
+    const href = safeTicketUrl(url);
+    return href === null ? null : { href, label: `Open in ${vendorLabel(alert.source)}` };
+  };
+  return { device: make(alert.links?.device_url), user: make(alert.links?.user_url) };
+}
+
 /** The link to the alert in the tool that raised it, only when it is a plain https address. */
 export function sourceLink(alert: Pick<Alert, 'source' | 'sourceUrl'>): { href: string; label: string } | null {
   const href = safeTicketUrl(alert.sourceUrl);
@@ -133,6 +142,7 @@ export function AlertContext({ alert }: { alert: Alert }) {
     }
   }
   const { company, hosts, users, ips } = alertContextOf(alert);
+  const tool = toolLinks(alert);
   return (
     <section aria-label="Where and who" className="rounded-xl border border-gray-800/60 bg-gray-900/60 p-5" data-testid="alert-context">
       <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">Where and who</h3>
@@ -148,10 +158,31 @@ export function AlertContext({ alert }: { alert: Alert }) {
                   {h}
                 </Link>
               ))}
+              {tool.device && (
+                <a href={tool.device.href} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
+                  {tool.device.label}
+                </a>
+              )}
             </span>
           )}
         </Row>
-        <Row label="User">{users.length === 0 ? none('This alert names no user') : users.join(', ')}</Row>
+        <Row label="User">
+          {users.length === 0 ? (
+            none('This alert names no user')
+          ) : (
+            <span>
+              {users.join(', ')}
+              {tool.user && (
+                <>
+                  {' '}
+                  <a href={tool.user.href} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
+                    {tool.user.label}
+                  </a>
+                </>
+              )}
+            </span>
+          )}
+        </Row>
         {ips.length > 0 && <Row label="Address">{ips.join(', ')}</Row>}
         {sourceLink(alert) && (
           <Row label="Source alert">

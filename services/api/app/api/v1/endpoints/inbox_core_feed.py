@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -723,6 +723,9 @@ async def report_core_feed_devices(tenant_token: str, body: DevicesReport, db: D
     return DevicesResponse(updated=updated)
 
 
+ALERT_LINK_KEYS = ("device_url", "user_url")
+
+
 class EntityItem(BaseModel):
     uid: str = Field(min_length=1, max_length=200)
     hostname: str | None = Field(default=None, max_length=255)
@@ -730,6 +733,16 @@ class EntityItem(BaseModel):
     src_ip: str | None = Field(default=None, max_length=64)
     # A link to the alert in the vendor's own tool. Only a plain https address; it is set only where the alert has no link yet.
     url: str | None = Field(default=None, max_length=1000, pattern=r"^https://[^\s]+$")
+    # Links to the device and the user in the vendor's tool (keys ``device_url`` and ``user_url``), https only. Set only where the alert has no links yet.
+    links: dict[str, str] | None = None
+
+    @field_validator("links")
+    @classmethod
+    def _links_are_safe(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        clean = {k: v for k, v in value.items() if k in ALERT_LINK_KEYS and isinstance(v, str) and len(v) <= 1000 and re.match(r"^https://[^\s]+$", v)}
+        return clean or None
 
 
 class EntitiesReport(BaseModel):
@@ -764,6 +777,13 @@ async def apply_entities(db: Any, tenant_id: Any, report: EntitiesReport) -> int
                 update(Alert)
                 .where(Alert.tenant_id == tenant_id, Alert.raw_event["finding"]["uid"].astext == item.uid, Alert.raw_event["url"].astext.is_(None))
                 .values(raw_event=Alert.raw_event.op("||")(literal({"url": item.url}, type_=JSONB)))
+            )
+            filled += result.rowcount or 0
+        if item.links:
+            result = await db.execute(
+                update(Alert)
+                .where(Alert.tenant_id == tenant_id, Alert.raw_event["finding"]["uid"].astext == item.uid, Alert.raw_event["links"].astext.is_(None))
+                .values(raw_event=Alert.raw_event.op("||")(literal({"links": item.links}, type_=JSONB)))
             )
             filled += result.rowcount or 0
     return filled

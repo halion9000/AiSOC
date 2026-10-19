@@ -11,7 +11,7 @@ vi.mock('@/lib/api', () => ({ alertsApi: { vendorActions, addTicket, removeTicke
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('react-hot-toast', () => ({ default: toast }));
 
-import { AlertContext, alertContextOf, sourceLink } from './AlertContext';
+import { AlertContext, alertContextOf, sourceLink, toolLinks } from './AlertContext';
 
 const alert = (over: Partial<Alert> = {}): Alert =>
   ({ id: 'a1', title: 't', description: 'd', severity: 'high', status: 'new', source: 'huntress', tenantId: 't1', riskScore: 5, createdAt: '2026-10-18T00:00:00Z', ...over }) as Alert;
@@ -130,5 +130,22 @@ describe('links out to the tools', () => {
     expect(sourceLink(alert({ source: 'huntress' }))).toBeNull();
     renderCtx(alert({ source: 'blumira', sourceUrl: 'https://app.blumira.com/x/query/findings/1' }));
     expect(screen.getByRole('link', { name: 'Open in Blumira' })).toHaveAttribute('href', 'https://app.blumira.com/x/query/findings/1');
+  });
+});
+
+describe('links to the device and the user in the tool', () => {
+  const links = { device_url: 'https://goliveoak.huntress.io/org/132469/agents/18699500', user_url: 'https://goliveoak.huntress.io/org/530195/managed_identity/identities/22018043973' };
+
+  it('shows an Open in <tool> link beside the device and beside the user', () => {
+    renderCtx(alert({ source: 'huntress', affectedHosts: ['PC-1'], affectedUsers: ['kevin@acme.com'], links }));
+    const open = screen.getAllByRole('link', { name: 'Open in Huntress' });
+    expect(open.map((a) => a.getAttribute('href'))).toEqual([links.device_url, links.user_url]);
+  });
+
+  it('shows nothing extra when the tool gave no link, and refuses a link that is not plain https', () => {
+    expect(toolLinks(alert({ source: 'huntress' }))).toEqual({ device: null, user: null });
+    expect(toolLinks(alert({ source: 'huntress', links: { device_url: 'javascript:alert(1)', user_url: 'http://insecure.example.com' } }))).toEqual({ device: null, user: null });
+    renderCtx(alert({ source: 'huntress', affectedHosts: ['PC-1'] }));
+    expect(screen.queryByRole('link', { name: 'Open in Huntress' })).not.toBeInTheDocument();
   });
 });
