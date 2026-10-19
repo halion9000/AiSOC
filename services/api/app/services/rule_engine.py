@@ -12,6 +12,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -495,12 +496,132 @@ def _run_kql(rule_body: str, events: list[dict[str, Any]]) -> tuple[list[dict], 
 
 _EQL_PREFIX = re.compile(r"^\s*(\w+)\s+where\s+", re.IGNORECASE)
 
+# ``sequence [by f1, f2] [with maxspan=5m]`` then two or more ``[category where condition]`` steps: the steps must be seen in that order, for events that share the ``by`` values, and (with
+# maxspan) all within that long of the first. The events that complete a sequence are the match.
+_SEQ_HEAD = re.compile(r"^\s*sequence\b(?P<by>\s+by\s+[^\[]*?)?(?P<span>\s+with\s+maxspan\s*=\s*\d+\s*[smhd])?\s*(?=\[)", re.IGNORECASE)
+_SEQ_SPAN = re.compile(r"maxspan\s*=\s*(\d+)\s*([smhd])", re.IGNORECASE)
+_TIME_FIELDS = ("@timestamp", "timestamp", "time", "event_time", "created_at", "published")
+_SPAN_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def _event_seconds(flat_event: dict[str, Any]) -> float | None:
+    """When the event happened, in seconds, from the first time field it has (ISO text or a number); None when it has none that can be read."""
+    for key in _TIME_FIELDS:
+        raw = flat_event.get(key)
+        if isinstance(raw, bool) or raw is None:
+            continue
+        if isinstance(raw, int | float):
+            return float(raw) / 1000.0 if raw > 1e11 else float(raw)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                moment = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).timestamp()
+    return None
+
+
+def _split_steps(text_after_head: str) -> list[str]:
+    """The text of each ``[...]`` step, honouring quotes so a ``]`` inside a string does not end one. Raises ValueError for an unbalanced step."""
+    steps, depth, start, quote = [], 0, 0, ""
+    for i, ch in enumerate(text_after_head):
+        if quote:
+            if ch == quote and text_after_head[i - 1] != "\\":
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch == "[":
+            if depth == 0:
+                start = i + 1
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth < 0:
+                raise ValueError("a ] has no matching [")
+            if depth == 0:
+                steps.append(text_after_head[start:i].strip())
+    if depth != 0 or quote:
+        raise ValueError("a [ step is never closed")
+    return steps
+
+
+def _category_ok(category: str, flat_event: dict[str, Any]) -> bool:
+    """``any`` matches every event. A named category must match the event's own category when it has one (``category``, ``event.category`` or ``event_type``); an event that names none is not excluded."""
+    if category.lower() == "any":
+        return True
+    for key in ("category", "event.category", "event_type"):
+        value = flat_event.get(key)
+        if isinstance(value, str) and value:
+            return value.lower() == category.lower()
+    return True
+
+
+def _run_eql_sequence(body: str, events: list[dict[str, Any]]) -> tuple[list[dict], str | None]:
+    head = _SEQ_HEAD.match(body)
+    if head is None:
+        return [], "Could not read the sequence: it should look like  sequence by host.name with maxspan=5m [process where ...] [network where ...]"
+    by_fields = [f.strip().lower() for f in re.sub(r"^\s*by\s+", "", head.group("by") or "", flags=re.IGNORECASE).split(",") if f.strip()]
+    for field_name in by_fields:
+        if not re.fullmatch(r"[\w.@-]+", field_name):
+            return [], f"Could not read the 'by' part of the sequence (got: {field_name[:40]!r}); it is a comma separated list of field names, then optionally  with maxspan=5m  using s, m, h or d."
+    span = None
+    if head.group("span"):
+        m = _SEQ_SPAN.search(head.group("span"))
+        span = int(m.group(1)) * _SPAN_SECONDS[m.group(2).lower()] if m else None
+    try:
+        raw_steps = _split_steps(body[head.end():])
+    except ValueError as exc:
+        return [], f"Could not read the sequence: {exc}"
+    if len(raw_steps) < 2:
+        return [], "A sequence needs at least two steps, each in [square brackets]."
+    steps: list[tuple[str, str]] = []
+    for text in raw_steps:
+        m = _EQL_PREFIX.match(text)
+        if m is None:
+            return [], f"Each step must read  category where condition  (got: {text[:60]!r})."
+        steps.append((m.group(1), text[m.end():]))
+    timed: list[tuple[float, int, dict[str, Any], dict[str, Any]]] = []
+    try:
+        for index, event in enumerate(events):
+            flat = _flatten_dict(event)
+            seconds = _event_seconds(flat)
+            if seconds is None:
+                return [], "A sequence needs the time of each event, and at least one event has no readable time (timestamp, @timestamp, time or event_time)."
+            timed.append((seconds, index, flat, event))
+        timed.sort(key=lambda t: (t[0], t[1]))
+        groups: dict[tuple, list[tuple[float, int, dict[str, Any], dict[str, Any]]]] = {}
+        for item in timed:
+            key = tuple(str(item[2].get(f, "")) for f in by_fields)
+            if by_fields and any(part == "" for part in key):
+                continue  # an event that lacks a ``by`` value cannot be told apart from another machine's
+            groups.setdefault(key, []).append(item)
+        matched_index: set[int] = set()
+        for items in groups.values():
+            for first_pos, first in enumerate(items):
+                if not (_category_ok(steps[0][0], first[2]) and _kql_match(steps[0][1], first[2])):
+                    continue
+                chain = [first]
+                for item in items[first_pos + 1:]:
+                    if span is not None and item[0] - first[0] > span:
+                        break
+                    want = steps[len(chain)]
+                    if _category_ok(want[0], item[2]) and _kql_match(want[1], item[2]):
+                        chain.append(item)
+                        if len(chain) == len(steps):
+                            break
+                if len(chain) == len(steps):
+                    matched_index.update(c[1] for c in chain)
+    except ValueError as exc:
+        return [], f"Could not read the query: {exc}"
+    return [item[3] for item in timed if item[1] in matched_index], None  # in the order they happened
+
 
 def _run_eql(rule_body: str, events: list[dict[str, Any]]) -> tuple[list[dict], str | None]:
-    """EQL for single events (``process where process.name == "cmd.exe" and ...``). Sequences are refused, not approximated."""
+    """EQL: a single-event condition (``process where process.name == "cmd.exe" and ...``) or a ``sequence`` of steps seen in order (see ``_run_eql_sequence``)."""
     body = rule_body.strip()
     if re.match(r"^sequence\b", body, re.IGNORECASE):
-        return [], "EQL sequence rules are not supported: they need events matched in order, and this evaluator matches one event at a time."
+        return _run_eql_sequence(body, events)
     body = _EQL_PREFIX.sub("", body, count=1)
     return _run_kql(body, events)
 
