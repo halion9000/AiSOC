@@ -112,6 +112,9 @@ function CaseCard({ c }: { c: Case }) {
 
 type FilterStatus = Case['status'] | 'all';
 
+/** The most cases the list loads at once (the API's own ceiling), newest first. The tiles above it count every case. */
+const CASES_FETCHED = 500;
+
 interface CasesViewProps {
   /**
    * Optional pre-fetched cases from a Server Component. When provided, these
@@ -123,15 +126,17 @@ interface CasesViewProps {
 }
 
 export function CasesView({ initialCases }: CasesViewProps = {}) {
-  const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<FilterStatus>('open');
   const [severityFilter, setSeverityFilter] = useState<Case['severity'] | 'all'>('all');
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
 
   const { data: casesData, isLoading, mutate } = useSWR(
     ['cases', statusFilter, severityFilter],
-    () => casesApi.list({ status: statusFilter !== 'all' ? statusFilter : undefined }),
+    () => casesApi.list({ status: statusFilter !== 'all' ? statusFilter : undefined, limit: CASES_FETCHED }),
   );
+  // The tiles count the whole caseload, not the page of it that is loaded below.
+  const { data: counts, mutate: mutateCounts } = useSWR(['cases-counts'], () => casesApi.counts());
 
   const cases = (casesData?.cases || []).filter((c) => {
     if (search && !c.title.toLowerCase().includes(search.toLowerCase())) return false;
@@ -139,18 +144,17 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
     return true;
   });
 
-  const allCases = casesData?.cases ?? [];
-  const statCounts = {
-    all: allCases.length,
-    open: allCases.filter(c => c.status === 'open').length,
-    in_progress: allCases.filter(c => c.status === 'in_progress').length,
-    resolved: allCases.filter(c => c.status === 'resolved').length,
-    closed: allCases.filter(c => c.status === 'closed').length,
-  };
+  const loaded = casesData?.cases ?? [];
+  const statCounts = counts ?? { all: undefined, open: undefined, in_progress: undefined, resolved: undefined, closed: undefined };
+  // How many cases the chosen tile has in all, to say so when the list below is cut short.
+  const inTile = statusFilter === 'pending' ? undefined : statCounts[statusFilter];
 
   return (
     <div className="space-y-5">
-      <CreateCaseModal open={creating} onClose={() => setCreating(false)} onCreated={() => void mutate()} />
+      <CreateCaseModal open={creating} onClose={() => setCreating(false)} onCreated={() => {
+          void mutate();
+          void mutateCounts();
+        }} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -173,7 +177,7 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
 
       {/* Stats */}
       <div className="grid grid-cols-5 gap-3">
-        {(['all', 'open', 'in_progress', 'resolved', 'closed'] as const).map((s) => {
+        {(['open', 'in_progress', 'resolved', 'closed', 'all'] as const).map((s) => {
           return (
             <button
               key={s}
@@ -183,7 +187,7 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
                 statusFilter === s ? 'border-blue-500/50 bg-blue-500/5' : 'border-gray-800/60 hover:border-gray-700'
               )}
             >
-              <p className="text-2xl font-bold text-gray-100">{statCounts[s]}</p>
+              <p className="text-2xl font-bold text-gray-100" data-testid={`cases-count-${s}`}>{statCounts[s] ?? '—'}</p>
               <p className="text-xs text-gray-500 mt-0.5 capitalize">
                 {s === 'all' ? 'All Cases' : s.replace('_', ' ')}
               </p>
@@ -241,6 +245,11 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
 
         <span className="text-xs text-gray-500">{cases.length} cases</span>
       </div>
+      {typeof inTile === 'number' && inTile > loaded.length && loaded.length >= CASES_FETCHED ? (
+        <p data-testid="cases-truncated" className="text-xs text-amber-300">
+          Showing the newest {loaded.length} of {inTile} cases. Search or filter to narrow them down.
+        </p>
+      ) : null}
 
       {/* Cases List */}
       {isLoading ? (

@@ -53,7 +53,7 @@ from app.models.saved_hunt import SavedHunt
 from app.models.saved_hunt_search import SavedHuntSearch
 from app.models.saved_view import SavedView
 from app.models.shift import Shift
-from app.models.signin import SigninEvent
+from app.models.signin import DirectoryAuditEvent, IdentityMfaUser, SigninEvent
 from app.models.stix_object import StixObject
 from app.models.tenant import ApiKey, Tenant, User
 from app.models.tenant_access import AllTenantAccessGrant, TenantAccessGrant
@@ -66,6 +66,8 @@ __all__ = [
     "DeviceMergeDismissal",
     "DeviceSource",
     "SigninEvent",
+    "DirectoryAuditEvent",
+    "IdentityMfaUser",
     "VendorAction",
     "Base",
     "Tenant",

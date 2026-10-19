@@ -1700,9 +1700,10 @@ const BACKEND_TO_UI_STATUS: Record<string, CaseStatus> = {
 };
 
 const UI_TO_BACKEND_STATUS: Record<CaseStatus, string> = {
-  open: 'new',
+  // The console's Open tab is every case still waiting to be worked (new and triaged), and In Progress is investigating and contained: a comma-separated list is any of them.
+  open: 'new,triaged',
   pending: 'triaged',
-  in_progress: 'investigating',
+  in_progress: 'investigating,contained',
   resolved: 'resolved',
   closed: 'closed',
 };
@@ -1818,6 +1819,8 @@ export interface CaseFilters {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** How many cases to fetch, newest first (the API allows up to 500; it answers 50 when this is left out). */
+  limit?: number;
 }
 
 /**
@@ -1943,6 +1946,14 @@ export function normalizeCasesResponse(raw: unknown, filters: CaseFilters = {}):
   };
 }
 
+export interface CaseCounts {
+  all: number;
+  open: number;
+  in_progress: number;
+  resolved: number;
+  closed: number;
+}
+
 export const casesApi = {
   list: async (filters: CaseFilters = {}) => {
     // Translate UI status filter into the backend lifecycle vocabulary so
@@ -1961,6 +1972,9 @@ export const casesApi = {
     const raw = await request<unknown>('/api/v1/cases', { params });
     return normalizeCasesResponse(raw, filters);
   },
+
+  /** How many cases are in each group, over the whole caseload (the list is only one page of it). */
+  counts: () => request<CaseCounts>('/api/v1/cases/counts'),
 
   /**
    * The most recent cases (newest first), up to the API's maximum of 500 per request. Used by analytics, which needs more than a screenful.

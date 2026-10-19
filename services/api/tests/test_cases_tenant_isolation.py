@@ -32,6 +32,7 @@ from app.api.v1.endpoints.cases import (
     _resolve_case_id,
     add_alerts,
     add_comment,
+    case_counts,
     case_timeline,
     create_case,
     create_task,
@@ -248,6 +249,36 @@ async def test_list_cases_with_filters_keeps_tenant_scope() -> None:
     assert params["tenant_id"] == user.tenant_id
     assert params["status"] == "investigating"
     assert params["severity"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_a_comma_separated_status_is_any_of_them_and_a_single_one_is_exactly_that_one() -> None:
+    user = _user()
+    db = _mk_db([[], []])
+    await list_cases(db=db, user=user, status_filter="new,triaged")
+    sql, params = db.executed[0]
+    assert "status = any(cast(:statuses as text[]))" in re.sub(r"\s+", " ", sql).lower()
+    assert params["statuses"] == ["new", "triaged"]
+    assert "status" not in params
+    await list_cases(db=db, user=user, status_filter=" resolved ")
+    assert db.executed[1][1]["status"] == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_counts_cover_the_whole_caseload_grouped_the_way_the_console_shows_it_and_stay_in_the_tenant() -> None:
+    user = _user()
+    db = _mk_db([[("new", 40), ("triaged", 9), ("investigating", 3), ("contained", 1), ("resolved", 5), ("closed", 2)]])
+    out = await case_counts(db=db, user=user)
+    assert (out.all, out.open, out.in_progress, out.resolved, out.closed) == (60, 49, 4, 5, 2)
+    assert out.by_status["triaged"] == 9
+    _assert_tenant_scoped(db.executed, user.tenant_id)
+    assert "group by status" in re.sub(r"\s+", " ", db.executed[0][0]).lower()
+
+
+@pytest.mark.asyncio
+async def test_counts_of_nothing_are_zero() -> None:
+    out = await case_counts(db=_mk_db([[]]), user=_user())
+    assert (out.all, out.open, out.in_progress, out.resolved, out.closed) == (0, 0, 0, 0, 0)
 
 
 @pytest.mark.asyncio

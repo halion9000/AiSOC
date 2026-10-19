@@ -3,8 +3,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SWRConfig } from 'swr';
 
-const api = vi.hoisted(() => ({ list: vi.fn() }));
-vi.mock('@/lib/api', () => ({ casesApi: { list: api.list, create: vi.fn() } }));
+const api = vi.hoisted(() => ({ list: vi.fn(), counts: vi.fn() }));
+vi.mock('@/lib/api', () => ({ casesApi: { list: api.list, counts: api.counts, create: vi.fn() } }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/components/saved-views/SavedViewsBar', () => ({ SavedViewsBar: () => null }));
 
@@ -13,6 +13,7 @@ import { CasesView } from './CasesView';
 beforeEach(() => {
   api.list.mockReset();
   api.list.mockResolvedValue({ cases: [], total: 0 });
+  api.counts.mockResolvedValue({ all: 0, open: 0, in_progress: 0, resolved: 0, closed: 0 });
 });
 
 describe('the New Case button', () => {

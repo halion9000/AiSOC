@@ -407,9 +407,14 @@ async def list_cases(
         "offset": offset,
         "tenant_id": user.tenant_id,
     }
-    if status_filter:
+    statuses = [s.strip() for s in (status_filter if isinstance(status_filter, str) else "").split(",") if s.strip()]
+    if len(statuses) == 1:
         where_clauses.append("status = :status")
-        params["status"] = status_filter
+        params["status"] = statuses[0]
+    elif statuses:
+        # A comma-separated list ("new,triaged") is any of them: the console's Open tab is every case still waiting to be worked.
+        where_clauses.append("status = ANY(CAST(:statuses AS TEXT[]))")
+        params["statuses"] = statuses
     if severity:
         where_clauses.append("severity = :severity")
         params["severity"] = severity
@@ -429,6 +434,44 @@ async def list_cases(
     except Exception as exc:
         logger.exception("Database error in cases endpoint")
         raise HTTPException(status_code=503, detail="Database error") from exc
+
+
+class CaseCounts(BaseModel):
+    """How many cases are in each group the console shows. ``open`` is new and triaged, ``in_progress`` is investigating and contained."""
+
+    all: int
+    open: int
+    in_progress: int
+    resolved: int
+    closed: int
+    by_status: dict[str, int]
+
+
+@router.get("/counts", response_model=CaseCounts, summary="Count cases by status (the whole caseload, not one page of it)")
+async def case_counts(db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> CaseCounts:
+    try:
+        rows = await db.execute(
+            text("SELECT status, count(*) FROM aisoc_cases WHERE tenant_id = :tenant_id GROUP BY status").bindparams(
+                tenant_id=user.tenant_id
+            )
+        )
+        by_status = {str(status): int(n) for status, n in rows.fetchall()}
+    except Exception as exc:
+        logger.exception("Database error in cases counts")
+        raise HTTPException(status_code=503, detail="Database error") from exc
+    total = sum(by_status.values())
+
+    def group(*names: str) -> int:
+        return sum(by_status.get(n, 0) for n in names)
+
+    return CaseCounts(
+        all=total,
+        open=group("new", "triaged", "open", "pending"),
+        in_progress=group("investigating", "contained", "in_progress"),
+        resolved=group("resolved"),
+        closed=group("closed"),
+        by_status=by_status,
+    )
 
 
 async def _require_owned_alerts(db: Any, tenant_id: uuid.UUID, alert_ids: list[uuid.UUID]) -> None:

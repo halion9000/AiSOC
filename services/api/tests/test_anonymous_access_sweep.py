@@ -72,6 +72,12 @@ PUBLIC = {
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/devices"): (
         "CORE's list of a tool's devices: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add or update devices under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/directory-audits"): (
+        "CORE's identity-related directory audit entries read through CIPP: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add entries under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
+    ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/mfa-users"): (
+        "CORE's multi-factor status per person read through CIPP: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only write under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
+    ),
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/signins"): (
         "CORE's sign-ins read through CIPP: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add sign-ins under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
     ),

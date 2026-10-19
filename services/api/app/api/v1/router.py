@@ -44,6 +44,7 @@ from app.api.v1.endpoints import (
     hunt_alert_search,
     hunt_saved_searches,
     hunts,
+    identity,
     identity_graph,
     identity_timeline,
     inbox,
@@ -198,6 +199,8 @@ api_router.include_router(devices.router)
 api_router.include_router(devices.ingest_router)
 api_router.include_router(signins.ingest_router)
 api_router.include_router(signins.router)
+api_router.include_router(identity.ingest_router)
+api_router.include_router(identity.router)
 api_router.include_router(mssp.router)
 api_router.include_router(mssp_clients.router)
 api_router.include_router(insider_threat.router)

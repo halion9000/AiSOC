@@ -258,6 +258,7 @@ const TABS: { id: TabId; label: string; description: string; requires?: 'manage_
 /** Settings pages that are their own screens. They were reachable only by typing their address; this lists them. */
 export const MORE_SETTINGS: { href: string; label: string; description: string }[] = [
   { href: '/settings/platform-health', label: 'Platform health', description: 'Is every service answering, and is the database healthy' },
+  { href: '/settings/mfa', label: 'Multi-factor status', description: 'Who has a second sign-in factor, per client' },
   { href: '/settings/triage', label: 'Auto-close', description: 'How sure AI triage must be to close an alert itself' },
   { href: '/settings/tickets', label: 'Tickets', description: 'The HaloPSA status a resolved incident moves its ticket to' },
 ];

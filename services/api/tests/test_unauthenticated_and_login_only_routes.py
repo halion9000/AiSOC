@@ -90,6 +90,14 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
     ): "CORE's vendor client list: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add or rename that tenant's own client-mapping rows",
     (
         "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/directory-audits",
+    ): "CORE's directory audit entries (CIPP): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add entries under that feed's own mapped client tenants",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/mfa-users",
+    ): "CORE's multi-factor status (CIPP): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write under that feed's own mapped client tenants",
+    (
+        "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/signins",
     ): "CORE's sign-ins (CIPP): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add sign-ins under that feed's own mapped client tenants",
     (

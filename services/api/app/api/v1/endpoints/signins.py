@@ -82,7 +82,7 @@ def _utc(t: datetime) -> datetime:
     return t if t.tzinfo else t.replace(tzinfo=UTC)
 
 
-async def _targets(
+async def targets_by_tenant(
     db: Any, owner: uuid.UUID, report: SignInsReport
 ) -> tuple[dict[uuid.UUID, list[SignInIn]], int, int, list[UnmappedClient]]:
     """The tenant each sign-in belongs to, with counts of the ones left out because their client is ignored or not mapped yet."""
@@ -141,7 +141,7 @@ async def _history(db: Any, tenant_id: uuid.UUID, source: str, users: set[str], 
 async def apply_signins(db: Any, owner: uuid.UUID, report: SignInsReport, now: datetime | None = None) -> SignInsResponse:
     """Store the new sign-ins under their clients and score them. The caller owns the transaction; scoring marks rows scored inside it."""
     now = now or datetime.now(UTC)
-    by_tenant, unmapped, ignored, waiting = await _targets(db, owner, report)
+    by_tenant, unmapped, ignored, waiting = await targets_by_tenant(db, owner, report)
     accepted = duplicates = scored = anomalies = 0
     statuses: list[str] = []
     for tid, items in by_tenant.items():

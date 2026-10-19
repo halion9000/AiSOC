@@ -189,3 +189,5 @@ All **Ready** unless marked; none has been started. Where a vendor API is involv
 - **CIPP: more than sign-ins**: risky users, mailbox rules and MFA status are all in CIPP's API.
 - **Sign-ins from Okta and Google Workspace**, same path.
 - **Real DNSFilter wordmark**: the badge uses DNSFilter's small site icon.
+- **Identity alerting**: the same threshold decision for unusual identity changes (directory audit scores) and for accounts without a second factor (for example: an administrator with none).
+- **Directory audit noise**: "Update user" is half of what CIPP returns; look at which of those are automatic and drop them once seen.
