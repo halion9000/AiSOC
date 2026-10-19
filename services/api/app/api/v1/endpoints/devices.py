@@ -25,13 +25,13 @@ from sqlalchemy import func, select
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.api.v1.endpoints.inbox_core_feed import _verify_core_feed_token
-from app.db.rls_scope import acting_as_tenant
+from app.db.rls_scope import acting_as_tenant, cross_tenant_reads
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
-from app.models.device import Device, DeviceSource
+from app.models.device import Device, DeviceMergeLog, DeviceSource
 from app.models.tenant import Tenant
-from app.services.device_merge import DeviceMergeError, dismiss_pair, merge_devices
+from app.services.device_merge import DeviceMergeError, can_undo, dismiss_pair, merge_devices, undo_merge
 from app.services.device_upsert import DeviceReport, possible_duplicates, upsert_device
 
 logger = logging.getLogger(__name__)
@@ -533,7 +533,7 @@ async def merge_duplicate(
     tid = await _client_of(db, owner, body.keep)
     try:
         async with _as(db, owner, tid):
-            kept = await merge_devices(db, tid, body.keep, body.remove)
+            kept = await merge_devices(db, tid, body.keep, body.remove, current_user.user_id)
     except DeviceMergeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     forget_loaded()
@@ -541,6 +541,45 @@ async def merge_duplicate(
     scope, clients = await _scope(db, owner, tid if tid != owner else None)
     master = _master_of(await db.get(Tenant, owner))
     return next(d for d in await _load(db, owner, [tid], clients, master) if d.id == kept)
+
+
+class MergeOut(BaseModel):
+    id: uuid.UUID
+    client_name: str | None = None
+    removed_hostname: str
+    kept_device_id: uuid.UUID
+    created_at: datetime
+
+
+@router.get("/duplicates/merges", response_model=list[MergeOut], summary="Recent merges that can still be undone")
+async def list_merges(current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession) -> list[MergeOut]:
+    owner = current_user.tenant_id
+    scope, clients = await _scope(db, owner, None)
+    async with cross_tenant_reads(db):
+        rows = (await db.execute(select(DeviceMergeLog).where(DeviceMergeLog.tenant_id.in_(scope), DeviceMergeLog.undone_at.is_(None)).order_by(DeviceMergeLog.created_at.desc()).limit(50))).scalars().all()
+    return [
+        MergeOut(id=r.id, client_name=clients.get(r.tenant_id), removed_hostname=str((r.removed or {}).get("hostname") or ""), kept_device_id=r.kept_device_id, created_at=r.created_at)
+        for r in rows
+        if can_undo(r)
+    ][:20]
+
+
+@router.post("/duplicates/merges/{merge_id}/undo", response_model=MergeOut, summary="Undo a recent merge")
+async def undo_merge_route(merge_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession) -> MergeOut:
+    owner = current_user.tenant_id
+    scope, clients = await _scope(db, owner, None)
+    async with cross_tenant_reads(db):
+        entry = (await db.execute(select(DeviceMergeLog).where(DeviceMergeLog.id == merge_id, DeviceMergeLog.tenant_id.in_(scope)))).scalar_one_or_none()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="That merge was not found.")
+    try:
+        async with _as(db, owner, entry.tenant_id):
+            await undo_merge(db, entry.tenant_id, merge_id)
+    except DeviceMergeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    forget_loaded()
+    await db.commit()
+    return MergeOut(id=entry.id, client_name=clients.get(entry.tenant_id), removed_hostname=str((entry.removed or {}).get("hostname") or ""), kept_device_id=entry.kept_device_id, created_at=entry.created_at)
 
 
 @router.get("/{device_id}", response_model=DeviceOut)

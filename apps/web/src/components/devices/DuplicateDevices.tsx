@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { devicesApi, type DeviceRow, type DuplicatePair } from '@/lib/api';
+import { devicesApi, type DeviceRow, type DuplicatePair, type MergeEntry } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
 
@@ -146,6 +146,7 @@ function Side({ d }: { d: DeviceRow }) {
 
 export default function DuplicateDevices({ clientId, onChanged }: { clientId?: string; onChanged: () => void }) {
   const [pairs, setPairs] = useState<DuplicatePair[]>([]);
+  const [merges, setMerges] = useState<MergeEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -157,6 +158,10 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
       .duplicates(clientId)
       .then((r) => live && setPairs(r.items))
       .catch(() => live && setPairs([])); // a side panel: the device list itself reports its own failures
+    devicesApi
+      .merges()
+      .then((m) => live && setMerges(m))
+      .catch(() => live && setMerges([])); // a side list: nothing to undo is the safe reading
     return () => {
       live = false;
     };
@@ -176,8 +181,36 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
     }
   };
 
-  if (pairs.length === 0) return null;
+  const undoList = merges.length > 0 && (
+    <section aria-label="Recent merges" className="rounded-lg border border-gray-800 bg-gray-900/40 p-4" data-testid="recent-merges">
+      <h2 className="text-xs font-medium uppercase tracking-wider text-gray-400">Recent merges ({merges.length})</h2>
+      <p className="mt-1 text-xs text-gray-500">Merged by mistake? Undo brings the removed device back with its feeds. Merges can be undone for two weeks.</p>
+      <ul className="mt-2 space-y-1 text-sm">
+        {merges.map((m) => (
+          <li key={m.id} className="flex flex-wrap items-center gap-3">
+            <span className="text-gray-300">
+              {m.removed_hostname}
+              {m.client_name ? <span className="text-gray-500"> ({m.client_name})</span> : null}
+            </span>
+            <span className="text-xs text-gray-500">{m.created_at.slice(0, 16).replace('T', ' ')} UTC</span>
+            <button
+              type="button"
+              disabled={busy === m.id}
+              onClick={() => void act(m.id, () => devicesApi.undoMerge(m.id), `Undone: ${m.removed_hostname} is its own device again.`)}
+              className="rounded-md px-2 py-0.5 text-xs text-sky-300 hover:bg-gray-800 disabled:opacity-50"
+              aria-label={`Undo the merge of ${m.removed_hostname}`}
+            >
+              Undo
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+  if (pairs.length === 0) return undoList || null;
   return (
+    <>
+      {undoList}
     <section role="region" aria-label="Possible duplicate devices" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
       <h2 className="text-xs font-medium uppercase tracking-wider text-amber-400">Possible duplicates ({pairs.length})</h2>
       <p className="mt-1 text-xs text-gray-400">Same name, and no serial number to tell whether they are one machine. Nothing is merged until you say so.</p>
@@ -240,5 +273,6 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
         })}
       </ul>
     </section>
+    </>
   );
 }

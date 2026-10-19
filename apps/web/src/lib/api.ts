@@ -579,6 +579,14 @@ export interface DuplicatePair {
   b: DeviceRow;
 }
 
+export interface MergeEntry {
+  id: string;
+  client_name: string | null;
+  removed_hostname: string;
+  kept_device_id: string;
+  created_at: string;
+}
+
 export interface ClientRollup {
   client_id: string;
   client_name: string | null;
@@ -590,6 +598,14 @@ export interface ClientRollup {
 }
 
 export const devicesApi = {
+  /** Merges from the last two weeks that can still be undone. */
+  async merges(): Promise<MergeEntry[]> {
+    return request<MergeEntry[]>('/api/v1/devices/duplicates/merges');
+  },
+  /** Undo a merge: the removed device comes back with its feeds. */
+  async undoMerge(id: string): Promise<MergeEntry> {
+    return request<MergeEntry>(`/api/v1/devices/duplicates/merges/${encodeURIComponent(id)}/undo`, { method: 'POST' });
+  },
   /** Per client: devices, how many need attention, have a stale agent, are not in Huntress or are offline. Worst first. */
   async rollup(): Promise<ClientRollup[]> {
     return request<ClientRollup[]>('/api/v1/devices/rollup');

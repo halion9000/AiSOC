@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { DeviceRow } from '@/lib/api';
 
-const api = vi.hoisted(() => ({ duplicates: vi.fn(), dismissDuplicate: vi.fn(), mergeDuplicates: vi.fn() }));
+const api = vi.hoisted(() => ({ duplicates: vi.fn(), dismissDuplicate: vi.fn(), mergeDuplicates: vi.fn(), merges: vi.fn(), undoMerge: vi.fn() }));
 vi.mock('@/lib/api', () => ({ devicesApi: api }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('react-hot-toast', () => ({ default: toast }));
@@ -19,6 +19,8 @@ beforeEach(() => {
   api.duplicates.mockReset().mockResolvedValue({ items: [pair] });
   api.dismissDuplicate.mockReset().mockResolvedValue(undefined);
   api.mergeDuplicates.mockReset().mockResolvedValue({});
+  api.merges.mockReset().mockResolvedValue([]);
+  api.undoMerge.mockReset().mockResolvedValue({});
   toast.success.mockReset();
   toast.error.mockReset();
 });
@@ -127,5 +129,41 @@ describe('what the comparison shows', () => {
     const [s] = sourceFacts(d);
     expect(s.facts).toEqual([['EDR version', '1.2'], ['Last check-in', '2026-10-18 10:00 UTC']]);
     expect(s.attention).toEqual(['Defender: Unhealthy']);
+  });
+});
+
+describe('undoing a merge', () => {
+  const entry = { id: 'm1', client_name: 'Acme', removed_hostname: 'FRONT-DESK', kept_device_id: 'k1', created_at: '2026-10-18T12:00:00Z' };
+
+  it('lists recent merges, even when there are no duplicates left to review, and undoes one then refreshes', async () => {
+    api.duplicates.mockResolvedValue({ items: [] });
+    api.merges.mockResolvedValueOnce([entry]).mockResolvedValue([]);
+    const onChanged = vi.fn();
+    render(<DuplicateDevices onChanged={onChanged} />);
+    const list = await screen.findByTestId('recent-merges');
+    expect(list).toHaveTextContent('FRONT-DESK');
+    expect(list).toHaveTextContent('Acme');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Undo the merge of FRONT-DESK' }));
+    await waitFor(() => expect(api.undoMerge).toHaveBeenCalledWith('m1'));
+    expect(toast.success).toHaveBeenCalledWith('Undone: FRONT-DESK is its own device again.');
+    expect(onChanged).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('recent-merges')).not.toBeInTheDocument());
+  });
+
+  it('shows the reason when the API refuses', async () => {
+    api.duplicates.mockResolvedValue({ items: [] });
+    api.merges.mockResolvedValue([entry]);
+    api.undoMerge.mockRejectedValue(new Error('That merge is too old to undo.'));
+    render(<DuplicateDevices onChanged={vi.fn()} />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Undo the merge/ }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('That merge is too old to undo.'));
+  });
+
+  it('is quiet when there is nothing to undo or the list cannot be read', async () => {
+    api.duplicates.mockResolvedValue({ items: [] });
+    api.merges.mockRejectedValue(new Error('down'));
+    const { container } = render(<DuplicateDevices onChanged={vi.fn()} />);
+    await waitFor(() => expect(api.merges).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
   });
 });

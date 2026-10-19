@@ -7,7 +7,7 @@ const listMock = vi.fn();
 const masterMock = vi.fn();
 const childrenMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  devicesApi: { rollup: async () => [], list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), duplicates: async () => ({ items: [] }) },
+  devicesApi: { rollup: async () => [], merges: async () => [], list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), duplicates: async () => ({ items: [] }) },
   msspApi: { listChildren: () => childrenMock() },
   apiErrorDetail: () => null,
 }));
