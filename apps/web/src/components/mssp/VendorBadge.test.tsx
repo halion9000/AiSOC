@@ -12,7 +12,7 @@ describe('orderSources', () => {
   });
 
   it('knows every tool CORE feeds', () => {
-    for (const v of ['huntress', 'blumira', 'petra', 'ninjaone', 'threatmate', 'addigy', 'fieldeffect']) expect(VENDOR_ORDER).toContain(v);
+    for (const v of ['huntress', 'blumira', 'petra', 'ninjaone', 'threatmate', 'addigy', 'fieldeffect', 'dnsfilter']) expect(VENDOR_ORDER).toContain(v);
   });
 });
 
@@ -32,5 +32,17 @@ describe('VendorBadge', () => {
   it('is larger when asked', () => {
     render(<VendorBadge vendor="widgetco" size="lg" />);
     expect(screen.getByRole('img', { name: 'Widgetco' }).className).toMatch(/h-10/);
+  });
+});
+
+describe('DNSFilter badge', () => {
+  it('shows a labelled DNS badge on a device until a logo file is added, and is named in full', () => {
+    render(<VendorBadge vendor="dnsfilter" />);
+    const badge = screen.getByRole('img', { name: 'DNSFilter' });
+    expect(badge).toHaveTextContent('DNS');
+  });
+
+  it('sorts after Field Effect in the fixed order', () => {
+    expect(orderSources(['dnsfilter', 'huntress', 'fieldeffect'])).toEqual(['huntress', 'fieldeffect', 'dnsfilter']);
   });
 });

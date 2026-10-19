@@ -366,3 +366,11 @@ async def test_all_clients_leaves_out_archived_ones_but_an_archived_client_can_s
     assert scope == [gone]
     with pytest.raises(HTTPException):
         await _scope(_FakeDb(rows), owner, uuid.uuid4())
+
+
+def test_a_dnsfilter_sync_counts_as_the_device_having_been_online():
+    stamp = "2026-10-19T10:00:00.000-04:00"
+    d = device("Windows 11", [("dnsfilter", {"last_sync_at": stamp})])
+    assert last_online_of(d.sources) == datetime(2026, 10, 19, 14, 0, tzinfo=UTC)
+    newer = device("Windows 11", [("dnsfilter", {"last_sync_at": stamp}), ("ninjaone", {"last_contact": "2026-10-19T16:00:00Z"})])
+    assert last_online_of(newer.sources) == datetime(2026, 10, 19, 16, 0, tzinfo=UTC)

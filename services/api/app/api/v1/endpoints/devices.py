@@ -143,11 +143,11 @@ def offline_days_of(last_online: datetime | None, now: datetime | None = None) -
 
 
 def last_online_of(sources: list[Any]) -> datetime | None:
-    """The newest time any tool says the device was actually online (Addigy ``last_online``, NinjaOne ``last_contact``, Huntress ``last_callback_at``: when its agent last checked in). ``last_seen`` is only when CORE last synced it."""
+    """The newest time any tool says the device was actually online (Addigy ``last_online``, NinjaOne ``last_contact``, Huntress ``last_callback_at``: when its agent last checked in, DNSFilter ``last_sync_at``: when its agent last synced). ``last_seen`` is only when CORE last synced it."""
     best: datetime | None = None
     for s in sources:
         det = s.details or {}
-        raw = det.get("last_online") or det.get("last_contact") or det.get("last_callback_at")
+        raw = det.get("last_online") or det.get("last_contact") or det.get("last_callback_at") or det.get("last_sync_at")
         if not isinstance(raw, str):
             continue
         try:
