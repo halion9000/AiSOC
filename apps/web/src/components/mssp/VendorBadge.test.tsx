@@ -35,22 +35,19 @@ describe('VendorBadge', () => {
   });
 });
 
-describe('DNSFilter badge', () => {
-  it('shows a labelled DNS badge on a device until a logo file is added, and is named in full', () => {
-    render(<VendorBadge vendor="dnsfilter" />);
-    const badge = screen.getByRole('img', { name: 'DNSFilter' });
-    expect(badge).toHaveTextContent('DNS');
+describe('DNSFilter and AutoElevate logos', () => {
+  it('show their logo files, named in full', () => {
+    render(
+      <>
+        <VendorBadge vendor="dnsfilter" />
+        <VendorBadge vendor="autoelevate" />
+      </>,
+    );
+    expect(screen.getByAltText('DNSFilter')).toHaveAttribute('src', '/vendors/dnsfilter.png');
+    expect(screen.getByAltText('AutoElevate')).toHaveAttribute('src', '/vendors/autoelevate.png');
   });
 
-  it('sorts after Field Effect in the fixed order', () => {
-    expect(orderSources(['dnsfilter', 'huntress', 'fieldeffect'])).toEqual(['huntress', 'fieldeffect', 'dnsfilter']);
-  });
-});
-
-describe('AutoElevate badge', () => {
-  it('shows a labelled AE badge and sorts last', () => {
-    render(<VendorBadge vendor="autoelevate" />);
-    expect(screen.getByRole('img', { name: 'AutoElevate' })).toHaveTextContent('AE');
-    expect(orderSources(['autoelevate', 'dnsfilter', 'huntress'])).toEqual(['huntress', 'dnsfilter', 'autoelevate']);
+  it('sort after Field Effect, DNSFilter before AutoElevate', () => {
+    expect(orderSources(['autoelevate', 'dnsfilter', 'huntress', 'fieldeffect'])).toEqual(['huntress', 'fieldeffect', 'dnsfilter', 'autoelevate']);
   });
 });

@@ -12,7 +12,8 @@ describe('linked tickets', () => {
     expect(screen.getByText('Malware on ACME-FS01')).toBeInTheDocument();
     expect(screen.getByText('Open')).toBeInTheDocument();
     expect(screen.getByText('Acme Dental')).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: 'Open in HaloPSA' });
+    expect(screen.queryByRole('link', { name: 'Open in HaloPSA' })).toBeNull();
+    const link = screen.getByRole('link', { name: '#123' });
     expect(link).toHaveAttribute('href', 'https://acme.halopsa.com/tickets?id=123');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });

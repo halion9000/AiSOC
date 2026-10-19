@@ -41,11 +41,6 @@ export function TicketRows({ tickets, onRemove }: { tickets: LinkedTicket[]; onR
             )}{' '}
             {t.summary ?? 'Not found in HaloPSA'}
             {t.status ? <span className="text-gray-400"> · {t.status}</span> : null}{' '}
-            {href ? (
-              <a href={href} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
-                Open in HaloPSA
-              </a>
-            ) : null}
             {t.manual ? <span className="ml-1 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-400">added by hand</span> : null}
             {t.manual && onRemove ? (
               <button type="button" onClick={() => onRemove(t.id)} className="ml-2 text-xs text-gray-500 hover:text-red-300" aria-label={`Remove ticket ${t.id}`}>

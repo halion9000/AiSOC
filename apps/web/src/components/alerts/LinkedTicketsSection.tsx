@@ -26,16 +26,17 @@ export function LinkedTicketsList({ tickets }: { tickets: LinkedTicket[] }) {
           return (
             <li key={`${t.system}:${t.id}`} className="rounded-lg border border-gray-800/60 bg-gray-900/40 px-3 py-2 text-sm">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-gray-300">#{t.id}</span>
+                {href ? (
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="font-mono text-blue-400 hover:text-blue-300">
+                    #{t.id}
+                  </a>
+                ) : (
+                  <span className="font-mono text-gray-300">#{t.id}</span>
+                )}
                 {t.status ? <span className="text-xs text-gray-400">{t.status}</span> : null}
               </div>
               <p className="mt-0.5 text-gray-200">{t.summary ?? 'Not found in HaloPSA'}</p>
               {t.client ? <p className="text-xs text-gray-500">{t.client}</p> : null}
-              {href ? (
-                <a href={href} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs text-blue-400 hover:text-blue-300">
-                  Open in HaloPSA
-                </a>
-              ) : null}
             </li>
           );
         })}

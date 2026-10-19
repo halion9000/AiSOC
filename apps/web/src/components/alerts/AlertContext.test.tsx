@@ -66,8 +66,9 @@ describe('AlertContext', () => {
     renderCtx(alert());
     expect(await screen.findByText('#4521')).toBeInTheDocument();
     expect(screen.getByText(/Huntress: ransomware canary/)).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: 'Open in HaloPSA' })).toHaveLength(1);
-    expect(screen.getByRole('link', { name: 'Open in HaloPSA' })).toHaveAttribute('href', 'https://halo.example.com/ticket?id=4521');
+    expect(screen.queryByRole('link', { name: 'Open in HaloPSA' })).toBeNull();
+    expect(screen.getByRole('link', { name: '#4521' })).toHaveAttribute('href', 'https://halo.example.com/ticket?id=4521');
+    expect(screen.queryByRole('link', { name: '#4522' })).toBeNull();
   });
 });
 
