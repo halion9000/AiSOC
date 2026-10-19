@@ -600,6 +600,32 @@ def pool_usage(pool: Any) -> dict[str, Any]:
     return {"known": True, "in_use": in_use, "limit": limit, "percent": percent, "near_limit": percent >= 80}
 
 
+DEVICE_SYNC_STALLED_AFTER = timedelta(hours=3)
+
+
+def device_feed_row(vendor: str, devices: int, newest: datetime | None, now: datetime) -> dict[str, Any]:
+    """One tool's device feed: how many devices it holds in AiSOC, when it last synced, and whether it looks stalled (nothing for three hours, when CORE syncs hourly)."""
+    if newest is None:
+        return {"vendor": vendor, "devices": devices, "last_synced": None, "minutes_ago": None, "stalled": True}
+    if newest.tzinfo is None:
+        newest = newest.replace(tzinfo=UTC)
+    minutes = max(0, int((now - newest).total_seconds() // 60))
+    return {"vendor": vendor, "devices": devices, "last_synced": newest, "minutes_ago": minutes, "stalled": (now - newest) > DEVICE_SYNC_STALLED_AFTER}
+
+
+async def device_feeds(db: Any, owner: Any, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Per tool: devices held and last sync, across this organization and its clients. A tool that has never sent a device is not listed (it may simply not be connected)."""
+    from app.db.rls_scope import cross_tenant_reads
+    from app.models.device import DeviceSource
+    from app.models.tenant import Tenant
+
+    scope = [owner, *[r[0] for r in (await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == owner))).all()]]
+    async with cross_tenant_reads(db):
+        rows = (await db.execute(select(DeviceSource.vendor, func.count(), func.max(DeviceSource.last_seen)).where(DeviceSource.tenant_id.in_(scope)).group_by(DeviceSource.vendor))).all()
+    moment = now or datetime.now(UTC)
+    return sorted((device_feed_row(v, int(n), newest, moment) for v, n, newest in rows), key=lambda r: (not r["stalled"], r["vendor"]))
+
+
 def _pool_now() -> dict[str, Any]:
     from app.db.database import engine
 
@@ -641,4 +667,4 @@ async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
         rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
     rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
     down = [r["service"] for r in rows if r["status"] != "up"]
-    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "generated_at": datetime.now(UTC)}
+    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "device_feeds": await device_feeds(db, user.tenant_id), "generated_at": datetime.now(UTC)}

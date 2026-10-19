@@ -13,7 +13,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import DevicesView, { attentionOf, devicesLoadError, facts, ransomwareLinked, specs } from './DevicesView';
+import DevicesView, { attentionOf, devicesLoadError, facts, protectionLines, ransomwareLinked, specs } from './DevicesView';
 
 const NOW = '2026-10-15T15:00:00Z';
 function device(over: Partial<DeviceRow> & { hostname: string }): DeviceRow {
@@ -324,5 +324,42 @@ describe('stale agents', () => {
     await waitFor(() => expect(screen.getByTestId('devices-stale')).toHaveTextContent('7'));
     await userEvent.setup().click(screen.getByRole('button', { name: /Stale agents/ }));
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ stale: true })));
+  });
+});
+
+describe('protection in plain words', () => {
+  const hd = (details: Record<string, unknown>) => device({ hostname: 'WS-01', sources: [{ vendor: 'huntress', name: 'WS-01', last_seen: NOW, details }] });
+
+  it('states Defender, the firewall, tamper protection and the last check-in plainly', () => {
+    const lines = protectionLines(
+      hd({ defender_status: 'Unhealthy', defender_substatus: 'Real-time off', defender_policy_status: 'Non Compliant', firewall_status: 'Disabled', tamper_protection_configured: true, tamper_protection_actual: false, days_since_checkin: 20, edr_version: '1.2' }),
+    );
+    expect(Object.fromEntries(lines)).toEqual({
+      'Microsoft Defender': 'Unhealthy (Real-time off)',
+      'Defender policy': 'Non Compliant',
+      'Windows firewall': 'Disabled',
+      'Tamper protection': 'Configured, but NOT in force',
+      'Huntress agent checked in': '20 days ago',
+      'Huntress version': '1.2',
+    });
+  });
+
+  it('says in force when it is, not configured when it is not, and today for a fresh agent', () => {
+    expect(Object.fromEntries(protectionLines(hd({ tamper_protection_configured: true, tamper_protection_actual: true, days_since_checkin: 0 })))).toEqual({ 'Tamper protection': 'On, and in force', 'Huntress agent checked in': 'today' });
+    expect(Object.fromEntries(protectionLines(hd({ tamper_protection_configured: false })))).toEqual({ 'Tamper protection': 'Not configured' });
+  });
+
+  it('shows nothing for a device Huntress does not report, and nothing is invented for missing fields', () => {
+    expect(protectionLines(device({ hostname: 'NO-HUNTRESS' }))).toEqual([]);
+    expect(protectionLines(hd({}))).toEqual([]);
+  });
+
+  it('appears in the expanded row', async () => {
+    listMock.mockResolvedValue(list([hd({ defender_status: 'Healthy', days_since_checkin: 2 })]));
+    render(<DevicesView />);
+    await userEvent.setup().click(await screen.findByText('WS-01'));
+    const panel = await screen.findByTestId('protection');
+    expect(panel).toHaveTextContent('Microsoft Defender');
+    expect(panel).toHaveTextContent('2 days ago');
   });
 });

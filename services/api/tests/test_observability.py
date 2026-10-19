@@ -1,5 +1,6 @@
 """A slow request is logged by route, and the connection pool says how full it is, so a failure like the Devices 500 shows up before users see it."""
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app import main as app_main
@@ -40,3 +41,27 @@ def test_pool_usage_reports_how_full_it_is_and_warns_near_the_limit():
 
 def test_a_pool_that_cannot_say_is_unknown_not_an_error():
     assert pool_usage(object()) == {"known": False}
+
+
+# ---- the device feeds on Platform Health ------------------------------------------------------------------------------------------------------------------
+
+from datetime import timedelta  # noqa: E402
+
+from app.api.v1.endpoints.health import device_feed_row  # noqa: E402
+
+
+def test_a_tool_that_synced_recently_is_fine_and_one_silent_for_hours_is_stalled():
+    now = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    fresh = device_feed_row("huntress", 5343, now - timedelta(minutes=12), now)
+    old = device_feed_row("addigy", 1799, now - timedelta(hours=5), now)
+    assert (fresh["devices"], fresh["minutes_ago"], fresh["stalled"]) == (5343, 12, False)
+    assert (old["minutes_ago"], old["stalled"]) == (300, True)
+
+
+def test_a_time_without_a_zone_is_read_as_utc_and_none_counts_as_stalled():
+    now = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    naive = device_feed_row("x", 1, datetime(2026, 10, 19, 11, 30), now)
+    assert naive["minutes_ago"] == 30 and naive["stalled"] is False
+    assert device_feed_row("x", 0, None, now)["stalled"] is True
+    future = device_feed_row("x", 1, now + timedelta(minutes=5), now)
+    assert future["minutes_ago"] == 0, "a clock a little ahead never shows negative minutes"

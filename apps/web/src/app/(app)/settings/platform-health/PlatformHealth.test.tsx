@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PlatformHealth } from './PlatformHealth';
+import { PlatformHealth, agoLabel } from './PlatformHealth';
 
 const authFetch = vi.fn();
 vi.mock('@/lib/auth-session', () => ({ authFetch: (...a: unknown[]) => authFetch(...a) }));
@@ -55,5 +55,37 @@ describe('PlatformHealth', () => {
     render(<PlatformHealth />);
     await waitFor(() => expect(screen.getByTestId('overall')).toBeInTheDocument());
     expect(screen.queryByTestId('pool-warning')).not.toBeInTheDocument();
+  });
+});
+
+describe('device feeds', () => {
+  it('says in plain words how long ago each tool synced', () => {
+    expect(agoLabel(null)).toBe('never');
+    expect(agoLabel(1)).toBe('just now');
+    expect(agoLabel(45)).toBe('45 minutes ago');
+    expect(agoLabel(300)).toBe('5 hours ago');
+    expect(agoLabel(60 * 24 * 5)).toBe('5 days ago');
+  });
+
+  it('lists each tool with its device count, and flags one that has gone quiet', async () => {
+    authFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          overall: 'ok',
+          down: [],
+          services: [{ service: 'fusion', status: 'up', latency_ms: 20, detail: '' }],
+          device_feeds: [
+            { vendor: 'huntress', devices: 5343, last_synced: '2026-10-19T01:49:54Z', minutes_ago: 12, stalled: false },
+            { vendor: 'addigy', devices: 1799, last_synced: '2026-10-18T10:00:00Z', minutes_ago: 900, stalled: true },
+          ],
+          generated_at: '2026-10-19T02:00:00Z',
+        }),
+    });
+    render(<PlatformHealth />);
+    const feeds = await screen.findByTestId('device-feeds');
+    expect(feeds).toHaveTextContent('huntress: 5,343 devices, last synced 12 minutes ago');
+    expect(feeds).toHaveTextContent('addigy: 1,799 devices, last synced 15 hours ago (nothing for hours');
   });
 });

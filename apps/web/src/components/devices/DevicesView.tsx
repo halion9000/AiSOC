@@ -427,6 +427,19 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
                 </ul>
               </div>
             )}
+            {protectionLines(d).length > 0 && (
+              <div className="mt-3" data-testid="protection">
+                <h3 className="mb-1 text-xs font-semibold uppercase text-gray-400">Protection (Huntress)</h3>
+                <dl className="grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2">
+                  {protectionLines(d).map(([k, v]) => (
+                    <div key={k} className="flex gap-2">
+                      <dt className="w-40 shrink-0 text-gray-500">{k}</dt>
+                      <dd className="text-gray-200">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
             <h3 className="mb-1 mt-3 text-xs font-semibold uppercase text-gray-400">Feeding this device</h3>
             <ul className="space-y-1">
               {d.sources.map((s) => (
@@ -456,6 +469,28 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
       )}
     </>
   );
+}
+
+/** What Huntress reports about a machine's protection, in plain words, for the expanded row. Empty when Huntress does not report this device. */
+export function protectionLines(d: DeviceRow): [string, string][] {
+  const h = d.sources.find((s) => s.vendor === 'huntress')?.details as Record<string, unknown> | undefined;
+  if (!h) return [];
+  const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+  const out: [string, string][] = [];
+  const defender = text(h.defender_status);
+  const sub = text(h.defender_substatus);
+  if (defender) out.push(['Microsoft Defender', sub ? `${defender} (${sub})` : defender]);
+  const policy = text(h.defender_policy_status);
+  if (policy) out.push(['Defender policy', policy]);
+  const firewall = text(h.firewall_status);
+  if (firewall) out.push(['Windows firewall', firewall]);
+  if (h.tamper_protection_configured === true) out.push(['Tamper protection', h.tamper_protection_actual === true ? 'On, and in force' : 'Configured, but NOT in force']);
+  else if (h.tamper_protection_configured === false) out.push(['Tamper protection', 'Not configured']);
+  const days = typeof h.days_since_checkin === 'number' ? h.days_since_checkin : null;
+  if (days !== null) out.push(['Huntress agent checked in', days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`]);
+  const edr = text(h.edr_version);
+  if (edr) out.push(['Huntress version', edr]);
+  return out;
 }
 
 /** True when any tool says a known-exploited vulnerability on this device is one ransomware is known to use (ThreatMate's ``kev_ransomware``). */

@@ -22,10 +22,28 @@ interface DatabaseSecurity {
   pool?: { known: boolean; in_use?: number; limit?: number; percent?: number; near_limit?: boolean };
 }
 
+interface DeviceFeed {
+  vendor: string;
+  devices: number;
+  last_synced: string | null;
+  minutes_ago: number | null;
+  stalled: boolean;
+}
+
+/** How long ago, in plain words. */
+export function agoLabel(minutes: number | null): string {
+  if (minutes === null) return "never";
+  if (minutes < 2) return "just now";
+  if (minutes < 120) return `${minutes} minutes ago`;
+  if (minutes < 60 * 48) return `${Math.floor(minutes / 60)} hours ago`;
+  return `${Math.floor(minutes / 1440)} days ago`;
+}
+
 interface Snapshot {
   overall: "ok" | "degraded";
   down: string[];
   services: ServiceRow[];
+  device_feeds?: DeviceFeed[];
   database?: DatabaseSecurity;
   generated_at: string;
 }
@@ -76,6 +94,19 @@ export function PlatformHealth() {
               The database connection pool is {snapshot.database.pool.percent}% full ({snapshot.database.pool.in_use} of {snapshot.database.pool.limit} in use). When it is full, pages start failing with 500
               errors until requests finish.
             </p>
+          )}
+          {snapshot.device_feeds && snapshot.device_feeds.length > 0 && (
+            <section aria-label="Device feeds" data-testid="device-feeds">
+              <h2 className="mb-1 text-sm font-medium text-slate-300">Device feeds</h2>
+              <ul className="space-y-1 text-sm">
+                {snapshot.device_feeds.map((f) => (
+                  <li key={f.vendor} className={f.stalled ? "text-red-300" : "text-slate-300"}>
+                    <span className="font-medium">{f.vendor}</span>: {f.devices.toLocaleString()} devices, last synced {agoLabel(f.minutes_ago)}
+                    {f.stalled ? " (nothing for hours: is CORE running, and is this tool's connector working?)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
           <table className="w-full text-left text-sm">
             <thead>
