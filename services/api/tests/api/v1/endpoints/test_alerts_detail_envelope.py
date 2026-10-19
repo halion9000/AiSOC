@@ -219,8 +219,8 @@ class TestAlertDetailResponseContract:
         missing = list_fields - detail_fields
         assert not missing, f"AlertDetailResponse dropped fields: {missing}"
 
-    def test_adds_exactly_the_four_rail_fields(self) -> None:
-        """The four rail fields are the only thing detail adds.
+    def test_adds_exactly_the_rail_fields_and_the_raw_event(self) -> None:
+        """The four rail fields and the stored raw event (the Raw tab shows it) are the only things detail adds.
 
         If a refactor accidentally promotes another column into the
         detail shape, the frontend's ``DetailAlert`` type union won't
@@ -232,6 +232,7 @@ class TestAlertDetailResponseContract:
             "related_entities",
             "mini_timeline",
             "recommended_actions",
+            "raw_event",
         }
 
     def test_defaults_are_safe_when_rail_fields_missing(self) -> None:

@@ -1,5 +1,6 @@
 """A slow request is logged by route, and the connection pool says how full it is, so a failure like the Devices 500 shows up before users see it."""
 
+import uuid as uuid_module
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -96,3 +97,16 @@ def test_readings_older_than_the_window_are_ignored_and_no_readings_is_said_plai
     assert pool_peak(1000.0 + 61 * 60, window_minutes=120)["peak_percent"] == 97
     reset_pool_history()
     assert pool_peak(5.0) == {"window_minutes": 60, "samples": 0}
+
+
+def test_a_failure_reading_the_device_feeds_leaves_the_health_page_working():
+    import asyncio
+
+    from app.api.v1.endpoints.health import _device_feeds_or_none
+
+    class Broken:
+        async def execute(self, *a, **k):
+            raise RuntimeError("database down")
+
+    assert asyncio.run(_device_feeds_or_none(Broken(), SimpleNamespace(tenant_id=uuid_module.uuid4()))) == []
+    assert asyncio.run(_device_feeds_or_none(Broken(), object())) == [], "even a caller object without a tenant"

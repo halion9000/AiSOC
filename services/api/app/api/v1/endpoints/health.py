@@ -659,6 +659,14 @@ async def device_feeds(db: Any, owner: Any, now: datetime | None = None) -> list
     return sorted((device_feed_row(v, int(n), newest, moment) for v, n, newest in rows), key=lambda r: (not r["stalled"], r["vendor"]))
 
 
+async def _device_feeds_or_none(db: Any, user: Any) -> list[dict[str, Any]]:
+    """The device feeds, or an empty list when they cannot be read: this is extra detail on a health page, and failing to read it must not take the rest of the page down."""
+    try:
+        return await device_feeds(db, user.tenant_id)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _pool_now() -> dict[str, Any]:
     from app.db.database import engine
 
@@ -716,4 +724,4 @@ async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
         rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
     rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
     down = [r["service"] for r in rows if r["status"] != "up"]
-    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "device_feeds": await device_feeds(db, user.tenant_id), "generated_at": datetime.now(UTC)}
+    return {"overall": "degraded" if down else "ok", "down": down, "services": rows, "database": {**await database_row_security(db), "pool": _pool_now()}, "device_feeds": await _device_feeds_or_none(db, user), "generated_at": datetime.now(UTC)}
