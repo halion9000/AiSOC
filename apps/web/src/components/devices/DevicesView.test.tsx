@@ -9,10 +9,11 @@ const childrenMock = vi.fn();
 vi.mock('@/lib/api', () => ({
   devicesApi: { list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), duplicates: async () => ({ items: [] }) },
   msspApi: { listChildren: () => childrenMock() },
+  apiErrorDetail: () => null,
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import DevicesView, { attentionOf, facts, specs } from './DevicesView';
+import DevicesView, { attentionOf, devicesLoadError, facts, ransomwareLinked, specs } from './DevicesView';
 
 const NOW = '2026-10-15T15:00:00Z';
 function device(over: Partial<DeviceRow> & { hostname: string }): DeviceRow {
@@ -267,5 +268,51 @@ describe('what a tool says needs attention', () => {
     await waitFor(() => expect(screen.getByTestId('devices-attention')).toHaveTextContent('3'));
     await userEvent.setup().click(screen.getByRole('button', { name: /Needs attention/ }));
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ attention: true })));
+  });
+});
+
+describe('clearer rows and messages', () => {
+  it('says why a device needs attention, right in the list, with how many more reasons there are', async () => {
+    listMock.mockResolvedValue(
+      list([
+        device({ hostname: 'WS-01', sources: [{ vendor: 'huntress', name: 'WS-01', last_seen: NOW, details: { needs_attention: ['Defender: Unhealthy', 'Tamper protection is configured but not in force'] } }] }),
+        device({ hostname: 'CLEAN' }),
+      ]),
+    );
+    render(<DevicesView />);
+    const row = (await screen.findByText('WS-01')).closest('tr') as HTMLElement;
+    expect(within(row).getByTestId('attention-reason')).toHaveTextContent('Defender: Unhealthy (+1 more)');
+    expect(within(screen.getByText('CLEAN').closest('tr') as HTMLElement).queryByTestId('attention-reason')).not.toBeInTheDocument();
+  });
+
+  it('marks a device with a ransomware-linked vulnerability', async () => {
+    const d = device({ hostname: 'RW-1', sources: [{ vendor: 'threatmate', name: 'RW-1', last_seen: NOW, details: { kev_ransomware: true } }] });
+    expect(ransomwareLinked(d)).toBe(true);
+    expect(ransomwareLinked(device({ hostname: 'OK' }))).toBe(false);
+    listMock.mockResolvedValue(list([d]));
+    render(<DevicesView />);
+    expect(await screen.findByText('Ransomware-linked CVE')).toBeInTheDocument();
+  });
+
+  it('shows a loading message while the first load runs, instead of an empty table', async () => {
+    listMock.mockReturnValue(new Promise(() => {}));
+    render(<DevicesView />);
+    expect(await screen.findByTestId('devices-loading')).toHaveTextContent('Loading devices');
+  });
+
+  it('explains a failed load with the API reason and offers to try again', async () => {
+    listMock.mockRejectedValueOnce(Object.assign(new Error('API 500 Internal Server Error'), { status: 500 }));
+    listMock.mockResolvedValue(list([device({ hostname: 'BACK-AGAIN' })]));
+    render(<DevicesView />);
+    const alertBox = await screen.findByRole('alert');
+    expect(alertBox).toHaveTextContent('Could not load devices (error 500)');
+    expect(alertBox).toHaveTextContent('Platform health');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('BACK-AGAIN')).toBeInTheDocument();
+  });
+
+  it('builds the message from the status and the reason', () => {
+    expect(devicesLoadError(Object.assign(new Error('boom'), { status: 502 }))).toMatch(/^Could not load devices \(error 502\): boom\./);
+    expect(devicesLoadError('???')).toMatch(/^Could not load devices\. Try again/);
   });
 });

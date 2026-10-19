@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceRow } from '@/lib/api';
+import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import DuplicateDevices from './DuplicateDevices';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
@@ -49,7 +49,7 @@ export default function DevicesView() {
     try {
       setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load devices.');
+      setError(devicesLoadError(err));
     } finally {
       setLoading(false);
     }
@@ -240,9 +240,12 @@ export default function DevicesView() {
       <DuplicateDevices clientId={clientId || undefined} onChanged={() => void load()} />
 
       {error && (
-        <p role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
-          {error}
-        </p>
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+          <span>{error}</span>
+          <button type="button" onClick={() => void load()} className="rounded border border-red-400/40 px-2 py-0.5 text-xs hover:bg-red-500/20">
+            Try again
+          </button>
+        </div>
       )}
 
       <div className="overflow-x-auto rounded-lg border border-gray-800">
@@ -262,6 +265,13 @@ export default function DevicesView() {
             {data?.items.map((d) => (
               <DeviceRowView key={d.id} d={d} master={master} open={open === d.id} onToggle={() => setOpen(open === d.id ? null : d.id)} />
             ))}
+            {loading && !data && (
+              <tr>
+                <td colSpan={7} className="px-3 py-8 text-center text-gray-400" data-testid="devices-loading">
+                  Loading devices... a large estate can take several seconds the first time.
+                </td>
+              </tr>
+            )}
             {!loading && data?.items.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
@@ -325,6 +335,17 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
           )}
           {!d.in_master && master && (
             <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-300">Not in {vendorLabel(master)}</span>
+          )}
+          {ransomwareLinked(d) && (
+            <span title="ThreatMate says a known-exploited vulnerability on this device is used by ransomware." className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[11px] text-red-300">
+              Ransomware-linked CVE
+            </span>
+          )}
+          {attentionOf(d).length > 0 && (
+            <div className="mt-0.5 text-xs font-normal text-red-300" data-testid="attention-reason">
+              {attentionOf(d)[0]}
+              {attentionOf(d).length > 1 ? ` (+${attentionOf(d).length - 1} more)` : ''}
+            </div>
           )}
         </td>
         <td className="px-3 py-2 text-gray-300">{d.client_name ?? '—'}</td>
@@ -411,6 +432,18 @@ function DeviceRowView({ d, master, open, onToggle }: { d: DeviceRow; master: st
       )}
     </>
   );
+}
+
+/** True when any tool says a known-exploited vulnerability on this device is one ransomware is known to use (ThreatMate's ``kev_ransomware``). */
+export function ransomwareLinked(d: DeviceRow): boolean {
+  return d.sources.some((s) => s.details?.kev_ransomware === true);
+}
+
+/** The message shown when the device list cannot load: the API's own reason when it gave one, and where to look next. */
+export function devicesLoadError(err: unknown): string {
+  const reason = apiErrorDetail(err) ?? (err instanceof Error ? err.message : '');
+  const status = typeof (err as { status?: unknown })?.status === 'number' ? ` (error ${(err as { status: number }).status})` : '';
+  return `Could not load devices${status}${reason ? `: ${reason}` : ''}. Try again in a moment; if it keeps happening, Settings, Platform health shows whether the database is under strain.`;
 }
 
 /** What the tools say needs a person's attention on this device (Huntress: not checking in, Defender or firewall unhealthy, tamper protection not in force). */
