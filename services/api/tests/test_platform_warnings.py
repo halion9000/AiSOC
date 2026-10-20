@@ -49,3 +49,15 @@ class _BadDb:
 
 async def test_unreadable_migration_state_is_unknown_not_an_error():
     assert await pending_migrations(_BadDb()) is None
+
+
+def test_a_large_scoring_backlog_is_reported_but_a_small_one_is_not():
+    out = _w(signins={"unscored": 21294, "scored_last_24h": 602})
+    assert [w["key"] for w in out] == ["backlog"]
+    assert "21,294" in out[0]["text"]
+    assert _w(signins={"unscored": 999, "scored_last_24h": 602}) == []
+
+
+def test_nothing_scored_at_all_is_the_louder_message_and_not_reported_twice():
+    out = _w(signins={"unscored": 5000, "scored_last_24h": 0})
+    assert [w["key"] for w in out] == ["signins"]

@@ -790,6 +790,7 @@ async def database_row_security(db: Any) -> dict[str, Any]:
 
 
 DISK_WARN_PERCENT = 85
+SCORING_BACKLOG_WARN = 1000
 
 
 def disk_row(path: str = "/") -> dict[str, Any] | None:
@@ -857,6 +858,15 @@ def platform_warnings(
                 "key": "signins",
                 "level": "warn",
                 "text": "Sign-ins are being stored but none are scored: check the behaviour service token in the API's environment",
+            }
+        )
+    elif signins and signins.get("unscored", 0) >= SCORING_BACKLOG_WARN:
+        out.append(
+            {
+                "key": "backlog",
+                "level": "warn",
+                "text": f"{signins['unscored']:,} sign-ins are waiting to be scored. They are scored a hundred at a time as new ones arrive; "
+                "if the number is not falling, look at the behaviour service's log for errors",
             }
         )
     return out
