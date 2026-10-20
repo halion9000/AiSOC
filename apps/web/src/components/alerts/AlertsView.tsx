@@ -13,6 +13,7 @@ import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { CreateAlertModal } from './CreateAlertModal';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
+import BulkTicketBar from './BulkTicketBar';
 
 // Wave 1 of the AiSOC v6 capability roadmap. The "entities" tab renders the
 // rolled-up Risk-Based Alerting queue — alerts contribute time-decayed risk
@@ -458,6 +459,7 @@ export function AlertsView() {
           isLoading={isLoading}
           error={error}
           onFilterChange={handleFilterChange}
+          onChanged={() => void mutate()}
         />
       )}
     </div>
@@ -478,6 +480,7 @@ function AlertsTable({
   isLoading,
   error,
   onFilterChange,
+  onChanged,
 }: {
   alerts: Alert[];
   total: number;
@@ -490,6 +493,7 @@ function AlertsTable({
   isLoading: boolean;
   error: unknown;
   onFilterChange: (f: AlertFilters) => void;
+  onChanged: () => void;
 }) {
   // v1.5 W6 — Selection lives at the AlertsTable level (not AlertsView)
   // because the rail is only rendered inside the "alerts" view mode.
@@ -562,6 +566,7 @@ function AlertsTable({
             selectedAlertId={selectedAlertId}
             onSelect={setSelectedAlertId}
             onFilterChange={onFilterChange}
+            onChanged={onChanged}
           />
           <AlertsPagination
             alerts={alerts}
@@ -585,7 +590,7 @@ function AlertsTable({
 
 // ─── Queue grid (split out from AlertsTable so the two-pane shell stays lean) ─
 
-function AlertsTableGrid({
+export function AlertsTableGrid({
   alerts,
   isLoading,
   error,
@@ -593,6 +598,7 @@ function AlertsTableGrid({
   selectedAlertId,
   onSelect,
   onFilterChange,
+  onChanged,
 }: {
   alerts: Alert[];
   isLoading: boolean;
@@ -601,9 +607,21 @@ function AlertsTableGrid({
   selectedAlertId: string | null;
   onSelect: (id: string) => void;
   onFilterChange: (f: AlertFilters) => void;
+  onChanged: () => void;
 }) {
+  // Ticked rows (for linking one ticket to several alerts). Only ids still on this page count, so paging or filtering never leaves a hidden alert selected.
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const tickedIds = alerts.filter((a) => ticked.has(a.id)).map((a) => a.id);
+  const toggle = (id: string) =>
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   return (
     <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl overflow-hidden">
+      <BulkTicketBar alertIds={tickedIds} onDone={onChanged} onClear={() => setTicked(new Set())} />
       <div className="flex items-center px-4 py-2 border-b border-gray-800/60 bg-gray-900/80">
         <span className="text-xs text-gray-500 flex-1 pl-2">ALERT</span>
         <span className="text-xs text-gray-500 w-20">CONFIDENCE</span>
@@ -656,12 +674,18 @@ function AlertsTableGrid({
       ) : (
         <div>
           {alerts.map((alert) => (
-            <AlertRow
-              key={alert.id}
-              alert={alert}
-              selected={selectedAlertId === alert.id}
-              onSelect={onSelect}
-            />
+            <div key={alert.id} className="flex items-center">
+              <input
+                type="checkbox"
+                aria-label={`Select alert ${alert.title}`}
+                checked={ticked.has(alert.id)}
+                onChange={() => toggle(alert.id)}
+                className="ml-3 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <AlertRow alert={alert} selected={selectedAlertId === alert.id} onSelect={onSelect} />
+              </div>
+            </div>
           ))}
         </div>
       )}
