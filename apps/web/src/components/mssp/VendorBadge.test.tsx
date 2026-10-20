@@ -35,6 +35,14 @@ describe('VendorBadge', () => {
   });
 });
 
+describe('CIPP logo', () => {
+  it('shows its logo file, named CIPP, and sorts after AutoElevate', () => {
+    render(<VendorBadge vendor="cipp" />);
+    expect(screen.getByAltText('CIPP')).toHaveAttribute('src', '/vendors/cipp.png');
+    expect(orderSources(['cipp', 'autoelevate', 'huntress'])).toEqual(['huntress', 'autoelevate', 'cipp']);
+  });
+});
+
 describe('DNSFilter and AutoElevate logos', () => {
   it('show their logo files, named in full', () => {
     render(
