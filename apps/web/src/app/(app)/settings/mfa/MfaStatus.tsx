@@ -119,6 +119,7 @@ export function MfaStatus() {
   const [clients, setClients] = useState<MfaClient[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>(null);
+  const [adminsOnly, setAdminsOnly] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -159,6 +160,10 @@ export function MfaStatus() {
           <p data-testid="totals" className="text-sm text-slate-300">
             {totals.people.toLocaleString()} people across {clients.length} clients: {totals.without.toLocaleString()} with no second factor, {totals.admins.toLocaleString()} of them administrators.
           </p>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input type="checkbox" checked={adminsOnly} onChange={(e) => setAdminsOnly(e.target.checked)} data-testid="admins-only" />
+            Only clients with administrators that have no second factor
+          </label>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate-700 text-slate-500">
@@ -171,7 +176,7 @@ export function MfaStatus() {
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => (
+              {clients.filter((c) => !adminsOnly || c.admins_without_mfa > 0).map((c) => (
                 <ClientRow key={c.client_id} c={c} open={open} setOpen={setOpen} />
               ))}
             </tbody>

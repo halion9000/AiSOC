@@ -58,6 +58,17 @@ describe('MfaStatus', () => {
     expect(await screen.findByText('Nobody.')).toBeInTheDocument();
   });
 
+  it('can narrow the list to clients whose administrators have no second factor', async () => {
+    authFetch.mockResolvedValue(reply([client(), client({ client_id: 'c2', client_name: 'Birch Law', admins_without_mfa: 0 })]));
+    render(<MfaStatus />);
+    await screen.findByTestId('totals');
+    expect(screen.getAllByTestId('client-row')).toHaveLength(2);
+    await userEvent.click(screen.getByTestId('admins-only'));
+    const rows = screen.getAllByTestId('client-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('Acme Dental');
+  });
+
   it('says what to do when there is nothing yet, and shows an error plainly', async () => {
     authFetch.mockResolvedValue(reply([]));
     const { unmount } = render(<MfaStatus />);
