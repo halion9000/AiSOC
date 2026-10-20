@@ -18,6 +18,9 @@ Each entry says what is missing, how it fails today (every one fails closed or s
 - **Devices**: Huntress agents (protection state, check-in age, Defender, tamper protection), Blumira agent devices (for a client whose licence includes the agent) and ThreatMate open-finding counts and pending restarts are now device sources. The Devices page has "Not in Huntress" and a "Needs attention" filter. ThreatMate devices are flagged when they have a critical finding, a known-exploited CVE and an upgrade ready.
 - **Honeytoken links** work: opening one raises an alert (locally by default; see below for the other types).
 - **Platform health** reports whether the database enforces row-level security and whether UEBA has consumed any event.
+- **Behaviour-service scoring fixed (2026-10-20).** Found on the live stack: about half the score requests failed with `MultipleResultsFound` because two requests for the same new person each created a baseline row. The service now keeps one baseline per person (migration `0003` removes duplicates and adds a unique index, creation is race-safe) and AiSOC scores one person's events one after another. Not yet confirmed live after a rebuild.
+- **Huntress ITDR escalations and signals** are read back 30 days on the first fetch after CORE starts (their cursor had moved on before the code existed). Not yet confirmed live.
+- **New pages (not yet checked live):** Multi-factor status, Sign-in scores (lists only sign-ins the behaviour service flags), Client posture (`/api/v1/client-posture/{client_id}`), Client cleanup, User guide; Platform health needs-attention list; bulk Halo ticket linking and filter memory on Alerts; filter memory on Devices.
 
 ## Not finished
 | Area | Today | To finish |

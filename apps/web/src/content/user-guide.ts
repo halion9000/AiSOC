@@ -32,7 +32,7 @@ The left sidebar groups the console:
 
 \`Ctrl+K\` opens a command palette that jumps to the main pages.
 
-**Settings** has tabs (Profile, Notifications, Appearance, Deployment & AI, Audit log, About, and others) and a **More settings** list for pages that are their own screens: **Platform health, Multi-factor status, Client posture, Sign-in scores, Auto-close, Tickets**.
+**Settings** has tabs (Profile, Notifications, Appearance, Deployment & AI, Audit log, About, and others) and a **More settings** list for pages that are their own screens: **Platform health, Multi-factor status, Client posture, Client cleanup, Sign-in scores, Auto-close, Tickets**.
 
 ## 3. Connecting tools in CORE
 
@@ -85,7 +85,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 - **Merge two clients** lets you pick one to keep and one to merge into it (**Merge**). The merge is logged and can be undone.
 - A client you no longer want can be **Hidden** (MSSP Dashboard table, **Hide**/**Show**), **archived** (renamed "<name> (archived)", hidden, its tool clients sent back to Unmapped, nothing deleted), or removed. Removal is refused for a client with cases, connectors, worked alerts or audit records; archive it instead.
 - **Remove all client tenants** (type REMOVE to confirm) starts over; **Archive instead (deletes nothing)** is the safe version.
-- **Cleanup report (new, API only).** \`GET /api/v1/mssp/clients/cleanup\` lists visible clients that hold nothing (no devices, alerts, cases or mapped tool clients), as candidates to archive. It changes nothing and has no page yet; Cipher can read it.
+- **Client cleanup (new).** **Settings > Client cleanup** lists visible clients that hold nothing (no devices, alerts, cases or mapped tool clients), each with an **Archive** button (it asks first). Nothing is deleted; Show hidden brings an archived client back.
 
 ## 5. Alerts
 
@@ -219,6 +219,9 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 | Cases or counts look frozen | Reload; counts come from the whole caseload now |
 | A page says a migration is pending | Rebuild or restart the AiSOC API |
 | Sign-ins stored but not scored | Platform health list; check the behaviour service token in the API's environment |
+| "N sign-ins are waiting to be scored" | Normal for a while after a restart: they are scored a hundred at a time. If it is not falling, ask Cipher to check the behaviour service log |
+| Sign-in scores page is empty | Normal early on: it lists only sign-ins the service flags, and it flags little until it has learned each person |
+| No Huntress ITDR alerts | They are read back 30 days when CORE starts; check the Huntress card for a warning |
 | Not sure what a page means | Ask Cipher |
 
 ---
