@@ -259,6 +259,7 @@ const TABS: { id: TabId; label: string; description: string; requires?: 'manage_
 export const MORE_SETTINGS: { href: string; label: string; description: string }[] = [
   { href: '/settings/platform-health', label: 'Platform health', description: 'Is every service answering, and is the database healthy' },
   { href: '/settings/mfa', label: 'Multi-factor status', description: 'Who has a second sign-in factor, per client' },
+  { href: '/settings/client-posture', label: 'Client posture', description: 'One client\'s devices, second factor, alerts and cases on a printable page' },
   { href: '/settings/signin-scores', label: 'Sign-in scores', description: 'The most unusual sign-ins of the last days, across clients' },
   { href: '/settings/triage', label: 'Auto-close', description: 'How sure AI triage must be to close an alert itself' },
   { href: '/settings/tickets', label: 'Tickets', description: 'The HaloPSA status a resolved incident moves its ticket to' },
