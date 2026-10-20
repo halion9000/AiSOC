@@ -153,6 +153,25 @@ describe('CaseWorkspace', () => {
     );
   });
 
+  it('a linked alert opens that alert, not the unfiltered alert list', () => {
+    render(<CaseWorkspace caseId="INC-001" />);
+    const link = screen.getByRole('link', { name: /alert-1/ });
+    expect(link).toHaveAttribute('href', '/alerts/alert-1');
+  });
+
+  it('lays a vendor description out as headings and a label/value table, not one paragraph', () => {
+    swrState.caseData = {
+      ...fakeCase,
+      description: ['Client: Acme', 'Host: PC-1', '', '**Affected Account**', '', '| | |', '|--|--|', '| Account | **a@b.com** |', '<br/>'].join('\n'),
+    };
+    render(<CaseWorkspace caseId="INC-001" />);
+    const text = screen.getByTestId('alert-text');
+    expect(within(text).getByRole('heading', { name: 'Affected Account' })).toBeInTheDocument();
+    expect(text.textContent).toContain('a@b.com');
+    expect(text.textContent).not.toContain('<br');
+    expect(text.textContent).not.toContain('|--|');
+  });
+
   it('shows an error, not an invented case, when the backend errors out', () => {
     swrState.caseData = undefined;
     swrState.caseError = new Error('fetch failed');

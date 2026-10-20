@@ -17,6 +17,7 @@
  * claim a failed save was "saved locally").
  */
 
+import { AlertText } from '@/components/ui/AlertText';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -579,9 +580,7 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
               {caseRecord.title}
             </h1>
             {caseRecord.description && (
-              <p className="mt-2 max-w-3xl text-sm text-slate-400">
-                {caseRecord.description}
-              </p>
+              <AlertText text={caseRecord.description} className="mt-2 max-w-3xl" />
             )}
             {caseRecord.mitre && caseRecord.mitre.length > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
@@ -821,7 +820,7 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
                 {(caseRecord.alertIds ?? []).map((id) => (
                   <li key={id}>
                     <Link
-                      href={`/alerts?focus=${encodeURIComponent(id)}`}
+                      href={`/alerts/${encodeURIComponent(id)}`}
                       className="flex items-center justify-between rounded-md border border-slate-800/80 bg-slate-900/40 px-2.5 py-1.5 text-xs text-slate-300 transition-colors hover:border-slate-700 hover:bg-slate-800/40"
                     >
                       <span className="font-mono">{id}</span>
