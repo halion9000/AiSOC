@@ -2,7 +2,7 @@
 
 /**
  * One client's posture on a page you can print for a review: devices, second-factor coverage, open alerts and cases side by side. Read-only; the same numbers as the Devices, Multi-factor status,
- * Alerts and Cases pages. Backed by GET /api/v1/posture/{client_id}.
+ * Alerts and Cases pages. Backed by GET /api/v1/client-posture/{client_id}.
  */
 import { useEffect, useState } from "react";
 
@@ -62,7 +62,7 @@ export function ClientPosture() {
   useEffect(() => {
     if (!clientId) return;
     let live = true;
-    authFetch(`/api/v1/posture/${encodeURIComponent(clientId)}`)
+    authFetch(`/api/v1/client-posture/${encodeURIComponent(clientId)}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`The API answered ${res.status}`);
         const body = (await res.json()) as Posture;

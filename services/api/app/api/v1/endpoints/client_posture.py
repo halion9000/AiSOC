@@ -1,6 +1,6 @@
 """One client's security posture on a single page: devices, second-factor coverage, open alerts and cases. Read-only; every number comes from data AiSOC already holds.
 
-``GET /api/v1/posture/{client_id}``. The same figures are on the Devices, Multi-factor status, Alerts and Cases pages; this puts them side by side for a client review.
+``GET /api/v1/client-posture/{client_id}``. The same figures are on the Devices, Multi-factor status, Alerts and Cases pages; this puts them side by side for a client review.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.models.alert import Alert
 from app.models.signin import IdentityMfaUser
 from app.models.tenant import Tenant
 
-router = APIRouter(prefix="/posture", tags=["posture"])
+router = APIRouter(prefix="/client-posture", tags=["posture"])
 
 _CASE_FINISHED = ("resolved", "closed")
 

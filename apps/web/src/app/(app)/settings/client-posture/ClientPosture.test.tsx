@@ -48,7 +48,7 @@ describe('ClientPosture', () => {
     expect(page).toHaveTextContent('40');
     expect(page).toHaveTextContent('75%');
     expect(page).toHaveTextContent('Open, no ticket');
-    expect(authFetch).toHaveBeenCalledWith('/api/v1/posture/c1');
+    expect(authFetch).toHaveBeenCalledWith('/api/v1/client-posture/c1');
   });
 
   it('says so when a client has no second-factor data', async () => {
