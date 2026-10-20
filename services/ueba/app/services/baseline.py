@@ -7,6 +7,7 @@ updated without having to re-read the full window of historical events.
 
 from __future__ import annotations
 
+import copy
 import math
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.models.ueba import EntityBaseline
@@ -151,12 +153,15 @@ class BaselineService:
     ) -> EntityBaseline:
         """Incrementally update the baseline with new feature observations."""
         baseline = await self.get_or_create(tenant_id, entity_type, entity_id)
-        stats = dict(baseline.feature_stats)  # copy so SQLAlchemy detects mutation
+        # A DEEP copy: the update below edits each feature's numbers in place. With a shallow copy the stored value was edited too, so the new and old values compared equal, SQLAlchemy saw no
+        # change and wrote nothing: every baseline stayed at its first observation (count 1) and nothing was ever flagged.
+        stats = copy.deepcopy(baseline.feature_stats)
 
         for feature, value in features.items():
             stats = _welford_update(stats, feature, value)
 
         baseline.feature_stats = stats
+        flag_modified(baseline, "feature_stats")  # belt and braces: always write it
         baseline.window_end = datetime.now(UTC)
         await self._db.flush()
         return baseline

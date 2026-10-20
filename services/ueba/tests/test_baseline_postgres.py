@@ -113,3 +113,36 @@ def test_many_requests_for_the_same_new_person_at_once_leave_exactly_one_baselin
             await engine.dispose()
 
     assert asyncio.run(later()) == ids[0], "a later request finds the same row"
+
+
+def test_a_person_scored_several_times_in_a_row_keeps_learning():
+    """Every update after the first used to be lost (the baseline stayed at count 1), so nothing was ever flagged."""
+    from app.services.scoring import ScoringService
+
+    asyncio.run(_reset())
+    assert _alembic("upgrade", "head", url=PG_URL).returncode == 0
+
+    async def one(hour: float) -> None:
+        engine = create_async_engine(PG_URL, poolclass=NullPool)
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+                async with db.begin():
+                    await ScoringService(db).score_event(
+                        TENANT, "user", "learner@x.com", "login", {"hour_of_day": hour, "failed": 0.0}, f"e{hour}"
+                    )
+        finally:
+            await engine.dispose()
+
+    async def run() -> None:
+        for hour in (8.0, 9.0, 10.0, 11.0, 12.0):
+            await one(hour)
+
+    asyncio.run(run())
+    count = asyncio.run(
+        _scalar("select (feature_stats -> 'hour_of_day' ->> 'count')::int from ueba_entity_baselines where entity_id = 'learner@x.com'")
+    )
+    mean = asyncio.run(
+        _scalar("select (feature_stats -> 'hour_of_day' ->> 'mean')::float from ueba_entity_baselines where entity_id = 'learner@x.com'")
+    )
+    assert count == 5, f"only {count} of 5 observations were kept"
+    assert mean == 10.0

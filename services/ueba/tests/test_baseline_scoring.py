@@ -16,6 +16,7 @@ raise an anomaly.
 from __future__ import annotations
 
 import math
+import uuid
 
 import pytest
 from app.services.baseline import _welford_update, compute_z_score
@@ -210,3 +211,40 @@ class TestRiskLevel:
     )
     def test_boundaries(self, score, expected):
         assert _risk_level(score) == expected
+
+
+@pytest.mark.asyncio
+async def test_updating_a_baseline_does_not_edit_the_stored_value_in_place():
+    """The bug that kept every baseline at its first observation: the stored stats were edited in place, so the database saw no change."""
+    from app.services.baseline import BaselineService
+
+    class Row:
+        def __init__(self):
+            self.feature_stats = {"hour": {"mean": 10.0, "M2": 0.0, "count": 1, "std": 0.0}}
+            self.window_end = None
+
+    class Db:
+        async def flush(self):
+            pass
+
+    row = Row()
+    before = {"hour": dict(row.feature_stats["hour"])}
+    stored = row.feature_stats
+
+    class Svc(BaselineService):
+        async def get_or_create(self, *a, **k):
+            return row
+
+    svc = Svc(Db())
+    import app.services.baseline as b
+
+    # flag_modified needs a mapped instance; the point here is only what happens to the old value
+    orig = b.flag_modified
+    b.flag_modified = lambda *_a, **_k: None
+    try:
+        await svc.update(uuid.uuid4(), "user", "p@x.com", {"hour": 14.0})
+    finally:
+        b.flag_modified = orig
+    assert stored == before, "the value that was stored must be untouched until the new one is assigned"
+    assert row.feature_stats["hour"]["count"] == 2
+    assert row.feature_stats["hour"]["mean"] == 12.0
