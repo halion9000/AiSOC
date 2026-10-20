@@ -789,6 +789,79 @@ async def database_row_security(db: Any) -> dict[str, Any]:
     return {"enforced": True, "reason": "the API's database role cannot bypass row-level security"}
 
 
+DISK_WARN_PERCENT = 85
+
+
+def disk_row(path: str = "/") -> dict[str, Any] | None:
+    """Used space on the disk the API runs on, or None when it cannot be read."""
+    import shutil
+
+    try:
+        u = shutil.disk_usage(path)
+    except OSError:
+        return None
+    return {"used_percent": round(u.used * 100 / u.total, 1) if u.total else 0.0, "free_gb": round(u.free / 1024**3, 1)}
+
+
+async def pending_migrations(db: Any) -> list[str] | None:
+    """Migration files shipped with this API that the database has not recorded as applied (a rebuilt API on an old database), or None when this cannot be read."""
+    from sqlalchemy import text
+
+    try:
+        from app.scripts.run_migrations import MIGRATIONS_DIR
+
+        files = {p.name for p in MIGRATIONS_DIR.iterdir() if p.suffix == ".sql"}
+        applied = {r[0] for r in (await db.execute(text("SELECT name FROM aisoc_schema_migrations"))).all()}
+    except Exception:  # noqa: BLE001 - extra detail on a health page must not take it down
+        return None
+    return sorted(files - applied)
+
+
+def platform_warnings(
+    *,
+    down: list[str],
+    disk: dict[str, Any] | None,
+    pending: list[str] | None,
+    core_feed: dict[str, Any] | None,
+    device_feeds: list[dict[str, Any]],
+    signins: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    """Plain-language problems worth a person's attention, worst first, built only from what the page already knows (pure; unit-tested)."""
+    out: list[dict[str, str]] = []
+    if down:
+        out.append({"key": "services", "level": "error", "text": f"Not answering: {', '.join(down)}"})
+    if pending:
+        out.append(
+            {
+                "key": "migrations",
+                "level": "error",
+                "text": f"{len(pending)} database migration(s) not applied ({pending[0]}...): rebuild or restart the API",
+            }
+        )
+    if core_feed and core_feed.get("silent"):
+        out.append(
+            {
+                "key": "core",
+                "level": "error",
+                "text": "CORE has not reported for over 15 minutes: no alerts, devices or links arrive while it is silent",
+            }
+        )
+    if disk and disk["used_percent"] >= DISK_WARN_PERCENT:
+        out.append({"key": "disk", "level": "warn", "text": f"Disk is {disk['used_percent']}% full ({disk['free_gb']} GB free)"})
+    stalled = [f["vendor"] for f in device_feeds if f.get("stalled")]
+    if stalled:
+        out.append({"key": "feeds", "level": "warn", "text": f"Device feed stalled (nothing for 3+ hours): {', '.join(stalled)}"})
+    if signins and signins.get("unscored", 0) > 0 and signins.get("scored_last_24h", 0) == 0:
+        out.append(
+            {
+                "key": "signins",
+                "level": "warn",
+                "text": "Sign-ins are being stored but none are scored: check the behaviour service token in the API's environment",
+            }
+        )
+    return out
+
+
 @router.get(
     "/services",
     summary="Is each internal platform service answering its own health probe?",
@@ -807,13 +880,21 @@ async def platform_services(user: AuthUser, db: DBSession) -> dict[str, Any]:
         rows = await asyncio.gather(*(_probe(client, name, url) for name, url in _service_probes().items()))
     rows = sorted(rows, key=lambda r: (r["status"] == "up", r["service"]))
     down = [r["service"] for r in rows if r["status"] != "up"]
+    feeds = await _device_feeds_or_none(db, user)
+    core_feed = await _core_feed_or_none(db, user)
+    signins = await _signins_or_none(db, user)
+    disk = disk_row()
+    pending = await pending_migrations(db)
     return {
         "overall": "degraded" if down else "ok",
         "down": down,
         "services": rows,
         "database": {**await database_row_security(db), "pool": _pool_now()},
-        "device_feeds": await _device_feeds_or_none(db, user),
-        "core_feed": await _core_feed_or_none(db, user),
-        "signins": await _signins_or_none(db, user),
+        "device_feeds": feeds,
+        "core_feed": core_feed,
+        "signins": signins,
+        "disk": disk,
+        "pending_migrations": pending or [],
+        "warnings": platform_warnings(down=down, disk=disk, pending=pending, core_feed=core_feed, device_feeds=feeds, signins=signins),
         "generated_at": datetime.now(UTC),
     }

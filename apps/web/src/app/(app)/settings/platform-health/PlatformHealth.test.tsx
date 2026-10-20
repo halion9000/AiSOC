@@ -139,6 +139,36 @@ describe('CORE feed silence', () => {
   });
 });
 
+describe('needs-attention warnings', () => {
+  const withWarnings = (warnings: unknown) => ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({ overall: 'ok', down: [], services: [{ service: 'fusion', status: 'up', latency_ms: 20, detail: '' }], warnings, generated_at: '2026-10-19T02:00:00Z' }),
+  });
+
+  it('lists disk and migration problems but not what the page already shows', async () => {
+    authFetch.mockResolvedValue(
+      withWarnings([
+        { key: 'migrations', level: 'error', text: '2 database migration(s) not applied' },
+        { key: 'disk', level: 'warn', text: 'Disk is 91% full' },
+        { key: 'core', level: 'error', text: 'CORE has not reported for over 15 minutes' },
+      ]),
+    );
+    render(<PlatformHealth />);
+    const list = await screen.findByTestId('warnings');
+    expect(list).toHaveTextContent('2 database migration(s) not applied');
+    expect(list).toHaveTextContent('Disk is 91% full');
+    expect(list).not.toHaveTextContent('CORE has not reported');
+  });
+
+  it('shows no list when there is nothing to warn about', async () => {
+    authFetch.mockResolvedValue(withWarnings([]));
+    render(<PlatformHealth />);
+    await waitFor(() => expect(screen.getByTestId('overall')).toBeInTheDocument());
+    expect(screen.queryByTestId('warnings')).not.toBeInTheDocument();
+  });
+});
+
 describe('sign-in collection', () => {
   const withSignins = (signins: unknown) => ({
     ok: true,

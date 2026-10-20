@@ -53,6 +53,7 @@ interface Snapshot {
   device_feeds?: DeviceFeed[];
   signins?: { last_24h: number; scored_last_24h: number; unscored: number; users_last_24h: number; newest_received: string | null } | null;
   core_feed?: { sources: number; last_report: string | null; minutes_ago: number | null; silent: boolean } | null;
+  warnings?: { key: string; level: "error" | "warn"; text: string }[];
   database?: DatabaseSecurity;
   generated_at: string;
 }
@@ -109,6 +110,17 @@ export function PlatformHealth() {
               The database connection pool is {snapshot.database.pool.percent}% full ({snapshot.database.pool.in_use} of {snapshot.database.pool.limit} in use). When it is full, pages start failing with 500
               errors until requests finish.
             </p>
+          )}
+          {(snapshot.warnings ?? []).filter((w) => w.key !== "services" && w.key !== "core").length > 0 && (
+            <ul data-testid="warnings" className="space-y-1 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+              {(snapshot.warnings ?? [])
+                .filter((w) => w.key !== "services" && w.key !== "core")
+                .map((w) => (
+                  <li key={w.key} className={w.level === "error" ? "text-red-300" : undefined}>
+                    {w.text}
+                  </li>
+                ))}
+            </ul>
           )}
           {snapshot.core_feed?.silent && (
             <p role="note" data-testid="core-silent" className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
