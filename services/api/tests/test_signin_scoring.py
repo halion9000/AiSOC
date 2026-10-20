@@ -111,3 +111,30 @@ async def test_a_refusal_or_an_unreachable_service_marks_the_batch_unavailable_a
 async def test_no_events_is_fine(monkeypatch):
     monkeypatch.setenv("AISOC_UEBA_SERVICE_TOKEN", "tok")
     assert (await score_events([])).status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_one_persons_events_are_never_in_flight_together_but_different_people_overlap(monkeypatch):
+    """Two requests for the same new person at once each made a baseline row, after which every request for that person failed."""
+    monkeypatch.setenv("AISOC_UEBA_SERVICE_TOKEN", "tok")
+    import asyncio
+
+    in_flight: dict[str, int] = {}
+    worst_same_person = 0
+    most_people_at_once = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal worst_same_person, most_people_at_once
+        person = json.loads(request.content)["entity_id"]
+        in_flight[person] = in_flight.get(person, 0) + 1
+        worst_same_person = max(worst_same_person, in_flight[person])
+        most_people_at_once = max(most_people_at_once, sum(1 for n in in_flight.values() if n))
+        await asyncio.sleep(0.01)
+        in_flight[person] -= 1
+        return httpx.Response(200, content=b"null")
+
+    events = [event(f"a{i}", user="a@x.com") for i in range(4)] + [event(f"b{i}", user="b@x.com") for i in range(4)]
+    out = await score_events(events, client=client_for(handler))
+    assert out.status == "ok" and len(out.scored) == 8
+    assert worst_same_person == 1, "the same person was scored twice at once"
+    assert most_people_at_once == 2, "different people should still be scored side by side"

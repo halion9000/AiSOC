@@ -41,7 +41,7 @@ class EntityBaseline(Base):
     window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_ueba_baseline_tenant_entity", "tenant_id", "entity_type", "entity_id"),)
+    __table_args__ = (Index("ux_ueba_entity_baselines_tenant_entity", "tenant_id", "entity_type", "entity_id", unique=True),)
 
 
 class UEBAAnomaly(Base):

@@ -159,8 +159,8 @@ CORE reads each Microsoft 365 tenant through CIPP in the background.
 - Counts cover enabled, licensed member accounts (shared mailboxes, guests and disabled accounts are left out).
 
 **Settings > Sign-in scores**
-- The most unusual sign-ins across clients, with person, client, when, where, address, app, result, "no MFA" and risk. Pick **Last day / 7 days / 30 days**.
-- Below it, **Identity changes**: the most unusual directory changes (who did what to whom).
+- The sign-ins the behaviour service flagged as unusual for that person, across clients, with person, client, when, where, address, app, result, "no MFA" and risk. Pick **Last day / 7 days / 30 days**. The service keeps a score only for the ones it flags, and flags little while it is still learning each person's pattern, so an empty list early on is normal.
+- Below it, **Identity changes**: the directory changes flagged as unusual for whoever made them (who did what to whom).
 - Higher scores are more unusual. This page is for judging whether the scores are useful before alerting is switched on.
 
 CIPP tenants appear under Client mapping like every other tool; data for an unmapped tenant waits until it is mapped.

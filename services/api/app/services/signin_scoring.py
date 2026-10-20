@@ -135,7 +135,17 @@ async def score_events(events: list[dict[str, Any]], *, client: httpx.AsyncClien
                 out.scored[e["key"]] = None
 
     try:
-        await asyncio.gather(*(one(e) for e in events))
+        # One person's events go one after another: the service keeps a running baseline per person, and two requests for the same new person at once each created one (and every later
+        # request for that person then failed). Different people still run side by side.
+        by_entity: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for e in events:
+            by_entity.setdefault((str(e["tenant_id"]), str(e["entity_id"])), []).append(e)
+
+        async def run_entity(group: list[dict[str, Any]]) -> None:
+            for e in group:
+                await one(e)
+
+        await asyncio.gather(*(run_entity(g) for g in by_entity.values()))
     finally:
         if own:
             await http.aclose()

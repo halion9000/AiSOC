@@ -68,10 +68,10 @@ function IdentityChanges({ days }: { days: number }) {
   return (
     <section className="space-y-2" data-testid="identity-changes">
       <h2 className="text-lg font-semibold text-slate-100">Identity changes</h2>
-      <p className="text-sm text-slate-400">Role, group, password and security-method changes in Microsoft 365, scored by who made them. Higher is more unusual.</p>
+      <p className="text-sm text-slate-400">Role, group, password and security-method changes in Microsoft 365 that were flagged as unusual for whoever made them. Higher is more unusual.</p>
       {error && <p className="text-sm text-red-300">{error}</p>}
       {rows === null && !error && <p className="text-sm text-slate-500">Loading...</p>}
-      {rows !== null && rows.length === 0 && <p className="text-sm text-slate-400">No scored identity changes in this period.</p>}
+      {rows !== null && rows.length === 0 && <p className="text-sm text-slate-400">No identity changes were flagged as unusual in this period.</p>}
       {rows !== null && rows.length > 0 && (
         <table className="w-full text-left text-sm">
           <thead>
@@ -133,7 +133,7 @@ export function SigninScores() {
       <div>
         <h1 className="text-xl font-semibold text-slate-100">Sign-in scores</h1>
         <p className="mt-1 text-sm text-slate-400">
-          The sign-ins the behaviour service found most unusual, across clients. Higher is more unusual. Nothing alerts on these yet; this is for judging the scores first.
+          The sign-ins the behaviour service flagged as unusual for that person, across clients (it keeps a score only for the ones it flags). Higher is more unusual. Nothing alerts on these yet; this is for judging them first.
         </p>
       </div>
       <div className="flex gap-2 text-sm">
@@ -157,7 +157,7 @@ export function SigninScores() {
       {rows === null && !error && <p className="text-sm text-slate-500">Loading...</p>}
       {rows !== null && rows.length === 0 && (
         <p data-testid="none" className="text-sm text-slate-400">
-          No scored sign-ins in this period. Sign-ins arrive hourly through CORE once CIPP is connected and its tenants are mapped to clients.
+          No sign-ins were flagged as unusual in this period. That is normal while the service is still learning each person's usual pattern. Sign-ins arrive hourly through CORE once CIPP is connected and its tenants are mapped to clients.
         </p>
       )}
       {rows !== null && rows.length > 0 && (

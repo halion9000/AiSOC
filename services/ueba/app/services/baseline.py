@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -114,17 +115,12 @@ class BaselineService:
         entity_type: str,
         entity_id: str,
     ) -> EntityBaseline:
-        result = await self._db.execute(
-            select(EntityBaseline).where(
-                EntityBaseline.tenant_id == tenant_id,
-                EntityBaseline.entity_type == entity_type,
-                EntityBaseline.entity_id == entity_id,
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
-            now = datetime.now(UTC)
-            row = EntityBaseline(
+        now = datetime.now(UTC)
+        # Create it if absent in ONE statement: the unique index (migration 0003) makes a request that loses the race do nothing, instead of leaving a second row that
+        # broke every later read of this entity.
+        await self._db.execute(
+            pg_insert(EntityBaseline)
+            .values(
                 tenant_id=tenant_id,
                 entity_type=entity_type,
                 entity_id=entity_id,
@@ -132,9 +128,19 @@ class BaselineService:
                 window_start=now - timedelta(days=settings.baseline_window_days),
                 window_end=now,
             )
-            self._db.add(row)
-            await self._db.flush()
-        return row
+            .on_conflict_do_nothing(index_elements=["tenant_id", "entity_type", "entity_id"])
+        )
+        result = await self._db.execute(
+            select(EntityBaseline)
+            .where(
+                EntityBaseline.tenant_id == tenant_id,
+                EntityBaseline.entity_type == entity_type,
+                EntityBaseline.entity_id == entity_id,
+            )
+            .order_by(EntityBaseline.updated_at.desc())
+            .limit(1)
+        )
+        return result.scalars().one()
 
     async def update(
         self,
