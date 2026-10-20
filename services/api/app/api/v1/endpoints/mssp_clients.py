@@ -470,6 +470,47 @@ async def _blockers(db: TenantDBSession, tenant_id: uuid.UUID) -> list[str]:
     return found
 
 
+class CleanupClient(BaseModel):
+    id: uuid.UUID
+    name: str
+    devices: int
+    alerts: int
+    cases: int
+    tool_clients: int
+
+
+class CleanupReport(BaseModel):
+    checked: int
+    empty: list[CleanupClient]
+
+
+@router.get("/clients/cleanup", response_model=CleanupReport)
+async def cleanup_report(current_user: Annotated[AuthUser, Depends(require_permission("mssp:read"))], db: TenantDBSession) -> CleanupReport:
+    """Clients (not hidden) with nothing in them: no devices, no alerts, no cases and no tool client mapped to them. Candidates to archive or remove; nothing is changed here."""
+    owner = current_user.tenant_id
+    children = (await db.execute(select(Tenant).where(Tenant.parent_tenant_id == owner).order_by(Tenant.name))).scalars().all()
+    visible = [c for c in children if not tenant_hidden(c)]
+    mapped = dict(
+        (
+            await db.execute(
+                select(ClientAlias.child_tenant_id, func.count())
+                .where(ClientAlias.tenant_id == owner, ClientAlias.child_tenant_id.is_not(None))
+                .group_by(ClientAlias.child_tenant_id)
+            )
+        ).all()
+    )
+    empty: list[CleanupClient] = []
+    for c in visible:
+        async with acting_as_tenant(db, c.id):
+            counts = [
+                (await db.execute(text(f"SELECT count(*) FROM {table} WHERE tenant_id = :t"), {"t": c.id})).scalar_one()
+                for table in ("devices", "alerts", "cases")
+            ]
+        if not any(counts) and not mapped.get(c.id):
+            empty.append(CleanupClient(id=c.id, name=c.name, devices=counts[0], alerts=counts[1], cases=counts[2], tool_clients=0))
+    return CleanupReport(checked=len(visible), empty=empty)
+
+
 ARCHIVED_SUFFIX = " (archived)"
 
 
