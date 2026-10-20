@@ -221,3 +221,29 @@ async def test_the_summary_counts_the_last_day_per_client_and_what_is_still_unsc
     assert (s.last_24h, s.failed_last_24h, s.users_last_24h) == (3, 1, 3)
     assert s.scored_last_24h == 2 and s.unscored >= 1
     assert s.newest_received is not None
+
+
+async def test_top_signins_are_the_highest_scores_of_the_window_with_their_client(world, monkeypatch):
+    fake_scoring(monkeypatch)
+    await run(
+        world["msp"],
+        lambda db: ep.apply_signins(db, world["msp"], report(item("t1"), item("t2", user="b@x.com"), item("t3", user="c@x.com")), NOW),
+    )
+    engine = create_async_engine(PG_URL)
+    async with engine.begin() as c:
+        await c.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
+        for sid, score, age in (("t1", 0.2, timedelta(hours=1)), ("t2", 0.9, timedelta(hours=2)), ("t3", 0.99, timedelta(days=30))):
+            await c.execute(
+                text("update signin_events set anomaly_score = :s, occurred_at = now() - cast(:a as interval) where source_id = :i and tenant_id = :t"),
+                {"s": score, "a": age, "i": sid, "t": world["mapped"]},
+            )
+    await engine.dispose()
+
+    class User:
+        tenant_id = world["msp"]
+
+    top = await run(world["msp"], lambda db: ep.top_signins(User(), db, days=7, limit=10))
+    assert [t.user for t in top] == ["b@x.com", "a@x.com"], "highest first; the 30-day-old one is outside the window"
+    assert top[0].client_id == world["mapped"] and top[0].client_name.startswith("mapped-")
+    one = await run(world["msp"], lambda db: ep.top_signins(User(), db, days=7, limit=1))
+    assert len(one) == 1

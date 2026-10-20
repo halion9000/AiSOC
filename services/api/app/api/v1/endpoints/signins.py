@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 
@@ -356,3 +356,71 @@ async def signin_summary(current_user: Annotated[AuthUser, Depends(require_permi
     return SigninSummary(
         last_24h=total, failed_last_24h=failed, scored_last_24h=scored, unscored=unscored, users_last_24h=users, newest_received=newest
     )
+
+
+class ScoredSignin(BaseModel):
+    client_id: uuid.UUID
+    client_name: str | None
+    user: str
+    display_name: str | None
+    occurred_at: datetime
+    score: float
+    success: bool
+    country: str | None
+    city: str | None
+    ip_address: str | None
+    app: str | None
+    mfa: bool | None
+    risk: str | None
+
+
+@router.get(
+    "/top",
+    response_model=list[ScoredSignin],
+    summary="The highest-scoring sign-ins of the last days, across clients (nothing alerts on these yet)",
+)
+async def top_signins(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: DBSession,
+    days: int = Query(default=7, ge=1, le=45),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[ScoredSignin]:
+    owner = current_user.tenant_id
+    children = (await db.execute(select(Tenant.id, Tenant.name).where(Tenant.parent_tenant_id == owner))).all()
+    names: dict[uuid.UUID, str | None] = {owner: None, **dict(children)}
+    since = datetime.now(UTC) - timedelta(days=days)
+    found: list[ScoredSignin] = []
+    for tid, name in names.items():
+        async with contextlib.nullcontext() if tid == owner else acting_as_tenant(db, tid):
+            rows = (
+                (
+                    await db.execute(
+                        select(SigninEvent)
+                        .where(SigninEvent.tenant_id == tid, SigninEvent.occurred_at >= since, SigninEvent.anomaly_score.is_not(None))
+                        .order_by(SigninEvent.anomaly_score.desc())
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        found.extend(
+            ScoredSignin(
+                client_id=tid,
+                client_name=name,
+                user=r.user_principal,
+                display_name=r.display_name,
+                occurred_at=r.occurred_at,
+                score=float(r.anomaly_score or 0),
+                success=r.success,
+                country=r.country,
+                city=r.city,
+                ip_address=r.ip_address,
+                app=r.app,
+                mfa=r.mfa,
+                risk=r.risk,
+            )
+            for r in rows
+        )
+    found.sort(key=lambda s: (-s.score, s.occurred_at))
+    return found[:limit]
