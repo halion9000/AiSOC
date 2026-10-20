@@ -1,8 +1,8 @@
 """How a device is recognised across tools: the serial number is the key, the hostname only suggests.
 
 A serial number is trusted to be the same machine in every tool, so devices from different tools merge on it automatically. Tools often report junk instead of a real serial
-("To Be Filled By O.E.M.", "0", "Default string"), and two unrelated machines would then merge, so those values count as no serial. A hostname is NOT trusted: the same name can be two
-machines (or one machine renamed), so a hostname match only ever produces a "possible duplicate" for a person to confirm.
+("To Be Filled By O.E.M.", "0", "Default string"), and two unrelated machines would then merge, so those values count as no serial. A hostname alone is NOT trusted: the same name can be two
+machines (or one machine renamed). A pair is merged on its name only when it is unambiguous (``device_merge.auto_merge_same_name``); every other name match is a "possible duplicate" for a person to confirm.
 """
 
 from __future__ import annotations

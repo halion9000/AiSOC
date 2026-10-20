@@ -13,6 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.device import Device, DeviceMergeDismissal, DeviceMergeLog, DeviceSource
+from app.services.device_identity import hostname_key
 
 
 class DeviceMergeError(ValueError):
@@ -177,5 +178,79 @@ async def undo_merge(db: Any, tenant_id: uuid.UUID, merge_id: uuid.UUID, now: da
     if filled.get("first_seen_was"):
         keep.first_seen = datetime.fromisoformat(filled["first_seen_was"])
     entry.undone_at = now or datetime.now(UTC)
+    # A merge that was undone was judged wrong: the two are not suggested or merged automatically again.
+    lo, hi = _ordered(restored_id, keep.id)
+    await db.execute(pg_insert(DeviceMergeDismissal).values(tenant_id=tenant_id, device_a=lo, device_b=hi).on_conflict_do_nothing())
     await db.flush()
     return restored_id
+
+
+# ---- same name, unambiguous: merged without asking ---------------------------------------------------------------------------------------------------------
+
+_OS_KINDS = (
+    ("windows", "windows"),
+    ("mac", "mac"),
+    ("darwin", "mac"),
+    ("os x", "mac"),
+    ("ios", "ios"),
+    ("ipad", "ios"),
+    ("linux", "linux"),
+    ("ubuntu", "linux"),
+    ("debian", "linux"),
+)
+
+
+def os_kind(os_name: str | None) -> str | None:
+    """windows / mac / ios / linux from the OS text a tool reports, or None when it says nothing useful."""
+    text = (os_name or "").lower()
+    for needle, kind in _OS_KINDS:
+        if needle in text:
+            return kind
+    return None
+
+
+async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> int:
+    """Merge, in one client, each pair of devices that are plainly one machine seen by different tools. Returns how many pairs were merged.
+
+    Only when ALL of these hold, so a wrong merge stays rare:
+      * the two share a hostname that is not a stock name (``server``, ``MacBook-Pro``...): a name only two devices in the client have;
+      * no tool reports both (two entries from the same tool are two machines that happen to share a name);
+      * they are not provably different: no two different serial numbers, and the operating systems they report do not disagree (a Windows PC and a Mac);
+      * nobody said they are different machines (a pair marked "not a duplicate", or a merge that was undone).
+    The merge is the ordinary one: logged, and a person can undo it for two weeks."""
+    from app.services.client_matching import is_generic_hostname
+
+    devices = (await db.execute(select(Device).where(Device.tenant_id == tenant_id))).scalars().all()
+    by_name: dict[str, list[Device]] = {}
+    for d in devices:
+        key = hostname_key(d.hostname)
+        if key and not is_generic_hostname(key):
+            by_name.setdefault(key, []).append(d)
+    pairs = [g for g in by_name.values() if len(g) == 2]
+    if not pairs:
+        return 0
+    vendors: dict[uuid.UUID, set[str]] = {}
+    for device_id, vendor in (
+        await db.execute(select(DeviceSource.device_id, DeviceSource.vendor).where(DeviceSource.tenant_id == tenant_id))
+    ).all():
+        vendors.setdefault(device_id, set()).add(vendor)
+    dismissed = {
+        (x.device_a, x.device_b)
+        for x in (await db.execute(select(DeviceMergeDismissal).where(DeviceMergeDismissal.tenant_id == tenant_id))).scalars().all()
+    }
+    merged = 0
+    for a, b in pairs:
+        if a.serial_number and b.serial_number:
+            continue
+        va, vb = vendors.get(a.id, set()), vendors.get(b.id, set())
+        if not va or not vb or (va & vb):
+            continue
+        ka, kb = os_kind(a.os), os_kind(b.os)
+        if ka and kb and ka != kb:
+            continue
+        if _ordered(a.id, b.id) in dismissed:
+            continue
+        keep, remove = sorted((a, b), key=lambda d: (-len(vendors[d.id]), d.first_seen, str(d.id)))
+        await merge_devices(db, tenant_id, keep.id, remove.id, actor_id)
+        merged += 1
+    return merged

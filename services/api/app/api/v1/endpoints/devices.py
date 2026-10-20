@@ -32,7 +32,7 @@ from app.models.client_alias import ClientAlias
 from app.models.device import Device, DeviceMergeLog, DeviceSnooze, DeviceSource
 from app.models.tenant import Tenant
 from app.services.client_mapping import auto_link_by_devices, record_device_hints, tenant_hidden
-from app.services.device_merge import DeviceMergeError, can_undo, dismiss_pair, merge_devices, undo_merge
+from app.services.device_merge import DeviceMergeError, auto_merge_same_name, can_undo, dismiss_pair, merge_devices, undo_merge
 from app.services.device_upsert import DeviceReport, possible_duplicates, upsert_device
 
 logger = logging.getLogger(__name__)
@@ -900,6 +900,30 @@ class DevicesResponse(BaseModel):
     unmapped_clients: list[UnmappedClient] = Field(default_factory=list)
     # Tool clients linked to a client just now because all their (non-generic) machines are already under it.
     auto_linked: int = 0
+    # Pairs of devices merged just now because they are plainly one machine seen by different tools (see ``device_merge.auto_merge_same_name``).
+    merged: int = 0
+
+
+# A client is checked for same-name pairs at most this often: the tools report in many small batches and the check reads the client's devices.
+AUTO_MERGE_EVERY_SECONDS = 600
+_auto_merge_last: dict[uuid.UUID, float] = {}
+
+
+async def _auto_merge_touched(db: Any, tenants: list[uuid.UUID], now: float | None = None) -> int:
+    """Merge the plainly-the-same machines of each client a report just touched. Never lets a problem here spoil the report: it runs in its own savepoint and any error is logged and skipped."""
+    moment = time.monotonic() if now is None else now
+    merged = 0
+    for tid in tenants:
+        if moment - _auto_merge_last.get(tid, -1e12) < AUTO_MERGE_EVERY_SECONDS:
+            continue
+        _auto_merge_last[tid] = moment
+        try:
+            async with db.begin_nested():
+                async with acting_as_tenant(db, tid):
+                    merged += await auto_merge_same_name(db, tid)
+        except Exception:  # noqa: BLE001 - a failed tidy-up must not fail the device report
+            logger.exception("device auto-merge failed for a client; skipped")
+    return merged
 
 
 async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> DevicesResponse:
@@ -961,8 +985,9 @@ async def apply_devices(db: Any, owner: uuid.UUID, report: DevicesReport) -> Dev
                     ),
                 )
                 accepted += 1
+    merged = await _auto_merge_touched(db, list(by_tenant))
     return DevicesResponse(
-        accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=unmapped_clients, auto_linked=auto_linked
+        accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=unmapped_clients, auto_linked=auto_linked, merged=merged
     )
 
 

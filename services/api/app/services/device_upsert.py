@@ -3,7 +3,8 @@
 Rules, in order:
   * The tool's own id for the device is looked up first (``device_sources``). A tool reporting the same id again updates the same device.
   * Otherwise a usable serial number finds the client's device with that serial (created if none). Serial is the only automatic match across tools.
-  * With no usable serial the report becomes its own new device. It is never merged by hostname; ``possible_duplicates`` offers that for a person to confirm.
+  * With no usable serial the report becomes its own new device. It is not merged by hostname at this point; afterwards ``device_merge.auto_merge_same_name`` merges a pair that is plainly one machine
+    (a unique, non-stock name; different tools; no conflicting serial or OS), and ``possible_duplicates`` offers every other same-name pair for a person to confirm.
 If a known source now reports a serial that belongs to a different device in the client, the source moves to that device, and a device left with no sources is removed.
 """
 

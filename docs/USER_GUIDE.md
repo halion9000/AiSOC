@@ -141,6 +141,8 @@ One row per machine, combined from every tool that reports it (matched on serial
 
 **Export CSV.** Exports the filtered list (client, device, serial, OS, tools, last online, needs attention, open alerts). Cells that start with `=`, `+`, `-` or `@` get a leading apostrophe so spreadsheets do not run them as formulas.
 
+**Merged automatically (new).** Two devices in one client are merged without asking when they are plainly one machine seen by different tools: the same name that no other device in the client has, a name that is not a stock one (server, MacBook-Pro...), no tool reporting both, no two different serial numbers, and operating systems that do not disagree. It is logged under **Recent merges** with **Undo**, and an undone merge is never redone. The merged device keeps every tool's feed. Anything less certain stays in Possible duplicates.
+
 **Duplicates.** Possible duplicates (same name, no serial proving they differ) can be compared and **Merged**. **Recent merges** (last 14 days) each have **Undo**, which brings the removed device back with its feeds. **Dismiss** remembers they are different machines.
 
 ## 9. Identity (all new, from CIPP through CORE)
