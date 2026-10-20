@@ -576,6 +576,8 @@ export interface DeviceQuery {
   hasAlerts?: boolean;
   /** Only devices a person hid until they check back in (they are left out otherwise). */
   hidden?: boolean;
+  /** Only devices running this kind of operating system. */
+  os?: 'windows' | 'mac' | 'ios' | 'linux';
 }
 
 export interface DuplicatePair {
@@ -640,6 +642,7 @@ export const devicesApi = {
     if (q.offline) p.set('offline', 'true');
     if (q.hasAlerts) p.set('has_alerts', 'true');
     if (q.hidden) p.set('hidden', 'true');
+    if (q.os) p.set('os', q.os);
     const qs = p.toString();
     return request<DeviceList>(`/api/v1/devices${qs ? `?${qs}` : ''}`);
   },
@@ -664,6 +667,7 @@ export const devicesApi = {
     if (q.offline) p.set('offline', 'true');
     if (q.hasAlerts) p.set('has_alerts', 'true');
     if (q.hidden) p.set('hidden', 'true');
+    if (q.os) p.set('os', q.os);
     return p.toString();
   },
   /** The devices matching the filters, as CSV text. */

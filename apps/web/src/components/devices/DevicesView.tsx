@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceRow } from '@/lib/api';
+import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceQuery, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import DuplicateDevices from './DuplicateDevices';
 import { ClientRollupTable } from './ClientRollupTable';
@@ -36,9 +36,36 @@ function urlParam(params: URLSearchParams | null, name: string): string {
   return typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? '');
 }
 
+/** The filters a link to this page names (``?client=<id>&attention=1&stale=1&offline=1&alerts=1&missing=huntress&os=mac&tool=huntress``), or null when it names none. */
+export function filtersFromParams(params: URLSearchParams | null): Partial<SavedDeviceFilters> | null {
+  if (!params) return null;
+  const out: Partial<SavedDeviceFilters> = {};
+  const client = params.get('client');
+  if (client) out.clientId = client.slice(0, 64);
+  const tool = params.get('tool');
+  if (tool) out.vendor = tool.slice(0, 40);
+  const osName = params.get('os');
+  if (osName) out.os = osName;
+  const missing = params.get('missing');
+  if (missing === 'addigy' || missing === 'threatmate' || missing === 'huntress') out.missing = missing;
+  if (params.get('attention') === '1') out.attentionOnly = true;
+  if (params.get('stale') === '1') out.staleOnly = true;
+  if (params.get('offline') === '1') out.offlineOnly = true;
+  if (params.get('alerts') === '1') out.alertsOnly = true;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+const OS_CHOICES: { value: string; label: string }[] = [
+  { value: 'windows', label: 'Windows' },
+  { value: 'mac', label: 'Mac' },
+  { value: 'ios', label: 'iOS / iPadOS' },
+  { value: 'linux', label: 'Linux' },
+];
+
 interface SavedDeviceFilters {
   clientId: string;
   vendor: string;
+  os: string;
   missing: Missing | null;
   gapsOnly: boolean;
   attentionOnly: boolean;
@@ -66,6 +93,7 @@ export default function DevicesView() {
   }
   const [clientId, setClientId] = useState('');
   const [vendor, setVendor] = useState('');
+  const [os, setOs] = useState('');
   const [gapsOnly, setGapsOnly] = useState(false);
   const [missing, setMissing] = useState<Missing | null>(null);
   const [attentionOnly, setAttentionOnly] = useState(false);
@@ -78,10 +106,13 @@ export default function DevicesView() {
   // The filters a person picked last time come back when they return (not the search or the hidden list, which are for the moment).
   const [filtersRestored, setFiltersRestored] = useState(false);
   useEffect(() => {
-    const saved = loadFilters<SavedDeviceFilters>('devices');
+    // A link from another page (a posture tile, say) names the filters it wants, and those win over what was saved.
+    const fromLink = filtersFromParams(urlParams);
+    const saved = fromLink ?? loadFilters<SavedDeviceFilters>('devices');
     if (saved) {
       setClientId(pickString(saved.clientId));
       setVendor(pickString(saved.vendor));
+      setOs(pickString(saved.os, OS_CHOICES.map((o) => o.value)));
       setMissing((pickString(saved.missing, ['addigy', 'threatmate', 'huntress']) || null) as Missing | null);
       setGapsOnly(saved.gapsOnly === true);
       setAttentionOnly(saved.attentionOnly === true);
@@ -90,22 +121,24 @@ export default function DevicesView() {
       setAlertsOnly(saved.alertsOnly === true);
     }
     setFiltersRestored(true);
+    // Only on first show.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (filtersRestored) saveFilters('devices', { clientId, vendor, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly } satisfies SavedDeviceFilters);
-  }, [filtersRestored, clientId, vendor, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly]);
+    if (filtersRestored) saveFilters('devices', { clientId, vendor, os, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly } satisfies SavedDeviceFilters);
+  }, [filtersRestored, clientId, vendor, os, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined }));
+      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, os: (os || undefined) as DeviceQuery['os'], notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined }));
     } catch (err) {
       setError(devicesLoadError(err));
     } finally {
       setLoading(false);
     }
-  }, [page, clientId, search, vendor, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly, staleOnly, hiddenOnly]);
+  }, [page, clientId, search, vendor, os, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly, staleOnly, hiddenOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), search ? 250 : 0);
@@ -121,7 +154,7 @@ export default function DevicesView() {
 
   const exportCsv = async () => {
     try {
-      const text = await devicesApi.exportCsv({ clientId: clientId || undefined, search, vendor: vendor || undefined, notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined });
+      const text = await devicesApi.exportCsv({ clientId: clientId || undefined, search, vendor: vendor || undefined, os: (os || undefined) as DeviceQuery['os'], notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined });
       const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
       link.href = url;
@@ -325,6 +358,22 @@ export default function DevicesView() {
           {toolChoices.map((v) => (
             <option key={v} value={v}>
               {vendorLabel(v)}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Operating system"
+          value={os}
+          onChange={(e) => {
+            setOs(e.target.value);
+            setPage(1);
+          }}
+          className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-white"
+        >
+          <option value="">Any OS</option>
+          {OS_CHOICES.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
             </option>
           ))}
         </select>

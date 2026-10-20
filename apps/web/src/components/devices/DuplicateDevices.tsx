@@ -144,11 +144,25 @@ function Side({ d }: { d: DeviceRow }) {
   );
 }
 
+/** A heading that opens and closes its panel, closed to begin with so the two panels do not push the device list down the page. */
+function Toggle({ title, open, onToggle, tone }: { title: string; open: boolean; onToggle: () => void; tone: string }) {
+  return (
+    <h2 className="text-xs font-medium uppercase tracking-wider">
+      <button type="button" aria-expanded={open} onClick={onToggle} className={`flex w-full items-center gap-2 text-left uppercase tracking-wider ${tone}`}>
+        <span aria-hidden>{open ? '▾' : '▸'}</span>
+        {title}
+      </button>
+    </h2>
+  );
+}
+
 export default function DuplicateDevices({ clientId, onChanged }: { clientId?: string; onChanged: () => void }) {
   const [pairs, setPairs] = useState<DuplicatePair[]>([]);
   const [merges, setMerges] = useState<MergeEntry[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [mergesOpen, setMergesOpen] = useState(false);
+  const [pairsOpen, setPairsOpen] = useState(false);
 
   const [reloads, setReloads] = useState(0);
 
@@ -183,8 +197,9 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
 
   const undoList = merges.length > 0 && (
     <section aria-label="Recent merges" className="rounded-lg border border-gray-800 bg-gray-900/40 p-4" data-testid="recent-merges">
-      <h2 className="text-xs font-medium uppercase tracking-wider text-gray-400">Recent merges ({merges.length})</h2>
-      <p className="mt-1 text-xs text-gray-500">Merged by mistake? Undo brings the removed device back with its feeds. Merges can be undone for two weeks.</p>
+      <Toggle title={`Recent merges (${merges.length})`} open={mergesOpen} onToggle={() => setMergesOpen((v) => !v)} tone="text-gray-400" />
+      {mergesOpen && <p className="mt-1 text-xs text-gray-500">Merged by mistake? Undo brings the removed device back with its feeds. Merges can be undone for two weeks.</p>}
+      {mergesOpen && (
       <ul className="mt-2 space-y-1 text-sm">
         {merges.map((m) => (
           <li key={m.id} className="flex flex-wrap items-center gap-3">
@@ -205,6 +220,7 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
           </li>
         ))}
       </ul>
+      )}
     </section>
   );
   if (pairs.length === 0) return undoList || null;
@@ -212,8 +228,9 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
     <>
       {undoList}
     <section role="region" aria-label="Possible duplicate devices" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-      <h2 className="text-xs font-medium uppercase tracking-wider text-amber-400">Possible duplicates ({pairs.length})</h2>
-      <p className="mt-1 text-xs text-gray-400">Same name, and no serial number to tell whether they are one machine. Nothing is merged until you say so.</p>
+      <Toggle title={`Possible duplicates (${pairs.length})`} open={pairsOpen} onToggle={() => setPairsOpen((v) => !v)} tone="text-amber-400" />
+      {pairsOpen && <p className="mt-1 text-xs text-gray-400">Same name, and no serial number to tell whether they are one machine. Nothing is merged until you say so.</p>}
+      {pairsOpen && (
       <ul className="mt-3 space-y-2">
         {pairs.map(({ a, b }) => {
           const key = `${a.id}:${b.id}`;
@@ -272,6 +289,7 @@ export default function DuplicateDevices({ clientId, onChanged }: { clientId?: s
           );
         })}
       </ul>
+      )}
     </section>
     </>
   );

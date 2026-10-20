@@ -374,3 +374,23 @@ def test_a_dnsfilter_sync_counts_as_the_device_having_been_online():
     assert last_online_of(d.sources) == datetime(2026, 10, 19, 14, 0, tzinfo=UTC)
     newer = device("Windows 11", [("dnsfilter", {"last_sync_at": stamp}), ("ninjaone", {"last_contact": "2026-10-19T16:00:00Z"})])
     assert last_online_of(newer.sources) == datetime(2026, 10, 19, 16, 0, tzinfo=UTC)
+
+
+def test_the_kind_of_operating_system_is_read_from_what_the_tools_report():
+    from app.api.v1.endpoints.devices import filter_devices, os_family
+
+    def of(os_name, model=None):
+        d = device(os_name, [("ninjaone", {})])
+        d.model = model
+        return os_family(d)
+
+    assert of("Windows 11 Pro") == "windows" and of("Microsoft Windows Server 2022") == "windows"
+    assert of("macOS 14.5") == "mac" and of("Mac OS X") == "mac"
+    assert of(None, "MacBook Pro (16-inch)") == "mac", "a Mac whose OS is blank is known by its model"
+    assert of("iOS 17") == "ios" and of("iPadOS 17") == "ios"
+    assert of("Ubuntu 22.04") == "linux" and of("Red Hat Enterprise Linux 9") == "linux"
+    assert of("Search appliance 1") == "other", "a word that merely contains a distro name is not Linux"
+    assert of(None) == "other"
+    devices = [device("Windows 11", [("ninjaone", {})]), device("macOS 14", [("ninjaone", {})]), device("iPadOS 17", [("addigy", {})])]
+    assert [os_family(d) for d in filter_devices(devices, os="mac")] == ["mac"]
+    assert len(filter_devices(devices)) == 3

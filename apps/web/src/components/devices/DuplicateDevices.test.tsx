@@ -25,6 +25,14 @@ beforeEach(() => {
   toast.error.mockReset();
 });
 
+/** The two panels start closed: open one the way a person does. */
+async function openPairs() {
+  await userEvent.setup().click(await screen.findByRole('button', { name: /Possible duplicates/ }));
+}
+async function openMerges() {
+  await userEvent.setup().click(await screen.findByRole('button', { name: /Recent merges/ }));
+}
+
 describe('DuplicateDevices', () => {
   it('shows nothing when there are no possible duplicates', async () => {
     api.duplicates.mockResolvedValue({ items: [] });
@@ -35,6 +43,7 @@ describe('DuplicateDevices', () => {
 
   it('lists each pair with its client and the tools that report each side', async () => {
     render(<DuplicateDevices onChanged={vi.fn()} />);
+    await openPairs();
     expect(await screen.findByRole('region', { name: 'Possible duplicate devices' })).toHaveTextContent('Possible duplicates (1)');
     expect(screen.getByText('FRONT-DESK')).toBeInTheDocument();
     expect(screen.getByText('front-desk')).toBeInTheDocument();
@@ -52,6 +61,7 @@ describe('DuplicateDevices', () => {
   it('merges into the first, keeping its id, then refreshes the list and the page', async () => {
     const onChanged = vi.fn();
     render(<DuplicateDevices onChanged={onChanged} />);
+    await openPairs();
     api.duplicates.mockResolvedValue({ items: [] });
     await userEvent.setup().click(await screen.findByRole('button', { name: /Merge front-desk into the first FRONT-DESK/ }));
     expect(api.mergeDuplicates).toHaveBeenCalledWith('a', 'b');
@@ -61,12 +71,14 @@ describe('DuplicateDevices', () => {
 
   it('merges into the second the other way round', async () => {
     render(<DuplicateDevices onChanged={vi.fn()} />);
+    await openPairs();
     await userEvent.setup().click(await screen.findByRole('button', { name: /Merge FRONT-DESK into the second front-desk/ }));
     expect(api.mergeDuplicates).toHaveBeenCalledWith('b', 'a');
   });
 
   it('remembers "not a duplicate" for the pair', async () => {
     render(<DuplicateDevices onChanged={vi.fn()} />);
+    await openPairs();
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Not a duplicate' }));
     expect(api.dismissDuplicate).toHaveBeenCalledWith('a', 'b');
     expect(api.mergeDuplicates).not.toHaveBeenCalled();
@@ -76,6 +88,7 @@ describe('DuplicateDevices', () => {
     api.mergeDuplicates.mockRejectedValue(new Error('These have different serial numbers, so they are different machines.'));
     const onChanged = vi.fn();
     render(<DuplicateDevices onChanged={onChanged} />);
+    await openPairs();
     await userEvent.setup().click(await screen.findByRole('button', { name: /into the first/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('These have different serial numbers, so they are different machines.'));
     expect(onChanged).not.toHaveBeenCalled();
@@ -91,6 +104,7 @@ describe('DuplicateDevices', () => {
 
   it('opens a side-by-side comparison when the row is clicked, and closes it again', async () => {
     render(<DuplicateDevices onChanged={vi.fn()} />);
+    await openPairs();
     const user = userEvent.setup();
     expect(screen.queryByTestId('duplicate-compare')).not.toBeInTheDocument();
     await user.click(await screen.findByText('FRONT-DESK'));
@@ -103,6 +117,7 @@ describe('DuplicateDevices', () => {
 
   it('does not open the comparison when a merge or dismiss button is pressed', async () => {
     render(<DuplicateDevices onChanged={vi.fn()} />);
+    await openPairs();
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Not a duplicate' }));
     expect(screen.queryByTestId('duplicate-compare')).not.toBeInTheDocument();
   });
@@ -140,6 +155,7 @@ describe('undoing a merge', () => {
     api.merges.mockResolvedValueOnce([entry]).mockResolvedValue([]);
     const onChanged = vi.fn();
     render(<DuplicateDevices onChanged={onChanged} />);
+    await openMerges();
     const list = await screen.findByTestId('recent-merges');
     expect(list).toHaveTextContent('FRONT-DESK');
     expect(list).toHaveTextContent('Acme');
@@ -155,8 +171,22 @@ describe('undoing a merge', () => {
     api.merges.mockResolvedValue([entry]);
     api.undoMerge.mockRejectedValue(new Error('That merge is too old to undo.'));
     render(<DuplicateDevices onChanged={vi.fn()} />);
+    await openMerges();
     await userEvent.setup().click(await screen.findByRole('button', { name: /Undo the merge/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('That merge is too old to undo.'));
+  });
+
+  it('starts with both panels closed, and a heading opens and closes each', async () => {
+    render(<DuplicateDevices onChanged={vi.fn()} />);
+    const pairsToggle = await screen.findByRole('button', { name: /Possible duplicates/ });
+    expect(pairsToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'Not a duplicate' })).toBeNull();
+    const user = userEvent.setup();
+    await user.click(pairsToggle);
+    expect(pairsToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Not a duplicate' })).toBeInTheDocument();
+    await user.click(pairsToggle);
+    expect(screen.queryByRole('button', { name: 'Not a duplicate' })).toBeNull();
   });
 
   it('is quiet when there is nothing to undo or the list cannot be read', async () => {

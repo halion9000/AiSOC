@@ -129,6 +129,25 @@ def is_mobile(d: Any) -> bool:
     return bool(_MOBILE.search(f"{d.os or ''} {d.model or ''}".lower()))
 
 
+_MAC_MODEL = re.compile(r"macbook|imac|mac\s?(mini|pro|studio)")
+_LINUX_OS = re.compile(r"\b(linux|ubuntu|debian|centos|red\s?hat|rhel|fedora|suse|almalinux|rocky)\b")
+OS_FAMILIES = ("windows", "mac", "ios", "linux")
+
+
+def os_family(d: Any) -> str:
+    """Which kind of operating system a device runs: ``ios`` (iPhone and iPad), ``mac``, ``windows``, ``linux``, or ``other`` when no tool says. Decided from the OS the tools report, and the model for a Mac whose OS is blank."""
+    if is_mobile(d):
+        return "ios"
+    os_text = (d.os or "").lower()
+    if _APPLE_OS.search(os_text) or (not os_text and _MAC_MODEL.search((d.model or "").lower())):
+        return "mac"
+    if "windows" in os_text:
+        return "windows"
+    if _LINUX_OS.search(os_text):
+        return "linux"
+    return "other"
+
+
 OFFLINE_AFTER_DAYS = 7
 # A device no tool has seen online for this long stops counting toward every number and filter except the offline count: a machine in a drawer is not a problem to chase. It stays in the list.
 LONG_OFFLINE_DAYS = 10
@@ -436,6 +455,7 @@ def filter_devices(
     attention: bool = False,
     stale: bool = False,
     hidden: bool = False,
+    os: str | None = None,
 ) -> list[DeviceOut]:
     """The devices a page (or an export) asked for: every filter given must hold. ``search`` matches the name, serial number, client name or any IP address, ignoring case. Sorted by client, then name."""
     rows = [d for d in everything if (d.hidden_since is not None) == hidden]
@@ -454,6 +474,8 @@ def filter_devices(
         ]
     if vendor:
         rows = [d for d in rows if any(s.vendor == vendor for s in d.sources)]
+    if os:
+        rows = [d for d in rows if os_family(d) == os]
     if not_in_master:
         rows = [d for d in rows if not d.in_master]
     if missing:
@@ -523,6 +545,9 @@ async def list_devices(
         default=False,
         description="Only devices a person hid until they check back in. Without this they are left out of the list and every count.",
     ),
+    os: str | None = Query(
+        default=None, pattern="^(windows|mac|ios|linux)$", description="Only devices running this kind of operating system."
+    ),
 ) -> DeviceListOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
@@ -555,6 +580,7 @@ async def list_devices(
         attention=attention,
         stale=stale,
         hidden=hidden,
+        os=os,
     )
     total = len(rows)
     start = (page - 1) * page_size
@@ -602,6 +628,7 @@ async def export_devices(
     attention: bool = Query(default=False),
     stale: bool = Query(default=False),
     hidden: bool = Query(default=False),
+    os: str | None = Query(default=None, pattern="^(windows|mac|ios|linux)$"),
 ) -> Response:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
@@ -618,6 +645,7 @@ async def export_devices(
         attention=attention,
         stale=stale,
         hidden=hidden,
+        os=os,
     )
     body = devices_csv(rows)
     return Response(

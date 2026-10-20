@@ -17,7 +17,7 @@ const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-import DevicesView, { attentionOf, devicesLoadError, facts, protectionLines, ransomwareLinked, specs } from './DevicesView';
+import DevicesView, { filtersFromParams, attentionOf, devicesLoadError, facts, protectionLines, ransomwareLinked, specs } from './DevicesView';
 
 const NOW = '2026-10-15T15:00:00Z';
 function device(over: Partial<DeviceRow> & { hostname: string }): DeviceRow {
@@ -134,6 +134,26 @@ describe('DevicesView', () => {
     render(<DevicesView />);
     await screen.findByText('A');
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: undefined, offline: undefined, vendor: undefined })));
+  });
+
+  it('filters by operating system through the API and remembers the choice', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'MAC-1', os: 'macOS 14' })]));
+    render(<DevicesView />);
+    await screen.findByText('MAC-1');
+    await userEvent.selectOptions(screen.getByLabelText('Operating system'), 'mac');
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ os: 'mac' })));
+    expect(JSON.parse(window.localStorage.getItem('aisoc.filters.devices') ?? '{}').os).toBe('mac');
+    expect([...screen.getByLabelText('Operating system').querySelectorAll('option')].map((o) => o.textContent)).toEqual(['Any OS', 'Windows', 'Mac', 'iOS / iPadOS', 'Linux']);
+  });
+
+  it('a link that names filters opens the list already filtered, whatever was saved', async () => {
+    window.localStorage.setItem('aisoc.filters.devices', JSON.stringify({ vendor: 'addigy', os: 'linux' }));
+    routerParams.current = new URLSearchParams('client=c1&attention=1');
+    listMock.mockResolvedValue(list([device({ hostname: 'A' })]));
+    render(<DevicesView />);
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ clientId: 'c1', attention: true })));
+    expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ vendor: undefined, os: undefined }));
+    routerParams.current = new URLSearchParams('');
   });
 
   it('opening a row lists each feeding tool and the name it uses', async () => {
@@ -465,11 +485,28 @@ describe('opening from a link with ?search=', () => {
     try {
       listMock.mockResolvedValue(list([device({ hostname: 'Mac' })]));
       render(<DevicesView />);
-      await screen.findByText('Mac');
-      expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ search: 'Mac' }));
+      await waitFor(() => expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ search: 'Mac' })));
       expect((screen.getByPlaceholderText(/Search name, serial or client/i) as HTMLInputElement).value).toBe('Mac');
     } finally {
       routerParams.current = new URLSearchParams('');
     }
+  });
+});
+
+describe('filtersFromParams', () => {
+  it('reads the filters a link names, and nothing from an ordinary address', () => {
+    expect(filtersFromParams(new URLSearchParams('client=c1&attention=1&stale=1&offline=1&alerts=1&missing=huntress&os=mac&tool=huntress'))).toEqual({
+      clientId: 'c1',
+      vendor: 'huntress',
+      os: 'mac',
+      missing: 'huntress',
+      attentionOnly: true,
+      staleOnly: true,
+      offlineOnly: true,
+      alertsOnly: true,
+    });
+    expect(filtersFromParams(new URLSearchParams('search=PC-1'))).toBeNull();
+    expect(filtersFromParams(null)).toBeNull();
+    expect(filtersFromParams(new URLSearchParams('missing=bogus'))).toBeNull();
   });
 });
