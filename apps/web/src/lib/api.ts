@@ -1669,6 +1669,8 @@ export interface Case {
   priority?: CaseSeverity;
   assignee?: string;
   tenantId?: string;
+  /** The client the case belongs to, when it is one of an organization's clients (only the all-clients list says). */
+  clientName?: string;
   alertIds?: string[];
   /** Cached count from the backend so the UI doesn't have to re-aggregate. */
   alertCount?: number;
@@ -1825,6 +1827,10 @@ export interface CaseFilters {
   pageSize?: number;
   /** How many cases to fetch, newest first (the API allows up to 500; it answers 50 when this is left out). */
   limit?: number;
+  /** ``all``: this organization's cases and those of its clients. */
+  scope?: 'own' | 'all';
+  /** With scope ``all``, only this client's cases. */
+  clientId?: string;
 }
 
 /**
@@ -1891,6 +1897,7 @@ function normalizeCase(raw: unknown): Case {
     assignee: (r.assignee as string | null | undefined) ?? undefined,
     tenantId:
       (r.tenant_id as string | undefined) ?? (r.tenantId as string | undefined),
+    clientName: (r.client_name as string | null | undefined) ?? undefined,
     alertIds,
     alertCount:
       (r.alert_count as number | undefined) ??
@@ -1966,6 +1973,11 @@ export const casesApi = {
     const params: Record<string, string> = {};
     for (const [key, value] of Object.entries(filters)) {
       if (value === undefined || value === null || value === '') continue;
+      if (key === 'scope' && value === 'own') continue;
+      if (key === 'clientId') {
+        params.client_id = String(value);
+        continue;
+      }
       if (key === 'status' && typeof value === 'string' && value !== 'all') {
         params.status =
           UI_TO_BACKEND_STATUS[value as CaseStatus] ?? value;
@@ -1978,7 +1990,8 @@ export const casesApi = {
   },
 
   /** How many cases are in each group, over the whole caseload (the list is only one page of it). */
-  counts: () => request<CaseCounts>('/api/v1/cases/counts'),
+  counts: (scope: 'own' | 'all' = 'own', clientId?: string) =>
+    request<CaseCounts>('/api/v1/cases/counts', scope === 'all' ? { params: { scope, ...(clientId ? { client_id: clientId } : {}) } } : undefined),
 
   /**
    * The most recent cases (newest first), up to the API's maximum of 500 per request. Used by analytics, which needs more than a screenful.

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { casesApi, type Case, type CasesResponse } from '@/lib/api';
+import { casesApi, msspApi, type Case, type CasesResponse } from '@/lib/api';
+import { loadFilters, saveFilters } from '@/lib/remembered-filters';
 import { clsx } from 'clsx';
 import { safeFormat } from '@/lib/safe-date';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
@@ -66,6 +67,7 @@ function CaseCard({ c }: { c: Case }) {
               </span>
             </div>
             <h3 className="text-sm font-medium text-gray-200 group-hover:text-white truncate">{c.title}</h3>
+            {c.clientName ? <p className="text-xs text-blue-400/80" data-testid="case-client">{c.clientName}</p> : null}
             <div className="flex items-center gap-3 mt-2">
               <span className="text-xs text-gray-500">#{displayId}</span>
               <span className="text-xs text-gray-500">·</span>
@@ -131,12 +133,35 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // An organization with clients can look at all their cases at once. The choice is remembered in this browser.
+  const [scope, setScope] = useState<'own' | 'all'>('own');
+  const [clientId, setClientId] = useState('');
+  const [scopeRestored, setScopeRestored] = useState(false);
+  useEffect(() => {
+    const saved = loadFilters<{ scope: string; clientId: string }>('cases');
+    if (saved?.scope === 'all') setScope('all');
+    if (typeof saved?.clientId === 'string') setClientId(saved.clientId);
+    setScopeRestored(true);
+  }, []);
+  useEffect(() => {
+    if (scopeRestored) saveFilters('cases', { scope, clientId });
+  }, [scopeRestored, scope, clientId]);
+  const { data: clients } = useSWR(['cases-clients'], () => msspApi.listChildren().catch(() => []));
+  const hasClients = (clients?.length ?? 0) > 0;
+  const effectiveScope = hasClients ? scope : 'own';
+  const effectiveClient = effectiveScope === 'all' ? clientId : '';
+
   const { data: casesData, isLoading, mutate } = useSWR(
-    ['cases', statusFilter, severityFilter],
-    () => casesApi.list({ status: statusFilter !== 'all' ? statusFilter : undefined, limit: CASES_FETCHED }),
+    ['cases', statusFilter, severityFilter, effectiveScope, effectiveClient],
+    () =>
+      casesApi.list({
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+        limit: CASES_FETCHED,
+        ...(effectiveScope === 'all' ? { scope: 'all' as const, clientId: effectiveClient || undefined } : {}),
+      }),
   );
   // The tiles count the whole caseload, not the page of it that is loaded below.
-  const { data: counts, mutate: mutateCounts } = useSWR(['cases-counts'], () => casesApi.counts());
+  const { data: counts, mutate: mutateCounts } = useSWR(['cases-counts', effectiveScope, effectiveClient], () => casesApi.counts(effectiveScope, effectiveClient || undefined));
 
   const cases = (casesData?.cases || []).filter((c) => {
     if (search && !c.title.toLowerCase().includes(search.toLowerCase())) return false;
@@ -195,6 +220,39 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
           );
         })}
       </div>
+
+      {hasClients && (
+        <div className="flex flex-wrap items-center gap-3" data-testid="cases-scope">
+          <div role="group" aria-label="Whose cases" className="inline-flex rounded-lg border border-gray-800 bg-gray-900/60 p-0.5 text-sm">
+            {([['own', 'My organization'], ['all', 'All clients']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={effectiveScope === value}
+                onClick={() => setScope(value)}
+                className={clsx('rounded-md px-3 py-1.5 transition-colors', effectiveScope === value ? 'bg-blue-500/20 text-blue-300' : 'text-gray-400 hover:text-gray-200')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {effectiveScope === 'all' && (
+            <select
+              aria-label="Client"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className="bg-gray-900/60 border border-gray-800 rounded-lg text-sm text-gray-400 px-3 py-2 focus:outline-none focus:border-blue-500/50"
+            >
+              <option value="">Every client</option>
+              {[...(clients ?? [])].sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {/*
         WS-F3 — saved views. Cases keeps three slices of filter state, so we

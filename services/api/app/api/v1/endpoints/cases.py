@@ -50,6 +50,7 @@ from sqlalchemy import text
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.internal_auth import internal_service_headers
 from app.core.logging import safe_log_value
+from app.db.rls_scope import cross_tenant_reads
 from app.services.case_fanout import (
     FanoutResult,
     fanout_create_case,
@@ -57,6 +58,7 @@ from app.services.case_fanout import (
 )
 from app.services.case_postmortem import build_case_postmortem
 from app.services.case_postmortem_html import render_case_postmortem_html
+from app.services.case_scope import case_scoped
 from app.services.case_summary import build_case_summary
 from app.services.case_summary_html import render_case_summary_html
 
@@ -181,6 +183,9 @@ class CaseResponse(BaseModel):
     created_by: str | None
     tags: dict[str, Any]
     sla_due_at: datetime | None
+    # The tenant the case belongs to and, when it is one of the caller's clients, that client's name (only filled by the all-clients list).
+    tenant_id: uuid.UUID | None = None
+    client_name: str | None = None
     # Workstream 8 — populated only by ``POST /cases`` (create-time
     # fan-out) and ``PATCH /cases/{id}`` when ``status`` is changed.
     # The list is per-connector-instance and includes failures so the
@@ -307,6 +312,11 @@ def _coerce_tags(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _only(value: Any, kind: type) -> Any:
+    """``value`` when it is really a ``kind`` (a column the query did not select, or a stand-in, gives None)."""
+    return value if isinstance(value, kind) else None
+
+
 def _row_to_case(row: Any) -> CaseResponse:
     return CaseResponse(
         id=row.id,
@@ -330,6 +340,8 @@ def _row_to_case(row: Any) -> CaseResponse:
         created_by=row.created_by,
         tags=_coerce_tags(row.tags),
         sla_due_at=row.sla_due_at,
+        tenant_id=_only(getattr(row, "tenant_id", None), uuid.UUID),
+        client_name=_only(getattr(row, "client_name", None), str),
     )
 
 
@@ -386,6 +398,12 @@ async def _resolve_case_id(case_id: str, db: Any, tenant_id: uuid.UUID) -> uuid.
 # ────────────────────────────────────────────────────────────────────────────
 
 
+async def _own_and_client_ids(db: Any, owner: uuid.UUID) -> list[str]:
+    """This organization's tenant id and those of its clients, as strings for a UUID[] parameter. Nothing else ever enters a cross-tenant case query."""
+    rows = (await db.execute(text("SELECT id FROM tenants WHERE parent_tenant_id = :owner").bindparams(owner=owner))).fetchall()
+    return [str(owner), *[str(r[0]) for r in rows]]
+
+
 @router.get("", response_model=list[CaseResponse], summary="List cases")
 async def list_cases(
     db: DBSession,
@@ -395,40 +413,66 @@ async def list_cases(
     assignee: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0, le=1_000_000),
+    scope: Literal["own", "all"] = Query(
+        "own", description="``all``: this organization's cases AND those of its clients (each tagged with the client's name)."
+    ),
+    client_id: uuid.UUID | None = Query(None, description="With scope=all, only this client's cases."),
 ) -> list[CaseResponse]:
     # Tenant scoping is non-optional. The aisoc_cases table has carried a
     # tenant_id column since migration 012; until P2-W1 the API simply
     # ignored it, exposing every tenant's caseload to every authenticated
     # caller. Anchor the WHERE clause on tenant_id so the filter is always
     # present even when the operator passes no other filters.
-    where_clauses = ["tenant_id = :tenant_id"]
     params: dict[str, Any] = {
         "limit": limit,
         "offset": offset,
         "tenant_id": user.tenant_id,
     }
+    if scope == "all":
+        # This organization and the clients it owns, never anything else: the client ids come from the tenants table filtered on the caller's own id.
+        where_clauses = ["c.tenant_id = ANY(CAST(:tenants AS UUID[]))"]
+        if client_id is not None:
+            where_clauses.append("c.tenant_id = :only_tenant")
+            params["only_tenant"] = client_id
+    else:
+        where_clauses = ["tenant_id = :tenant_id"]
+    col = "c." if scope == "all" else ""
     statuses = [s.strip() for s in (status_filter if isinstance(status_filter, str) else "").split(",") if s.strip()]
     if len(statuses) == 1:
-        where_clauses.append("status = :status")
+        where_clauses.append(f"{col}status = :status")
         params["status"] = statuses[0]
     elif statuses:
         # A comma-separated list ("new,triaged") is any of them: the console's Open tab is every case still waiting to be worked.
-        where_clauses.append("status = ANY(CAST(:statuses AS TEXT[]))")
+        where_clauses.append(f"{col}status = ANY(CAST(:statuses AS TEXT[]))")
         params["statuses"] = statuses
     if severity:
-        where_clauses.append("severity = :severity")
+        where_clauses.append(f"{col}severity = :severity")
         params["severity"] = severity
     if assignee:
-        where_clauses.append("assignee = :assignee")
+        where_clauses.append(f"{col}assignee = :assignee")
         params["assignee"] = assignee
 
-    q = f"""
+    if scope == "all":
+        q = f"""
+        SELECT c.*, CASE WHEN c.tenant_id = :tenant_id THEN NULL ELSE t.name END AS client_name
+        FROM aisoc_cases c LEFT JOIN tenants t ON t.id = c.tenant_id
+        WHERE {" AND ".join(where_clauses)}
+        ORDER BY c.created_at DESC
+        LIMIT :limit OFFSET :offset
+    """
+    else:
+        q = f"""
         SELECT * FROM aisoc_cases
         WHERE {" AND ".join(where_clauses)}
         ORDER BY created_at DESC
         LIMIT :limit OFFSET :offset
     """
     try:
+        if scope == "all":
+            params["tenants"] = await _own_and_client_ids(db, user.tenant_id)
+            async with cross_tenant_reads(db):
+                rows = await db.execute(text(q).bindparams(**params))
+                return [_row_to_case(r) for r in rows.fetchall()]
         rows = await db.execute(text(q).bindparams(**params))
         return [_row_to_case(r) for r in rows.fetchall()]
     except Exception as exc:
@@ -448,14 +492,30 @@ class CaseCounts(BaseModel):
 
 
 @router.get("/counts", response_model=CaseCounts, summary="Count cases by status (the whole caseload, not one page of it)")
-async def case_counts(db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> CaseCounts:
+async def case_counts(
+    db: DBSession,
+    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    scope: Literal["own", "all"] = Query("own", description="``all``: this organization's cases and its clients'."),
+    client_id: uuid.UUID | None = Query(None, description="With scope=all, only this client's cases."),
+) -> CaseCounts:
     try:
-        rows = await db.execute(
-            text("SELECT status, count(*) FROM aisoc_cases WHERE tenant_id = :tenant_id GROUP BY status").bindparams(
-                tenant_id=user.tenant_id
+        if scope == "all":
+            tenants = await _own_and_client_ids(db, user.tenant_id)
+            only = [str(client_id)] if client_id is not None else tenants
+            async with cross_tenant_reads(db):
+                rows = await db.execute(
+                    text(
+                        "SELECT status, count(*) FROM aisoc_cases WHERE tenant_id = ANY(CAST(:tenants AS UUID[])) AND tenant_id = ANY(CAST(:only AS UUID[])) GROUP BY status"
+                    ).bindparams(tenants=tenants, only=only)
+                )
+                by_status = {str(status): int(n) for status, n in rows.fetchall()}
+        else:
+            rows = await db.execute(
+                text("SELECT status, count(*) FROM aisoc_cases WHERE tenant_id = :tenant_id GROUP BY status").bindparams(
+                    tenant_id=user.tenant_id
+                )
             )
-        )
-        by_status = {str(status): int(n) for status, n in rows.fetchall()}
+            by_status = {str(status): int(n) for status, n in rows.fetchall()}
     except Exception as exc:
         logger.exception("Database error in cases counts")
         raise HTTPException(status_code=503, detail="Database error") from exc
@@ -586,7 +646,7 @@ async def create_case(
 
 
 @router.get("/{case_id}", response_model=CaseResponse, summary="Get case")
-async def get_case(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]) -> CaseResponse:
+async def get_case(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:read"))]) -> CaseResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     row = (
         await db.execute(
@@ -600,7 +660,7 @@ async def get_case(case_id: str, db: DBSession, user: Annotated[AuthUser, Depend
 
 @router.patch("/{case_id}", response_model=CaseResponse, summary="Update case")
 async def update_case(
-    case_id: str, body: UpdateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]
+    case_id: str, body: UpdateCaseRequest, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:work"))]
 ) -> CaseResponse:  # noqa: E501
     import json as _json
 
@@ -718,7 +778,7 @@ async def update_case(
 
 @router.post("/{case_id}/alerts", response_model=CaseResponse, summary="Link alerts to a case")
 async def add_alerts(
-    case_id: str, body: AddAlertsRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]
+    case_id: str, body: AddAlertsRequest, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:write"))]
 ) -> CaseResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     ids_str = [str(a) for a in body.alert_ids]
@@ -747,7 +807,7 @@ async def add_alerts(
 
 @router.post("/{case_id}/observables", response_model=CaseResponse, summary="Update observable graph")
 async def update_observables(
-    case_id: str, body: UpdateObservablesRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]
+    case_id: str, body: UpdateObservablesRequest, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:write"))]
 ) -> CaseResponse:
     import json as _json
 
@@ -795,7 +855,7 @@ async def update_observables(
 
 @router.post("/{case_id}/comments", response_model=CommentResponse, status_code=201, summary="Add comment")
 async def add_comment(
-    case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:work"))]
+    case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:work"))]
 ) -> CommentResponse:  # noqa: E501
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (
@@ -846,7 +906,7 @@ async def add_comment(
 
 @router.get("/{case_id}/comments", response_model=list[CommentResponse], summary="List case comments")
 async def list_comments(
-    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
+    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:read"))]
 ) -> list[CommentResponse]:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     rows = (
@@ -867,23 +927,19 @@ async def list_comments(
 # avoids a behavior change for any existing integration that already speaks
 # `/comments`.
 @router.get("/{case_id}/notes", response_model=list[CommentResponse], summary="List case notes (alias of /comments)")
-async def list_notes(
-    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
-) -> list[CommentResponse]:
+async def list_notes(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:read"))]) -> list[CommentResponse]:
     return await list_comments(case_id, db, user)
 
 
 @router.post("/{case_id}/notes", response_model=CommentResponse, status_code=201, summary="Add case note (alias of /comments)")
 async def add_note(
-    case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:write"))]
+    case_id: str, body: AddCommentRequest, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:write"))]
 ) -> CommentResponse:
     return await add_comment(case_id, body, db, user)
 
 
 @router.get("/{case_id}/evidence", response_model=EvidenceReport, summary="Export evidence chain report")
-async def evidence_report(
-    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
-) -> EvidenceReport:
+async def evidence_report(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:read"))]) -> EvidenceReport:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     row = (
         await db.execute(
@@ -916,9 +972,7 @@ async def evidence_report(
 
 
 @router.get("/{case_id}/timeline", response_model=TimelineResponse, summary="Case activity timeline")
-async def case_timeline(
-    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
-) -> TimelineResponse:
+async def case_timeline(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:read"))]) -> TimelineResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     case_row = (
         await db.execute(
@@ -1040,9 +1094,7 @@ async def case_timeline(
 
 
 @router.get("/{case_id}/tasks", response_model=list[TaskResponse], summary="List case tasks")
-async def list_tasks(
-    case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(require_permission("cases:read"))]
-) -> list[TaskResponse]:
+async def list_tasks(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:read"))]) -> list[TaskResponse]:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (
         await db.execute(
@@ -1069,7 +1121,7 @@ async def create_task(
     case_id: str,
     body: CreateTaskRequest,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:write"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:write"))],
 ) -> TaskResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (
@@ -1120,7 +1172,7 @@ async def update_task(
     task_id: uuid.UUID,
     body: UpdateTaskRequest,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:write"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:write"))],
 ) -> TaskResponse:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     sets: list[str] = []
@@ -1207,7 +1259,7 @@ async def case_investigate(
     case_id: str,
     body: InvestigateRequest,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:work"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:work"))],
 ) -> dict[str, Any]:
     cid = await _resolve_case_id(case_id, db, user.tenant_id)
     exists = (
@@ -1253,7 +1305,7 @@ async def _require_own_run(run_id: str, user: Any) -> dict[str, Any]:
 async def list_case_investigations(
     case_id: str,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:read"))],
 ) -> dict[str, Any]:
     """List all investigation runs for a case.
 
@@ -1289,7 +1341,7 @@ async def list_case_investigations(
 async def case_investigation_run(
     case_id: str,
     run_id: str,
-    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:read"))],
 ) -> dict[str, Any]:
     return await _require_own_run(run_id, user)
 
@@ -1362,7 +1414,7 @@ async def _emit_summary_breadcrumb(
 async def case_auto_summary(
     case_id: str,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:read"))],
     format: Literal["json", "html"] = Query(
         "json",
         description=(
@@ -1397,7 +1449,7 @@ async def case_auto_summary(
 async def case_auto_postmortem(
     case_id: str,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:read"))],
     format: Literal["json", "html"] = Query(
         "json",
         description=(
@@ -1438,7 +1490,7 @@ async def case_auto_postmortem(
 async def case_investigation_pdf(
     case_id: str,
     run_id: str,
-    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:read"))],
 ) -> Response:
     await _require_own_run(run_id, user)  # the PDF is the run's content: same tenant check as the JSON
     safe_run_id = quote(run_id, safe="")
@@ -1463,7 +1515,7 @@ async def case_investigation_pdf(
 async def list_related_cases(
     case_id: str,
     db: DBSession,
-    user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    user: Annotated[AuthUser, Depends(case_scoped("cases:read"))],
 ) -> dict[str, Any]:
     """Return other cases that share alerts or observables with this case.
 

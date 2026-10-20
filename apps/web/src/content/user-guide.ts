@@ -118,6 +118,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 
 ## 7. Cases
 
+- **My organization / All clients (new).** An organization with clients has a switch above the tiles. **All clients** lists this organization's cases and every client's together, each client's case showing its client name, and the tiles count all of them. A **Client** picker narrows it to one. Opening a client's case works like opening its alerts. The choice is remembered in this browser. (Cases opened for client alerts live under that client, which is why "My organization" shows far fewer.)
 - Opens on **Open** (new and triaged). The tiles are **Open, In Progress, Resolved, Closed** and **All Cases**, last; the numbers come from the whole caseload, not one page.
 - The list loads up to 500 cases, newest first, and tells you when it is cut short. (It used to show only 50, which is why the numbers never moved.)
 - Status only moves forward: new, triaged, investigating, contained, resolved, closed. Steps can be skipped; going back is refused with the reason.
