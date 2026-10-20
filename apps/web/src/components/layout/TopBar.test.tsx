@@ -152,6 +152,13 @@ describe('TopBar: who is signed in, and signing out', () => {
     pathnameMock.mockReturnValue('/cases');
   });
 
+  it('has a Guide button that opens the user guide, and titles the guide page', () => {
+    pathnameMock.mockReturnValue('/guide');
+    renderTopBar();
+    expect(screen.getByRole('link', { name: 'Open the user guide' })).toHaveAttribute('href', '/guide');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('User guide');
+  });
+
   it('offers a Sign out button', () => {
     renderTopBar();
     expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument();

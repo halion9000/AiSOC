@@ -75,6 +75,7 @@ const NAV_ITEMS: { label: string; href: string; keywords: string[] }[] = [
   { label: 'AI Copilot',      href: '/copilot',      keywords: ['assistant', 'chat', 'ai'] },
   { label: 'Connectors',      href: '/connectors',   keywords: ['integrations', 'sources'] },
   { label: 'Settings',        href: '/settings',     keywords: ['preferences', 'profile', 'tenant'] },
+  { label: 'User guide',      href: '/guide',        keywords: ['help', 'how to', 'docs', 'documentation', 'manual'] },
 ];
 
 export function CommandPalette() {

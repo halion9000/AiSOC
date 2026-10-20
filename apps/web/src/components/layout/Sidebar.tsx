@@ -305,6 +305,11 @@ const navSections: NavSection[] = [
         icon: <SparklesIcon />,
       },
       {
+        label: 'User guide',
+        href: '/guide',
+        icon: <SparklesIcon />,
+      },
+      {
         label: 'Connectors',
         href: '/connectors',
         icon: <PuzzleIcon />,
