@@ -18,6 +18,12 @@ describe('linked tickets', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
+  it('says a ticket entered by hand has no summary because AiSOC cannot read HaloPSA, instead of claiming it was not found', () => {
+    render(<LinkedTicketsList tickets={[{ id: '555871', system: 'halopsa', manual: true }]} />);
+    expect(screen.getByText(/Linked by hand/)).toBeInTheDocument();
+    expect(screen.queryByText('Not found in HaloPSA')).toBeNull();
+  });
+
   it('says so when HaloPSA does not know the ticket, rather than inventing a summary', () => {
     render(<LinkedTicketsList tickets={[{ id: '999', system: 'halopsa' }]} />);
     expect(screen.getByText('Not found in HaloPSA')).toBeInTheDocument();

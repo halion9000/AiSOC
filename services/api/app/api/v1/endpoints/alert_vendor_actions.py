@@ -81,17 +81,23 @@ def _shaped(found: Any) -> list[dict[str, Any]]:
     return [t for t in found if isinstance(t, dict) and t.get("id")] if isinstance(found, list) else []
 
 
+def plain_ticket_number(ticket_id: str) -> str:
+    """A ticket number without leading zeros when it is all digits ("0555871" is ticket 555871 in HaloPSA); anything else is left as it is."""
+    text = str(ticket_id).strip()
+    return (text.lstrip("0") or "0") if text.isdigit() else text
+
+
 def linked_tickets(enrichment: Any) -> list[dict[str, Any]]:
     """The tickets linked to the alert: the ones CORE matched (``enrichment_data.tickets``) and the ones a person entered (``enrichment_data.manual_tickets``, flagged ``manual``). Anything not
     shaped like a ticket is left out. A ticket both CORE and a person named appears once, as CORE reported it (it knows the summary and status)."""
     if not isinstance(enrichment, dict):
         return []
     core = _shaped(enrichment.get("tickets"))
-    seen = {(str(t.get("system") or "halopsa"), str(t["id"])) for t in core}
+    seen = {(str(t.get("system") or "halopsa"), plain_ticket_number(t["id"])) for t in core}
     manual = [
         {**t, "manual": True}
         for t in _shaped(enrichment.get("manual_tickets"))
-        if (str(t.get("system") or "halopsa"), str(t["id"])) not in seen
+        if (str(t.get("system") or "halopsa"), plain_ticket_number(t["id"])) not in seen
     ]
     return core + manual
 
@@ -101,7 +107,7 @@ def with_halo_urls(tickets: list[dict[str, Any]], base: str | None) -> list[dict
     if not base:
         return tickets
     return [
-        {**t, "url": f"{base}/tickets?id={quote(str(t['id']), safe='')}"}
+        {**t, "url": f"{base}/tickets?id={quote(plain_ticket_number(t['id']), safe='')}"}
         if str(t.get("system") or "halopsa") == "halopsa" and not t.get("url")
         else t
         for t in tickets
@@ -145,6 +151,7 @@ def clean_manual_ticket(body: ManualTicketRequest, user_id: Any, now: datetime) 
     ticket_id = body.id.strip().lstrip("#").strip()
     if not _TICKET_ID.match(ticket_id):
         raise ValueError("A ticket number is letters, digits, dashes and underscores (up to 40), for example 4521.")
+    ticket_id = plain_ticket_number(ticket_id)
     url = (body.url or "").strip()
     out: dict[str, Any] = {"system": body.system, "id": ticket_id, "added_by": str(user_id), "added_at": now.isoformat()}
     if (body.summary or "").strip():

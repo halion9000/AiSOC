@@ -39,7 +39,7 @@ export function TicketRows({ tickets, onRemove }: { tickets: LinkedTicket[]; onR
             ) : (
               <span className="font-mono text-gray-300">#{t.id}</span>
             )}{' '}
-            {t.summary ?? 'Not found in HaloPSA'}
+            {t.summary ?? (t.manual ? <span className="text-gray-500">Linked by hand (no summary: AiSOC cannot read HaloPSA)</span> : 'Not found in HaloPSA')}
             {t.status ? <span className="text-gray-400"> · {t.status}</span> : null}{' '}
             {t.manual ? <span className="ml-1 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-400">added by hand</span> : null}
             {t.manual && onRemove ? (

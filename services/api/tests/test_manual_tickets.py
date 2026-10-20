@@ -195,3 +195,18 @@ def test_an_alert_links_to_its_tool_only_with_a_plain_https_address():
     for bad in ("javascript:alert(1)", "http://insecure.example.com", "https://with space.example.com", 5, None):
         assert _source_url_of(SimpleNamespace(raw_event={"url": bad})) is None
     assert _source_url_of(SimpleNamespace(raw_event=None)) is None
+
+
+def test_leading_zeros_are_dropped_from_a_numeric_ticket_number_everywhere():
+    assert av.plain_ticket_number("0555871") == "555871"
+    assert av.plain_ticket_number("000") == "0"
+    assert av.plain_ticket_number("INC-007") == "INC-007", "only a plain number is changed"
+    t = av.clean_manual_ticket(av.ManualTicketRequest(id="#0555871"), "u1", NOW)
+    assert t["id"] == "555871"
+    # a ticket already stored with the zero still links to the right place and does not appear twice beside CORE's own match
+    shown = av.with_halo_urls([{"system": "halopsa", "id": "0555871"}], "https://acme.halopsa.com")
+    assert shown[0]["url"] == "https://acme.halopsa.com/tickets?id=555871"
+    both = av.linked_tickets(
+        {"tickets": [{"system": "halopsa", "id": "555871", "summary": "S"}], "manual_tickets": [{"system": "halopsa", "id": "0555871"}]}
+    )
+    assert [t["id"] for t in both] == ["555871"]
