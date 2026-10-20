@@ -14,6 +14,8 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { CreateAlertModal } from './CreateAlertModal';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import BulkTicketBar from './BulkTicketBar';
+import { loadFilters, saveFilters } from '@/lib/remembered-filters';
+import { rememberable, restoreFilters } from '@/lib/alert-filter-memory';
 
 // Wave 1 of the AiSOC v6 capability roadmap. The "entities" tab renders the
 // rolled-up Risk-Based Alerting queue — alerts contribute time-decayed risk
@@ -356,6 +358,21 @@ export function AlertsView() {
     setSeenUrlKey(urlKey);
     setFilters(filtersFromUrl(urlParams));
   }
+  // The filters picked last time come back, unless this visit came from a link that names a device or a status (those links must open exactly what they say).
+  const deepLinked = !!(urlParams?.get('device') || urlParams?.get('status'));
+  const [filtersRestored, setFiltersRestored] = useState(false);
+  useEffect(() => {
+    if (!deepLinked) {
+      const saved = loadFilters<Record<string, unknown>>('alerts');
+      if (saved) setFilters((prev) => restoreFilters(prev, saved));
+    }
+    setFiltersRestored(true);
+    // Only on first show: later changes of the address are handled above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (filtersRestored && !deepLinked) saveFilters('alerts', rememberable(filters));
+  }, [filtersRestored, deepLinked, filters]);
   // Default to the entity-centric queue — that's the whole point of Wave 1's
   // RBA work. Analysts can flip back to the raw alert grid for legacy
   // workflows or when triaging a specific alert ID.

@@ -17,7 +17,7 @@ export function loadFilters<T extends object>(page: string): Partial<T> | null {
 }
 
 /** Remember ``filters`` for ``page``. A failed write is ignored. */
-export function saveFilters(page: string, filters: Record<string, unknown>): void {
+export function saveFilters(page: string, filters: object): void {
   try {
     window.localStorage.setItem(PREFIX + page, JSON.stringify(filters));
   } catch {
