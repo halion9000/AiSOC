@@ -8,6 +8,8 @@ vi.mock('@/lib/api', () => ({
   casesApi: { list: api.list, counts: api.counts, create: vi.fn() },
   msspApi: { listChildren: api.children },
 }));
+const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
+vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/components/saved-views/SavedViewsBar', () => ({ SavedViewsBar: () => null }));
 
@@ -25,6 +27,7 @@ function show() {
 
 beforeEach(() => {
   window.localStorage.clear();
+  routerParams.current = new URLSearchParams('');
   api.list.mockReset().mockResolvedValue({ cases: [], total: 0 });
   api.counts.mockReset().mockResolvedValue({ all: 64, open: 64, in_progress: 0, resolved: 0, closed: 0 });
   api.children.mockReset().mockResolvedValue([{ id: 'c1', name: 'Acme Dental' }, { id: 'c0', name: 'Aardvark Vet' }]);
@@ -65,5 +68,15 @@ describe('the cases page: all clients', () => {
     show();
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'all', clientId: 'c1' })));
     expect(screen.getByRole('button', { name: 'All clients' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a link naming a client opens the all-clients list for that client, and does not change what was remembered', async () => {
+    window.localStorage.setItem('aisoc.filters.cases', JSON.stringify({ scope: 'own', clientId: '' }));
+    routerParams.current = new URLSearchParams('scope=all&client=c1');
+    show();
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'all', clientId: 'c1' })));
+    expect(api.counts).toHaveBeenLastCalledWith('all', 'c1');
+    expect(await screen.findByRole('button', { name: 'All clients' })).toHaveAttribute('aria-pressed', 'true');
+    expect(JSON.parse(window.localStorage.getItem('aisoc.filters.cases') ?? '{}')).toEqual({ scope: 'own', clientId: '' });
   });
 });

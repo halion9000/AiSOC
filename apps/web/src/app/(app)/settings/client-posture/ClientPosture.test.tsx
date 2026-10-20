@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const authFetch = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth-session', () => ({ authFetch }));
+vi.mock('next/link', () => ({ default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => <a href={href} {...rest}>{children}</a> }));
 
-import { ClientPosture, coverage } from './ClientPosture';
+import { ClientPosture, coverage, postureLinks } from './ClientPosture';
 
 const reply = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 500, json: () => Promise.resolve(body) });
 const posture = (over: Record<string, unknown> = {}) => ({
@@ -49,18 +50,41 @@ describe('ClientPosture', () => {
     expect(page).toHaveTextContent('75%');
     expect(page).toHaveTextContent('Open, no ticket');
     expect(authFetch).toHaveBeenCalledWith('/api/v1/client-posture/c1');
+    expect(page.textContent?.toLowerCase()).not.toContain('second factor');
+  });
+
+  it('every number is a link to the list behind it, for this client', async () => {
+    serve(posture());
+    render(<ClientPosture />);
+    await userEvent.selectOptions(await screen.findByLabelText('Client'), 'c1');
+    const page = await screen.findByTestId('posture');
+    const hrefOf = (name: RegExp) => within(page).getByRole('link', { name }).getAttribute('href');
+    expect(hrefOf(/^Need attention: 3/)).toBe('/devices?client=c1&attention=1');
+    expect(hrefOf(/^No Multi-Factor: 3/)).toBe('/settings/mfa?client=c1&which=without');
+    expect(hrefOf(/^Open, no ticket: 4/)).toBe('/alerts?client=c1&ticket=none');
+    expect(hrefOf(/^Open cases: 2/)).toBe('/cases?scope=all&client=c1');
+    expect(within(page).getAllByRole("link")).toHaveLength(15);
   });
 
   it('says so when a client has no second-factor data', async () => {
     serve(posture({ identity: null }));
     render(<ClientPosture />);
     await userEvent.selectOptions(await screen.findByLabelText('Client'), 'c1');
-    expect(await screen.findByTestId('no-identity')).toHaveTextContent('No second-factor data yet');
+    expect(await screen.findByTestId('no-identity')).toHaveTextContent('No Multi-Factor data yet');
   });
 
   it('shows an error plainly', async () => {
     authFetch.mockResolvedValue(reply({}, false));
     render(<ClientPosture />);
     expect(await screen.findByRole('alert')).toHaveTextContent('The API answered 500');
+  });
+});
+
+describe('postureLinks', () => {
+  it('names the client in every link and puts a client id in the address safely', () => {
+    const links = postureLinks('a b&c');
+    for (const href of Object.values(links)) expect(href).toContain('client=a%20b%26c');
+    expect(links.stale).toBe('/devices?client=a%20b%26c&stale=1');
+    expect(links.adminsWithout).toBe('/settings/mfa?client=a%20b%26c&which=without&admins=1');
   });
 });

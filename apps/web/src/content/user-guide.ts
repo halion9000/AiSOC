@@ -27,12 +27,13 @@ The left sidebar groups the console:
 | Work | Dashboard, SOC Insights, **Alerts**, **Devices**, Investigation Queue, **Cases**, Hunt, Explore |
 | Detection | Detection Rules, Detection Catalog, Vendor Detections, MITRE Coverage, Detection Tuning, Shifts |
 | Intelligence | Threat Intel, Attack Graph, AI Copilot, Investigation Chat, Coverage Advisor, EASM |
+| Client Security | **Client Posture**, **Multi-Factor**, **Sign-in Scores**, **Client Cleanup**, **Platform Health** |
 | Response and testing | Playbooks, Marketplace, File Integrity, Honeytokens, Purple Team |
 | Admin | Get started, **Connectors**, Roles & Permissions, Compliance, **MSSP Dashboard**, Team Analytics, SLA Tracking, Executive Digest, Cost Dashboard, Audit Log, **Settings** |
 
 \`Ctrl+K\` opens a command palette that jumps to the main pages.
 
-**Settings** has tabs (Profile, Notifications, Appearance, Deployment & AI, Audit log, About, and others) and a **More settings** list for pages that are their own screens: **Platform health, Multi-factor status, Client posture, Client cleanup, Sign-in scores, Auto-close, Tickets**.
+**Settings** has tabs (Profile, Notifications, Appearance, Deployment & AI, Audit log, About, and others) and a **More settings** list with **Auto-close** and **Tickets**. The client pages (Client Posture, Multi-Factor, Sign-in Scores, Client Cleanup, Platform Health) have their own **Client Security** section in the left sidebar.
 
 ## 3. Connecting tools in CORE
 
@@ -85,7 +86,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 - **Merge two clients** lets you pick one to keep and one to merge into it (**Merge**). The merge is logged and can be undone.
 - A client you no longer want can be **Hidden** (MSSP Dashboard table, **Hide**/**Show**), **archived** (renamed "<name> (archived)", hidden, its tool clients sent back to Unmapped, nothing deleted), or removed. Removal is refused for a client with cases, connectors, worked alerts or audit records; archive it instead.
 - **Remove all client tenants** (type REMOVE to confirm) starts over; **Archive instead (deletes nothing)** is the safe version.
-- **Client cleanup (new).** **Settings > Client cleanup** lists visible clients that hold nothing (no devices, alerts, cases or mapped tool clients), each with an **Archive** button (it asks first). Nothing is deleted; Show hidden brings an archived client back.
+- **Client cleanup (new).** **Client Security > Client Cleanup** lists visible clients that hold nothing (no devices, alerts, cases or mapped tool clients), each with an **Archive** button (it asks first). Nothing is deleted; Show hidden brings an archived client back.
 
 ## 5. Alerts
 
@@ -107,6 +108,14 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 - **Huntress alerts:** the remediation plan with **Approve**, **Reject** and **Resolve** (needs a write key, see section 3). Resolving can leave a private note on each linked Halo ticket and change its **status**; it never closes the ticket.
 - **Huntress ITDR escalations and signals** appear as alerts. They have no approve or resolve buttons.
 - **Blumira** alerts carry the finding's summary and the analysis text.
+
+**What AiSOC can change in other tools (and what it cannot).**
+- **Huntress incident reports:** **Approve**, **Reject** and **Resolve** the remediation plan from the alert page. Resolve needs every remediation approved first. AiSOC queues the request and CORE does it at Huntress with its own write key (CORE collects requests every 15 seconds). Each action leaves a **private note** on the incident's HaloPSA ticket(s), and **Resolve** also moves the ticket to your chosen status (set in **Settings > Tickets**, default Tech Updated). It never closes a ticket. The private note has been confirmed on a test ticket; a live approve, reject or resolve, and the status change, have **not** been run yet.
+- **Huntress ITDR escalations and signals:** read only. A signal's alert names the incident Huntress bundled it into and that incident's Halo ticket, and is resolved in AiSOC when that incident closes.
+- **Blumira:** **Resolve** only, with a reason (Valid, False Positive, No Action Needed or Risk Accepted). Nothing is written to Halo.
+- **Field Effect:** **Resolve** only. Nothing is written to Halo.
+- **Petra, NinjaOne, ThreatMate, Addigy, DNSFilter, AutoElevate, CIPP:** read only from AiSOC.
+- **HaloPSA:** AiSOC itself never writes to Halo. Only CORE does (the Huntress note and status above). **Add by number** records a link inside AiSOC and changes nothing in Halo.
 
 **Statuses.** New alerts start as \`new\`. A vendor closing its own incident only closes the alert in AiSOC if nobody had touched it yet, and never reopens one. An analyst's decision is never overridden.
 
@@ -157,15 +166,16 @@ CORE reads each Microsoft 365 tenant through CIPP in the background.
 
 **Identity changes (hourly).** The directory audit log works for *every* tenant, whatever the licence. Role and group changes, password resets, security-method registration, app consent and license changes are stored and scored by who did them. Device, provisioning and read-only noise is dropped. Scoring only.
 
-**Multi-factor status (daily).** Per person: registered, and whether anything requires it.
+**Multi-Factor (daily).** Per person: registered, and whether anything requires it.
 
-**Settings > Multi-factor status**
-- Per client: people, covered %, **Registered, not required**, **No second factor**, **Administrators without**.
-- Click a number to see the people (administrators first, marked).
-- The filter **Only clients with administrators that have no second factor** narrows the table.
+**Client Security > Multi-Factor**
+- Per client: people, covered %, **Registered, not required**, **No Multi-Factor**, **Administrators without**.
+- A **Search clients** box narrows the table, and clients are listed A to Z.
+- Click a number to see the people (administrators first, marked). A link from Client Posture opens straight to one client's list.
+- The filter **Only clients with administrators that have no Multi-Factor** narrows the table.
 - Counts cover enabled, licensed member accounts (shared mailboxes, guests and disabled accounts are left out).
 
-**Settings > Sign-in scores**
+**Client Security > Sign-in Scores**
 - The sign-ins the behaviour service flagged as unusual for that person, across clients, with person, client, when, where, address, app, result, "no MFA" and risk. Pick **Last day / 7 days / 30 days**. The service keeps a score only for the ones it flags, and flags little while it is still learning each person's pattern, so an empty list early on is normal.
 - Below it, **Identity changes**: the directory changes flagged as unusual for whoever made them (who did what to whom).
 - Higher scores are more unusual. This page is for judging whether the scores are useful before alerting is switched on.
@@ -174,11 +184,11 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 
 ## 10. Client posture (new)
 
-**Settings > Client posture.** Pick a client to see, side by side: devices (total, needing attention, stale agents, not in Huntress, offline), second-factor coverage, open alerts (total, critical, high, **open with no ticket**) and open cases. **Print** produces a page for a client review. A client with no CIPP data says "No second-factor data yet".
+**Client Security > Client Posture.** Pick a client to see, side by side: devices (total, needing attention, stale agents, not in Huntress, offline), Multi-Factor coverage, open alerts (total, critical, high, **open with no ticket**) and open cases. **Print** produces a page for a client review. **Every number is a link** to the list behind it, already filtered to that client: devices needing attention (Devices page), people with no Multi-Factor (Multi-Factor page), critical alerts or open alerts with no ticket (Alerts page), open cases (Cases page). A client with no CIPP data says "No Multi-Factor data yet".
 
 ## 11. Platform health
 
-**Settings > Platform health** refreshes every 15 seconds.
+**Client Security > Platform Health** refreshes every 15 seconds.
 
 - Whether each internal service answers.
 - **Needs-attention list (new):** database migrations shipped with the API but not applied (rebuild or restart), disk 85% or more full, device feeds with nothing for 3+ hours, sign-ins stored but none scored (check the behaviour service token). Services that are down and a silent CORE keep their own notes.

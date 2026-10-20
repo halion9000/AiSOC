@@ -340,17 +340,22 @@ export function filtersFromUrl(params: URLSearchParams | null): AlertFilters {
     return typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? '');
   };
   const device = read('device').trim() || undefined;
+  const client = read('client').trim().slice(0, 64) || undefined;
+  const severityWanted = read('severity');
+  const severity = ['critical', 'high', 'medium', 'low', 'info'].includes(severityWanted) ? severityWanted : undefined;
+  const ticketWanted = read('ticket');
+  const ticket = ticketWanted === 'none' || ticketWanted === 'linked' ? ticketWanted : undefined;
   const wanted = read('status');
   let status: string | undefined = 'open';
   if (wanted === 'all') status = undefined;
   else if (['open', 'new', 'investigating', 'resolved', 'false_positive'].includes(wanted)) status = wanted;
-  return { page: 1, pageSize: 25, ...(status ? { status } : {}), ...(device ? { device } : {}) };
+  return { page: 1, pageSize: 25, ...(status ? { status } : {}), ...(device ? { device } : {}), ...(client ? { clientId: client } : {}), ...(severity ? { severity } : {}), ...(ticket ? { ticket } : {}) };
 }
 
 export function AlertsView() {
   // Reading window.location during a client-side navigation gives the PREVIOUS page's address, so the router's parameters are used.
   const urlParams = useSearchParams();
-  const urlKey = `${urlParams?.get('device') ?? ''}|${urlParams?.get('status') ?? ''}`;
+  const urlKey = `${urlParams?.get('device') ?? ''}|${urlParams?.get('status') ?? ''}|${urlParams?.get('client') ?? ''}|${urlParams?.get('severity') ?? ''}|${urlParams?.get('ticket') ?? ''}`;
   const [filters, setFilters] = useState<AlertFilters>(() => filtersFromUrl(urlParams));
   const [seenUrlKey, setSeenUrlKey] = useState(urlKey);
   if (seenUrlKey !== urlKey) {
@@ -359,7 +364,7 @@ export function AlertsView() {
     setFilters(filtersFromUrl(urlParams));
   }
   // The filters picked last time come back, unless this visit came from a link that names a device or a status (those links must open exactly what they say).
-  const deepLinked = !!(urlParams?.get('device') || urlParams?.get('status'));
+  const deepLinked = !!(urlParams?.get('device') || urlParams?.get('status') || urlParams?.get('client') || urlParams?.get('severity') || urlParams?.get('ticket'));
   const [filtersRestored, setFiltersRestored] = useState(false);
   useEffect(() => {
     if (!deepLinked) {

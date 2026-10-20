@@ -57,4 +57,23 @@ describe('Alerts remembers its filters', () => {
     expect(list).not.toHaveBeenCalledWith(expect.objectContaining({ severity: 'critical' }));
     expect(JSON.parse(window.localStorage.getItem('aisoc.filters.alerts') ?? '{}')).toMatchObject({ severity: 'critical', status: 'resolved' });
   });
+
+  it('a link from a client page (client, severity and ticket) opens exactly that list and leaves what was saved alone', async () => {
+    window.localStorage.setItem('aisoc.filters.alerts', JSON.stringify({ severity: 'low', status: 'resolved' }));
+    params.current = new URLSearchParams('client=c9&severity=critical&ticket=none');
+    show();
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ clientId: 'c9', severity: 'critical', ticket: 'none', status: 'open' }));
+    expect(JSON.parse(window.localStorage.getItem('aisoc.filters.alerts') ?? '{}')).toMatchObject({ severity: 'low', status: 'resolved' });
+  });
+
+  it('ignores a severity or ticket value it does not know', async () => {
+    params.current = new URLSearchParams('client=c9&severity=catastrophic&ticket=maybe');
+    show();
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    const sent = list.mock.calls[list.mock.calls.length - 1][0] as Record<string, unknown>;
+    expect(sent.severity).toBeUndefined();
+    expect(sent.ticket).toBeUndefined();
+    expect(sent.clientId).toBe('c9');
+  });
 });

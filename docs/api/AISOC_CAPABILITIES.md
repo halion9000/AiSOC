@@ -248,7 +248,7 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
-| GET | `/client-posture/{client_id}` | One client's devices, second-factor coverage, open alerts and cases side by side | `alerts:read` |
+| GET | `/client-posture/{client_id}` | One client's devices, Multi-Factor coverage, open alerts and cases side by side | `alerts:read` |
 
 ## community
 
@@ -511,8 +511,8 @@ Read this with three cautions. `GET` means the route is *declared* as a read, no
 | Method | Path | What it does | Permission |
 | --- | --- | --- | --- |
 | GET | `/identity/effective-permissions/providers` | List supported effective-permissions providers | `alerts:read` |
-| GET | `/identity/mfa-summary` | Per client: how many people have a second factor, and how many do not | `alerts:read` |
-| GET | `/identity/mfa-users` | The people of one client who have no second factor (or one that nothing requires) | `alerts:read` |
+| GET | `/identity/mfa-summary` | Per client: how many people have a Multi-Factor, and how many do not | `alerts:read` |
+| GET | `/identity/mfa-users` | The people of one client who have no Multi-Factor (or one that nothing requires) | `alerts:read` |
 | GET | `/identity/summary` | How many identity changes were collected and scored in the last 24 hours | `alerts:read` |
 | GET | `/identity/top` | The highest-scoring identity changes of the last days, across clients (nothing alerts on these yet) | `alerts:read` |
 | GET | `/identity/{principal_id}/effective-permissions` | Resolve effective permissions for a principal | `alerts:read` |

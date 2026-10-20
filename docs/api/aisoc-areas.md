@@ -17,7 +17,7 @@ AiSOC has **530** operations in **83** areas. This is a MAP, not a list of tools
 - **business-context**: 1 reads, 4 changes; protection: 5 signed-in with no permission declared; e.g. Get rules; Replace rules
 - **canary**: 1 reads, 0 changes; protection: 1 with no sign-in required; e.g. Honeytoken tripwire (public by design)
 - **cases**: 15 reads, 9 changes; protection: `cases:read`, `cases:work`, `cases:write`; e.g. List cases; Create case
-- **client-posture**: 1 reads, 0 changes; protection: `alerts:read`; e.g. One client's devices, second-factor coverage, open alerts and cases side by side
+- **client-posture**: 1 reads, 0 changes; protection: `alerts:read`; e.g. One client's devices, Multi-Factor coverage, open alerts and cases side by side
 - **community**: 5 reads, 10 changes; protection: `playbooks:admin`, `playbooks:write`, `plugins:admin`, `rules:admin`, `rules:write`, `settings:write`; 2 signed-in with no permission declared; 5 with no sign-in required; e.g. List community detections; Publish detection
 - **compliance**: 5 reads, 3 changes; protection: `reports:read`, `reports:write`; e.g. List evidence items; Collect evidence item
 - **connectors**: 6 reads, 9 changes; protection: `connectors:delete`, `connectors:view`, `connectors:write`; e.g. List connectors; Create connector
@@ -40,7 +40,7 @@ AiSOC has **530** operations in **83** areas. This is a MAP, not a list of tools
 - **honeytokens**: 3 reads, 3 changes; protection: `alerts:delete`, `alerts:read`, `alerts:write`; e.g. GET honeytokens (authenticated gateway to the honeytokens service); POST honeytokens (authenticated gateway to the honeytokens service)
 - **hunt**: 1 reads, 3 changes; protection: `alerts:read`, `hunts:read`, `lake:query`; e.g. List saved searches; Save search
 - **hunts**: 3 reads, 4 changes; protection: `hunts:read`, `lake:query`; e.g. List hunt hypotheses; Create hunt hypothesis
-- **identity**: 6 reads, 0 changes; protection: `alerts:read`; e.g. List supported effective-permissions providers; Per client: how many people have a second factor, and how many do not
+- **identity**: 6 reads, 0 changes; protection: `alerts:read`; e.g. List supported effective-permissions providers; Per client: how many people have a Multi-Factor, and how many do not
 - **identity-graph**: 5 reads, 3 changes; protection: `alerts:read`, `alerts:write`; e.g. Link alert to identity; Get alert identity links
 - **identity-timeline**: 1 reads, 1 changes; protection: `alerts:read`, `alerts:write`; e.g. Quick timeline lookup for an identity; Build identity-centric investigation timeline
 - **inbox**: 2 reads, 18 changes; protection: `connectors:read`, `connectors:write`; 15 with no sign-in required; e.g. Claim core feed actions; Report core feed action result

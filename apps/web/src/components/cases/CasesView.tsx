@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { casesApi, msspApi, type Case, type CasesResponse } from '@/lib/api';
 import { loadFilters, saveFilters } from '@/lib/remembered-filters';
@@ -134,18 +135,26 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
   const [creating, setCreating] = useState(false);
 
   // An organization with clients can look at all their cases at once. The choice is remembered in this browser.
-  const [scope, setScope] = useState<'own' | 'all'>('own');
-  const [clientId, setClientId] = useState('');
+  // A link (from a client's posture page, say) can open the list for one client: ?scope=all&client=<id>. That wins over what was remembered and leaves it alone.
+  const urlParams = useSearchParams();
+  const linkedClient = (urlParams?.get('client') ?? '').slice(0, 64);
+  const linked = urlParams?.get('scope') === 'all' || linkedClient !== '';
+  const [scope, setScope] = useState<'own' | 'all'>(linked ? 'all' : 'own');
+  const [clientId, setClientId] = useState(linkedClient);
   const [scopeRestored, setScopeRestored] = useState(false);
   useEffect(() => {
-    const saved = loadFilters<{ scope: string; clientId: string }>('cases');
-    if (saved?.scope === 'all') setScope('all');
-    if (typeof saved?.clientId === 'string') setClientId(saved.clientId);
+    if (!linked) {
+      const saved = loadFilters<{ scope: string; clientId: string }>('cases');
+      if (saved?.scope === 'all') setScope('all');
+      if (typeof saved?.clientId === 'string') setClientId(saved.clientId);
+    }
     setScopeRestored(true);
+    // Only on first show.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (scopeRestored) saveFilters('cases', { scope, clientId });
-  }, [scopeRestored, scope, clientId]);
+    if (scopeRestored && !linked) saveFilters('cases', { scope, clientId });
+  }, [scopeRestored, linked, scope, clientId]);
   const { data: clients } = useSWR(['cases-clients'], () => msspApi.listChildren().catch(() => []));
   const hasClients = (clients?.length ?? 0) > 0;
   const effectiveScope = hasClients ? scope : 'own';

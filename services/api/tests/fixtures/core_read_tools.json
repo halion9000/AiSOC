@@ -295,6 +295,7 @@
       "not_in_master",
       "offline",
       "has_alerts",
+      "os",
       "page_size",
       "page"
     ],
@@ -303,6 +304,12 @@
         "addigy",
         "threatmate",
         "huntress"
+      ],
+      "os": [
+        "windows",
+        "mac",
+        "ios",
+        "linux"
       ]
     },
     "numbers": {
@@ -315,6 +322,30 @@
         "max": 10000
       }
     }
+  },
+  {
+    "tool": "aisoc_device_rollup",
+    "method": "GET",
+    "path": "/devices/rollup",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_client_posture",
+    "method": "GET",
+    "path": "/client-posture/{client_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_mfa_summary",
+    "method": "GET",
+    "path": "/identity/mfa-summary",
+    "query": [],
+    "enums": {},
+    "numbers": {}
   },
   {
     "tool": "aisoc_get_asset",

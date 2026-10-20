@@ -2,7 +2,7 @@
 
 - ``POST /api/v1/inbox/core-feed/{token}/directory-audits`` and ``.../mfa-users``: authenticated by the secret in the path, like the other core-feed endpoints; placed under the client the CIPP customer
   is mapped to (a customer not mapped yet is counted and skipped, and arrives again after the mapping).
-- ``GET /api/v1/identity/mfa-summary`` and ``GET /api/v1/identity/mfa-users``: who has no second factor, per client.
+- ``GET /api/v1/identity/mfa-summary`` and ``GET /api/v1/identity/mfa-users``: who has no Multi-Factor, per client.
 """
 
 from __future__ import annotations
@@ -370,7 +370,7 @@ class MfaClientSummary(BaseModel):
 
 
 @router.get(
-    "/mfa-summary", response_model=list[MfaClientSummary], summary="Per client: how many people have a second factor, and how many do not"
+    "/mfa-summary", response_model=list[MfaClientSummary], summary="Per client: how many people have a Multi-Factor, and how many do not"
 )
 async def mfa_summary(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
@@ -404,7 +404,7 @@ class MfaUserOut(BaseModel):
 @router.get(
     "/mfa-users",
     response_model=list[MfaUserOut],
-    summary="The people of one client who have no second factor (or one that nothing requires)",
+    summary="The people of one client who have no Multi-Factor (or one that nothing requires)",
 )
 async def mfa_users(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],

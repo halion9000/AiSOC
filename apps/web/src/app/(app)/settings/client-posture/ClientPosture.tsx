@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * One client's posture on a page you can print for a review: devices, second-factor coverage, open alerts and cases side by side. Read-only; the same numbers as the Devices, Multi-factor status,
+ * One client's posture on a page you can print for a review: devices, Multi-Factor coverage, open alerts and cases side by side. Read-only; the same numbers as the Devices, Multi-factor status,
  * Alerts and Cases pages. Backed by GET /api/v1/client-posture/{client_id}.
  */
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import { authFetch } from "@/lib/auth-session";
 
@@ -28,12 +29,39 @@ export function coverage(i: Pick<NonNullable<Posture["identity"]>, "people" | "w
   return i.people === 0 ? "—" : `${Math.round((100 * i.with_mfa) / i.people)}%`;
 }
 
-function Stat({ label, value, bad }: { label: string; value: string | number; bad?: boolean }) {
-  return (
-    <div className="rounded border border-slate-700 p-3">
+/** Where each number on the page leads: the list behind it, already filtered to this client (Devices, Multi-Factor, Alerts and Cases read these parameters). */
+export function postureLinks(clientId: string): Record<string, string> {
+  const id = encodeURIComponent(clientId);
+  return {
+    devices: `/devices?client=${id}`,
+    needsAttention: `/devices?client=${id}&attention=1`,
+    stale: `/devices?client=${id}&stale=1`,
+    notInHuntress: `/devices?client=${id}&missing=huntress`,
+    offline: `/devices?client=${id}&offline=1`,
+    people: `/settings/mfa?client=${id}`,
+    notRequired: `/settings/mfa?client=${id}&which=not_required`,
+    without: `/settings/mfa?client=${id}&which=without`,
+    adminsWithout: `/settings/mfa?client=${id}&which=without&admins=1`,
+    alerts: `/alerts?client=${id}`,
+    critical: `/alerts?client=${id}&severity=critical`,
+    high: `/alerts?client=${id}&severity=high`,
+    noTicket: `/alerts?client=${id}&ticket=none`,
+    cases: `/cases?scope=all&client=${id}`,
+  };
+}
+
+function Stat({ label, value, bad, href }: { label: string; value: string | number; bad?: boolean; href?: string }) {
+  const body = (
+    <>
       <div className={`text-2xl font-semibold ${bad ? "text-red-300" : "text-slate-100"}`}>{value}</div>
       <div className="text-xs uppercase text-slate-500">{label}</div>
-    </div>
+    </>
+  );
+  if (!href) return <div className="rounded border border-slate-700 p-3">{body}</div>;
+  return (
+    <Link href={href} aria-label={`${label}: ${value}. Open the list`} className="block rounded border border-slate-700 p-3 transition-colors hover:border-sky-500/60 hover:bg-slate-800/60 print:border-slate-300">
+      {body}
+    </Link>
   );
 }
 
@@ -80,13 +108,14 @@ export function ClientPosture() {
   }, [clientId]);
 
   const shown = posture && posture.client_id === clientId ? posture : null;
+  const links = postureLinks(clientId);
 
   return (
     <div className="space-y-4 p-6">
       <div className="flex items-end justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-xl font-semibold text-slate-100">Client posture</h1>
-          <p className="mt-1 text-sm text-slate-400">One client&apos;s devices, second-factor coverage, open alerts and cases on a page you can print for a review.</p>
+          <p className="mt-1 text-sm text-slate-400">One client&apos;s devices, Multi-Factor coverage, open alerts and cases on a page you can print for a review.</p>
         </div>
         {shown && (
           <button type="button" onClick={() => window.print()} className="rounded border border-slate-600 px-3 py-1 text-sm text-slate-200">
@@ -118,37 +147,37 @@ export function ClientPosture() {
           <section>
             <h3 className="mb-2 text-sm uppercase text-slate-500">Devices</h3>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              <Stat label="Devices" value={shown.devices.devices} />
-              <Stat label="Need attention" value={shown.devices.needs_attention} bad={shown.devices.needs_attention > 0} />
-              <Stat label="Stale agents" value={shown.devices.stale_agents} bad={shown.devices.stale_agents > 0} />
-              <Stat label="Not in Huntress" value={shown.devices.not_in_huntress} bad={shown.devices.not_in_huntress > 0} />
-              <Stat label="Offline" value={shown.devices.offline} />
+              <Stat label="Devices" value={shown.devices.devices} href={links.devices} />
+              <Stat label="Need attention" value={shown.devices.needs_attention} bad={shown.devices.needs_attention > 0} href={links.needsAttention} />
+              <Stat label="Stale agents" value={shown.devices.stale_agents} bad={shown.devices.stale_agents > 0} href={links.stale} />
+              <Stat label="Not in Huntress" value={shown.devices.not_in_huntress} bad={shown.devices.not_in_huntress > 0} href={links.notInHuntress} />
+              <Stat label="Offline" value={shown.devices.offline} href={links.offline} />
             </div>
           </section>
           <section>
-            <h3 className="mb-2 text-sm uppercase text-slate-500">Second factor</h3>
+            <h3 className="mb-2 text-sm uppercase text-slate-500">Multi-Factor</h3>
             {shown.identity ? (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                <Stat label="People" value={shown.identity.people} />
-                <Stat label="Covered" value={coverage(shown.identity)} />
-                <Stat label="Registered, not required" value={shown.identity.not_required} bad={shown.identity.not_required > 0} />
-                <Stat label="No second factor" value={shown.identity.without_mfa} bad={shown.identity.without_mfa > 0} />
-                <Stat label="Administrators without" value={shown.identity.admins_without_mfa} bad={shown.identity.admins_without_mfa > 0} />
+                <Stat label="People" value={shown.identity.people} href={links.people} />
+                <Stat label="Covered" value={coverage(shown.identity)} href={links.people} />
+                <Stat label="Registered, not required" value={shown.identity.not_required} bad={shown.identity.not_required > 0} href={links.notRequired} />
+                <Stat label="No Multi-Factor" value={shown.identity.without_mfa} bad={shown.identity.without_mfa > 0} href={links.without} />
+                <Stat label="Administrators without" value={shown.identity.admins_without_mfa} bad={shown.identity.admins_without_mfa > 0} href={links.adminsWithout} />
               </div>
             ) : (
               <p className="text-sm text-slate-400" data-testid="no-identity">
-                No second-factor data yet. It arrives once CORE is connected to CIPP and this client&apos;s CIPP tenant is mapped.
+                No Multi-Factor data yet. It arrives once CORE is connected to CIPP and this client&apos;s CIPP tenant is mapped.
               </p>
             )}
           </section>
           <section>
             <h3 className="mb-2 text-sm uppercase text-slate-500">Alerts and cases</h3>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              <Stat label="Open alerts" value={shown.alerts.open} />
-              <Stat label="Critical" value={shown.alerts.critical} bad={shown.alerts.critical > 0} />
-              <Stat label="High" value={shown.alerts.high} bad={shown.alerts.high > 0} />
-              <Stat label="Open, no ticket" value={shown.alerts.without_ticket} bad={shown.alerts.without_ticket > 0} />
-              <Stat label="Open cases" value={shown.open_cases} />
+              <Stat label="Open alerts" value={shown.alerts.open} href={links.alerts} />
+              <Stat label="Critical" value={shown.alerts.critical} bad={shown.alerts.critical > 0} href={links.critical} />
+              <Stat label="High" value={shown.alerts.high} bad={shown.alerts.high > 0} href={links.high} />
+              <Stat label="Open, no ticket" value={shown.alerts.without_ticket} bad={shown.alerts.without_ticket > 0} href={links.noTicket} />
+              <Stat label="Open cases" value={shown.open_cases} href={links.cases} />
             </div>
           </section>
         </div>

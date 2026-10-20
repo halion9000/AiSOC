@@ -78,7 +78,7 @@ def devices_part(rollups: list[ClientRollup], client_id: uuid.UUID) -> PostureDe
 
 
 @router.get(
-    "/{client_id}", response_model=ClientPosture, summary="One client's devices, second-factor coverage, open alerts and cases side by side"
+    "/{client_id}", response_model=ClientPosture, summary="One client's devices, Multi-Factor coverage, open alerts and cases side by side"
 )
 async def client_posture(
     client_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
