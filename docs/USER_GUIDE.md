@@ -124,6 +124,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 
 ## 7. Cases
 
+- **Devices panel (new).** A case's left column lists the machines its alerts are about, each with **Open in NinjaOne** / **Open in Huntress** buttons to that machine in the tool, and **In Devices** to its page here. A tool appears only when AiSOC holds a link for it: NinjaOne from the device record, Huntress from the alert. Other tools (ConnectWise Control, HaloPSA assets) are not linked yet. The case description is also laid out with headings and tables now, and a linked alert opens that alert. Built and tested; not yet seen on a live case.
 - **My organization / All clients (new).** An organization with clients has a switch above the tiles. **All clients** lists this organization's cases and every client's together, each client's case showing its client name, and the tiles count all of them. A **Client** picker narrows it to one. Opening a client's case works like opening its alerts. The choice is remembered in this browser. (Cases opened for client alerts live under that client, which is why "My organization" shows far fewer.)
 - Opens on **Open** (new and triaged). The tiles are **Open, In Progress, Resolved, Closed** and **All Cases**, last; the numbers come from the whole caseload, not one page.
 - The list loads up to 500 cases, newest first, and tells you when it is cut short. (It used to show only 50, which is why the numbers never moved.)

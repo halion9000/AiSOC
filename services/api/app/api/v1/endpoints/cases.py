@@ -51,6 +51,7 @@ from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.core.internal_auth import internal_service_headers
 from app.core.logging import safe_log_value
 from app.db.rls_scope import cross_tenant_reads
+from app.services.case_devices import build_case_devices
 from app.services.case_fanout import (
     FanoutResult,
     fanout_create_case,
@@ -656,6 +657,49 @@ async def get_case(case_id: str, db: DBSession, user: Annotated[AuthUser, Depend
     if not row:
         raise HTTPException(status_code=404, detail="Case not found.")
     return _row_to_case(row)
+
+
+class CaseDeviceLink(BaseModel):
+    vendor: str
+    label: str
+    url: str
+
+
+class CaseDevice(BaseModel):
+    hostname: str
+    device_id: str | None = None
+    os: str | None = None
+    alerts: int
+    links: list[CaseDeviceLink]
+
+
+@router.get("/{case_id}/devices", response_model=list[CaseDevice], summary="Devices the case is about, with links to each in its tools")
+async def get_case_devices(case_id: str, db: DBSession, user: Annotated[AuthUser, Depends(case_scoped("cases:read"))]) -> list[CaseDevice]:
+    from sqlalchemy import func, select
+
+    from app.models.alert import Alert
+    from app.models.device import Device, DeviceSource
+
+    cid = await _resolve_case_id(case_id, db, user.tenant_id)
+    row = (
+        await db.execute(text("SELECT alert_ids FROM aisoc_cases WHERE id = :id AND tenant_id = :tenant_id").bindparams(id=cid, tenant_id=user.tenant_id))
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    alert_ids = [a for a in (row.alert_ids or []) if a]
+    if not alert_ids:
+        return []
+    alerts = (await db.execute(select(Alert).where(Alert.id.in_(alert_ids), Alert.tenant_id == user.tenant_id))).scalars().all()
+    hosts = {h.lower() for a in alerts for h in (a.affected_hosts or []) if isinstance(h, str) and h.strip()}
+    devices = (
+        (await db.execute(select(Device).where(Device.tenant_id == user.tenant_id, func.lower(Device.hostname).in_(hosts)))).scalars().all() if hosts else []
+    )
+    sources = (
+        (await db.execute(select(DeviceSource).where(DeviceSource.tenant_id == user.tenant_id, DeviceSource.device_id.in_([d.id for d in devices])))).scalars().all()
+        if devices
+        else []
+    )
+    return [CaseDevice(**d) for d in build_case_devices(list(alerts), list(devices), list(sources))]
 
 
 @router.patch("/{case_id}", response_model=CaseResponse, summary="Update case")

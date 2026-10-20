@@ -26,6 +26,7 @@ function isAttackPathKey(key: unknown): boolean {
 vi.mock('swr', () => ({
   __esModule: true,
   default: (key: unknown) => {
+    if (Array.isArray(key) && key[0] === 'case:devices') return { data: [], error: undefined, isLoading: false, mutate: vi.fn(async () => undefined) };
     if (isAttackChainKey(key)) {
       return {
         data: swrState.attackChainData,

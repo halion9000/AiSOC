@@ -2011,6 +2011,12 @@ export const casesApi = {
     return normalizeCase(raw);
   },
 
+  /** The machines the case's alerts are about, each with links to it in the tools that know it (Huntress, NinjaOne). */
+  devices: (id: string) =>
+    request<Array<{ hostname: string; device_id: string | null; os: string | null; alerts: number; links: Array<{ vendor: string; label: string; url: string }> }>>(
+      `/api/v1/cases/${encodeURIComponent(id)}/devices`,
+    ),
+
   create: async (data: Partial<Case>) => {
     // The backend CreateCaseRequest speaks snake_case and does NOT enable
     // populate_by_name, so a raw camelCase Case payload silently drops fields

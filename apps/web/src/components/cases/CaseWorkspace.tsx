@@ -18,6 +18,7 @@
  */
 
 import { AlertText } from '@/components/ui/AlertText';
+import { CaseDevices } from './CaseDevices';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -831,6 +832,8 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
               </ul>
             )}
           </Panel>
+
+          <CaseDevices caseId={caseId} />
 
           <Panel title="Tasks">
             <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
