@@ -1300,6 +1300,9 @@ export const alertsApi = {
   requestVendorAction: (id: string, body: VendorActionRequest) =>
     request<VendorActionItem>(`/api/v1/alerts/${id}/vendor-actions`, { method: 'POST', body: JSON.stringify(body) }),
 
+  /** Ask CORE to re-read this alert's tool now, so the alert's status catches up. Only that tool is re-read; the answer arrives on the alert by itself within about a minute. */
+  refresh: (id: string) => request<{ vendor: string; requested_at: string }>(`/api/v1/alerts/${id}/refresh`, { method: 'POST' }),
+
   /** Other alerts from the last 30 days that name the same device or user, from any tool. */
   related: (id: string) => request<{ items: RelatedAlert[]; more: number }>(`/api/v1/alerts/${id}/related`),
 

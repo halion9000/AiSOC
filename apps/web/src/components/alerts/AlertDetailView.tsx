@@ -1,5 +1,6 @@
 'use client';
 
+import { RefreshStatusButton } from './RefreshStatusButton';
 import { AlertContext } from './AlertContext';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -832,6 +833,7 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
             the first thing a triaging analyst sees, ahead of the heavier
             Create Case action.
           */}
+          <RefreshStatusButton alertId={alertId} onRefreshed={() => void mutate()} />
           <button
             type="button"
             onClick={() => setExplainOpen(true)}

@@ -16,11 +16,12 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import ARRAY, Text, cast, func, select, update
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
 from app.models.alert import Alert
+from app.models.connector import Connector
 from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.alert_scope import alert_scope
@@ -387,3 +388,62 @@ async def request_vendor_action(
         )
         await db.commit()
         return _item(row, now)
+
+
+class RefreshResponse(BaseModel):
+    vendor: str
+    requested_at: str
+
+
+@router.post("/{alert_id}/refresh", response_model=RefreshResponse, status_code=status.HTTP_202_ACCEPTED)
+async def refresh_alert_status(
+    alert_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:write"))],
+    db: TenantDBSession,
+) -> RefreshResponse:
+    """Ask CORE to re-read this alert's tool now, so its status here catches up with the tool's.
+
+    It leaves the same request the Sync button on a connector card leaves, for that one tool only: other tools are not asked, and nothing here reaches the vendor. CORE collects it within about
+    15 seconds, reads that tool's changed and open incidents, and reports back; the alert's state then updates by itself. Only an alert that carries its tool's incident id can be re-checked.
+    """
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        alert = await _alert(db, alert_id, tid)
+        found = alert_vendor_and_uid(alert.raw_event)
+    if found is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only a Huntress, Blumira or Field Effect alert that carries its incident id can be re-checked.",
+        )
+    vendor, uid = found
+    now = datetime.now(UTC)
+    # The feed is the caller's own (CORE reports to the organization it is connected as), even when the alert sits in one of its clients.
+    result = await db.execute(
+        update(Connector)
+        .where(
+            Connector.tenant_id == current_user.tenant_id,
+            Connector.connector_type == "core_feed",
+            Connector.connector_config["vendor"].astext == vendor,
+        )
+        .values(
+            connector_config=func.jsonb_set(
+                Connector.connector_config, cast(["sync_requested_at"], ARRAY(Text)), func.to_jsonb(cast(now.isoformat(), Text)), True
+            )
+        )
+    )
+    if (result.rowcount or 0) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=f"CORE is not feeding {vendor} into this organization, so there is nothing to ask."
+        )
+    await emit_audit(
+        db=db,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.user_id,
+        action="alerts:refresh_requested",
+        resource="alert",
+        resource_id=str(alert_id),
+        changes={"vendor": vendor, "incident": uid},
+        request=request,
+    )
+    await db.commit()
+    return RefreshResponse(vendor=vendor, requested_at=now.isoformat())

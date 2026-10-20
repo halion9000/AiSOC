@@ -382,3 +382,48 @@ def test_core_may_claim_for_blumira_and_field_effect_but_not_for_any_other_vendo
         assert cf.ClaimRequest(vendor=vendor).vendor == vendor
     with pytest.raises(ValidationError):
         cf.ClaimRequest(vendor="ninjaone")
+
+
+# ---- re-check one alert's tool ---------------------------------------------------------------------------------------------------------------------------
+
+
+def _refresh_db(alert, rowcount=1):
+    db = _db(alert)
+    probe = [MagicMock(first=MagicMock(return_value=(1,)))]
+    queue = [*probe, MagicMock(scalar_one_or_none=MagicMock(return_value=alert)), MagicMock(rowcount=rowcount)]
+    seen: list = []
+
+    async def execute(stmt, *a, **k):
+        seen.append(stmt)
+        return queue.pop(0)
+
+    db.execute = AsyncMock(side_effect=execute)
+    db.seen = seen
+    return db
+
+
+async def _refresh(db):
+    user = SimpleNamespace(tenant_id=TENANT, user_id=uuid.uuid4())
+    return await av.refresh_alert_status(ALERT_ID, MagicMock(), user, db)
+
+
+@pytest.mark.asyncio
+async def test_refresh_asks_only_the_alerts_own_tool_and_is_audited(_audit):
+    db = _refresh_db(_alert())
+    out = await _refresh(db)
+    assert out.vendor == "huntress"
+    sql, params = _sql(db.seen[-1])
+    assert sql.startswith("UPDATE connectors") and "sync_requested_at" in str(params.values()) and "huntress" in params.values()
+    assert TENANT in params.values() and "core_feed" in params.values()
+    assert _audit and _audit[0]["action"] == "alerts:refresh_requested"
+    db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_says_so_when_nothing_feeds_that_tool_or_the_alert_has_no_incident():
+    with pytest.raises(HTTPException) as e:
+        await _refresh(_refresh_db(_alert(), rowcount=0))
+    assert e.value.status_code == 409
+    with pytest.raises(HTTPException) as e:
+        await _refresh(_refresh_db(_alert(source="petra", uid="petra:7")))
+    assert e.value.status_code == 422

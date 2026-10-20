@@ -430,6 +430,10 @@ paths:
         which the inbox template keeps at ``raw_event.source``.
 
 
+        `device` narrows the list to alerts about one machine, by the host name the
+        alert carries (compared without regard to case).
+
+
         `min_confidence` / `confidence_label` let the queue workbench (PR-5) and
 
         /alerts page filter on the fusion-emitted confidence signal (W3). Alerts
@@ -536,6 +540,28 @@ paths:
             format: uuid
           - type: 'null'
           title: Client Id
+      - name: device
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Device
+      - name: ticket
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(linked|none)$
+          - type: 'null'
+          description: 'linked: only alerts with a HaloPSA ticket; none: only alerts
+            without one.'
+          title: Ticket
+        description: 'linked: only alerts with a HaloPSA ticket; none: only alerts
+          without one.'
       responses:
         '200':
           description: Successful Response
@@ -859,8 +885,9 @@ paths:
       tags:
       - alerts
       summary: Request Vendor Action
-      description: 'Queue an approve / reject / resolve for CORE to carry out at Huntress.
-        Returns 202: nothing has happened at the vendor yet.'
+      description: 'Queue an approve / reject / resolve for CORE to carry out at the
+        vendor (Blumira and Field Effect: resolve only). Returns 202: nothing has
+        happened at the vendor yet.'
       operationId: request_vendor_action_api_v1_alerts__alert_id__vendor_actions_post
       security:
       - HTTPBearer: []
@@ -885,6 +912,152 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VendorActionItem'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/{alert_id}/tickets:
+    post:
+      tags:
+      - alerts
+      summary: Add Manual Ticket
+      description: 'Link a ticket to this alert by hand, for the case CORE could not
+        match one. Kept apart from the tickets CORE matched, so its next sync never
+        removes it. Adding a number that is
+
+        already linked updates its summary and link.'
+      operationId: add_manual_ticket_api_v1_alerts__alert_id__tickets_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alert Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualTicketRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__alert_vendor_actions__TicketsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/{alert_id}/tickets/{ticket_id}:
+    delete:
+      tags:
+      - alerts
+      summary: Remove Manual Ticket
+      description: Remove a ticket somebody entered by hand. A ticket CORE matched
+        is not removable here (CORE would just report it again).
+      operationId: remove_manual_ticket_api_v1_alerts__alert_id__tickets__ticket_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alert Id
+      - name: ticket_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Ticket Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__alert_vendor_actions__TicketsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/{alert_id}/refresh:
+    post:
+      tags:
+      - alerts
+      summary: Refresh Alert Status
+      description: 'Ask CORE to re-read this alert''s tool now, so its status here
+        catches up with the tool''s.
+
+
+        It leaves the same request the Sync button on a connector card leaves, for
+        that one tool only: other tools are not asked, and nothing here reaches the
+        vendor. CORE collects it within about
+
+        15 seconds, reads that tool''s changed and open incidents, and reports back;
+        the alert''s state then updates by itself. Only an alert that carries its
+        tool''s incident id can be re-checked.'
+      operationId: refresh_alert_status_api_v1_alerts__alert_id__refresh_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alert Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/{alert_id}/related:
+    get:
+      tags:
+      - alerts
+      summary: Other recent alerts about the same device or user
+      operationId: related_alerts_api_v1_alerts__alert_id__related_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alert Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelatedAlerts'
         '422':
           description: Validation Error
           content:
@@ -984,6 +1157,31 @@ paths:
           minimum: 0
           default: 0
           title: Offset
+      - name: scope
+        in: query
+        required: false
+        schema:
+          enum:
+          - own
+          - all
+          type: string
+          description: '``all``: this organization''s cases AND those of its clients
+            (each tagged with the client''s name).'
+          default: own
+          title: Scope
+        description: '``all``: this organization''s cases AND those of its clients
+          (each tagged with the client''s name).'
+      - name: client_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          description: With scope=all, only this client's cases.
+          title: Client Id
+        description: With scope=all, only this client's cases.
       responses:
         '200':
           description: Successful Response
@@ -1020,6 +1218,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CaseResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cases/counts:
+    get:
+      tags:
+      - cases
+      summary: Count cases by status (the whole caseload, not one page of it)
+      operationId: case_counts_api_v1_cases_counts_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: scope
+        in: query
+        required: false
+        schema:
+          enum:
+          - own
+          - all
+          type: string
+          description: '``all``: this organization''s cases and its clients''.'
+          default: own
+          title: Scope
+        description: '``all``: this organization''s cases and its clients''.'
+      - name: client_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          description: With scope=all, only this client's cases.
+          title: Client Id
+        description: With scope=all, only this client's cases.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseCounts'
         '422':
           description: Validation Error
           content:
@@ -2027,6 +2270,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/connectors/{connector_id}/log:
+    get:
+      tags:
+      - connectors
+      summary: Get Connector Log
+      description: 'The connector''s running log, newest first. Scoped to the caller''s
+        tenant: another tenant''s connector is a 404.'
+      operationId: get_connector_log_api_v1_connectors__connector_id__log_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: connector_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Connector Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunLogEntry'
+                title: Response Get Connector Log Api V1 Connectors  Connector Id  Log
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/connectors/{connector_id}/capabilities:
     put:
       tags:
@@ -2069,6 +2356,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConnectorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/connectors/{connector_id}/sync:
+    post:
+      tags:
+      - connectors
+      summary: Request Core Feed Sync
+      description: 'Ask CORE to run this feed now instead of at its next five-minute
+        run.
+
+
+        Only a CORE-fed connector has anything to sync from here. This just leaves
+        a request on the connector; CORE collects it within about 15 seconds, runs
+        that one tool, and reports back
+
+        as it always does (``last_health_check`` moves), which is what the page waits
+        for. Nothing here reaches the vendor.'
+      operationId: request_core_feed_sync_api_v1_connectors__connector_id__sync_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: connector_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Connector Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Request Core Feed Sync Api V1 Connectors  Connector
+                  Id  Sync Post
         '422':
           description: Validation Error
           content:
@@ -2799,6 +3128,116 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tenant-settings/auto-close:
+    get:
+      tags:
+      - tenant-settings
+      summary: This tenant's own auto-close confidence (None = the platform value)
+      operationId: get_auto_close_api_v1_tenant_settings_auto_close_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoCloseSetting'
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - tenant-settings
+      summary: Set this tenant's own auto-close confidence
+      operationId: set_auto_close_api_v1_tenant_settings_auto_close_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetAutoClose'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoCloseSetting'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+    delete:
+      tags:
+      - tenant-settings
+      summary: Go back to the platform's auto-close confidence
+      operationId: clear_auto_close_api_v1_tenant_settings_auto_close_delete
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoCloseSetting'
+      security:
+      - HTTPBearer: []
+  /api/v1/tenant-settings/tickets:
+    get:
+      tags:
+      - tenant-settings
+      summary: The HaloPSA status a resolved incident moves its ticket to
+      operationId: get_ticket_settings_api_v1_tenant_settings_tickets_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketSettings'
+      security:
+      - HTTPBearer: []
+    put:
+      tags:
+      - tenant-settings
+      summary: Choose the HaloPSA status a resolved incident moves its ticket to
+      operationId: set_ticket_settings_api_v1_tenant_settings_tickets_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTicketSettings'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketSettings'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+    delete:
+      tags:
+      - tenant-settings
+      summary: Go back to the default ticket status (Tech Updated)
+      operationId: clear_ticket_settings_api_v1_tenant_settings_tickets_delete
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketSettings'
+      security:
+      - HTTPBearer: []
   /api/v1/rules:
     get:
       tags:
@@ -4208,6 +4647,56 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/graph:
+    get:
+      tags:
+      - graph
+      summary: 'Overview graph: entities and ATT&CK techniques seen on recent alerts'
+      description: The graph the Attack Graph page draws, from the last 30 days of
+        alerts across the caller's tenant and its client tenants (see the note above).
+      operationId: get_overview_api_v1_graph_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: entity
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          description: Only alerts that name this host, user or IP address.
+          title: Entity
+        description: Only alerts that name this host, user or IP address.
+      - name: depth
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 6
+          minimum: 1
+          description: Accepted for compatibility; the overview is always one hop
+            (entity to technique).
+          default: 3
+          title: Depth
+        description: Accepted for compatibility; the overview is always one hop (entity
+          to technique).
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Overview Api V1 Graph Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/graph/attack-path/{case_id}:
     get:
       tags:
@@ -6483,7 +6972,17 @@ paths:
     post:
       tags:
       - compliance
-      summary: Trigger evidence collection job
+      summary: Collect the evidence the platform itself can provide
+      description: 'Records evidence for the controls this platform''s own data can
+        speak to (account inventory, monitoring coverage, incident handling) as ``pending``
+        items a
+
+        person must still review. It used to answer ``queued`` and queue nothing.
+        ``status`` is ``completed`` with the count in ``collected``; controls that
+        need an
+
+        attestation or a document (policies, training) are never invented and stay
+        missing in the posture report.'
       operationId: trigger_evidence_collection_api_v1_compliance_evidence_collect_post
       requestBody:
         content:
@@ -6701,6 +7200,31 @@ paths:
                 items:
                   $ref: '#/components/schemas/CompliancePosture'
                 title: Response Compliance Report Api V1 Compliance Report Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/canary/{token_id}:
+    get:
+      tags:
+      - canary
+      summary: Honeytoken tripwire (public by design)
+      operationId: canary_visit_api_v1_canary__token_id__get
+      parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -6947,6 +7471,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PipelineHealth'
+      security:
+      - HTTPBearer: []
+  /api/v1/health/services:
+    get:
+      tags:
+      - health
+      summary: Is each internal platform service answering its own health probe?
+      description: 'One row per internal service (fusion, connectors, agents, ...),
+        probed live from the API. A service that does not answer in 3 s is ``down``.
+
+
+        Needs alerts:read (it reveals the platform''s internals); it never returns
+        a URL, only the service name and what the probe saw.'
+      operationId: platform_services_api_v1_health_services_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Platform Services Api V1 Health Services Get
       security:
       - HTTPBearer: []
   /api/v1/insights/soc:
@@ -8999,6 +9546,7 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 100000
           minimum: 1
           default: 1
           title: Page
@@ -9055,7 +9603,7 @@ paths:
         schema:
           anyOf:
           - type: string
-            pattern: ^(addigy|threatmate)$
+            pattern: ^(addigy|threatmate|huntress)$
           - type: 'null'
           description: Only devices this tool should report but does not.
           title: Missing
@@ -9078,6 +9626,48 @@ paths:
           default: false
           title: Has Alerts
         description: Only devices with at least one open alert.
+      - name: attention
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Only devices a tool reports a problem with.
+          default: false
+          title: Attention
+        description: Only devices a tool reports a problem with.
+      - name: stale
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Only devices whose protection agent has not checked in for
+            two weeks or more.
+          default: false
+          title: Stale
+        description: Only devices whose protection agent has not checked in for two
+          weeks or more.
+      - name: hidden
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Only devices a person hid until they check back in. Without
+            this they are left out of the list and every count.
+          default: false
+          title: Hidden
+        description: Only devices a person hid until they check back in. Without this
+          they are left out of the list and every count.
+      - name: os
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(windows|mac|ios|linux)$
+          - type: 'null'
+          description: Only devices running this kind of operating system.
+          title: Os
+        description: Only devices running this kind of operating system.
       responses:
         '200':
           description: Successful Response
@@ -9085,6 +9675,326 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeviceListOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/devices/export.csv:
+    get:
+      tags:
+      - devices
+      summary: The devices the page is showing, as a CSV file
+      operationId: export_devices_api_v1_devices_export_csv_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Client Id
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Search
+      - name: vendor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          - type: 'null'
+          title: Vendor
+      - name: not_in_master
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Not In Master
+      - name: missing
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(addigy|threatmate|huntress)$
+          - type: 'null'
+          title: Missing
+      - name: offline
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Offline
+      - name: has_alerts
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Has Alerts
+      - name: attention
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Attention
+      - name: stale
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Stale
+      - name: hidden
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Hidden
+      - name: os
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(windows|mac|ios|linux)$
+          - type: 'null'
+          title: Os
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/devices/rollup:
+    get:
+      tags:
+      - devices
+      summary: 'Per client: devices, how many need attention, have a stale agent,
+        are not in Huntress or are offline'
+      operationId: devices_rollup_api_v1_devices_rollup_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ClientRollup'
+                type: array
+                title: Response Devices Rollup Api V1 Devices Rollup Get
+      security:
+      - HTTPBearer: []
+  /api/v1/devices/duplicates:
+    get:
+      tags:
+      - devices
+      summary: List Duplicates
+      description: Pairs of a client's devices that share a hostname but have no serial
+        number proving they differ. Pairs a person dismissed are not listed.
+      operationId: list_duplicates_api_v1_devices_duplicates_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Client Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicatesOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/devices/{device_id}/hide:
+    post:
+      tags:
+      - devices
+      summary: Hide a device until a tool sees it online again
+      description: 'For an offline machine that is cluttering the list: it is left
+        out of the list and the counts until any tool reports it online after now.
+        Hiding it again later starts over.'
+      operationId: hide_device_api_v1_devices__device_id__hide_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Device Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HideOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - devices
+      summary: Show a hidden device again
+      operationId: unhide_device_api_v1_devices__device_id__hide_delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Device Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HideOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/devices/duplicates/dismiss:
+    post:
+      tags:
+      - devices
+      summary: Dismiss Duplicate
+      description: 'These two are different machines: stop suggesting them. Remembered
+        for the whole organization.'
+      operationId: dismiss_duplicate_api_v1_devices_duplicates_dismiss_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DismissIn'
+        required: true
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/devices/duplicates/merge:
+    post:
+      tags:
+      - devices
+      summary: Merge Duplicate
+      description: 'These two are the same machine: fold the second into the first.'
+      operationId: merge_duplicate_api_v1_devices_duplicates_merge_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/devices/duplicates/merges:
+    get:
+      tags:
+      - devices
+      summary: Recent merges that can still be undone
+      operationId: list_merges_api_v1_devices_duplicates_merges_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/app__api__v1__endpoints__devices__MergeOut'
+                type: array
+                title: Response List Merges Api V1 Devices Duplicates Merges Get
+      security:
+      - HTTPBearer: []
+  /api/v1/devices/duplicates/merges/{merge_id}/undo:
+    post:
+      tags:
+      - devices
+      summary: Undo a recent merge
+      operationId: undo_merge_route_api_v1_devices_duplicates_merges__merge_id__undo_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: merge_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Merge Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__devices__MergeOut'
         '422':
           description: Validation Error
           content:
@@ -9140,14 +10050,325 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DevicesReport'
+              $ref: '#/components/schemas/app__api__v1__endpoints__devices__DevicesReport'
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DevicesResponse'
+                $ref: '#/components/schemas/app__api__v1__endpoints__devices__DevicesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/signins:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Signins
+      description: Record the sign-ins a tool reports, under the client each belongs
+        to, and have the UEBA service score the new ones.
+      operationId: report_core_feed_signins_api_v1_inbox_core_feed__tenant_token__signins_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInsReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignInsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/signins/summary:
+    get:
+      tags:
+      - signins
+      summary: How many sign-ins were collected and scored in the last 24 hours
+      operationId: signin_summary_api_v1_signins_summary_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SigninSummary'
+      security:
+      - HTTPBearer: []
+  /api/v1/signins/top:
+    get:
+      tags:
+      - signins
+      summary: The highest-scoring sign-ins of the last days, across clients (nothing
+        alerts on these yet)
+      operationId: top_signins_api_v1_signins_top_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 45
+          minimum: 1
+          default: 7
+          title: Days
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredSignin'
+                title: Response Top Signins Api V1 Signins Top Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/directory-audits:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Directory Audits
+      description: Record the identity-related directory audit entries a tool reports,
+        under the client each belongs to, and have the UEBA service score the actors'
+        new ones.
+      operationId: report_core_feed_directory_audits_api_v1_inbox_core_feed__tenant_token__directory_audits_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectoryAuditsReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryAuditsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/mfa-users:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Mfa Users
+      description: 'Record one client''s multi-factor state (a snapshot, in chunks):
+        people missing from the final chunk are removed.'
+      operationId: report_core_feed_mfa_users_api_v1_inbox_core_feed__tenant_token__mfa_users_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaUsersReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaUsersResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/identity/mfa-summary:
+    get:
+      tags:
+      - identity
+      summary: 'Per client: how many people have a Multi-Factor, and how many do not'
+      operationId: mfa_summary_api_v1_identity_mfa_summary_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/MfaClientSummary'
+                type: array
+                title: Response Mfa Summary Api V1 Identity Mfa Summary Get
+      security:
+      - HTTPBearer: []
+  /api/v1/identity/mfa-users:
+    get:
+      tags:
+      - identity
+      summary: The people of one client who have no Multi-Factor (or one that nothing
+        requires)
+      operationId: mfa_users_api_v1_identity_mfa_users_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Client Id
+      - name: which
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(without|not_required)$
+          default: without
+          title: Which
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MfaUserOut'
+                title: Response Mfa Users Api V1 Identity Mfa Users Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/identity/summary:
+    get:
+      tags:
+      - identity
+      summary: How many identity changes were collected and scored in the last 24
+        hours
+      operationId: identity_summary_api_v1_identity_summary_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentitySummary'
+      security:
+      - HTTPBearer: []
+  /api/v1/identity/top:
+    get:
+      tags:
+      - identity
+      summary: The highest-scoring identity changes of the last days, across clients
+        (nothing alerts on these yet)
+      operationId: top_changes_api_v1_identity_top_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 45
+          minimum: 1
+          default: 7
+          title: Days
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScoredChange'
+                title: Response Top Changes Api V1 Identity Top Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/client-posture/{client_id}:
+    get:
+      tags:
+      - posture
+      summary: One client's devices, Multi-Factor coverage, open alerts and cases
+        side by side
+      operationId: client_posture_api_v1_client_posture__client_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Client Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientPosture'
         '422':
           description: Validation Error
           content:
@@ -9159,20 +10380,38 @@ paths:
       tags:
       - mssp
       summary: List Child Tenants
-      description: Return all child tenants of the current parent tenant.
+      description: Return the child tenants of the current parent tenant. Hidden ones
+        (archived or test clients) are left out unless asked for, so pickers do not
+        offer them.
       operationId: list_child_tenants_api_v1_mssp_children_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: include_hidden
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Also return hidden clients (test and archived ones)
+          default: false
+          title: Include Hidden
+        description: Also return hidden clients (test and archived ones)
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
+                type: array
                 items:
                   $ref: '#/components/schemas/ChildTenantOut'
-                type: array
                 title: Response List Child Tenants Api V1 Mssp Children Get
-      security:
-      - HTTPBearer: []
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/mssp/children/{child_id}/onboard:
     post:
       tags:
@@ -10089,7 +11328,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MergeOut'
+                $ref: '#/components/schemas/app__api__v1__endpoints__mssp_clients__MergeOut'
         '422':
           description: Validation Error
           content:
@@ -10112,6 +11351,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RerouteOut'
+      security:
+      - HTTPBearer: []
+  /api/v1/mssp/clients/cleanup:
+    get:
+      tags:
+      - mssp
+      summary: Cleanup Report
+      description: 'Clients (not hidden) with nothing in them: no devices, no alerts,
+        no cases and no tool client mapped to them. Candidates to archive or remove;
+        nothing is changed here.'
+      operationId: cleanup_report_api_v1_mssp_clients_cleanup_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CleanupReport'
       security:
       - HTTPBearer: []
   /api/v1/mssp/tenants/{tenant_id}/archive:
@@ -14959,6 +16216,9 @@ paths:
       tags:
       - fusion
       summary: Top entities by risk score
+      description: '``sort=recent`` orders the entities that are in the top ``limit``
+        by score by what they picked up in the last four hours (those heating up first),
+        then by score.'
       operationId: entity_risk_queue_api_v1_fusion_entity_risk_queue_get
       security:
       - HTTPBearer: []
@@ -14988,6 +16248,16 @@ paths:
           type: boolean
           default: false
           title: Promoted Only
+      - name: sort
+        in: query
+        required: false
+        schema:
+          enum:
+          - score
+          - recent
+          type: string
+          default: score
+          title: Sort
       responses:
         '200':
           description: Successful Response
@@ -15372,6 +16642,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/sync-requests/claim:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Claim Core Feed Sync Requests
+      description: CORE asks, about every 15 seconds, which tools to sync now.
+      operationId: claim_core_feed_sync_requests_api_v1_inbox_core_feed__tenant_token__sync_requests_claim_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncClaimResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/inbox/core-feed/{tenant_token}/closed:
     post:
       tags:
@@ -15576,7 +16873,77 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TicketsResponse'
+                $ref: '#/components/schemas/app__api__v1__endpoints__inbox_core_feed__TicketsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/device-names:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Devices
+      description: Record the device a vendor's incidents were raised on, for stored
+        alerts that were forwarded without one (a Huntress incident names only its
+        agent).
+      operationId: report_core_feed_devices_api_v1_inbox_core_feed__tenant_token__device_names_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/app__api__v1__endpoints__inbox_core_feed__DevicesReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__inbox_core_feed__DevicesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/entities:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Entities
+      description: Record the user, host and address a vendor's evidence names, for
+        stored alerts that were forwarded without them (a Blumira finding carries
+        none; its evidence does).
+      operationId: report_core_feed_entities_api_v1_inbox_core_feed__tenant_token__entities_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntitiesReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__inbox_core_feed__DevicesResponse'
         '422':
           description: Validation Error
           content:
@@ -16584,11 +17951,27 @@ components:
           - type: string
           - type: 'null'
           title: Source
+        source_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Url
+        links:
+          additionalProperties:
+            type: string
+          type: object
+          title: Links
+          default: {}
         narrative:
           anyOf:
           - type: string
           - type: 'null'
           title: Narrative
+        raw_event:
+          additionalProperties: true
+          type: object
+          title: Raw Event
+          default: {}
         related_entities:
           items:
             $ref: '#/components/schemas/RelatedEntity'
@@ -17105,6 +18488,17 @@ components:
           - type: string
           - type: 'null'
           title: Source
+        source_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Url
+        links:
+          additionalProperties:
+            type: string
+          type: object
+          title: Links
+          default: {}
       type: object
       required:
       - id
@@ -17255,6 +18649,10 @@ components:
         unresolved:
           type: integer
           title: Unresolved
+        no_ticket:
+          type: integer
+          title: No Ticket
+          default: 0
       type: object
       required:
       - total
@@ -18270,6 +19668,25 @@ components:
       - allowed
       - permission
       title: AuthorizeResponse
+    AutoCloseSetting:
+      properties:
+        threshold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Threshold
+        minimum:
+          type: number
+          title: Minimum
+          default: 0.5
+        maximum:
+          type: number
+          title: Maximum
+          default: 1.0
+      type: object
+      title: AutoCloseSetting
+      description: '``threshold`` is this tenant''s own value, or None when it follows
+        the platform value.'
     AutoSuggestResponse:
       properties:
         window_days:
@@ -18724,6 +20141,39 @@ components:
         among analyst-dispositioned alerts whose ai_score landed in that bucket
 
         — i.e., the empirical hit-rate the model claimed.'
+    CaseCounts:
+      properties:
+        all:
+          type: integer
+          title: All
+        open:
+          type: integer
+          title: Open
+        in_progress:
+          type: integer
+          title: In Progress
+        resolved:
+          type: integer
+          title: Resolved
+        closed:
+          type: integer
+          title: Closed
+        by_status:
+          additionalProperties:
+            type: integer
+          type: object
+          title: By Status
+      type: object
+      required:
+      - all
+      - open
+      - in_progress
+      - resolved
+      - closed
+      - by_status
+      title: CaseCounts
+      description: How many cases are in each group the console shows. ``open`` is
+        new and triaged, ``in_progress`` is investigating and contained.
     CaseMetrics:
       properties:
         open:
@@ -18842,6 +20292,17 @@ components:
             format: date-time
           - type: 'null'
           title: Sla Due At
+        tenant_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Tenant Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
         fanout_results:
           anyOf:
           - items:
@@ -18899,7 +20360,10 @@ components:
       properties:
         vendor:
           type: string
-          const: huntress
+          enum:
+          - huntress
+          - blumira
+          - fieldeffect
           title: Vendor
       type: object
       required:
@@ -18943,6 +20407,51 @@ components:
       - incident_uid
       - params
       title: ClaimedAction
+    CleanupClient:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        devices:
+          type: integer
+          title: Devices
+        alerts:
+          type: integer
+          title: Alerts
+        cases:
+          type: integer
+          title: Cases
+        tool_clients:
+          type: integer
+          title: Tool Clients
+      type: object
+      required:
+      - id
+      - name
+      - devices
+      - alerts
+      - cases
+      - tool_clients
+      title: CleanupClient
+    CleanupReport:
+      properties:
+        checked:
+          type: integer
+          title: Checked
+        empty:
+          items:
+            $ref: '#/components/schemas/CleanupClient'
+          type: array
+          title: Empty
+      type: object
+      required:
+      - checked
+      - empty
+      title: CleanupReport
     ClientAliasOut:
       properties:
         id:
@@ -19014,6 +20523,78 @@ components:
       - id
       - name
       title: ClientItem
+    ClientPosture:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        devices:
+          $ref: '#/components/schemas/PostureDevices'
+        identity:
+          anyOf:
+          - $ref: '#/components/schemas/PostureIdentity'
+          - type: 'null'
+        alerts:
+          $ref: '#/components/schemas/PostureAlerts'
+        open_cases:
+          type: integer
+          title: Open Cases
+      type: object
+      required:
+      - client_id
+      - client_name
+      - generated_at
+      - devices
+      - identity
+      - alerts
+      - open_cases
+      title: ClientPosture
+    ClientRollup:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        devices:
+          type: integer
+          title: Devices
+        needs_attention:
+          type: integer
+          title: Needs Attention
+        stale_agents:
+          type: integer
+          title: Stale Agents
+        not_in_huntress:
+          type: integer
+          title: Not In Huntress
+        offline:
+          type: integer
+          title: Offline
+      type: object
+      required:
+      - client_id
+      - client_name
+      - devices
+      - needs_attention
+      - stale_agents
+      - not_in_huntress
+      - offline
+      title: ClientRollup
     ClientsOut:
       properties:
         clients:
@@ -19231,6 +20812,10 @@ components:
           type: string
           format: date-time
           title: Queued At
+        collected:
+          type: integer
+          title: Collected
+          default: 0
       type: object
       required:
       - job_id
@@ -21147,6 +22732,23 @@ components:
       - external_id
       - hostname
       title: DeviceIn
+    DeviceItem:
+      properties:
+        uid:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Uid
+        hostname:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Hostname
+      type: object
+      required:
+      - uid
+      - hostname
+      title: DeviceItem
     DeviceListOut:
       properties:
         master_vendor:
@@ -21272,6 +22874,12 @@ components:
             $ref: '#/components/schemas/DeviceAlertOut'
           type: array
           title: Alerts
+        hidden_since:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Hidden Since
       type: object
       required:
       - id
@@ -21329,6 +22937,18 @@ components:
           type: integer
           title: Not In Threatmate
           default: 0
+        not_in_huntress:
+          type: integer
+          title: Not In Huntress
+          default: 0
+        needs_attention:
+          type: integer
+          title: Needs Attention
+          default: 0
+        stale_agents:
+          type: integer
+          title: Stale Agents
+          default: 0
         offline:
           type: integer
           title: Offline
@@ -21337,36 +22957,152 @@ components:
           type: integer
           title: With Alerts
           default: 0
+        hidden:
+          type: integer
+          title: Hidden
+          default: 0
+        long_offline:
+          type: integer
+          title: Long Offline
+          default: 0
       type: object
       required:
       - total
       - not_in_master
       title: DeviceSummary
-    DevicesReport:
+    DirectoryAuditIn:
       properties:
+        vendor_client_id:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Vendor Client Id
+        id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Id
+        at:
+          type: string
+          format: date-time
+          title: At
+        actor:
+          type: string
+          maxLength: 320
+          minLength: 1
+          title: Actor
+        actor_is_app:
+          type: boolean
+          title: Actor Is App
+          default: false
+        actor_ip:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Actor Ip
+        activity:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Activity
+        category:
+          type: string
+          maxLength: 60
+          minLength: 1
+          title: Category
+        service:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Service
+        success:
+          type: boolean
+          title: Success
+          default: true
+        reason:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Reason
+        target:
+          anyOf:
+          - type: string
+            maxLength: 320
+          - type: 'null'
+          title: Target
+        target_type:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Target Type
+      type: object
+      required:
+      - id
+      - at
+      - actor
+      - activity
+      - category
+      title: DirectoryAuditIn
+    DirectoryAuditsReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
         items:
           items:
-            $ref: '#/components/schemas/DeviceIn'
+            $ref: '#/components/schemas/DirectoryAuditIn'
           type: array
-          maxItems: 1000
+          maxItems: 500
           title: Items
       type: object
       required:
+      - vendor
       - items
-      title: DevicesReport
-    DevicesResponse:
+      title: DirectoryAuditsReport
+    DirectoryAuditsResponse:
       properties:
         accepted:
           type: integer
           title: Accepted
+        duplicates:
+          type: integer
+          title: Duplicates
+          default: 0
         unmapped:
           type: integer
           title: Unmapped
+          default: 0
+        ignored:
+          type: integer
+          title: Ignored
+          default: 0
+        scored:
+          type: integer
+          title: Scored
+          default: 0
+        anomalies:
+          type: integer
+          title: Anomalies
+          default: 0
+        scoring:
+          type: string
+          title: Scoring
+          default: ok
+        unmapped_clients:
+          items:
+            $ref: '#/components/schemas/UnmappedClient'
+          type: array
+          title: Unmapped Clients
       type: object
       required:
       - accepted
-      - unmapped
-      title: DevicesResponse
+      title: DirectoryAuditsResponse
     DiscoverResponse:
       properties:
         discovered:
@@ -21378,6 +23114,21 @@ components:
       required:
       - discovered
       title: DiscoverResponse
+    DismissIn:
+      properties:
+        device_a:
+          type: string
+          format: uuid
+          title: Device A
+        device_b:
+          type: string
+          format: uuid
+          title: Device B
+      type: object
+      required:
+      - device_a
+      - device_b
+      title: DismissIn
     DismissRequest:
       properties:
         tenant_ids:
@@ -21506,6 +23257,17 @@ components:
       required:
       - tenants
       title: DuplicateGroupOut
+    DuplicatePairOut:
+      properties:
+        a:
+          $ref: '#/components/schemas/DeviceOut'
+        b:
+          $ref: '#/components/schemas/DeviceOut'
+      type: object
+      required:
+      - a
+      - b
+      title: DuplicatePairOut
     DuplicateTenantOut:
       properties:
         tenant_id:
@@ -21525,6 +23287,17 @@ components:
       - name
       - mapped_from
       title: DuplicateTenantOut
+    DuplicatesOut:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/DuplicatePairOut'
+          type: array
+          title: Items
+      type: object
+      required:
+      - items
+      title: DuplicatesOut
     EdgeCreate:
       properties:
         source_id:
@@ -21704,6 +23477,66 @@ components:
       - override_note
       - parameter_overrides
       title: EffectiveRuleOut
+    EntitiesReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        items:
+          items:
+            $ref: '#/components/schemas/EntityItem'
+          type: array
+          maxItems: 500
+          title: Items
+      type: object
+      required:
+      - vendor
+      - items
+      title: EntitiesReport
+    EntityItem:
+      properties:
+        uid:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Uid
+        hostname:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Hostname
+        username:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Username
+        src_ip:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Src Ip
+        url:
+          anyOf:
+          - type: string
+            maxLength: 1000
+            pattern: ^https://[^\s]+$
+          - type: 'null'
+          title: Url
+        links:
+          anyOf:
+          - additionalProperties:
+              type: string
+            type: object
+          - type: 'null'
+          title: Links
+      type: object
+      required:
+      - uid
+      title: EntityItem
     EntityNeighborsResponse:
       properties:
         entity_id:
@@ -23079,6 +24912,23 @@ components:
       required:
       - hidden
       title: HiddenRequest
+    HideOut:
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          title: Device Id
+        hidden_since:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Hidden Since
+      type: object
+      required:
+      - device_id
+      - hidden_since
+      title: HideOut
     HuntHit:
       properties:
         id:
@@ -23437,6 +25287,29 @@ components:
       - last_seen
       - created_at
       title: IOCOut
+    IdentitySummary:
+      properties:
+        audits_last_24h:
+          type: integer
+          title: Audits Last 24H
+        audits_scored_last_24h:
+          type: integer
+          title: Audits Scored Last 24H
+        audits_unscored:
+          type: integer
+          title: Audits Unscored
+        newest_received:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Newest Received
+      type: object
+      required:
+      - audits_last_24h
+      - audits_scored_last_24h
+      - audits_unscored
+      title: IdentitySummary
     IdentityTimeline:
       properties:
         timeline_id:
@@ -24735,6 +26608,37 @@ components:
       title: ManagedTenantRow
       description: One REAL child tenant of the caller, with its latest metrics snapshot
         if any (``has_metrics`` is False and every metric ``None`` otherwise).
+    ManualTicketRequest:
+      properties:
+        id:
+          type: string
+          maxLength: 41
+          minLength: 1
+          title: Id
+          description: 'The ticket number, with or without a leading #.'
+        system:
+          type: string
+          const: halopsa
+          title: System
+          default: halopsa
+        summary:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Summary
+          description: 'Optional: what the ticket is about, shown on the alert.'
+        url:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Url
+          description: 'Optional: a link to the ticket. Only https addresses are kept.'
+      type: object
+      required:
+      - id
+      title: ManualTicketRequest
     MapRequest:
       properties:
         child_tenant_id:
@@ -24892,23 +26796,23 @@ components:
       - changed_at
       - created_at
       title: MaturityOut
-    MergeOut:
+    MergeIn:
       properties:
-        source:
+        keep:
           type: string
-          title: Source
-        target:
+          format: uuid
+          title: Keep
+          description: The device that stays; every tool that reported the other one
+            now reports this one.
+        remove:
           type: string
-          title: Target
-        remapped:
-          type: integer
-          title: Remapped
+          format: uuid
+          title: Remove
       type: object
       required:
-      - source
-      - target
-      - remapped
-      title: MergeOut
+      - keep
+      - remove
+      title: MergeIn
     MetricsOut:
       properties:
         tenant_id:
@@ -24956,6 +26860,211 @@ components:
       - connector_count
       - health_score
       title: MetricsOut
+    MfaClientSummary:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        people:
+          type: integer
+          title: People
+        with_mfa:
+          type: integer
+          title: With Mfa
+        not_required:
+          type: integer
+          title: Not Required
+        without_mfa:
+          type: integer
+          title: Without Mfa
+        admins_without_mfa:
+          type: integer
+          title: Admins Without Mfa
+        refreshed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Refreshed At
+      type: object
+      required:
+      - client_id
+      - client_name
+      - people
+      - with_mfa
+      - not_required
+      - without_mfa
+      - admins_without_mfa
+      title: MfaClientSummary
+    MfaUserIn:
+      properties:
+        id:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Id
+        upn:
+          type: string
+          maxLength: 320
+          minLength: 1
+          title: Upn
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Display Name
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        user_type:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: User Type
+        admin:
+          type: boolean
+          title: Admin
+          default: false
+        licensed:
+          type: boolean
+          title: Licensed
+          default: false
+        registered:
+          type: boolean
+          title: Registered
+          default: false
+        capable:
+          type: boolean
+          title: Capable
+          default: false
+        per_user:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Per User
+        ca_enforced:
+          type: boolean
+          title: Ca Enforced
+          default: false
+        security_defaults:
+          type: boolean
+          title: Security Defaults
+          default: false
+        methods:
+          items:
+            type: string
+          type: array
+          maxItems: 8
+          title: Methods
+      type: object
+      required:
+      - id
+      - upn
+      title: MfaUserIn
+    MfaUserOut:
+      properties:
+        upn:
+          type: string
+          title: Upn
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        admin:
+          type: boolean
+          title: Admin
+        registered:
+          type: boolean
+          title: Registered
+        required:
+          type: boolean
+          title: Required
+        methods:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Methods
+      type: object
+      required:
+      - upn
+      - display_name
+      - admin
+      - registered
+      - required
+      - methods
+      title: MfaUserOut
+    MfaUsersReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        vendor_client_id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Vendor Client Id
+        snapshot_id:
+          type: string
+          format: uuid
+          title: Snapshot Id
+          description: One id for every chunk of one tenant's snapshot.
+        last:
+          type: boolean
+          title: Last
+          description: 'True on the final chunk: people not in this snapshot are then
+            removed.'
+          default: true
+        items:
+          items:
+            $ref: '#/components/schemas/MfaUserIn'
+          type: array
+          maxItems: 1000
+          title: Items
+      type: object
+      required:
+      - vendor
+      - vendor_client_id
+      - snapshot_id
+      - items
+      title: MfaUsersReport
+    MfaUsersResponse:
+      properties:
+        accepted:
+          type: integer
+          title: Accepted
+        unmapped:
+          type: integer
+          title: Unmapped
+          default: 0
+        ignored:
+          type: integer
+          title: Ignored
+          default: 0
+        removed:
+          type: integer
+          title: Removed
+          default: 0
+        unmapped_clients:
+          items:
+            $ref: '#/components/schemas/UnmappedClient'
+          type: array
+          title: Unmapped Clients
+      type: object
+      required:
+      - accepted
+      title: MfaUsersResponse
     MiniTimelineEvent:
       properties:
         id:
@@ -26585,6 +28694,82 @@ components:
       - loaded_at
       - error
       title: PluginOut
+    PostureAlerts:
+      properties:
+        open:
+          type: integer
+          title: Open
+        critical:
+          type: integer
+          title: Critical
+        high:
+          type: integer
+          title: High
+        without_ticket:
+          type: integer
+          title: Without Ticket
+      type: object
+      required:
+      - open
+      - critical
+      - high
+      - without_ticket
+      title: PostureAlerts
+    PostureDevices:
+      properties:
+        devices:
+          type: integer
+          title: Devices
+          default: 0
+        needs_attention:
+          type: integer
+          title: Needs Attention
+          default: 0
+        stale_agents:
+          type: integer
+          title: Stale Agents
+          default: 0
+        not_in_huntress:
+          type: integer
+          title: Not In Huntress
+          default: 0
+        offline:
+          type: integer
+          title: Offline
+          default: 0
+      type: object
+      title: PostureDevices
+    PostureIdentity:
+      properties:
+        people:
+          type: integer
+          title: People
+        with_mfa:
+          type: integer
+          title: With Mfa
+        not_required:
+          type: integer
+          title: Not Required
+        without_mfa:
+          type: integer
+          title: Without Mfa
+        admins_without_mfa:
+          type: integer
+          title: Admins Without Mfa
+        refreshed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Refreshed At
+      type: object
+      required:
+      - people
+      - with_mfa
+      - not_required
+      - without_mfa
+      - admins_without_mfa
+      title: PostureIdentity
     PostureSummary:
       properties:
         total:
@@ -27422,6 +29607,19 @@ components:
       required:
       - refresh_token
       title: RefreshRequest
+    RefreshResponse:
+      properties:
+        vendor:
+          type: string
+          title: Vendor
+        requested_at:
+          type: string
+          title: Requested At
+      type: object
+      required:
+      - vendor
+      - requested_at
+      title: RefreshResponse
     RegisterBeginRequest:
       properties:
         device_name:
@@ -27431,6 +29629,63 @@ components:
           default: My phone
       type: object
       title: RegisterBeginRequest
+    RelatedAlert:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        title:
+          type: string
+          title: Title
+        severity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Severity
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        matched:
+          type: string
+          enum:
+          - device
+          - user
+          - device and user
+          title: Matched
+      type: object
+      required:
+      - id
+      - title
+      - created_at
+      - matched
+      title: RelatedAlert
+    RelatedAlerts:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/RelatedAlert'
+          type: array
+          title: Items
+        more:
+          type: integer
+          title: More
+          default: 0
+      type: object
+      required:
+      - items
+      title: RelatedAlerts
     RelatedEntity:
       properties:
         group:
@@ -28239,6 +30494,35 @@ components:
           default: esql
       type: object
       title: RunHuntRequest
+    RunLogEntry:
+      properties:
+        at:
+          type: string
+          format: date-time
+          title: At
+        status:
+          type: string
+          title: Status
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+        fetched:
+          type: integer
+          title: Fetched
+          default: 0
+        sent:
+          type: integer
+          title: Sent
+          default: 0
+      type: object
+      required:
+      - at
+      - status
+      title: RunLogEntry
+      description: 'One change in what a connector reported: a status or message that
+        differs from the entry before it.'
     RunRequest:
       properties:
         payload:
@@ -28985,8 +31269,10 @@ components:
     ScanRequest:
       properties:
         tenant_id:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Tenant Id
         org_query:
           anyOf:
@@ -28997,15 +31283,13 @@ components:
           items:
             type: string
           type: array
+          maxItems: 64
           title: Ip Targets
-          default: []
         asset_type:
           anyOf:
           - $ref: '#/components/schemas/ExternalAssetType'
           - type: 'null'
       type: object
-      required:
-      - tenant_id
       title: ScanRequest
     ScanRunOut:
       properties:
@@ -29066,6 +31350,136 @@ components:
       - findings_closed
       - error_message
       title: ScanRunOut
+    ScoredChange:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        actor:
+          type: string
+          title: Actor
+        actor_is_app:
+          type: boolean
+          title: Actor Is App
+        activity:
+          type: string
+          title: Activity
+        category:
+          type: string
+          title: Category
+        target:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target
+        success:
+          type: boolean
+          title: Success
+        sensitivity:
+          type: integer
+          title: Sensitivity
+        occurred_at:
+          type: string
+          format: date-time
+          title: Occurred At
+        score:
+          type: number
+          title: Score
+      type: object
+      required:
+      - client_id
+      - client_name
+      - actor
+      - actor_is_app
+      - activity
+      - category
+      - target
+      - success
+      - sensitivity
+      - occurred_at
+      - score
+      title: ScoredChange
+    ScoredSignin:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        user:
+          type: string
+          title: User
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        occurred_at:
+          type: string
+          format: date-time
+          title: Occurred At
+        score:
+          type: number
+          title: Score
+        success:
+          type: boolean
+          title: Success
+        country:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Country
+        city:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: City
+        ip_address:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ip Address
+        app:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: App
+        mfa:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Mfa
+        risk:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Risk
+      type: object
+      required:
+      - client_id
+      - client_name
+      - user
+      - display_name
+      - occurred_at
+      - score
+      - success
+      - country
+      - city
+      - ip_address
+      - app
+      - mfa
+      - risk
+      title: ScoredSignin
     SelectableTenant:
       properties:
         id:
@@ -29146,6 +31560,32 @@ components:
       - batch_id
       - recipient_count
       title: SentAlert
+    SetAutoClose:
+      properties:
+        threshold:
+          type: number
+          maximum: 1.0
+          minimum: 0.5
+          title: Threshold
+          description: Confidence from 0.5 to 1.0 at or above which benign and false-positive
+            verdicts close on their own.
+      type: object
+      required:
+      - threshold
+      title: SetAutoClose
+    SetTicketSettings:
+      properties:
+        close_status:
+          type: string
+          maxLength: 60
+          minLength: 1
+          title: Close Status
+          description: The exact name of a status in HaloPSA, for example Tech Updated
+            or Closed.
+      type: object
+      required:
+      - close_status
+      title: SetTicketSettings
     ShiftAnalyst:
       properties:
         id:
@@ -29231,6 +31671,190 @@ components:
       - alerts_handled
       - escalations
       title: ShiftSummary
+    SignInIn:
+      properties:
+        vendor_client_id:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Vendor Client Id
+          description: 'The tool''s id for the person''s client (CIPP: the customer
+            id); mapped to a client tenant like alerts are.'
+        id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Id
+          description: The sign-in's own id; the same one posted twice is stored once.
+        at:
+          type: string
+          format: date-time
+          title: At
+        user:
+          type: string
+          maxLength: 320
+          minLength: 1
+          title: User
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Display Name
+        ip:
+          anyOf:
+          - type: string
+            maxLength: 64
+          - type: 'null'
+          title: Ip
+        country:
+          anyOf:
+          - type: string
+            maxLength: 16
+          - type: 'null'
+          title: Country
+        city:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: City
+        app:
+          anyOf:
+          - type: string
+            maxLength: 160
+          - type: 'null'
+          title: App
+        client_app:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Client App
+        success:
+          type: boolean
+          title: Success
+          default: true
+        error_code:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Error Code
+        interactive:
+          type: boolean
+          title: Interactive
+          default: true
+        mfa:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Mfa
+        risk:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Risk
+        conditional_access:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Conditional Access
+      type: object
+      required:
+      - id
+      - at
+      - user
+      title: SignInIn
+    SignInsReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+          description: The source, e.g. ``cipp``.
+        items:
+          items:
+            $ref: '#/components/schemas/SignInIn'
+          type: array
+          maxItems: 500
+          title: Items
+      type: object
+      required:
+      - vendor
+      - items
+      title: SignInsReport
+    SignInsResponse:
+      properties:
+        accepted:
+          type: integer
+          title: Accepted
+        duplicates:
+          type: integer
+          title: Duplicates
+          default: 0
+        unmapped:
+          type: integer
+          title: Unmapped
+          default: 0
+        ignored:
+          type: integer
+          title: Ignored
+          default: 0
+        scored:
+          type: integer
+          title: Scored
+          default: 0
+        anomalies:
+          type: integer
+          title: Anomalies
+          default: 0
+        scoring:
+          type: string
+          title: Scoring
+          default: ok
+        unmapped_clients:
+          items:
+            $ref: '#/components/schemas/UnmappedClient'
+          type: array
+          title: Unmapped Clients
+      type: object
+      required:
+      - accepted
+      title: SignInsResponse
+    SigninSummary:
+      properties:
+        last_24h:
+          type: integer
+          title: Last 24H
+        failed_last_24h:
+          type: integer
+          title: Failed Last 24H
+        scored_last_24h:
+          type: integer
+          title: Scored Last 24H
+        unscored:
+          type: integer
+          title: Unscored
+        users_last_24h:
+          type: integer
+          title: Users Last 24H
+        newest_received:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Newest Received
+      type: object
+      required:
+      - last_24h
+      - failed_last_24h
+      - scored_last_24h
+      - unscored
+      - users_last_24h
+      title: SigninSummary
     SourceReport:
       properties:
         vendor:
@@ -29623,6 +32247,11 @@ components:
         score:
           type: number
           title: Score
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
       type: object
       required:
       - tenant_id
@@ -29684,6 +32313,17 @@ components:
       required:
       - reason
       title: SuppressRequest
+    SyncClaimResponse:
+      properties:
+        vendors:
+          items:
+            type: string
+          type: array
+          title: Vendors
+      type: object
+      required:
+      - vendors
+      title: SyncClaimResponse
     TAXIICollection:
       properties:
         id:
@@ -30484,6 +33124,24 @@ components:
       - updated_at
       - updated_by
       title: ThresholdUpdateResponse
+    TicketSettings:
+      properties:
+        close_status:
+          type: string
+          title: Close Status
+          default: Tech Updated
+        is_default:
+          type: boolean
+          title: Is Default
+          default: true
+        default:
+          type: string
+          title: Default
+          default: Tech Updated
+      type: object
+      title: TicketSettings
+      description: '``close_status`` is the status in force; ``is_default`` says it
+        is the platform''s, not this organization''s own choice.'
     TicketsItem:
       properties:
         uid:
@@ -30519,15 +33177,6 @@ components:
       - vendor
       - items
       title: TicketsReport
-    TicketsResponse:
-      properties:
-        updated:
-          type: integer
-          title: Updated
-      type: object
-      required:
-      - updated
-      title: TicketsResponse
     TimelineDecision:
       properties:
         reason:
@@ -31083,6 +33732,27 @@ components:
       - healthy
       title: TuningSummary
       description: Top-line counts for the workbench header.
+    UnmappedClient:
+      properties:
+        vendor_client_id:
+          type: string
+          title: Vendor Client Id
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        devices:
+          type: integer
+          title: Devices
+      type: object
+      required:
+      - vendor_client_id
+      - devices
+      title: UnmappedClient
+      description: A tool's client that devices belong to but that is not mapped to
+        a client here (``name`` is None when the tool's client list has not reached
+        AiSOC yet).
     UpdateApiKeyRequest:
       properties:
         name:
@@ -31817,6 +34487,14 @@ components:
           title: Useful
           description: '``reject`` only: whether the remediation plan was useful.'
           default: true
+        resolution:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Resolution
+          description: 'Blumira only: how to record the resolution (10 Valid, 20 False
+            Positive, 30 No Action Needed, 40 Risk Accepted). ``comment`` is sent
+            as its note.'
       type: object
       required:
       - action
@@ -32377,6 +35055,18 @@ components:
       required:
       - id
       title: _Remediation
+    app__api__v1__endpoints__alert_vendor_actions__TicketsResponse:
+      properties:
+        tickets:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Tickets
+      type: object
+      required:
+      - tickets
+      title: TicketsResponse
     app__api__v1__endpoints__business_context__UpdateRuleRequest:
       properties:
         yaml:
@@ -32516,6 +35206,77 @@ components:
           title: Tags
       type: object
       title: UpdateRuleRequest
+    app__api__v1__endpoints__devices__DevicesReport:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/DeviceIn'
+          type: array
+          maxItems: 1000
+          title: Items
+      type: object
+      required:
+      - items
+      title: DevicesReport
+    app__api__v1__endpoints__devices__DevicesResponse:
+      properties:
+        accepted:
+          type: integer
+          title: Accepted
+        unmapped:
+          type: integer
+          title: Unmapped
+        ignored:
+          type: integer
+          title: Ignored
+          default: 0
+        unmapped_clients:
+          items:
+            $ref: '#/components/schemas/UnmappedClient'
+          type: array
+          title: Unmapped Clients
+        auto_linked:
+          type: integer
+          title: Auto Linked
+          default: 0
+        merged:
+          type: integer
+          title: Merged
+          default: 0
+      type: object
+      required:
+      - accepted
+      - unmapped
+      title: DevicesResponse
+    app__api__v1__endpoints__devices__MergeOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        removed_hostname:
+          type: string
+          title: Removed Hostname
+        kept_device_id:
+          type: string
+          format: uuid
+          title: Kept Device Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - removed_hostname
+      - kept_device_id
+      - created_at
+      title: MergeOut
     app__api__v1__endpoints__enrichment__IndicatorOut:
       properties:
         id:
@@ -32764,6 +35525,41 @@ components:
       - source
       - description
       title: TimelineEvent
+    app__api__v1__endpoints__inbox_core_feed__DevicesReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        items:
+          items:
+            $ref: '#/components/schemas/DeviceItem'
+          type: array
+          maxItems: 500
+          title: Items
+      type: object
+      required:
+      - vendor
+      - items
+      title: DevicesReport
+    app__api__v1__endpoints__inbox_core_feed__DevicesResponse:
+      properties:
+        updated:
+          type: integer
+          title: Updated
+      type: object
+      required:
+      - updated
+      title: DevicesResponse
+    app__api__v1__endpoints__inbox_core_feed__TicketsResponse:
+      properties:
+        updated:
+          type: integer
+          title: Updated
+      type: object
+      required:
+      - updated
+      title: TicketsResponse
     app__api__v1__endpoints__insider_threat__IndicatorOut:
       properties:
         id:
@@ -32860,6 +35656,23 @@ components:
         wall-clock span from first to last event. ``attempt_count`` counts unique
 
         retry attempts inferred from ``agent_start`` events.'
+    app__api__v1__endpoints__mssp_clients__MergeOut:
+      properties:
+        source:
+          type: string
+          title: Source
+        target:
+          type: string
+          title: Target
+        remapped:
+          type: integer
+          title: Remapped
+      type: object
+      required:
+      - source
+      - target
+      - remapped
+      title: MergeOut
   securitySchemes:
     HTTPBearer:
       type: http

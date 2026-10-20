@@ -101,6 +101,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 - **Click the device name** to open the Devices page already filtered to that machine.
 - **Halo tickets:** linked tickets are clickable. **Add by number** links one by hand; **Remove** removes one you added (a ticket CORE matched cannot be removed here, CORE would report it again).
 - **Related alerts:** other alerts on the same device or user in the last 30 days.
+- **Refresh status** (top right of an alert from Huntress, Blumira or Field Effect) asks CORE to re-read that one tool now, instead of waiting for its next run, so the alert's status catches up with the tool's. Other tools are not re-read. The alert updates by itself within about a minute; it needs a write key and CORE must be running. Not yet tried against a live tool.
 - **Huntress alerts:** the remediation plan with **Approve**, **Reject** and **Resolve** (needs a write key, see section 3). Resolving can leave a private note on each linked Halo ticket and change its **status**; it never closes the ticket.
 - **Huntress ITDR escalations and signals** appear as alerts. They have no approve or resolve buttons.
 - **Blumira** alerts carry the finding's summary and the analysis text.
