@@ -234,3 +234,32 @@ async def test_the_identity_summary_counts_the_last_day(world, monkeypatch):
 
     s = await run(world["msp"], lambda db: ep.identity_summary(User(), db))
     assert (s.audits_last_24h, s.audits_scored_last_24h) == (2, 2) and s.newest_received is not None
+
+
+async def test_top_changes_are_the_highest_scores_of_the_window_with_their_client(world, monkeypatch):
+    fake_scoring(monkeypatch)
+    await run(
+        world["msp"],
+        lambda db: ep.apply_directory_audits(
+            db, world["msp"], audits(audit("p1"), audit("p2", actor="eve@x.com"), audit("p3", actor="old@x.com")), NOW
+        ),
+    )
+    engine = create_async_engine(PG_URL)
+    async with engine.begin() as c:
+        await c.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
+        for sid, score, age in (("p1", 0.2, timedelta(hours=1)), ("p2", 0.9, timedelta(hours=2)), ("p3", 0.99, timedelta(days=30))):
+            await c.execute(
+                text(
+                    "update directory_audit_events set anomaly_score = :s, occurred_at = now() - cast(:a as interval) where source_id = :i and tenant_id = :t"
+                ),
+                {"s": score, "a": age, "i": sid, "t": world["mapped"]},
+            )
+    await engine.dispose()
+
+    class User:
+        tenant_id = world["msp"]
+
+    top = await run(world["msp"], lambda db: ep.top_changes(User(), db, days=7, limit=10))
+    assert [t.actor for t in top] == ["eve@x.com", "admin@x.com"], "highest first; the 30-day-old one is outside the window"
+    assert top[0].client_id == world["mapped"] and top[0].client_name.startswith("mapped-")
+    assert len(await run(world["msp"], lambda db: ep.top_changes(User(), db, days=7, limit=1))) == 1

@@ -32,6 +32,82 @@ export function placeLabel(s: Pick<ScoredSignin, "city" | "country">): string {
   return parts.length ? parts.join(", ") : "unknown place";
 }
 
+export interface ScoredChange {
+  client_id: string;
+  client_name: string | null;
+  actor: string;
+  actor_is_app: boolean;
+  activity: string;
+  category: string;
+  target: string | null;
+  success: boolean;
+  sensitivity: number;
+  occurred_at: string;
+  score: number;
+}
+
+/** The most unusual identity changes (a role added, a password reset, a security method registered...). Backed by GET /api/v1/identity/top. */
+function IdentityChanges({ days }: { days: number }) {
+  const [rows, setRows] = useState<ScoredChange[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    authFetch(`/api/v1/identity/top?days=${days}&limit=50`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`The API answered ${res.status}`);
+        const body = (await res.json()) as ScoredChange[];
+        if (live) setRows(body);
+      })
+      .catch((e: unknown) => {
+        if (live) setError(e instanceof Error ? e.message : "Could not load identity changes");
+      });
+    return () => {
+      live = false;
+    };
+  }, [days]);
+  return (
+    <section className="space-y-2" data-testid="identity-changes">
+      <h2 className="text-lg font-semibold text-slate-100">Identity changes</h2>
+      <p className="text-sm text-slate-400">Role, group, password and security-method changes in Microsoft 365, scored by who made them. Higher is more unusual.</p>
+      {error && <p className="text-sm text-red-300">{error}</p>}
+      {rows === null && !error && <p className="text-sm text-slate-500">Loading...</p>}
+      {rows !== null && rows.length === 0 && <p className="text-sm text-slate-400">No scored identity changes in this period.</p>}
+      {rows !== null && rows.length > 0 && (
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-slate-700 text-slate-500">
+              <th className="py-2">Score</th>
+              <th>Done by</th>
+              <th>What</th>
+              <th>To</th>
+              <th>Client</th>
+              <th>When</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r.client_id}-${r.actor}-${r.occurred_at}-${i}`} className="border-b border-slate-800" data-testid="change-row">
+                <td className="py-2 font-mono text-slate-200">{r.score.toFixed(2)}</td>
+                <td className="text-slate-200">
+                  {r.actor}
+                  {r.actor_is_app ? <span className="ml-1 text-slate-500">(app)</span> : null}
+                </td>
+                <td className={r.success ? "text-slate-300" : "text-red-300"}>
+                  {r.activity}
+                  {r.success ? "" : " (failed)"}
+                </td>
+                <td className="text-slate-400">{r.target ?? "—"}</td>
+                <td className="text-slate-400">{r.client_name ?? "This organization"}</td>
+                <td className="text-slate-400">{new Date(r.occurred_at).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 export function SigninScores() {
   const [rows, setRows] = useState<ScoredSignin[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +195,7 @@ export function SigninScores() {
           </tbody>
         </table>
       )}
+      <IdentityChanges days={days} />
     </div>
   );
 }

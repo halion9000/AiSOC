@@ -468,3 +468,71 @@ async def identity_summary(current_user: Annotated[AuthUser, Depends(require_per
         if row[2] is not None and (newest is None or row[2] > newest):
             newest = row[2]
     return IdentitySummary(audits_last_24h=total, audits_scored_last_24h=scored, audits_unscored=unscored, newest_received=newest)
+
+
+class ScoredChange(BaseModel):
+    client_id: uuid.UUID
+    client_name: str | None
+    actor: str
+    actor_is_app: bool
+    activity: str
+    category: str
+    target: str | None
+    success: bool
+    sensitivity: int
+    occurred_at: datetime
+    score: float
+
+
+@router.get(
+    "/top",
+    response_model=list[ScoredChange],
+    summary="The highest-scoring identity changes of the last days, across clients (nothing alerts on these yet)",
+)
+async def top_changes(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: DBSession,
+    days: int = Query(default=7, ge=1, le=45),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[ScoredChange]:
+    owner = current_user.tenant_id
+    children = (await db.execute(select(Tenant.id, Tenant.name).where(Tenant.parent_tenant_id == owner))).all()
+    names: dict[uuid.UUID, str | None] = {owner: None, **dict(children)}
+    since = datetime.now(UTC) - timedelta(days=days)
+    found: list[ScoredChange] = []
+    for tid, name in names.items():
+        async with contextlib.nullcontext() if tid == owner else acting_as_tenant(db, tid):
+            rows = (
+                (
+                    await db.execute(
+                        select(DirectoryAuditEvent)
+                        .where(
+                            DirectoryAuditEvent.tenant_id == tid,
+                            DirectoryAuditEvent.occurred_at >= since,
+                            DirectoryAuditEvent.anomaly_score.is_not(None),
+                        )
+                        .order_by(DirectoryAuditEvent.anomaly_score.desc())
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        found.extend(
+            ScoredChange(
+                client_id=tid,
+                client_name=name,
+                actor=r.actor,
+                actor_is_app=r.actor_is_app,
+                activity=r.activity,
+                category=r.category,
+                target=r.target,
+                success=r.success,
+                sensitivity=r.sensitivity,
+                occurred_at=r.occurred_at,
+                score=float(r.anomaly_score or 0),
+            )
+            for r in rows
+        )
+    found.sort(key=lambda c: (-c.score, c.occurred_at))
+    return found[:limit]

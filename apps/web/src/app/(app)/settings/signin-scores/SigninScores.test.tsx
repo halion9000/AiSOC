@@ -36,8 +36,18 @@ describe('placeLabel', () => {
 });
 
 describe('SigninScores', () => {
+  it('also lists the most unusual identity changes', async () => {
+    const change = { client_id: 'c1', client_name: 'Acme Dental', actor: 'eve@acme.com', actor_is_app: false, activity: 'Add member to role', category: 'RoleManagement', target: 'bob@acme.com', success: true, sensitivity: 3, occurred_at: '2026-10-19T10:00:00Z', score: 0.88 };
+    authFetch.mockImplementation((url?: string) => Promise.resolve((url ?? '').includes('/identity/top') ? reply([change]) : reply([])));
+    render(<SigninScores />);
+    const rows = await screen.findAllByTestId('change-row');
+    expect(rows[0]).toHaveTextContent('Add member to role');
+    expect(rows[0]).toHaveTextContent('eve@acme.com');
+    expect(authFetch).toHaveBeenCalledWith('/api/v1/identity/top?days=7&limit=50');
+  });
+
   it('lists the scored sign-ins with who, where and what looked wrong', async () => {
-    authFetch.mockResolvedValue(reply([row(), row({ user: 'amy@acme.com', score: 0.5, success: false, mfa: true, risk: 'none' })]));
+    authFetch.mockImplementation((url?: string) => Promise.resolve((url ?? '').includes('/identity/top') ? reply([]) : reply([row(), row({ user: 'amy@acme.com', score: 0.5, success: false, mfa: true, risk: 'none' })])));
     render(<SigninScores />);
     const rows = await screen.findAllByTestId('signin-row');
     expect(rows).toHaveLength(2);
