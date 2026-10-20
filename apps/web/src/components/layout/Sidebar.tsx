@@ -267,6 +267,36 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    title: 'Client Security',
+    items: [
+      {
+        label: 'Client Posture',
+        href: '/settings/client-posture',
+        icon: <ShieldIcon />,
+      },
+      {
+        label: 'Multi-Factor',
+        href: '/settings/mfa',
+        icon: <EyeIcon />,
+      },
+      {
+        label: 'Sign-in Scores',
+        href: '/settings/signin-scores',
+        icon: <ChartBarIcon />,
+      },
+      {
+        label: 'Client Cleanup',
+        href: '/settings/client-cleanup',
+        icon: <FolderIcon />,
+      },
+      {
+        label: 'Platform Health',
+        href: '/settings/platform-health',
+        icon: <ClockIcon />,
+      },
+    ],
+  },
+  {
     title: 'Automation',
     items: [
       {

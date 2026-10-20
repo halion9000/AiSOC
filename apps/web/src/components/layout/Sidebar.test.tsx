@@ -52,6 +52,13 @@ describe('Sidebar', () => {
     expect(compliance).toHaveAttribute('href', '/compliance');
   });
 
+  it('has a Client Security section with the client posture, Multi-Factor, sign-in scores, cleanup and platform health pages', () => {
+    const { container } = render(<Sidebar />);
+    expect(screen.getByText('Client Security')).toBeInTheDocument();
+    const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    for (const h of ['/settings/client-posture', '/settings/mfa', '/settings/signin-scores', '/settings/client-cleanup', '/settings/platform-health']) expect(hrefs).toContain(h);
+  });
+
   it('renders the MIT license attribution in the footer', () => {
     render(<Sidebar />);
 
