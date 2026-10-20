@@ -31,6 +31,7 @@ function list(items: DeviceRow[], over: Partial<DeviceList> = {}): DeviceList {
 }
 
 beforeEach(() => {
+  window.localStorage.clear();
   listMock.mockReset();
   masterMock.mockReset().mockResolvedValue({ master_vendor: 'ninjaone' });
   hideMock.mockReset().mockResolvedValue({ device_id: 'x', hidden_since: NOW });
@@ -112,6 +113,27 @@ describe('DevicesView', () => {
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ clientId: 'c1' })));
     await userEvent.selectOptions(screen.getByLabelText('Reported by'), 'addigy');
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ vendor: 'addigy', clientId: 'c1' })));
+  });
+
+  it('remembers the filters picked and opens the list that way next time', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A' })]));
+    const first = render(<DevicesView />);
+    await screen.findByText('A');
+    await userEvent.selectOptions(await screen.findByLabelText('Client'), 'c1');
+    await userEvent.selectOptions(screen.getByLabelText('Reported by'), 'addigy');
+    first.unmount();
+    listMock.mockClear();
+    render(<DevicesView />);
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ clientId: 'c1', vendor: 'addigy' })));
+    expect(screen.getByLabelText('Client')).toHaveValue('c1');
+  });
+
+  it('opens unfiltered when nothing was saved or the saved value is rubbish', async () => {
+    window.localStorage.setItem('aisoc.filters.devices', JSON.stringify({ missing: 'bogus', offlineOnly: 'yes', vendor: 7 }));
+    listMock.mockResolvedValue(list([device({ hostname: 'A' })]));
+    render(<DevicesView />);
+    await screen.findByText('A');
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: undefined, offline: undefined, vendor: undefined })));
   });
 
   it('opening a row lists each feeding tool and the name it uses', async () => {

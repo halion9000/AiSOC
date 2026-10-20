@@ -9,6 +9,7 @@ import VendorBadge from '@/components/mssp/VendorBadge';
 import DuplicateDevices from './DuplicateDevices';
 import { ClientRollupTable } from './ClientRollupTable';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
+import { loadFilters, pickString, saveFilters } from '@/lib/remembered-filters';
 
 /**
  * Every machine across your clients, one row per device. The same laptop reported by NinjaOne, Addigy and Huntress is ONE row (matched on serial number) and shows
@@ -33,6 +34,17 @@ function urlParam(params: URLSearchParams | null, name: string): string {
   const fromRouter = params?.get(name);
   if (fromRouter != null) return fromRouter;
   return typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? '');
+}
+
+interface SavedDeviceFilters {
+  clientId: string;
+  vendor: string;
+  missing: Missing | null;
+  gapsOnly: boolean;
+  attentionOnly: boolean;
+  staleOnly: boolean;
+  offlineOnly: boolean;
+  alertsOnly: boolean;
 }
 
 export default function DevicesView() {
@@ -62,6 +74,26 @@ export default function DevicesView() {
   const [alertsOnly, setAlertsOnly] = useState(false);
   const [hiddenOnly, setHiddenOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+
+  // The filters a person picked last time come back when they return (not the search or the hidden list, which are for the moment).
+  const [filtersRestored, setFiltersRestored] = useState(false);
+  useEffect(() => {
+    const saved = loadFilters<SavedDeviceFilters>('devices');
+    if (saved) {
+      setClientId(pickString(saved.clientId));
+      setVendor(pickString(saved.vendor));
+      setMissing((pickString(saved.missing, ['addigy', 'threatmate', 'huntress']) || null) as Missing | null);
+      setGapsOnly(saved.gapsOnly === true);
+      setAttentionOnly(saved.attentionOnly === true);
+      setStaleOnly(saved.staleOnly === true);
+      setOfflineOnly(saved.offlineOnly === true);
+      setAlertsOnly(saved.alertsOnly === true);
+    }
+    setFiltersRestored(true);
+  }, []);
+  useEffect(() => {
+    if (filtersRestored) saveFilters('devices', { clientId, vendor, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly } satisfies SavedDeviceFilters);
+  }, [filtersRestored, clientId, vendor, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly]);
 
   const load = useCallback(async () => {
     setLoading(true);
