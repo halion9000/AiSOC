@@ -48,6 +48,9 @@ class DeviceSourceOut(BaseModel):
     name: str | None = None
     last_seen: datetime
     details: dict[str, Any] = Field(default_factory=dict)
+    # When this tool last saw the device online (its own check-in time), and whether that is SOURCE_STALE_DAYS or more ago. None / False when the tool gives no time.
+    last_checkin: datetime | None = None
+    stale: bool = False
 
 
 class DeviceAlertOut(BaseModel):
@@ -84,6 +87,8 @@ class DeviceOut(BaseModel):
     alerts: list[DeviceAlertOut] = Field(default_factory=list)
     # When a person hid this device until it checks back in, and it has not been seen online since. None for a device that is shown.
     hidden_since: datetime | None = None
+    # True when the device is hidden by itself: every tool that gives a check-in time has gone SOURCE_STALE_DAYS without one. It comes back when one of them checks in.
+    auto_hidden: bool = False
 
 
 class DeviceSummary(BaseModel):
@@ -93,6 +98,11 @@ class DeviceSummary(BaseModel):
     not_in_addigy: int = 0
     not_in_threatmate: int = 0
     not_in_huntress: int = 0
+    # ConnectWise Control (ScreenConnect) runs on Windows and Linux machines only: iPhones, iPads and Macs are not counted. Field Effect: every machine but phones and tablets.
+    not_in_screenconnect: int = 0
+    not_in_fieldeffect: int = 0
+    # Tools that report at least one device here. A "not in <tool>" tile only means something once the tool feeds devices, so the page shows it only then.
+    reporting_tools: list[str] = Field(default_factory=list)
     # Devices a tool reports a problem with (Huntress: agent not checking in, Defender or firewall unhealthy, tamper protection not in force).
     needs_attention: int = 0
     # Devices whose protection agent has not checked in for STALE_AGENT_DAYS or more (Huntress), often a machine that was retired but still holds a licence.
@@ -180,6 +190,39 @@ def last_online_of(sources: list[Any]) -> datetime | None:
     return best
 
 
+SOURCE_STALE_DAYS = 10
+_CHECKIN_KEYS = ("last_online", "last_contact", "last_callback_at", "last_sync_at")
+
+
+def checkin_of(source: Any) -> datetime | None:
+    """When this one tool last saw the device online (the same fields ``last_online_of`` reads), or None when the tool gives no time."""
+    det = source.details or {}
+    for key in _CHECKIN_KEYS:
+        raw = det.get(key)
+        if not isinstance(raw, str):
+            continue
+        try:
+            t = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        return t if t.tzinfo else t.replace(tzinfo=UTC)
+    return None
+
+
+def source_stale(checkin: datetime | None, now: datetime | None = None) -> bool:
+    """True when the tool's last check-in is SOURCE_STALE_DAYS or more ago. A tool that gives no time is not stale: nothing says so."""
+    return checkin is not None and ((now or datetime.now(UTC)) - checkin).days >= SOURCE_STALE_DAYS
+
+
+def auto_hidden_of(checkins: list[datetime | None], online_flags: bool | None, now: datetime | None = None) -> bool:
+    """A device is hidden by itself when at least one tool gives a check-in time and EVERY tool that gives one is stale, and no tool says it is online right now. Tools that give no time (a scanner)
+    cannot show the machine is alive, so they do not keep it on the list."""
+    known = [c for c in checkins if c is not None]
+    if not known or online_flags is True:
+        return False
+    return all(source_stale(c, now) for c in known)
+
+
 def online_now_of(sources: list[Any]) -> bool | None:
     """Whether the tools say the device is online right now (as of the last sync): True if any says so, False if every tool that says anything says offline, None if none says.
     Addigy sends ``online``; NinjaOne sends ``offline``."""
@@ -265,6 +308,9 @@ def is_missing_from(d: DeviceOut, tool: str) -> bool:
         return False
     if tool == "addigy":
         return bool(_APPLE_OS.search((d.os or "").lower()))
+    if tool == "screenconnect":
+        # Remote-support agents are not put on iOS or macOS devices here.
+        return os_family(d) not in ("mac", "ios")
     return True
 
 
@@ -391,6 +437,7 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
             by_device.setdefault(s.device_id, []).append(s)
         for d in devices:
             srcs = sorted(by_device.get(d.id, []), key=lambda s: s.vendor)
+            auto = auto_hidden_of([checkin_of(s) for s in srcs], online_now_of(srcs))
             out.append(
                 DeviceOut(
                     id=d.id,
@@ -405,14 +452,18 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                     ip_addresses=list(d.ip_addresses or []),
                     last_seen=d.last_seen,
                     first_seen=d.first_seen,
-                    sources=[DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}) for s in srcs],
+                    sources=[
+                        DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}, last_checkin=checkin_of(s), stale=source_stale(checkin_of(s)))
+                        for s in srcs
+                    ],
                     in_master=master is None or any(s.vendor == master for s in srcs) or is_mobile(d),
                     last_online=(online := last_online_of(srcs)),
                     online=online_now_of(srcs),
                     offline_days=offline_days_of(online),
                     open_alerts=len(alerts.get(host_key(d.hostname), [])),
                     alerts=alerts.get(host_key(d.hostname), [])[:_ALERTS_PER_DEVICE],
-                    hidden_since=hidden_since_of(snoozes.get(d.id), online),
+                    hidden_since=hidden_since_of(snoozes.get(d.id), online) or (online if auto else None),
+                    auto_hidden=auto and hidden_since_of(snoozes.get(d.id), online) is None,
                 )
             )
     return out
@@ -535,7 +586,7 @@ async def list_devices(
     vendor: str | None = Query(default=None, pattern=_VENDOR, description="Only devices this tool reports."),
     not_in_master: bool = Query(default=False, description="Only devices the master tool does not report."),
     missing: str | None = Query(
-        default=None, pattern="^(addigy|threatmate|huntress)$", description="Only devices this tool should report but does not."
+        default=None, pattern="^(addigy|threatmate|huntress|screenconnect|fieldeffect)$", description="Only devices this tool should report but does not."
     ),
     offline: bool = Query(default=False, description="Only devices no tool has seen online for a week or more."),
     has_alerts: bool = Query(default=False, description="Only devices with at least one open alert."),
@@ -563,6 +614,9 @@ async def list_devices(
         not_in_addigy=sum(1 for d in counted if is_missing_from(d, "addigy")),
         not_in_threatmate=sum(1 for d in counted if is_missing_from(d, "threatmate")),
         not_in_huntress=sum(1 for d in counted if is_missing_from(d, "huntress")),
+        not_in_screenconnect=sum(1 for d in counted if is_missing_from(d, "screenconnect")),
+        not_in_fieldeffect=sum(1 for d in counted if is_missing_from(d, "fieldeffect")),
+        reporting_tools=sorted({s.vendor for d in loaded for s in d.sources}),
         needs_attention=sum(1 for d in counted if attention_of(d)),
         stale_agents=sum(1 for d in counted if stale_days_of(d) is not None),
         offline=sum(1 for d in everything if d.offline_days is not None),
@@ -622,7 +676,7 @@ async def export_devices(
     search: str | None = Query(default=None, max_length=100),
     vendor: str | None = Query(default=None, pattern=_VENDOR),
     not_in_master: bool = Query(default=False),
-    missing: str | None = Query(default=None, pattern="^(addigy|threatmate|huntress)$"),
+    missing: str | None = Query(default=None, pattern="^(addigy|threatmate|huntress|screenconnect|fieldeffect)$"),
     offline: bool = Query(default=False),
     has_alerts: bool = Query(default=False),
     attention: bool = Query(default=False),

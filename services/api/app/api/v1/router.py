@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     airgap,
     alert_explain,
     alert_related,
+    alert_scripts,
     alert_vendor_actions,
     alerts,
     api_keys,
@@ -104,6 +105,7 @@ api_router.include_router(auth.router)
 api_router.include_router(api_keys.router)
 api_router.include_router(alerts.router)
 api_router.include_router(alert_vendor_actions.router)
+api_router.include_router(alert_scripts.router)
 api_router.include_router(alert_related.router)
 # Structured AI explainer (POST /alerts/{id}/explain) — single-shot
 # JSON envelope counterpart to the agent service's NDJSON stream.

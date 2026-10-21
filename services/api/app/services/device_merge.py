@@ -209,15 +209,20 @@ def os_kind(os_name: str | None) -> str | None:
     return None
 
 
-async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> int:
-    """Merge, in one client, each pair of devices that are plainly one machine seen by different tools. Returns how many pairs were merged.
+# A name held by more devices than this is left for a person: it is more likely a stock or reused name than one machine seen by several tools.
+MAX_AUTO_MERGE_GROUP = 6
 
-    Only when ALL of these hold, so a wrong merge stays rare:
-      * the two share a hostname that is not a stock name (``server``, ``MacBook-Pro``...): a name only two devices in the client have;
+
+async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> int:
+    """Merge, in one client, the devices that are plainly one machine seen by different tools. Returns how many merges were made.
+
+    A name can be held by several records at once (one per tool that has not yet been matched), so each name's records are folded one by one into the one that already holds the most tools.
+    A record joins only when ALL of these hold, so a wrong merge stays rare:
+      * the name is not a stock name (``server``, ``MacBook-Pro``...) and no more than ``MAX_AUTO_MERGE_GROUP`` devices in the client carry it;
       * no tool reports both (two entries from the same tool are two machines that happen to share a name);
       * they are not provably different: no two different serial numbers, and the operating systems they report do not disagree (a Windows PC and a Mac);
       * nobody said they are different machines (a pair marked "not a duplicate", or a merge that was undone).
-    The merge is the ordinary one: logged, and a person can undo it for two weeks."""
+    Each merge is the ordinary one: logged, and a person can undo it for two weeks."""
     from app.services.client_matching import is_generic_hostname
 
     devices = (await db.execute(select(Device).where(Device.tenant_id == tenant_id))).scalars().all()
@@ -226,8 +231,8 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
         key = hostname_key(d.hostname)
         if key and not is_generic_hostname(key):
             by_name.setdefault(key, []).append(d)
-    pairs = [g for g in by_name.values() if len(g) == 2]
-    if not pairs:
+    groups = [g for g in by_name.values() if 2 <= len(g) <= MAX_AUTO_MERGE_GROUP]
+    if not groups:
         return 0
     vendors: dict[uuid.UUID, set[str]] = {}
     for device_id, vendor in (
@@ -239,18 +244,27 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
         for x in (await db.execute(select(DeviceMergeDismissal).where(DeviceMergeDismissal.tenant_id == tenant_id))).scalars().all()
     }
     merged = 0
-    for a, b in pairs:
-        if a.serial_number and b.serial_number:
-            continue
-        va, vb = vendors.get(a.id, set()), vendors.get(b.id, set())
-        if not va or not vb or (va & vb):
-            continue
-        ka, kb = os_kind(a.os), os_kind(b.os)
-        if ka and kb and ka != kb:
-            continue
-        if _ordered(a.id, b.id) in dismissed:
-            continue
-        keep, remove = sorted((a, b), key=lambda d: (-len(vendors[d.id]), d.first_seen, str(d.id)))
-        await merge_devices(db, tenant_id, keep.id, remove.id, actor_id)
-        merged += 1
+    for group in groups:
+        ordered = sorted(group, key=lambda d: (-len(vendors.get(d.id, set())), d.first_seen, str(d.id)))
+        keep = ordered[0]
+        # What the kept device holds, tracked here because each merge fills in what it was missing.
+        held = set(vendors.get(keep.id, set()))
+        serial = keep.serial_number
+        kind = os_kind(keep.os)
+        for other in ordered[1:]:
+            vo = vendors.get(other.id, set())
+            if not held or not vo or (held & vo):
+                continue
+            if serial and other.serial_number:
+                continue
+            ko = os_kind(other.os)
+            if kind and ko and kind != ko:
+                continue
+            if _ordered(keep.id, other.id) in dismissed:
+                continue
+            await merge_devices(db, tenant_id, keep.id, other.id, actor_id)
+            merged += 1
+            held |= vo
+            serial = serial or other.serial_number
+            kind = kind or ko
     return merged

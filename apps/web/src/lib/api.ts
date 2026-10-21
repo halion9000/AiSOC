@@ -505,6 +505,10 @@ export interface DeviceSourceRef {
   last_seen: string;
   /** Facts that tool reports (specs, link back to the tool). */
   details?: Record<string, unknown>;
+  /** When this tool last saw the device online; null when the tool gives no time. */
+  last_checkin?: string | null;
+  /** True when that was 10 or more days ago. */
+  stale?: boolean;
 }
 
 export interface DeviceRow {
@@ -536,6 +540,8 @@ export interface DeviceRow {
   alerts?: DeviceAlert[];
   /** When a person hid this device until it checks back in; null or absent for a shown device. */
   hidden_since?: string | null;
+  /** True when the device hid itself: every tool that gives a check-in time has gone 10 days without one. It returns when one checks in. */
+  auto_hidden?: boolean;
 }
 
 export interface DeviceAlert {
@@ -549,7 +555,7 @@ export interface DeviceAlert {
 
 export interface DeviceList {
   master_vendor: string | null;
-  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; needs_attention?: number; stale_agents?: number; offline?: number; with_alerts?: number; hidden?: number; long_offline?: number };
+  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; not_in_screenconnect?: number; not_in_fieldeffect?: number; reporting_tools?: string[]; needs_attention?: number; stale_agents?: number; offline?: number; with_alerts?: number; hidden?: number; long_offline?: number };
   items: DeviceRow[];
   total: number;
   page: number;
@@ -565,7 +571,7 @@ export interface DeviceQuery {
   vendor?: string;
   notInMaster?: boolean;
   /** Only devices this tool should report but does not (Addigy counts Macs only). */
-  missing?: 'addigy' | 'threatmate' | 'huntress';
+  missing?: 'addigy' | 'threatmate' | 'huntress' | 'screenconnect' | 'fieldeffect';
   /** Only devices a tool reports a problem with. */
   attention?: boolean;
   /** Only devices whose protection agent has not checked in for two weeks or more. */

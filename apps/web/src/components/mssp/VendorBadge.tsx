@@ -28,7 +28,20 @@ export function orderSources(sources: string[]): string[] {
 }
 
 /** A small badge for the tool a client came from; hover shows the full name. */
-export default function VendorBadge({ vendor, size = 'sm' }: { vendor: string; size?: 'sm' | 'lg' }) {
+export default function VendorBadge({ vendor, size = 'sm', struck }: { vendor: string; size?: 'sm' | 'lg'; struck?: string }) {
+  if (struck) {
+    // A red line through the badge: this tool has not seen the device for a while (the text says how long).
+    return (
+      <span className="relative inline-flex shrink-0" title={struck} data-testid="struck-badge" data-vendor={vendor}>
+        <span className="opacity-60">
+          <VendorBadge vendor={vendor} size={size} />
+        </span>
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="3" y1="21" x2="21" y2="3" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
+      </span>
+    );
+  }
   const label = vendorLabel(vendor);
   const box = size === 'lg' ? 'h-10 w-10 rounded-xl' : 'h-6 w-6 rounded-md';
   const b = BADGES[vendor] ?? { text: label.charAt(0).toUpperCase(), className: 'bg-gray-600 text-white' };

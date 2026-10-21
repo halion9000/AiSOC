@@ -1035,6 +1035,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/{alert_id}/scripts:
+    get:
+      tags:
+      - alerts
+      summary: Alert Script Options
+      description: The scripts that can be run from this alert, the machine and tickets
+        it has, and the case it belongs to (if any).
+      operationId: alert_script_options_api_v1_alerts__alert_id__scripts_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alert Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScriptOptions'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/{alert_id}/scripts/run:
+    post:
+      tags:
+      - alerts
+      summary: Run Alert Script
+      description: 'Queue the script for CORE. Returns 202: nothing has run yet.'
+      operationId: run_alert_script_api_v1_alerts__alert_id__scripts_run_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alert Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunScriptRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunScriptResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/alerts/{alert_id}/related:
     get:
       tags:
@@ -1324,6 +1391,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CaseResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cases/{case_id}/devices:
+    get:
+      tags:
+      - cases
+      summary: Devices the case is about, with links to each in its tools
+      operationId: get_case_devices_api_v1_cases__case_id__devices_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Case Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseDevice'
+                title: Response Get Case Devices Api V1 Cases  Case Id  Devices Get
         '422':
           description: Validation Error
           content:
@@ -9603,7 +9701,7 @@ paths:
         schema:
           anyOf:
           - type: string
-            pattern: ^(addigy|threatmate|huntress)$
+            pattern: ^(addigy|threatmate|huntress|screenconnect|fieldeffect)$
           - type: 'null'
           description: Only devices this tool should report but does not.
           title: Missing
@@ -9730,7 +9828,7 @@ paths:
         schema:
           anyOf:
           - type: string
-            pattern: ^(addigy|threatmate|huntress)$
+            pattern: ^(addigy|threatmate|huntress|screenconnect|fieldeffect)$
           - type: 'null'
           title: Missing
       - name: offline
@@ -16812,6 +16910,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/scripts:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Scripts
+      description: CORE tells AiSOC which NinjaOne scripts its owner switched on,
+        so an alert can offer them. The whole list replaces the last one (a script
+        switched off disappears).
+      operationId: report_core_feed_scripts_api_v1_inbox_core_feed__tenant_token__scripts_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScriptsReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScriptsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/inbox/core-feed/{tenant_token}/clients:
     post:
       tags:
@@ -20174,6 +20307,52 @@ components:
       title: CaseCounts
       description: How many cases are in each group the console shows. ``open`` is
         new and triaged, ``in_progress`` is investigating and contained.
+    CaseDevice:
+      properties:
+        hostname:
+          type: string
+          title: Hostname
+        device_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device Id
+        os:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Os
+        alerts:
+          type: integer
+          title: Alerts
+        links:
+          items:
+            $ref: '#/components/schemas/CaseDeviceLink'
+          type: array
+          title: Links
+      type: object
+      required:
+      - hostname
+      - alerts
+      - links
+      title: CaseDevice
+    CaseDeviceLink:
+      properties:
+        vendor:
+          type: string
+          title: Vendor
+        label:
+          type: string
+          title: Label
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - vendor
+      - label
+      - url
+      title: CaseDeviceLink
     CaseMetrics:
       properties:
         open:
@@ -22880,6 +23059,10 @@ components:
             format: date-time
           - type: 'null'
           title: Hidden Since
+        auto_hidden:
+          type: boolean
+          title: Auto Hidden
+          default: false
       type: object
       required:
       - id
@@ -22916,6 +23099,16 @@ components:
           additionalProperties: true
           type: object
           title: Details
+        last_checkin:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Checkin
+        stale:
+          type: boolean
+          title: Stale
+          default: false
       type: object
       required:
       - vendor
@@ -22941,6 +23134,19 @@ components:
           type: integer
           title: Not In Huntress
           default: 0
+        not_in_screenconnect:
+          type: integer
+          title: Not In Screenconnect
+          default: 0
+        not_in_fieldeffect:
+          type: integer
+          title: Not In Fieldeffect
+          default: 0
+        reporting_tools:
+          items:
+            type: string
+          type: array
+          title: Reporting Tools
         needs_attention:
           type: integer
           title: Needs Attention
@@ -30587,6 +30793,47 @@ components:
         re-translates and stamps ``last_run_at`` so the UI can show "last run
 
         just now" and so the scheduler treats a manual run as resetting cadence.'
+    RunScriptRequest:
+      properties:
+        script_id:
+          type: integer
+          maximum: 2000000000.0
+          minimum: 1.0
+          title: Script Id
+        ticket:
+          anyOf:
+          - $ref: '#/components/schemas/TicketChoice'
+          - type: 'null'
+        case_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Case Id
+          description: The case the output is added to; it must already hold this
+            alert.
+      type: object
+      required:
+      - script_id
+      title: RunScriptRequest
+    RunScriptResponse:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        status:
+          type: string
+          title: Status
+        runs_at_once:
+          type: boolean
+          title: Runs At Once
+      type: object
+      required:
+      - id
+      - status
+      - runs_at_once
+      title: RunScriptResponse
     RunSummary:
       properties:
         id:
@@ -31480,6 +31727,105 @@ components:
       - mfa
       - risk
       title: ScoredSignin
+    ScriptItem:
+      properties:
+        id:
+          type: integer
+          maximum: 2000000000.0
+          minimum: 1.0
+          title: Id
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        one_click:
+          type: boolean
+          title: One Click
+          description: Whether CORE runs it at once when asked from AiSOC (otherwise
+            CORE asks its owner first).
+          default: false
+      type: object
+      required:
+      - id
+      - name
+      title: ScriptItem
+    ScriptOption:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        one_click:
+          type: boolean
+          title: One Click
+          default: false
+      type: object
+      required:
+      - id
+      - name
+      title: ScriptOption
+    ScriptOptions:
+      properties:
+        scripts:
+          items:
+            $ref: '#/components/schemas/ScriptOption'
+          type: array
+          title: Scripts
+        device:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device
+        tickets:
+          items:
+            type: string
+          type: array
+          title: Tickets
+        case_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Case Id
+        case_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Case Number
+        blocked:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Blocked
+      type: object
+      required:
+      - scripts
+      - tickets
+      title: ScriptOptions
+    ScriptsReport:
+      properties:
+        scripts:
+          items:
+            $ref: '#/components/schemas/ScriptItem'
+          type: array
+          maxItems: 200
+          title: Scripts
+      type: object
+      required:
+      - scripts
+      title: ScriptsReport
+    ScriptsResponse:
+      properties:
+        stored:
+          type: integer
+          title: Stored
+      type: object
+      required:
+      - stored
+      title: ScriptsResponse
     SelectableTenant:
       properties:
         id:
@@ -33124,6 +33470,25 @@ components:
       - updated_at
       - updated_by
       title: ThresholdUpdateResponse
+    TicketChoice:
+      properties:
+        mode:
+          type: string
+          enum:
+          - link
+          - create
+          title: Mode
+        number:
+          anyOf:
+          - type: string
+            maxLength: 41
+          - type: 'null'
+          title: Number
+          description: '``link``: the HaloPSA ticket number the result goes on.'
+      type: object
+      required:
+      - mode
+      title: TicketChoice
     TicketSettings:
       properties:
         close_status:

@@ -303,7 +303,9 @@
       "missing": [
         "addigy",
         "threatmate",
-        "huntress"
+        "huntress",
+        "screenconnect",
+        "fieldeffect"
       ],
       "os": [
         "windows",

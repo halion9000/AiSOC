@@ -61,14 +61,26 @@ async def merge_pass(tid):
     return await run(tid, lambda db: auto_merge_same_name(db, tid))
 
 
-async def test_four_devices_with_one_name_are_not_an_unambiguous_pair_so_nothing_is_merged(tenant):
+async def test_four_records_of_one_name_from_four_different_tools_fold_into_one_machine(tenant):
     await report(tenant, "ninjaone", "n1", "1VH94D4-WD", os="Microsoft Windows 11 Pro")
     await report(tenant, "huntress", "h1", "1vh94d4-wd", os="Microsoft Windows 11 Pro")
     await report(tenant, "threatmate", "t1", "1VH94D4-WD")
     await report(tenant, "addigy", "a1", "1VH94D4-WD.corp.local", os="Windows 11")
     assert await count(tenant) == 4
-    assert await merge_pass(tenant) == 0
-    assert await count(tenant) == 4
+    assert await merge_pass(tenant) == 3
+    assert await count(tenant) == 1
+    assert await count(tenant, "select count(*) from device_sources where tenant_id = :t") == 4
+
+
+async def test_three_records_of_one_name_each_from_a_different_tool_become_one_device_keeping_the_richest(tenant):
+    # Two tools already matched (so that device holds two), a third tool has its own record with the same name: the shape seen in the real data.
+    await report(tenant, "ninjaone", "n1", "5CD4040VG7-WL", os="Microsoft Windows 11 Pro")
+    await report(tenant, "threatmate", "t1", "5CD4040VG7-WL")
+    await report(tenant, "dnsfilter", "d1", "5CD4040VG7-WL", os="Microsoft Windows 11 Pro")
+    await report(tenant, "addigy", "a9", "OTHER-NAME-1")
+    assert await merge_pass(tenant) == 2
+    assert await count(tenant) == 2
+    assert await merge_pass(tenant) == 0, "nothing is left to merge"
 
 
 async def test_the_pair_is_merged_keeping_the_device_with_more_tools_and_it_can_be_undone(tenant):
@@ -106,7 +118,16 @@ async def test_two_entries_from_the_same_tool_are_two_machines(tenant):
     await report(tenant, "ninjaone", "n1", "LAB-PC-22")
     await report(tenant, "ninjaone", "n2", "LAB-PC-22")
     await report(tenant, "huntress", "h1", "LAB-PC-22")
-    assert await merge_pass(tenant) == 0, "three with one name is not an unambiguous pair either"
+    assert await merge_pass(tenant) == 1, "the other tool joins one of them; the two NinjaOne records stay apart"
+    assert await count(tenant) == 2
+    assert await count(tenant, "select count(*) from devices d where tenant_id = :t and exists (select 1 from device_sources s where s.device_id = d.id and s.vendor = 'ninjaone')") == 2
+
+
+async def test_a_name_on_more_devices_than_the_group_limit_is_left_alone(tenant):
+    for i, vendor in enumerate(["ninjaone", "huntress", "threatmate", "addigy", "dnsfilter", "blumira", "autoelevate"]):
+        await report(tenant, vendor, f"x{i}", "POPULAR-NAME-9")
+    assert await merge_pass(tenant) == 0
+    assert await count(tenant) == 7
 
 
 async def test_a_pair_where_one_tool_sees_both_is_left_for_a_person(tenant):

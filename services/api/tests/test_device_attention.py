@@ -43,6 +43,21 @@ def test_a_machine_without_a_huntress_agent_is_missing_from_it_but_phones_and_ta
     assert not is_missing_from(device("iOS 18", [("addigy", {})]), "huntress")
 
 
+def test_screenconnect_is_expected_on_windows_and_linux_machines_but_not_on_macs_or_iphones():
+    assert is_missing_from(device("Windows 11", [("ninjaone", {})]), "screenconnect")
+    assert is_missing_from(device("Ubuntu 22.04", [("ninjaone", {})]), "screenconnect")
+    assert not is_missing_from(device("macOS 14", [("ninjaone", {})]), "screenconnect")
+    assert not is_missing_from(device("iOS 18", [("addigy", {})]), "screenconnect")
+    assert not is_missing_from(device("Windows 11", [("screenconnect", {})]), "screenconnect")
+
+
+def test_field_effect_is_expected_on_every_computer_but_not_on_phones_and_tablets():
+    assert is_missing_from(device("Windows 11", [("ninjaone", {})]), "fieldeffect")
+    assert is_missing_from(device("macOS 14", [("ninjaone", {})]), "fieldeffect")
+    assert not is_missing_from(device("iPadOS 17", [("addigy", {})]), "fieldeffect")
+    assert not is_missing_from(device("Windows 11", [("fieldeffect", {})]), "fieldeffect")
+
+
 # ---- the load is shared and kept briefly, so a busy page cannot exhaust the connection pool ----------------------------------------------------------
 
 import asyncio  # noqa: E402

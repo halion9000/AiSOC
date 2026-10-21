@@ -553,8 +553,8 @@ def test_allowed_values_treats_anything_more_elaborate_as_open_text():
 
 def test_the_devices_filter_values_are_the_ones_the_endpoint_really_accepts():
     row = next(r for r in CONTRACT if r["tool"] == "aisoc_list_devices")
-    assert row["enums"] == {"missing": ["addigy", "threatmate", "huntress"], "os": ["windows", "mac", "ios", "linux"]}
-    assert _allowed_values(_query_parameters(row)["missing"]["schema"]) == {"addigy", "threatmate", "huntress"}
+    assert row["enums"] == {"missing": ["addigy", "threatmate", "huntress", "screenconnect", "fieldeffect"], "os": ["windows", "mac", "ios", "linux"]}
+    assert _allowed_values(_query_parameters(row)["missing"]["schema"]) == {"addigy", "threatmate", "huntress", "screenconnect", "fieldeffect"}
     assert _allowed_values(_query_parameters(row)["os"]["schema"]) == {"windows", "mac", "ios", "linux"}
 
 

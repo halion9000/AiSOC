@@ -18,10 +18,19 @@ import { loadFilters, pickString, saveFilters } from '@/lib/remembered-filters';
 
 const MASTER_CHOICES = ['ninjaone', 'addigy', 'threatmate'];
 
-type Missing = 'addigy' | 'threatmate' | 'huntress';
+type Missing = 'addigy' | 'threatmate' | 'huntress' | 'screenconnect' | 'fieldeffect';
 
 export function toolsOf(d: DeviceRow): string[] {
   return [...new Set(d.sources.map((s) => s.vendor))].sort();
+}
+
+/** What a struck-through tool badge says on hover, or undefined when the tool has seen the device recently (or gives no time). */
+export function staleNote(d: DeviceRow, vendor: string, now: number = Date.now()): string | undefined {
+  const s = d.sources.find((x) => x.vendor === vendor && x.stale);
+  if (!s) return undefined;
+  const t = s.last_checkin ? new Date(s.last_checkin).getTime() : NaN;
+  const days = Number.isNaN(t) ? null : Math.max(0, Math.floor((now - t) / 86_400_000));
+  return `${vendorLabel(vendor)} has not seen this device${days === null ? ' for 10 days or more' : ` for ${days} days`}`;
 }
 
 function when(iso: string): string {
@@ -47,7 +56,7 @@ export function filtersFromParams(params: URLSearchParams | null): Partial<Saved
   const osName = params.get('os');
   if (osName) out.os = osName;
   const missing = params.get('missing');
-  if (missing === 'addigy' || missing === 'threatmate' || missing === 'huntress') out.missing = missing;
+  if (missing === 'addigy' || missing === 'threatmate' || missing === 'huntress' || missing === 'screenconnect' || missing === 'fieldeffect') out.missing = missing;
   if (params.get('attention') === '1') out.attentionOnly = true;
   if (params.get('stale') === '1') out.staleOnly = true;
   if (params.get('offline') === '1') out.offlineOnly = true;
@@ -113,7 +122,7 @@ export default function DevicesView() {
       setClientId(pickString(saved.clientId));
       setVendor(pickString(saved.vendor));
       setOs(pickString(saved.os, OS_CHOICES.map((o) => o.value)));
-      setMissing((pickString(saved.missing, ['addigy', 'threatmate', 'huntress']) || null) as Missing | null);
+      setMissing((pickString(saved.missing, ['addigy', 'threatmate', 'huntress', 'screenconnect', 'fieldeffect']) || null) as Missing | null);
       setGapsOnly(saved.gapsOnly === true);
       setAttentionOnly(saved.attentionOnly === true);
       setStaleOnly(saved.staleOnly === true);
@@ -268,8 +277,11 @@ export default function DevicesView() {
             {data?.summary.needs_attention ?? '—'}
           </div>
         </button>
-        {(['addigy', 'threatmate', 'huntress'] as const).map((tool) => {
-          const count = data?.summary[tool === 'addigy' ? 'not_in_addigy' : tool === 'threatmate' ? 'not_in_threatmate' : 'not_in_huntress'];
+        {(['addigy', 'threatmate', 'huntress', 'screenconnect', 'fieldeffect'] as const)
+          // ScreenConnect and Field Effect tiles only mean something once that tool feeds devices.
+          .filter((tool) => (tool !== 'screenconnect' && tool !== 'fieldeffect') || (data?.summary.reporting_tools ?? []).includes(tool))
+          .map((tool) => {
+          const count = data?.summary[({ addigy: 'not_in_addigy', threatmate: 'not_in_threatmate', huntress: 'not_in_huntress', screenconnect: 'not_in_screenconnect', fieldeffect: 'not_in_fieldeffect' } as const)[tool]];
           const on = missing === tool;
           return (
             <button
@@ -285,6 +297,7 @@ export default function DevicesView() {
               <div className="text-xs text-gray-400">
                 Not in {vendorLabel(tool)}
                 {tool === 'addigy' && <span className="text-gray-500"> (Macs)</span>}
+                {tool === 'screenconnect' && <span className="text-gray-500"> (not iOS/macOS)</span>}
               </div>
               <div className="text-2xl font-semibold text-amber-300" data-testid={`devices-missing-${tool}`}>
                 {count ?? '—'}
@@ -511,14 +524,18 @@ function DeviceRowView({ d, master, open, onToggle, onHide }: { d: DeviceRow; ma
         <td className="px-3 py-2">
           <span className="flex gap-1">
             {tools.map((v) => (
-              <VendorBadge key={v} vendor={v} />
+              <VendorBadge key={v} vendor={v} struck={staleNote(d, v)} />
             ))}
           </span>
         </td>
         <td className="px-3 py-2 text-gray-400">
           {d.last_online ? when(d.last_online) : '—'}
           {d.offline_days != null && <span className="ml-2 rounded bg-gray-700/60 px-1.5 py-0.5 text-[11px] text-gray-300">Offline {d.offline_days}d</span>}
-          {d.hidden_since ? (
+          {d.auto_hidden ? (
+            <span className="ml-2 rounded bg-gray-700/60 px-1.5 py-0.5 text-[11px] text-gray-300" title="Every tool that reports a check-in time has gone 10 days without one. It shows again as soon as one does." data-testid="auto-hidden">
+              Hidden: no tool has seen it for 10+ days
+            </span>
+          ) : d.hidden_since ? (
             <button
               type="button"
               title="Show this device in the list again"
@@ -613,7 +630,7 @@ function DeviceRowView({ d, master, open, onToggle, onHide }: { d: DeviceRow; ma
             <ul className="space-y-1">
               {d.sources.map((s) => (
                 <li key={`${s.vendor}-${s.name}`} className="flex items-center gap-2">
-                  <VendorBadge vendor={s.vendor} />
+                  <VendorBadge vendor={s.vendor} struck={staleNote(d, s.vendor)} />
                   <span>{vendorLabel(s.vendor)}</span>
                   {s.name && <span className="text-gray-400">as “{s.name}”</span>}
                   <span className="ml-auto text-xs text-gray-500">seen {when(s.last_seen)}</span>

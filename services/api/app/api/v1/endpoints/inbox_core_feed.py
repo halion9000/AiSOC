@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, literal, select, text, update
+from sqlalchemy import ARRAY, Text, cast, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.api.v1.deps import DBSession
@@ -562,6 +562,35 @@ async def report_core_feed_action_result(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such claimed action")
     await db.commit()
     return ActionResultResponse(recorded=True)
+
+
+class ScriptItem(BaseModel):
+    id: int = Field(ge=1, le=2_000_000_000)
+    name: str = Field(min_length=1, max_length=200)
+    one_click: bool = Field(default=False, description="Whether CORE runs it at once when asked from AiSOC (otherwise CORE asks its owner first).")
+
+
+class ScriptsReport(BaseModel):
+    scripts: list[ScriptItem] = Field(max_length=200)
+
+
+class ScriptsResponse(BaseModel):
+    stored: int
+
+
+@router.post("/core-feed/{tenant_token}/scripts", response_model=ScriptsResponse)
+async def report_core_feed_scripts(tenant_token: str, body: ScriptsReport, db: DBSession) -> ScriptsResponse:
+    """CORE tells AiSOC which NinjaOne scripts its owner switched on, so an alert can offer them. The whole list replaces the last one (a script switched off disappears)."""
+    tenant_id = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, tenant_id)
+    scripts = [s.model_dump() for s in body.scripts]
+    await db.execute(
+        update(Tenant)
+        .where(Tenant.id == tenant_id)
+        .values(settings=func.jsonb_set(func.coalesce(Tenant.settings, cast({}, JSONB)), cast(["core_scripts"], ARRAY(Text)), cast(scripts, JSONB), True))
+    )
+    await db.commit()
+    return ScriptsResponse(stored=len(scripts))
 
 
 class ClientItem(BaseModel):

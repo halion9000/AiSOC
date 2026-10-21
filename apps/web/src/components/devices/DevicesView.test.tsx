@@ -39,6 +39,57 @@ beforeEach(() => {
   childrenMock.mockReset().mockResolvedValue([{ id: 'c1', name: 'Acme', mssp_role: 'child' }]);
 });
 
+describe('the not-in tiles for ScreenConnect and Field Effect', () => {
+  it('appear only once that tool reports devices, and filter the list when pressed', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-1' })], { summary: { total: 1, not_in_master: 0, not_in_screenconnect: 4, not_in_fieldeffect: 2, reporting_tools: ['ninjaone', 'screenconnect', 'fieldeffect'] } }));
+    render(<DevicesView />);
+    expect(await screen.findByTestId('devices-missing-screenconnect')).toHaveTextContent('4');
+    expect(screen.getByTestId('devices-missing-fieldeffect')).toHaveTextContent('2');
+    expect(screen.getByText(/not iOS\/macOS/)).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('devices-missing-screenconnect').closest('button') as HTMLElement);
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: 'screenconnect' })));
+  });
+
+  it('are not shown while no device comes from those tools', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-2' })], { summary: { total: 1, not_in_master: 0, not_in_screenconnect: 99, reporting_tools: ['ninjaone'] } }));
+    render(<DevicesView />);
+    await screen.findByText('A-2');
+    expect(screen.queryByTestId('devices-missing-screenconnect')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('devices-missing-fieldeffect')).not.toBeInTheDocument();
+  });
+});
+
+describe('a tool that has not seen the device for 10 days', () => {
+  const OLD = '2026-10-01T00:00:00Z';
+  it('has a red line through its badge, with how long in the tooltip, while the other tools look normal', async () => {
+    listMock.mockResolvedValue(
+      list([
+        device({
+          hostname: 'LAPTOP-9',
+          sources: [
+            { vendor: 'huntress', name: 'LAPTOP-9', last_seen: NOW, last_checkin: OLD, stale: true },
+            { vendor: 'ninjaone', name: 'LAPTOP-9', last_seen: NOW, last_checkin: NOW, stale: false },
+          ],
+        }),
+      ]),
+    );
+    render(<DevicesView />);
+    const row = (await screen.findByText('LAPTOP-9')).closest('tr') as HTMLElement;
+    const struck = within(row).getAllByTestId('struck-badge');
+    expect(struck).toHaveLength(1);
+    expect(struck[0]).toHaveAttribute('data-vendor', 'huntress');
+    expect(struck[0].getAttribute('title')).toMatch(/Huntress has not seen this device for \d+ days/);
+  });
+
+  it('a device that hid itself says so and offers no Show again button', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'DRAWER-PC', hidden_since: OLD, auto_hidden: true, sources: [{ vendor: 'ninjaone', name: 'DRAWER-PC', last_seen: NOW, last_checkin: OLD, stale: true }] })]));
+    render(<DevicesView />);
+    const row = (await screen.findByText('DRAWER-PC')).closest('tr') as HTMLElement;
+    expect(within(row).getByTestId('auto-hidden')).toHaveTextContent('no tool has seen it for 10+ days');
+    expect(within(row).queryByRole('button', { name: 'Show again' })).not.toBeInTheDocument();
+  });
+});
+
 describe('DevicesView', () => {
   it('shows one row per device with every tool that feeds it', async () => {
     listMock.mockResolvedValue(
