@@ -235,6 +235,15 @@ export function FiltersBar({
         <option value="linked">Has a Halo ticket</option>
         <option value="none">No Halo ticket</option>
       </select>
+      <label className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer" title="Show one row for each group of repeat alerts (same rule, machine and user): the newest, with how many there are.">
+        <input
+          type="checkbox"
+          aria-label="Group repeats"
+          checked={filters.collapse === true}
+          onChange={(e) => onChange({ ...filters, collapse: e.target.checked ? true : undefined, page: 1 })}
+        />
+        Group repeats
+      </label>
       {filters.device && (
         <button
           type="button"
@@ -289,6 +298,15 @@ export function AlertRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm text-gray-200 truncate hover:text-white">{alert.title}</p>
+          {alert.repeatCount !== undefined && alert.repeatCount > 1 && (
+            <span
+              data-testid="repeat-count"
+              title={`${alert.repeatCount} alerts for the same rule, machine and user. This is the newest.`}
+              className="text-xs bg-gray-700/60 text-gray-300 border border-gray-600/60 px-1.5 py-0.5 rounded shrink-0"
+            >
+              ×{alert.repeatCount}
+            </span>
+          )}
           {alert.mitreAttack && alert.mitreAttack.length > 0 && (
             <span className="text-xs bg-orange-500/10 text-orange-400 border border-orange-500/20 px-1.5 py-0.5 rounded shrink-0">
               {alert.mitreAttack[0].techniqueId}

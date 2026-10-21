@@ -26,6 +26,17 @@ describe('alertsApi.list', () => {
     expect(out.alerts.map((a) => a.id)).toEqual(['a1', 'a2']);
   });
 
+  it('asks for grouped repeats with collapse=true and keeps the repeat count of each row', async () => {
+    let url = '';
+    vi.stubGlobal('fetch', async (u: RequestInfo | URL) => {
+      url = String(u);
+      return json({ items: [{ id: 'g1', title: 'Disk low', severity: 'low', status: 'new', created_at: '2026-10-21T00:00:00Z', repeat_count: 4 }, { id: 'g2', title: 'Other', severity: 'low', status: 'new', created_at: '2026-10-21T00:00:00Z' }], total: 2 });
+    });
+    const out = await alertsApi.list({ collapse: true });
+    expect(url).toContain('collapse=true');
+    expect(out.alerts.map((a) => a.repeatCount)).toEqual([4, undefined]);
+  });
+
   it("still reads rows sent under 'alerts' (older responses)", async () => {
     vi.stubGlobal('fetch', async () => json({ alerts: [{ id: 'old1', title: 'x', severity: 'low', status: 'new', created_at: '2026-10-12T00:00:00Z' }], total: 1 }));
     const out = await alertsApi.list();

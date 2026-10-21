@@ -908,6 +908,8 @@ export interface Alert {
   clientName?: string;
   /** First host the alert names (affected_hosts[0]); the alerts page can filter by it. */
   device?: string;
+  /** When the list is grouped: how many alerts share this one's rule and machine/user, this one included. */
+  repeatCount?: number;
   /** A link to this alert in the tool that raised it (Blumira, Petra, Field Effect...), when the tool sent one. */
   sourceUrl?: string;
   /** Links to the device and the user in the tool that raised the alert, when its data allowed them. */
@@ -1144,6 +1146,7 @@ export function normalizeAlert(raw: unknown): Alert {
     tenantId: pickStr('tenant_id', 'tenantId') ?? '',
     clientName: pickStr('client_name', 'clientName'),
     device: firstHost(r.affected_hosts ?? r.affectedHosts),
+    repeatCount: typeof r.repeat_count === 'number' ? r.repeat_count : undefined,
     sourceUrl: pickStr('source_url', 'sourceUrl'),
     links: toolLinks(r.links),
     affectedHosts: strings(r.affected_hosts ?? r.affectedHosts),
@@ -1207,6 +1210,8 @@ export interface AlertFilters {
   device?: string;
   /** linked: only alerts with a HaloPSA ticket (from CORE or entered by hand); none: only alerts without one. */
   ticket?: 'linked' | 'none';
+  /** One row for each group of repeat alerts (same rule, machines and users): the newest, with its repeatCount. */
+  collapse?: boolean;
 }
 
 export interface VendorRemediation {

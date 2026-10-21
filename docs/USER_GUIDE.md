@@ -93,6 +93,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 - Top tiles: Total, Critical, High, Unresolved and **No Halo ticket**. Click *No Halo ticket* to list open alerts with no ticket linked to any Halo ticket.
 - A search box ("Search alerts, devices or clients"), plus severity, status, source and client filters.
 - Click a row to see its summary in the panel on the right. Ctrl, Shift or middle-click opens the full alert.
+- **Group repeats (new).** The *Group repeats* box in the filter bar shows one row for each group of repeat alerts: the same rule (or title) about the same machines and users. The row is the newest alert of the group and carries a **×N** badge saying how many there are. Different machines or users with the same rule stay separate. The tiles at the top still count every alert; the setting is remembered. Tested against the alert list; **not yet seen on live data.**
 - **Link one ticket to several alerts (new).** Tick the boxes beside alerts; a bar appears with a ticket number field and **Link ticket**. It links that Halo ticket to every ticked alert (a leading # is dropped). If some fail, the rest stay linked and the ticks stay so you can retry. Ticks only count for the current page.
 
 **The alert page**

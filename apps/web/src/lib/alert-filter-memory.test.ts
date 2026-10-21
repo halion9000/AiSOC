@@ -25,6 +25,13 @@ describe('restoreFilters', () => {
     expect(out).toEqual({ page: 1, pageSize: 25, status: 'resolved', severity: 'critical', source: 'ninjaone', clientId: 'c9', ticket: 'linked' });
   });
 
+  it('remembers the repeat grouping, only when it is on', () => {
+    const on = { page: 1, pageSize: 25, status: 'open', collapse: true };
+    expect(restoreFilters({ page: 1, pageSize: 25, status: 'open' }, rememberable(on)).collapse).toBe(true);
+    expect(restoreFilters({ page: 1, pageSize: 25, status: 'open' }, rememberable({ page: 1, pageSize: 25, status: 'open' })).collapse).toBeUndefined();
+    expect(restoreFilters({ page: 1, pageSize: 25 }, { collapse: 'yes' }).collapse).toBeUndefined();
+  });
+
   it('restores All as no status filter', () => {
     expect(restoreFilters(base, { status: 'all' }).status).toBeUndefined();
   });

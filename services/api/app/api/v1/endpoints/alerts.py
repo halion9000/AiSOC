@@ -104,6 +104,8 @@ class AlertResponse(BaseModel):
     updated_at: datetime
     # Set by the list when the alert belongs to one of the caller's client tenants (an MSSP parent's view).
     client_name: str | None = None
+    # Set only when the list is grouped (``collapse``): how many alerts share this one's rule and machine/user, this one included. 1 means it has no repeats.
+    repeat_count: int | None = None
     # The tool CORE says the alert came from (raw_event.source: huntress, petra, ninjaone...). connector_type is just the generic JSON inbox for all of them.
     source: str | None = None
     # A link to this alert in the tool that raised it (Blumira finding, Petra incident, Field Effect alert), when the tool sent one: only a plain https address.
@@ -670,6 +672,37 @@ async def submit_alert(
     return AlertResponse.model_validate(alert)
 
 
+def _repeat_key() -> tuple:
+    """What makes two alerts repeats of each other: the same rule (or title) about the same machines and the same users."""
+    return (func.lower(func.coalesce(Alert.rule_name, Alert.title)), cast(Alert.affected_hosts, Text), cast(Alert.affected_users, Text))
+
+
+async def _newest_of_each_repeat(db: Any, flt: Any, limit: int, offset: int) -> tuple[int, list[tuple[Alert, int]]]:
+    """The newest alert of each group of repeats among those matching ``flt``: how many groups there are, and one page of them (newest first) with each group's size."""
+    key = _repeat_key()
+    ranked = (
+        select(
+            Alert.id.label("id"),
+            func.row_number().over(partition_by=key, order_by=(Alert.created_at.desc(), Alert.id)).label("rn"),
+            func.count().over(partition_by=key).label("n"),
+        )
+        .where(flt)
+        .subquery()
+    )
+    total = (await db.execute(select(func.count()).select_from(ranked).where(ranked.c.rn == 1))).scalar_one()
+    found = (
+        await db.execute(
+            select(Alert, ranked.c.n)
+            .join(ranked, ranked.c.id == Alert.id)
+            .where(ranked.c.rn == 1)
+            .order_by(Alert.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    return total, [(alert, int(n)) for alert, n in found]
+
+
 @router.get("", response_model=AlertListResponse)
 async def list_alerts(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
@@ -689,6 +722,9 @@ async def list_alerts(
     ticket: str | None = Query(
         default=None, pattern="^(linked|none)$", description="linked: only alerts with a HaloPSA ticket; none: only alerts without one."
     ),
+    collapse: bool = Query(
+        default=False, description="Show one row for each group of repeats (same rule, machines and users): the newest, with ``repeat_count`` saying how many there are."
+    ),
 ) -> AlertListResponse:
     """List alerts for the current tenant and its client tenants, with filtering and pagination.
 
@@ -706,6 +742,7 @@ async def list_alerts(
     match either filter — that's intentional; analysts who care about
     confidence should only see alerts that actually carry the signal.
     """
+    collapse = collapse is True  # called directly (without FastAPI), an omitted parameter is its Query() default, which must not read as "on"
     if confidence_label is not None and confidence_label not in {"high", "medium", "low"}:
         # NOTE: the local `status` query parameter shadows the `fastapi.status` module here, so use the literal 400.
         raise HTTPException(status_code=400, detail="confidence_label must be one of: high, medium, low")
@@ -768,7 +805,13 @@ async def list_alerts(
         client_hits.update(tid for tid, name in clients.items() if plain in name.lower())
 
     offset = (page - 1) * page_size
-    if len(scope) == 1 and scope[0] == current_user.tenant_id:
+    repeats: dict[uuid.UUID, int] = {}
+    if len(scope) == 1 and scope[0] == current_user.tenant_id and collapse:
+        flt = and_(*filters_for(scope[0]))
+        total, found = await _newest_of_each_repeat(db, flt, page_size, offset)
+        rows = [alert for alert, _n in found]
+        repeats = {alert.id: n for alert, n in found}
+    elif len(scope) == 1 and scope[0] == current_user.tenant_id:
         # The common case: one tenant, one paginated query.
         flt = and_(*filters_for(scope[0]))
         total = (await db.execute(select(func.count()).select_from(Alert).where(flt))).scalar_one()
@@ -782,6 +825,12 @@ async def list_alerts(
         for tid in scope:
             flt = and_(*filters_for(tid))
             async with acting_as_tenant(db, tid):
+                if collapse:
+                    groups, found = await _newest_of_each_repeat(db, flt, offset + page_size, 0)
+                    total += groups
+                    merged.extend(alert for alert, _n in found)
+                    repeats.update({alert.id: n for alert, n in found})
+                    continue
                 total += (await db.execute(select(func.count()).select_from(Alert).where(flt))).scalar_one()
                 merged.extend(
                     (await db.execute(select(Alert).where(flt).order_by(Alert.created_at.desc()).limit(offset + page_size))).scalars().all()
@@ -815,6 +864,8 @@ async def list_alerts(
         item = AlertResponse.model_validate(a)
         item.client_name = clients.get(a.tenant_id)
         item.source = _tool_of(a)
+        if collapse:
+            item.repeat_count = repeats.get(a.id, 1)
         items.append(item)
     return AlertListResponse(
         summary=AlertSummary(**tally), items=items, total=total, page=page, page_size=page_size, pages=(total + page_size - 1) // page_size

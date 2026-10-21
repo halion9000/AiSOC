@@ -562,6 +562,17 @@ paths:
           title: Ticket
         description: 'linked: only alerts with a HaloPSA ticket; none: only alerts
           without one.'
+      - name: collapse
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: 'Show one row for each group of repeats (same rule, machines
+            and users): the newest, with ``repeat_count`` saying how many there are.'
+          default: false
+          title: Collapse
+        description: 'Show one row for each group of repeats (same rule, machines
+          and users): the newest, with ``repeat_count`` saying how many there are.'
       responses:
         '200':
           description: Successful Response
@@ -18114,6 +18125,11 @@ components:
           - type: string
           - type: 'null'
           title: Client Name
+        repeat_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Repeat Count
         source:
           anyOf:
           - type: string
@@ -18651,6 +18667,11 @@ components:
           - type: string
           - type: 'null'
           title: Client Name
+        repeat_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Repeat Count
         source:
           anyOf:
           - type: string

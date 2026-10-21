@@ -14,11 +14,13 @@ export interface RememberedAlertFilters {
   source?: string;
   clientId?: string;
   ticket?: 'linked' | 'none';
+  /** One row for each group of repeat alerts. */
+  collapse?: boolean;
 }
 
 /** What to keep from the current filters. */
 export function rememberable(f: AlertFilters): RememberedAlertFilters {
-  return { severity: f.severity, status: f.status ?? 'all', source: f.source, clientId: f.clientId, ticket: f.ticket };
+  return { severity: f.severity, status: f.status ?? 'all', source: f.source, clientId: f.clientId, ticket: f.ticket, collapse: f.collapse };
 }
 
 const text = (v: unknown, max = 100): string | undefined => (typeof v === 'string' && v.trim() && v.length <= max ? v : undefined);
@@ -37,5 +39,6 @@ export function restoreFilters(base: AlertFilters, saved: unknown): AlertFilters
   const clientId = text(s.clientId);
   if (clientId) out.clientId = clientId;
   if (s.ticket === 'linked' || s.ticket === 'none') out.ticket = s.ticket;
+  if (s.collapse === true) out.collapse = true;
   return out;
 }
