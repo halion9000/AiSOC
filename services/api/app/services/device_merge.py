@@ -213,6 +213,10 @@ def os_kind(os_name: str | None) -> str | None:
 MAX_AUTO_MERGE_GROUP = 6
 
 
+# Tools that keep one record per agent install, so a machine that was re-imaged or reinstalled shows up there twice under one name (old records stay "active" with a last sync from years ago). Two records of
+# one of these tools under one name in one client are one machine; every other tool's two records are left for a person.
+DUPLICATING_TOOLS = frozenset({"dnsfilter"})
+
 LEGACY_SCREENCONNECT = "screenconnect-legacy"
 
 
@@ -244,7 +248,7 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
     A name can be held by several records at once (one per tool that has not yet been matched), so each name's records are folded one by one into the one that already holds the most tools.
     A record joins only when ALL of these hold, so a wrong merge stays rare:
       * the name is not a stock name (``server``, ``MacBook-Pro``...) and no more than ``MAX_AUTO_MERGE_GROUP`` devices in the client carry it;
-      * no tool reports both (two entries from the same tool are two machines that happen to share a name), except that the old ScreenConnect record (keyed by company and name) and a
+      * no tool reports both (two entries from the same tool are two machines that happen to share a name), except for the tools in ``DUPLICATING_TOOLS`` (one record per agent install) and that the old ScreenConnect record (keyed by company and name) and a
         ScreenConnect session record are the same tool seen before and after the feed learned real session ids;
       * they are not provably different: no two different serial numbers, and the operating systems they report do not disagree (a Windows PC and a Mac);
       * nobody said they are different machines (a pair marked "not a duplicate", or a merge that was undone).
@@ -280,7 +284,7 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
         kind = os_kind(keep.os)
         for other in ordered[1:]:
             vo = vendors.get(other.id, set())
-            if not held or not vo or (held & vo):
+            if not held or not vo or (held & vo) - DUPLICATING_TOOLS:
                 continue
             if serial and other.serial_number:
                 continue

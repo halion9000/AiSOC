@@ -191,3 +191,25 @@ async def test_two_real_session_records_with_the_same_name_are_still_left_alone(
     await report(tenant, "screenconnect", "22222222-2222-4222-8222-222222222222", "FRONT-DESK")
     assert await merge_pass(tenant) == 0
     assert await count(tenant) == 2
+
+
+async def test_two_dnsfilter_records_of_one_name_are_one_reinstalled_machine_but_two_records_of_another_tool_are_not(tenant):
+    # DNSFilter keeps an old record for every agent install, so a re-imaged PC appears there twice.
+    await report(tenant, "dnsfilter", "d-old", "CFGCDT293", os="Microsoft Windows 10 Pro")
+    await report(tenant, "dnsfilter", "d-new", "CFGCDT293", os="Microsoft Windows 11 Pro")
+    await report(tenant, "ninjaone", "n1", "OTHER-PC", os="Microsoft Windows 11 Pro")
+    await report(tenant, "ninjaone", "n2", "OTHER-PC", os="Microsoft Windows 11 Pro")
+    assert await count(tenant) == 4
+    assert await merge_pass(tenant) == 1
+    assert await count(tenant) == 3
+    # Both DNSFilter records stay on the one device, so the tool does not re-create the old one on its next sync.
+    assert await count(tenant, "select count(*) from device_sources where tenant_id = :t and vendor = 'dnsfilter'") == 2
+    assert await count(tenant, "select count(distinct device_id) from device_sources where tenant_id = :t and vendor = 'dnsfilter'") == 1
+
+
+async def test_a_dnsfilter_pair_is_still_left_alone_when_one_is_a_mac_or_the_serials_differ(tenant):
+    await report(tenant, "dnsfilter", "d1", "FRONT-1", os="Microsoft Windows 11 Pro")
+    await report(tenant, "dnsfilter", "d2", "FRONT-1", os="macOS 14")
+    await report(tenant, "dnsfilter", "d3", "FRONT-2", serial="AAA1")
+    await report(tenant, "huntress", "h3", "FRONT-2", serial="BBB2")
+    assert await merge_pass(tenant) == 0

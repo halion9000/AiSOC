@@ -32,8 +32,10 @@ export function sourceLink(s: { details?: Record<string, unknown> }): string | n
 
 /** What a struck-through tool badge says on hover, or undefined when the tool has seen the device recently (or gives no time). */
 export function staleNote(d: DeviceRow, vendor: string, now: number = Date.now()): string | undefined {
-  const s = d.sources.find((x) => x.vendor === vendor && x.stale);
-  if (!s) return undefined;
+  // A machine that was reinstalled can hold two records of one tool: it only counts as unseen when every record of that tool is stale.
+  const mine = d.sources.filter((x) => x.vendor === vendor);
+  if (mine.length === 0 || !mine.every((x) => x.stale)) return undefined;
+  const s = mine.reduce((best, x) => ((x.last_checkin ?? '') > (best.last_checkin ?? '') ? x : best));
   const t = s.last_checkin ? new Date(s.last_checkin).getTime() : NaN;
   const days = Number.isNaN(t) ? null : Math.max(0, Math.floor((now - t) / 86_400_000));
   return `${vendorLabel(vendor)} has not seen this device${days === null ? ' for 10 days or more' : ` for ${days} days`}`;
