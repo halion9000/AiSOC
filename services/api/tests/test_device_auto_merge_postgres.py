@@ -213,3 +213,33 @@ async def test_a_dnsfilter_pair_is_still_left_alone_when_one_is_a_mac_or_the_ser
     await report(tenant, "dnsfilter", "d3", "FRONT-2", serial="AAA1")
     await report(tenant, "huntress", "h3", "FRONT-2", serial="BBB2")
     assert await merge_pass(tenant) == 0
+
+
+async def test_a_machine_reinstalled_many_times_does_not_look_like_a_stock_name(tenant):
+    # Seven records of one name: the real device and six old DNSFilter agent records. They are one machine, not a name too common to trust.
+    await report(tenant, "ninjaone", "n1", "GSCTX-JM8NLW2", serial="JM8NLW2", os="Windows 11 Pro")
+    for i in range(6):
+        await report(tenant, "dnsfilter", f"d{i}", "GSCTX-JM8NLW2", os="Microsoft Windows 11 Business")
+    assert await count(tenant) == 7
+    assert await merge_pass(tenant) == 6
+    assert await count(tenant) == 1
+    assert await count(tenant, "select count(*) from device_sources where tenant_id = :t and vendor = 'dnsfilter'") == 6
+
+
+async def test_seven_records_from_seven_different_tools_are_still_too_common_a_name_to_merge(tenant):
+    for i, tool in enumerate(["ninjaone", "huntress", "addigy", "threatmate", "autoelevate", "blumira", "screenconnect"]):
+        await report(tenant, tool, f"x{i}", "SHARED-NAME-7")
+    assert await merge_pass(tenant) == 0
+
+
+async def test_a_persons_mac_name_merges_inside_a_client_but_a_bare_factory_name_never_does(tenant):
+    from app.services.device_merge import usable_for_merge
+
+    assert usable_for_merge("katrinas-macbook-pro") and usable_for_merge("amandas-macbook-pro-2.local".split(".")[0])
+    assert not any(usable_for_merge(x) for x in ("macbook-pro", "mac", "macbook-air", "macbookpro", "imac"))
+    await report(tenant, "screenconnect", "Acme::Katrinas-MacBook-Pro", "Katrinas-MacBook-Pro", os="Mac OS X")
+    await report(tenant, "ninjaone", "n1", "Katrinas-MacBook-Pro.local", serial="LXMP7DC6MG", os="macOS 26.6.2 (25G83)")
+    await report(tenant, "ninjaone", "n2", "MacBook-Pro", serial="AAAA111111", os="macOS 26")
+    await report(tenant, "screenconnect", "s9", "MacBook-Pro", os="Mac OS X")
+    assert await merge_pass(tenant) == 1
+    assert await count(tenant) == 3

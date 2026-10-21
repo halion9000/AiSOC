@@ -5,6 +5,7 @@ Both are stored on the client tenant, so every person in the organization sees t
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -209,6 +210,18 @@ def os_kind(os_name: str | None) -> str | None:
     return None
 
 
+# "Katrinas-MacBook-Pro" names a person's Mac: too common to say which CLIENT a machine belongs to (so client matching ignores it), but inside one client it points at one machine. A bare factory
+# name ("MacBook-Pro", "Mac") has no person in front of it and is still treated as stock.
+_PERSONAL_APPLE = re.compile(r"^[a-z]{2,}s?[-_ ](macbook|imac|mac[-_ ]?mini|mac[-_ ]?studio)([-_ ]?(pro|air|mini|studio))?([-_ ]?\d+)?$")
+
+
+def usable_for_merge(key: str) -> bool:
+    """True when a machine name can be trusted to mean one machine within a client."""
+    from app.services.client_matching import is_generic_hostname
+
+    return not is_generic_hostname(key) or bool(_PERSONAL_APPLE.match(key.split(".")[0]))
+
+
 # A name held by more devices than this is left for a person: it is more likely a stock or reused name than one machine seen by several tools.
 MAX_AUTO_MERGE_GROUP = 6
 
@@ -253,23 +266,27 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
       * they are not provably different: no two different serial numbers, and the operating systems they report do not disagree (a Windows PC and a Mac);
       * nobody said they are different machines (a pair marked "not a duplicate", or a merge that was undone).
     Each merge is the ordinary one: logged, and a person can undo it for two weeks."""
-    from app.services.client_matching import is_generic_hostname
-
     await drop_legacy_screenconnect(db, tenant_id)
     devices = (await db.execute(select(Device).where(Device.tenant_id == tenant_id))).scalars().all()
     by_name: dict[str, list[Device]] = {}
     for d in devices:
         key = hostname_key(d.hostname)
-        if key and not is_generic_hostname(key):
+        if key and usable_for_merge(key):
             by_name.setdefault(key, []).append(d)
-    groups = [g for g in by_name.values() if 2 <= len(g) <= MAX_AUTO_MERGE_GROUP]
-    if not groups:
-        return 0
     vendors: dict[uuid.UUID, set[str]] = {}
     for device_id, vendor, external_id in (
         await db.execute(select(DeviceSource.device_id, DeviceSource.vendor, DeviceSource.external_id).where(DeviceSource.tenant_id == tenant_id))
     ).all():
         vendors.setdefault(device_id, set()).add(_tool_of(vendor, external_id))
+
+    def crowd(group: list[Device]) -> int:
+        """How many records the name really has for the "stock name" limit: a machine reinstalled many times leaves many records that are only DNSFilter's, and those count as one."""
+        only_duplicating = sum(1 for d in group if vendors.get(d.id) and vendors[d.id] <= DUPLICATING_TOOLS)
+        return len(group) - only_duplicating + (1 if only_duplicating else 0)
+
+    groups = [g for g in by_name.values() if len(g) >= 2 and crowd(g) <= MAX_AUTO_MERGE_GROUP]
+    if not groups:
+        return 0
     dismissed = {
         (x.device_a, x.device_b)
         for x in (await db.execute(select(DeviceMergeDismissal).where(DeviceMergeDismissal.tenant_id == tenant_id))).scalars().all()
