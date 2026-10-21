@@ -59,3 +59,13 @@ describe('DNSFilter and AutoElevate logos', () => {
     expect(orderSources(['autoelevate', 'dnsfilter', 'huntress', 'fieldeffect'])).toEqual(['huntress', 'fieldeffect', 'dnsfilter', 'autoelevate']);
   });
 });
+
+describe('the ScreenConnect badge', () => {
+  it('shows its own logo image, not the SC letters', () => {
+    const { container } = render(<VendorBadge vendor="screenconnect" />);
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute('src')).toBe('/vendors/screenconnect.png');
+    expect(img?.getAttribute('alt')).toBe('ScreenConnect');
+  });
+});
