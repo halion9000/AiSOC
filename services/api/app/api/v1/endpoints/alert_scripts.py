@@ -131,6 +131,8 @@ async def run_alert_script(
     db: TenantDBSession,
 ) -> RunScriptResponse:
     """Queue the script for CORE. Returns 202: nothing has run yet."""
+    if body.ticket is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Choose a HaloPSA ticket (an existing number, or open a new one): the result is put on it.")
     owner = (await db.execute(select(Tenant.settings).where(Tenant.id == current_user.tenant_id))).scalar_one_or_none()
     script = next((s for s in published_scripts(owner) if s.id == body.script_id), None)
     if script is None:
@@ -150,9 +152,7 @@ async def run_alert_script(
             if case is None:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="That case does not hold this alert.")
             params["case_id"] = str(body.case_id)
-        if body.ticket is None:
-            pass
-        elif body.ticket.mode == "link":
+        if body.ticket.mode == "link":
             number = (body.ticket.number or "").strip().lstrip("#").strip()
             if not number.isdigit() or len(number) > 12:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Give the HaloPSA ticket number (digits only).")

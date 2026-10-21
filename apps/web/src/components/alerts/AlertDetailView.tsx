@@ -1,6 +1,7 @@
 'use client';
 
 import { RefreshStatusButton } from './RefreshStatusButton';
+import { RunScriptButton } from './RunScriptButton';
 import { AlertContext } from './AlertContext';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -834,6 +835,7 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
             Create Case action.
           */}
           <RefreshStatusButton alertId={alertId} onRefreshed={() => void mutate()} />
+          <RunScriptButton alertId={alertId} title={alert.title} severity={alert.severity} onDone={() => void mutate()} />
           <button
             type="button"
             onClick={() => setExplainOpen(true)}

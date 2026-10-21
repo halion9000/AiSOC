@@ -106,8 +106,9 @@ async def test_create_mode_carries_what_core_needs_to_open_the_ticket():
 @pytest.mark.parametrize(
     "alert, body, code",
     [
-        (_alert(), {"script_id": 99}, 422),  # not a script CORE published
-        (_alert(hosts=()), {"script_id": 7}, 422),  # no machine to run it on
+        (_alert(), {"script_id": 99, "ticket": {"mode": "link", "number": "5"}}, 422),  # not a script CORE published
+        (_alert(hosts=()), {"script_id": 7, "ticket": {"mode": "link", "number": "5"}}, 422),  # no machine to run it on
+        (_alert(), {"script_id": 7}, 422),  # no ticket chosen
         (_alert(), {"script_id": 7, "ticket": {"mode": "link", "number": "abc"}}, 422),
         (_alert(), {"script_id": 7, "ticket": {"mode": "link"}}, 422),
     ],
@@ -124,7 +125,7 @@ async def test_requests_that_make_no_sense_are_refused_and_queue_nothing(alert, 
 async def test_a_case_that_does_not_hold_the_alert_is_refused():
     db = _db(_alert(), extra=[MagicMock(first=MagicMock(return_value=None))])
     with pytest.raises(HTTPException) as e:
-        await _run(db, script_id=7, case_id=str(uuid.uuid4()))
+        await _run(db, script_id=7, ticket={"mode": "link", "number": "5"}, case_id=str(uuid.uuid4()))
     assert e.value.status_code == 422
     db.add.assert_not_called()
 
@@ -133,7 +134,7 @@ async def test_a_case_that_does_not_hold_the_alert_is_refused():
 async def test_a_second_request_while_one_is_waiting_is_refused():
     db = _db(_alert(), extra=[MagicMock(first=MagicMock(return_value=(uuid.uuid4(),)))])
     with pytest.raises(HTTPException) as e:
-        await _run(db, script_id=7)
+        await _run(db, script_id=7, ticket={"mode": "link", "number": "5"})
     assert e.value.status_code == 409
     db.add.assert_not_called()
 

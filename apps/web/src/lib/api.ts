@@ -499,6 +499,15 @@ export interface ManagedTenantRow {
   connector_count: number | null;
 }
 
+export interface AlertScriptOptions {
+  scripts: Array<{ id: number; name: string; one_click: boolean }>;
+  device: string | null;
+  tickets: string[];
+  case_id: string | null;
+  case_number: string | null;
+  blocked: string | null;
+}
+
 export interface DeviceSourceRef {
   vendor: string;
   name: string | null;
@@ -1308,6 +1317,13 @@ export const alertsApi = {
 
   /** Ask CORE to re-read this alert's tool now, so the alert's status catches up. Only that tool is re-read; the answer arrives on the alert by itself within about a minute. */
   refresh: (id: string) => request<{ vendor: string; requested_at: string }>(`/api/v1/alerts/${id}/refresh`, { method: 'POST' }),
+
+  /** The scripts CORE offers for this alert, the machine and tickets it has, and its case (if any). `blocked` says why nothing can be run. */
+  scriptOptions: (id: string) => request<AlertScriptOptions>(`/api/v1/alerts/${id}/scripts`),
+
+  /** Queue a script for CORE to run on the alert's machine; the result goes on the HaloPSA ticket and the case. Nothing has run when this returns. */
+  runScript: (id: string, body: { script_id: number; ticket: { mode: 'link' | 'create'; number?: string }; case_id?: string }) =>
+    request<{ id: string; status: string; runs_at_once: boolean }>(`/api/v1/alerts/${id}/scripts/run`, { method: 'POST', body: JSON.stringify(body) }),
 
   /** Other alerts from the last 30 days that name the same device or user, from any tool. */
   related: (id: string) => request<{ items: RelatedAlert[]; more: number }>(`/api/v1/alerts/${id}/related`),
