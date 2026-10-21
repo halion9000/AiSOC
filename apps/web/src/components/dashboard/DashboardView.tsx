@@ -16,6 +16,7 @@
 
 import React, { Component, Suspense, type ErrorInfo, type ReactNode, useState, useEffect, useRef, useCallback } from 'react';
 import useSWR from 'swr';
+import { TONE_DOT, connectedCount, sourceTone } from './source-status';
 import { metricsApi, type DashboardMetrics } from '@/lib/api';
 import { clsx } from 'clsx';
 import dynamic from 'next/dynamic';
@@ -444,7 +445,7 @@ export function DashboardView() {
             <h2 className="text-xl font-semibold text-gray-100">Security Operations Center</h2>
             <p className="text-sm text-gray-500 mt-0.5">
               Entity-risk alerting, confidence-scored triage, and{' '}
-              {metrics.sources.filter((s) => s.status === 'active').length} connected sources
+              {connectedCount(metrics.sources)} connected sources
             </p>
           </div>
         </div>
@@ -478,7 +479,7 @@ export function DashboardView() {
           />
           <MetricCard
             label="Connected Sources"
-            value={metrics.sources.filter(s => s.status === 'active').length}
+            value={connectedCount(metrics.sources)}
             sub="EDR, SIEM, Cloud, IAM, SaaS"
             color="purple"
           />
@@ -529,10 +530,7 @@ export function DashboardView() {
                 <div key={src.name}>
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className={clsx(
-                        'w-1.5 h-1.5 rounded-full',
-                        src.status === 'active' ? 'bg-green-500' : 'bg-gray-500'
-                      )} />
+                      <span className={clsx('w-1.5 h-1.5 rounded-full', TONE_DOT[sourceTone(src.status)])} />
                       <span className="text-xs text-gray-300">{src.name}</span>
                     </div>
                     <span className="text-xs text-gray-500">{src.count}</span>

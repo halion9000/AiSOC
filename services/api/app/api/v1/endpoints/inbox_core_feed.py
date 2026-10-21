@@ -56,6 +56,8 @@ class SourceReport(BaseModel):
     category: Literal["siem", "edr", "cloud", "iam", "saas", "audit", "vcs", "ndr", "network"] = "saas"
     # "warning": the alerts came through, but a side job (devices, clients, ticket links) failed; ``message`` says which.
     status: Literal["ok", "warning", "error"]
+    # "devices" for a tool that only supplies devices (DNSFilter, ScreenConnect...): its card shows how many devices the last sync read instead of an event count that would stay 0.
+    kind: Literal["alerts", "devices"] = "alerts"
     fetched: int = Field(default=0, ge=0, le=1_000_000)
     sent: int = Field(default=0, ge=0, le=1_000_000, description="Records AiSOC accepted in this run.")
     message: str | None = Field(
@@ -171,6 +173,11 @@ async def apply_report(db: Any, tenant_id: Any, report: StatusReport, now: datet
         else:
             config.pop("last_error", None)
             config.pop("last_error_at", None)
+        if src.kind == "devices":
+            config.update(kind="devices", devices=src.fetched)
+        else:
+            config.pop("kind", None)
+            config.pop("devices", None)
         if config != (row.connector_config or {}):
             values["connector_config"] = config
         if src.status in ("ok", "warning"):

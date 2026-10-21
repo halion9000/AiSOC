@@ -166,6 +166,9 @@ function ConnectorCard({
   const vendor = feedVendor(connector);
   const statusCfg = STATUS_CONFIG[connector.status] ?? STATUS_CONFIG.configuring;
   const alertCount = connector.alertCount ?? connector.alertsIngested ?? 0;
+  // A tool that only supplies devices has no events to count: its card says how many devices the last sync read.
+  const feedConfig = (connector.config ?? connector.connectorConfig) as Record<string, unknown> | undefined;
+  const deviceCount = connector.type === 'core_feed' && feedConfig?.kind === 'devices' && typeof feedConfig.devices === 'number' ? feedConfig.devices : null;
   const eventsDropped = connector.eventsDropped ?? 0;
   const driftAt = connector.lastSchemaDriftAt;
   const drift = connector.lastDriftDetails;
@@ -330,9 +333,9 @@ function ConnectorCard({
 
       <div className="grid grid-cols-2 gap-2 mb-4">
         <div className="bg-gray-800/60 rounded-lg p-2">
-          <p className="text-xs text-gray-500">Events ingested</p>
+          <p className="text-xs text-gray-500">{deviceCount !== null ? 'Devices read' : 'Events ingested'}</p>
           <p className="text-sm font-medium text-gray-300">
-            {alertCount.toLocaleString()}
+            {(deviceCount ?? alertCount).toLocaleString()}
           </p>
         </div>
         <div className="bg-gray-800/60 rounded-lg p-2">

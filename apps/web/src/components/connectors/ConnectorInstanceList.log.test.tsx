@@ -146,3 +146,16 @@ describe('the Map clients button', () => {
     expect(screen.getAllByRole('link', { name: 'Map clients' }).map((a) => a.getAttribute('href'))).toEqual(['/mssp?vendor=ninjaone', '/mssp?vendor=threatmate']);
   });
 });
+
+describe('the counts on a CORE-fed card', () => {
+  it('says how many devices the last sync read for a tool that only supplies devices, and how many events for one that raises alerts', () => {
+    const devicesOnly = { ...feed('dnsfilter', 'DNSFilter (via CORE)'), config: { vendor: 'dnsfilter', managed_by: 'core', kind: 'devices', devices: 850 }, lastSync: new Date().toISOString() } as Connector;
+    const alerts = { ...feed('huntress', 'Huntress (via CORE)'), alertCount: 1311, lastSync: new Date().toISOString() } as Connector;
+    renderList([devicesOnly, alerts]);
+    expect(screen.getByText('Devices read')).toBeInTheDocument();
+    expect(screen.getByText('850')).toBeInTheDocument();
+    expect(screen.getByText('Events ingested')).toBeInTheDocument();
+    expect(screen.getByText('1,311')).toBeInTheDocument();
+    expect(screen.getAllByText('just now')).toHaveLength(2);
+  });
+});

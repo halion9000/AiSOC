@@ -427,3 +427,17 @@ async def test_the_collection_filters_by_tenant_itself_even_without_row_level_se
     )() as session:  # the table owner: not subject to row-level security
         assert await claim_sync_requests_for(session, world["a"]) == ["ninjaone"]
         assert await claim_sync_requests_for(session, world["b"]) == ["huntress"]
+
+
+async def test_a_tool_that_only_supplies_devices_keeps_how_many_devices_its_last_sync_read_and_an_alert_tool_does_not(world):
+    await run(world, world["feed_token"], report(SourceReport(vendor="dnsfilter", name="DNSFilter", category="network", status="ok", kind="devices", fetched=850, sent=0)))
+    await run(world, world["feed_token"], report(SourceReport(vendor="huntress", name="Huntress", category="edr", status="ok", fetched=3, sent=3)))
+    by_name = {r.name: r for r in await rows(world, world["a"])}
+    dns = by_name["DNSFilter (via CORE)"]
+    assert dns.connector_config["kind"] == "devices" and dns.connector_config["devices"] == 850
+    assert dns.events_ingested == 0 and dns.last_sync is not None, "it has a last sync even though it has no events"
+    assert "kind" not in by_name["Huntress (via CORE)"].connector_config
+    # The next sync replaces the count rather than adding to it.
+    await run(world, world["feed_token"], report(SourceReport(vendor="dnsfilter", name="DNSFilter", category="network", status="ok", kind="devices", fetched=860, sent=0)))
+    again = {r.name: r for r in await rows(world, world["a"])}["DNSFilter (via CORE)"]
+    assert again.connector_config["devices"] == 860
