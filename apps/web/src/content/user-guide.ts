@@ -73,7 +73,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 **What you do**
 
 - **Unmapped** lists what is waiting. Each row has a dropdown (suggestions first, then all clients, then "Add ... as a new client"), **Map**, and **Ignore**.
-- **Suggest mappings for <tool>** pre-fills the best match for every row of that tool. **Approve all checked (N)** maps all ticked rows at once; **Select all shown** ticks them.
+- **Suggest mappings for <tool>** pre-fills the best match for every row of that tool. **Approve all checked (N)** maps all ticked rows at once; **Select all shown** ticks them. **Ignore all checked (N)** moves every ticked row to the Ignored list (after a confirmation; each can be restored there), whether or not it has a client chosen.
 - **Import all N from <tool>** creates a new client for every unmapped customer of that tool.
 - **Mapped** lists links, each with **Unmap**. **Ignored** lists customers you do not manage, each with **Restore**.
 - **Add clients automatically from** tick the tool that is your master client list; its clients become clients, others are mapped to them.

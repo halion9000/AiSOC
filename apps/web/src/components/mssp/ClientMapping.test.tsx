@@ -549,6 +549,34 @@ describe('approving several checked rows', () => {
     confirm.mockRestore();
   });
 
+  it('ignores only the checked rows, whether or not they have a client chosen, after a confirmation', async () => {
+    clientsMock.mockResolvedValue({ clients: three, unmapped: 3 });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    const ignore = await screen.findByRole('button', { name: 'Ignore all checked (0)' });
+    expect(ignore).toBeDisabled();
+    await user.click(screen.getByLabelText('Select Acme Dental Group'));
+    await user.click(screen.getByLabelText('Select No Pick Inc'));
+    await user.click(screen.getByRole('button', { name: 'Ignore all checked (2)' }));
+    expect(ignoreMock).toHaveBeenCalledTimes(2);
+    expect(ignoreMock).toHaveBeenCalledWith('a-Acme Dental Group', true);
+    expect(ignoreMock).toHaveBeenCalledWith('a-No Pick Inc', true);
+    expect(mapMock).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('ignores nothing when the confirmation is declined', async () => {
+    clientsMock.mockResolvedValue({ clients: three, unmapped: 3 });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<ClientMapping tenants={tenants} onChanged={() => {}} />);
+    await user.click(await screen.findByLabelText('Select Zed Co'));
+    await user.click(screen.getByRole('button', { name: 'Ignore all checked (1)' }));
+    expect(ignoreMock).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
   it('select all checks every shown row', async () => {
     clientsMock.mockResolvedValue({ clients: three, unmapped: 3 });
     const user = userEvent.setup();

@@ -479,6 +479,26 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
     changed();
   };
 
+  const ignoreChecked = async () => {
+    if (checkedRows.length === 0) return;
+    if (!window.confirm(`Ignore ${checkedRows.length} checked client${checkedRows.length === 1 ? '' : 's'}? They move to the Ignored list below, and each one can be restored from there.`)) return;
+    setApproving(true);
+    let done = 0;
+    const failed: string[] = [];
+    for (const c of checkedRows) {
+      try {
+        await msspApi.ignoreClient(c.id, true);
+        done += 1;
+      } catch {
+        failed.push(c.vendor_client_name);
+      }
+    }
+    setApproving(false);
+    setChecked(new Set());
+    (failed.length ? toast.error : toast.success)(`Ignored ${done} of ${checkedRows.length}${failed.length ? `, ${failed.length} failed: ${failed.slice(0, 3).join(', ')}` : ''}`);
+    changed();
+  };
+
   const suggestFor = (vendor: string) => {
     const picks = suggestedChoices(groups.unmapped, vendor);
     const total = groups.unmapped.filter((c) => c.vendor === vendor).length;
@@ -739,6 +759,14 @@ export default function ClientMapping({ tenants, onChanged }: { tenants: Managed
                 className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500 disabled:opacity-40 disabled:hover:bg-blue-600 transition-colors"
               >
                 Approve all checked ({checkedRows.length})
+              </button>
+              <button
+                type="button"
+                disabled={approving || checkedRows.length === 0}
+                onClick={() => void ignoreChecked()}
+                className="rounded-lg border border-gray-600 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+              >
+                Ignore all checked ({checkedRows.length})
               </button>
             </div>
           ) : null}
