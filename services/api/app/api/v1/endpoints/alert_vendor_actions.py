@@ -274,17 +274,24 @@ async def remove_manual_ticket(
     current_user: Annotated[AuthUser, Depends(require_permission("alerts:write"))],
     db: TenantDBSession,
 ) -> TicketsResponse:
-    """Remove a ticket somebody entered by hand. A ticket CORE matched is not removable here (CORE would just report it again)."""
+    """Remove a ticket somebody entered by hand, or a ticket CORE linked that HaloPSA no longer has (CORE reported no summary for it: it was deleted or merged since). A ticket CORE matched and
+    that HaloPSA still has is not removable here (CORE would just report it again)."""
     async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
         alert = await _alert(db, alert_id, tid)
         enrichment = dict(alert.enrichment_data) if isinstance(alert.enrichment_data, dict) else {}
         manual = _shaped(enrichment.get("manual_tickets"))
         kept = [t for t in manual if str(t["id"]) != ticket_id]
-        if len(kept) == len(manual):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="No ticket with that number was entered by hand on this alert."
-            )
-        enrichment["manual_tickets"] = kept
+        if len(kept) != len(manual):
+            enrichment["manual_tickets"] = kept
+        else:
+            matched = _shaped(enrichment.get("tickets"))
+            gone = [t for t in matched if str(t["id"]) != ticket_id or str(t.get("summary") or "").strip() != ""]
+            if len(gone) == len(matched):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No ticket with that number was entered by hand on this alert, and no linked ticket with that number is missing from HaloPSA.",
+                )
+            enrichment["tickets"] = gone
         await db.execute(update(Alert).where(Alert.id == alert.id, Alert.tenant_id == tid).values(enrichment_data=enrichment))
         await emit_audit(
             db=db,

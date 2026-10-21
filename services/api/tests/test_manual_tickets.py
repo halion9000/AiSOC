@@ -121,11 +121,19 @@ async def test_a_bad_number_is_a_422_and_a_full_list_is_a_409(audit):
 
 
 @pytest.mark.asyncio
-async def test_removing_deletes_only_a_hand_entered_ticket_and_a_core_ticket_is_not_removable(audit):
-    alert = _alert({"tickets": [{"system": "halopsa", "id": "100"}], "manual_tickets": [{"system": "halopsa", "id": "200"}]})
+async def test_removing_deletes_a_hand_entered_ticket_or_one_halopsa_no_longer_has_and_a_core_ticket_halopsa_still_has_is_not_removable(audit):
+    alert = _alert(
+        {
+            "tickets": [{"system": "halopsa", "id": "100", "summary": "Still in Halo"}, {"system": "halopsa", "id": "300"}],
+            "manual_tickets": [{"system": "halopsa", "id": "200"}],
+        }
+    )
     out = await av.remove_manual_ticket(ALERT_ID, "200", MagicMock(), _user(), _db(alert))
-    assert [t["id"] for t in out.tickets] == ["100"]
+    assert [t["id"] for t in out.tickets] == ["100", "300"]
     assert audit[0]["action"] == "alerts:ticket_unlinked"
+    fresh = _alert({"tickets": [{"system": "halopsa", "id": "100", "summary": "Still in Halo"}, {"system": "halopsa", "id": "300"}]})
+    gone = await av.remove_manual_ticket(ALERT_ID, "300", MagicMock(), _user(), _db(fresh))
+    assert [t["id"] for t in gone.tickets] == ["100"], "a linked ticket with no summary (not found in HaloPSA) can be cleared"
     with pytest.raises(HTTPException) as e:
         await av.remove_manual_ticket(ALERT_ID, "100", MagicMock(), _user(), _db(alert))
     assert e.value.status_code == 404
