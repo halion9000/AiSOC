@@ -169,3 +169,25 @@ def test_the_operating_system_is_read_from_the_text_a_tool_reports():
     assert os_kind("macOS 14.5") == "mac" and os_kind("Mac OS X") == "mac"
     assert os_kind("iPadOS 17") == "ios" and os_kind("Ubuntu 22.04") == "linux"
     assert os_kind(None) is None and os_kind("") is None and os_kind("Embedded thing") is None
+
+
+async def test_the_old_company_and_name_screenconnect_record_and_the_session_record_of_the_same_machine_become_one_device(tenant):
+    # Before the feed knew real session ids, ScreenConnect machines were keyed "Company::Name"; the session-id records now sit beside them as a second ScreenConnect entry.
+    await report(tenant, "screenconnect", "American Legion::LARC-003", "LARC-003")
+    await report(tenant, "screenconnect", "c52b1138-8d8e-4f3f-bcba-ba60a7d633fa", "LARC-003", serial="6Q10GD3")
+    await report(tenant, "huntress", "h1", "DCJJYJZ2")
+    await report(tenant, "screenconnect", "American Legion::DCJJYJZ2", "DCJJYJZ2")
+    await report(tenant, "screenconnect", "6a9ad59f-e713-4e00-8ca3-f35180ea4690", "DCJJYJZ2", serial="CJJYJZ2")
+    assert await count(tenant) == 5
+    assert await merge_pass(tenant) == 3
+    assert await count(tenant) == 2
+    # Each machine keeps its session-id record and loses the duplicate old one.
+    assert await count(tenant, "select count(*) from device_sources where tenant_id = :t and vendor = 'screenconnect' and external_id like '%::%'") == 0
+    assert await count(tenant, "select count(*) from device_sources where tenant_id = :t and vendor = 'screenconnect'") == 2
+
+
+async def test_two_real_session_records_with_the_same_name_are_still_left_alone(tenant):
+    await report(tenant, "screenconnect", "11111111-1111-4111-8111-111111111111", "FRONT-DESK")
+    await report(tenant, "screenconnect", "22222222-2222-4222-8222-222222222222", "FRONT-DESK")
+    assert await merge_pass(tenant) == 0
+    assert await count(tenant) == 2

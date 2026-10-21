@@ -213,18 +213,45 @@ def os_kind(os_name: str | None) -> str | None:
 MAX_AUTO_MERGE_GROUP = 6
 
 
+LEGACY_SCREENCONNECT = "screenconnect-legacy"
+
+
+def _tool_of(vendor: str, external_id: str) -> str:
+    """The tool a source belongs to, with the old ScreenConnect feed kept apart: it keyed each machine as ``Company::Name`` before the real session id was available, so that record
+    and a session-id record of the same machine are one machine seen twice, not two machines in one tool."""
+    return LEGACY_SCREENCONNECT if vendor == "screenconnect" and "::" in external_id else vendor
+
+
+async def drop_legacy_screenconnect(db: Any, tenant_id: uuid.UUID) -> int:
+    """Remove the old ``Company::Name`` ScreenConnect record from any device that also has the real, session-id record of the same machine. Returns how many were removed."""
+    real = DeviceSource.__table__.alias("real")
+    result = await db.execute(
+        delete(DeviceSource).where(
+            DeviceSource.tenant_id == tenant_id,
+            DeviceSource.vendor == "screenconnect",
+            DeviceSource.external_id.like("%::%"),
+            select(real.c.id)
+            .where(real.c.device_id == DeviceSource.device_id, real.c.vendor == "screenconnect", ~real.c.external_id.like("%::%"))
+            .exists(),
+        )
+    )
+    return result.rowcount or 0
+
+
 async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUID | None = None) -> int:
     """Merge, in one client, the devices that are plainly one machine seen by different tools. Returns how many merges were made.
 
     A name can be held by several records at once (one per tool that has not yet been matched), so each name's records are folded one by one into the one that already holds the most tools.
     A record joins only when ALL of these hold, so a wrong merge stays rare:
       * the name is not a stock name (``server``, ``MacBook-Pro``...) and no more than ``MAX_AUTO_MERGE_GROUP`` devices in the client carry it;
-      * no tool reports both (two entries from the same tool are two machines that happen to share a name);
+      * no tool reports both (two entries from the same tool are two machines that happen to share a name), except that the old ScreenConnect record (keyed by company and name) and a
+        ScreenConnect session record are the same tool seen before and after the feed learned real session ids;
       * they are not provably different: no two different serial numbers, and the operating systems they report do not disagree (a Windows PC and a Mac);
       * nobody said they are different machines (a pair marked "not a duplicate", or a merge that was undone).
     Each merge is the ordinary one: logged, and a person can undo it for two weeks."""
     from app.services.client_matching import is_generic_hostname
 
+    await drop_legacy_screenconnect(db, tenant_id)
     devices = (await db.execute(select(Device).where(Device.tenant_id == tenant_id))).scalars().all()
     by_name: dict[str, list[Device]] = {}
     for d in devices:
@@ -235,10 +262,10 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
     if not groups:
         return 0
     vendors: dict[uuid.UUID, set[str]] = {}
-    for device_id, vendor in (
-        await db.execute(select(DeviceSource.device_id, DeviceSource.vendor).where(DeviceSource.tenant_id == tenant_id))
+    for device_id, vendor, external_id in (
+        await db.execute(select(DeviceSource.device_id, DeviceSource.vendor, DeviceSource.external_id).where(DeviceSource.tenant_id == tenant_id))
     ).all():
-        vendors.setdefault(device_id, set()).add(vendor)
+        vendors.setdefault(device_id, set()).add(_tool_of(vendor, external_id))
     dismissed = {
         (x.device_a, x.device_b)
         for x in (await db.execute(select(DeviceMergeDismissal).where(DeviceMergeDismissal.tenant_id == tenant_id))).scalars().all()
@@ -263,6 +290,7 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
             if _ordered(keep.id, other.id) in dismissed:
                 continue
             await merge_devices(db, tenant_id, keep.id, other.id, actor_id)
+            await drop_legacy_screenconnect(db, tenant_id)
             merged += 1
             held |= vo
             serial = serial or other.serial_number
