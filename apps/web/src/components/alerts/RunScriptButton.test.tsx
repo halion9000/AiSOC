@@ -85,6 +85,13 @@ describe('RunScriptButton', () => {
     expect(toast.success.mock.calls[0][0]).toMatch(/approve the script in CORE/);
   });
 
+  it('pre-selects the script the alert points at (a low-disk alert and a disk-space script)', async () => {
+    api.scriptOptions.mockResolvedValue({ ...OPTIONS, suggested_script_id: 9 });
+    render(<RunScriptButton alertId="a1" title="Low disk space" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Run script' }));
+    expect(await screen.findByLabelText('Script')).toHaveValue('9');
+  });
+
   it('says why nothing can be run, and offers no Run button', async () => {
     api.scriptOptions.mockResolvedValue({ ...OPTIONS, scripts: [], blocked: 'CORE has not shared any scripts.' });
     render(<RunScriptButton alertId="a1" title="t" />);

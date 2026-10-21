@@ -150,3 +150,50 @@ async def test_the_options_say_why_nothing_can_run():
     case = SimpleNamespace(id=uuid.uuid4(), case_number="C-9")
     out = await sc.alert_script_options(ALERT_ID, user, _db(_alert(), extra=[MagicMock(first=MagicMock(return_value=case))]))
     assert out.blocked is None and out.device == "PC-01" and out.case_number == "C-9" and [s.id for s in out.scripts] == [7, 9]
+
+
+@pytest.mark.asyncio
+async def test_the_runs_list_shows_each_request_with_how_it_went():
+    from datetime import UTC, datetime
+
+    row = SimpleNamespace(
+        id=uuid.uuid4(),
+        params={"script_name": "Disk Space Scan", "device": "PC-01", "ticket_id": "553688"},
+        status="done",
+        created_at=datetime.now(UTC),
+        claimed_at=datetime.now(UTC),
+        result_message="Started.",
+        finished_at=datetime.now(UTC),
+    )
+    created = SimpleNamespace(**{**row.__dict__, "id": uuid.uuid4(), "params": {"script_name": "Restart", "create_ticket": {"summary": "x"}}, "status": "failed"})
+    db = _db(_alert(), extra=[MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row, created]))))])
+    # The first queued result in _db is the owner's settings, which this route does not read; drop it.
+    db.execute.side_effect = None
+    queue = [MagicMock(first=MagicMock(return_value=(1,))), MagicMock(scalar_one_or_none=MagicMock(return_value=_alert())), MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[row, created]))))]
+
+    async def execute(stmt, *a, **k):
+        return queue.pop(0)
+
+    db.execute = AsyncMock(side_effect=execute)
+    out = await sc.alert_script_runs(ALERT_ID, SimpleNamespace(tenant_id=TENANT, user_id=uuid.uuid4()), db)
+    assert [(r.script_name, r.status, r.ticket_id, r.new_ticket) for r in out] == [("Disk Space Scan", "done", "553688", False), ("Restart", "failed", None, True)]
+
+
+def test_a_low_disk_alert_suggests_the_one_disk_script_and_nothing_else_is_guessed():
+    scripts = [sc.ScriptOption(id=7, name="Disk Space Scan"), sc.ScriptOption(id=9, name="Restart Spooler")]
+    assert sc.suggested_script("Low disk space on C:", scripts) == 7
+    assert sc.suggested_script("Printer offline", scripts) is None
+    assert sc.suggested_script("Low disk space", [sc.ScriptOption(id=1, name="Disk A"), sc.ScriptOption(id=2, name="Drive B")]) is None, "two fit: no guess"
+    assert sc.suggested_script(None, scripts) is None
+
+
+@pytest.mark.asyncio
+async def test_asking_from_a_case_leaves_a_system_comment_on_the_case_so_the_timeline_reads_in_order():
+    case_id = uuid.uuid4()
+    db = _db(_alert(), extra=[MagicMock(first=MagicMock(return_value=(1,))), NO_FLIGHT, MagicMock()])
+    await _run(db, script_id=7, ticket={"mode": "link", "number": "553688"}, case_id=str(case_id))
+    insert = db.seen[-1]
+    sql = str(insert)
+    assert "aisoc_case_comments" in sql and "is_system" in sql
+    params = insert.compile().params
+    assert params["c"] == case_id and "Disk Space Scan" in params["b"] and "553688" in params["b"]

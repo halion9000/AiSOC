@@ -75,6 +75,34 @@ class TestWelfordUpdate:
         assert stats["bytes_out"]["mean"] == pytest.approx(2.0)
 
 
+class TestOnlyAnIncreaseIsSuspiciousForTheRiskFeatures:
+    """Fewer failed sign-ins, no missing multi-factor or no new address than usual is not a warning sign; more of them is."""
+
+    def _usual(self, feature: str):
+        # Someone who usually has a few of these: a mix of 0s and 1s.
+        stats: dict[str, dict[str, float]] = {}
+        for v in [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0]:
+            stats = _welford_update(stats, feature, v)
+        return stats
+
+    @pytest.mark.parametrize("feature", ["failed", "no_mfa", "risk", "new_country", "new_ip", "non_interactive"])
+    def test_a_value_below_the_usual_scores_zero_and_one_above_it_scores_positive(self, feature):
+        stats = self._usual(feature)
+        assert compute_z_score(stats, feature, 0.0, min_samples=5) == pytest.approx(0.0)
+        assert compute_z_score(stats, feature, 3.0, min_samples=5) > 0.0
+
+    def test_the_hour_of_day_is_still_judged_in_both_directions(self):
+        stats: dict[str, dict[str, float]] = {}
+        for v in [14.0, 16.0, 18.0, 15.0, 17.0]:
+            stats = _welford_update(stats, "hour_of_day", v)
+        assert compute_z_score(stats, "hour_of_day", 4.0, min_samples=5) > 0.0
+        assert compute_z_score(stats, "hour_of_day", 23.0, min_samples=5) > 0.0
+
+    def test_the_direction_can_be_chosen_by_the_caller(self):
+        stats = self._usual("failed")
+        assert compute_z_score(stats, "failed", 0.0, min_samples=5, upward_only=False) > 0.0
+
+
 class TestComputeZScoreEstablishedBaseline:
     """The healthy path — an established baseline with real variance.
 

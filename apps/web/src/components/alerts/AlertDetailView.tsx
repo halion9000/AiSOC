@@ -2,6 +2,7 @@
 
 import { RefreshStatusButton } from './RefreshStatusButton';
 import { RunScriptButton } from './RunScriptButton';
+import { ScriptRunsSection } from './ScriptRunsSection';
 import { AlertContext } from './AlertContext';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -983,6 +984,8 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
 
           {/* Right column - 1/3 */}
           <div className="space-y-4">
+            <ScriptRunsSection alertId={alertId} />
+
             <Section title="AI Investigation">
               <AIInvestigation alertId={alertId} />
             </Section>

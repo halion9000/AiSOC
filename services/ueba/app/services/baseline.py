@@ -58,12 +58,18 @@ def _welford_update(
     return stats
 
 
+# Features where only an INCREASE is a warning sign: more failed sign-ins, a sign-in without multi-factor, a higher risk level, a new country or address. A person who usually has these and
+# has fewer of them today is not suspicious, so a value below their usual scores zero instead of the same distance upward. Everything else (the hour of day) is judged both ways.
+UPWARD_ONLY_FEATURES = frozenset({"failed", "no_mfa", "non_interactive", "risk", "new_country", "new_ip"})
+
+
 def compute_z_score(
     stats: dict[str, dict[str, float]],
     feature: str,
     value: float,
     *,
     min_samples: int | None = None,
+    upward_only: bool | None = None,
 ) -> float | None:
     """Return the z-score of *value* given the baseline stats for *feature*.
 
@@ -99,7 +105,9 @@ def compute_z_score(
     if std < 1e-9:
         return None
 
-    return abs(value - s["mean"]) / std
+    one_sided = (feature in UPWARD_ONLY_FEATURES) if upward_only is None else upward_only
+    deviation = value - s["mean"]
+    return max(0.0, deviation) / std if one_sided else abs(deviation) / std
 
 
 # ---------------------------------------------------------------------------

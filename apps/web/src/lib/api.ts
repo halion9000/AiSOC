@@ -499,6 +499,18 @@ export interface ManagedTenantRow {
   connector_count: number | null;
 }
 
+export interface AlertScriptRun {
+  id: string;
+  script_name: string;
+  device: string | null;
+  ticket_id: string | null;
+  new_ticket: boolean;
+  status: string;
+  result_message: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
 export interface AlertScriptOptions {
   scripts: Array<{ id: number; name: string; one_click: boolean }>;
   device: string | null;
@@ -506,6 +518,8 @@ export interface AlertScriptOptions {
   case_id: string | null;
   case_number: string | null;
   blocked: string | null;
+  /** The script that fits what the alert says (a low-disk alert and a disk-space script), or null. */
+  suggested_script_id?: number | null;
 }
 
 export interface DeviceSourceRef {
@@ -1317,6 +1331,9 @@ export const alertsApi = {
 
   /** Ask CORE to re-read this alert's tool now, so the alert's status catches up. Only that tool is re-read; the answer arrives on the alert by itself within about a minute. */
   refresh: (id: string) => request<{ vendor: string; requested_at: string }>(`/api/v1/alerts/${id}/refresh`, { method: 'POST' }),
+
+  /** The scripts asked for from this alert, newest first, with how each went. */
+  scriptRuns: (id: string) => request<AlertScriptRun[]>(`/api/v1/alerts/${id}/scripts/runs`),
 
   /** The scripts CORE offers for this alert, the machine and tickets it has, and its case (if any). `blocked` says why nothing can be run. */
   scriptOptions: (id: string) => request<AlertScriptOptions>(`/api/v1/alerts/${id}/scripts`),

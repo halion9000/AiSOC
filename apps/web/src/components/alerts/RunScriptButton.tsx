@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import toast from 'react-hot-toast';
+import { useSWRConfig } from 'swr';
 import { alertsApi, casesApi, type AlertScriptOptions } from '@/lib/api';
+import { SCRIPT_RUNS_KEY } from './ScriptRunsSection';
 
 export interface ScriptChoice {
   scriptId: number | null;
@@ -39,6 +41,7 @@ const CASE_SEVERITY: Record<string, 'critical' | 'high' | 'medium' | 'low'> = { 
 
 /** The button on an alert: pick one of CORE's scripts, say which Halo ticket gets the result (existing, by number, or a new one), and the result lands on the ticket and the alert's case (opened if there is none). */
 export function RunScriptButton({ alertId, title, severity, onDone }: { alertId: string; title: string; severity?: string; onDone?: () => void }) {
+  const { mutate: refreshRuns } = useSWRConfig();
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<AlertScriptOptions | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -52,7 +55,7 @@ export function RunScriptButton({ alertId, title, severity, onDone }: { alertId:
     try {
       const o = await alertsApi.scriptOptions(alertId);
       setOptions(o);
-      setChoice({ scriptId: o.scripts[0]?.id ?? null, ticketMode: o.tickets.length > 0 ? 'linked' : 'number', linked: o.tickets[0] ?? '', number: '' });
+      setChoice({ scriptId: o.suggested_script_id ?? o.scripts[0]?.id ?? null, ticketMode: o.tickets.length > 0 ? 'linked' : 'number', linked: o.tickets[0] ?? '', number: '' });
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not load the scripts.');
     }
@@ -78,6 +81,7 @@ export function RunScriptButton({ alertId, title, severity, onDone }: { alertId:
           : 'Asked CORE. It will ask you to approve the script in CORE first, then the result goes on the ticket and the case.',
       );
       setOpen(false);
+      void refreshRuns([...SCRIPT_RUNS_KEY(alertId)]);
       onDone?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not ask CORE to run the script.');

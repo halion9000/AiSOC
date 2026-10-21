@@ -198,7 +198,8 @@ async def list_vendor_actions(
             (
                 await db.execute(
                     select(VendorAction)
-                    .where(VendorAction.alert_id == alert.id, VendorAction.tenant_id == tid)
+                    # Script runs (vendor ``core``) are listed by their own route, so they never appear as an incident action here.
+                    .where(VendorAction.alert_id == alert.id, VendorAction.tenant_id == tid, VendorAction.vendor != "core")
                     .order_by(VendorAction.created_at.desc())
                     .limit(20)
                 )

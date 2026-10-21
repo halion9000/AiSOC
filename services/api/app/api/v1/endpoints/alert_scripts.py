@@ -9,6 +9,7 @@ Permission: ``connectors:write`` to ask (it reaches a live machine), ``alerts:re
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -25,7 +26,7 @@ from app.models.tenant import Tenant
 from app.models.vendor_action import VendorAction
 from app.services.alert_scope import alert_scope
 from app.services.audit import emit_audit
-from app.services.vendor_actions import PENDING_TTL
+from app.services.vendor_actions import PENDING_TTL, effective_status
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -47,6 +48,8 @@ class ScriptOptions(BaseModel):
     case_number: str | None = None
     # Why nothing can be run from this alert, in plain words; None when it can.
     blocked: str | None = None
+    # The script that fits what the alert says (a low-disk alert and a script about disk space); the page pre-selects it. None when none clearly fits.
+    suggested_script_id: int | None = None
 
 
 def published_scripts(settings: Any) -> list[ScriptOption]:
@@ -57,6 +60,17 @@ def published_scripts(settings: Any) -> list[ScriptOption]:
         if isinstance(s, dict) and isinstance(s.get("id"), int) and isinstance(s.get("name"), str) and s["name"].strip():
             out.append(ScriptOption(id=s["id"], name=s["name"].strip()[:200], one_click=bool(s.get("one_click"))))
     return sorted(out, key=lambda s: s.name.lower())[:200]
+
+
+_DISK_ALERT = re.compile(r"\b(disk|drive|storage|free space|low space|volume)\b", re.IGNORECASE)
+
+
+def suggested_script(alert_title: str | None, scripts: list[ScriptOption]) -> int | None:
+    """The script a low-disk alert points at: the one whose name is about disk or drive space. Only when the alert is about disk space and exactly one script fits."""
+    if not _DISK_ALERT.search(alert_title or ""):
+        return None
+    fits = [s for s in scripts if _DISK_ALERT.search(s.name)]
+    return fits[0].id if len(fits) == 1 else None
 
 
 def device_of(alert: Any) -> str | None:
@@ -102,7 +116,58 @@ async def alert_script_options(
         case_id=case.id if case else None,
         case_number=case.case_number if case else None,
         blocked=blocked,
+        suggested_script_id=suggested_script(alert.title, scripts),
     )
+
+
+class ScriptRun(BaseModel):
+    id: uuid.UUID
+    script_name: str
+    device: str | None = None
+    ticket_id: str | None = None
+    new_ticket: bool = False
+    status: str
+    result_message: str | None = None
+    created_at: datetime
+    finished_at: datetime | None = None
+
+
+@router.get("/{alert_id}/scripts/runs", response_model=list[ScriptRun])
+async def alert_script_runs(
+    alert_id: uuid.UUID,
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))],
+    db: TenantDBSession,
+) -> list[ScriptRun]:
+    """The scripts asked for from this alert, newest first, with how each one went (what CORE reported back)."""
+    async with alert_scope(db, current_user.tenant_id, alert_id) as tid:
+        await _alert(db, alert_id, tid)
+        rows = (
+            (
+                await db.execute(
+                    select(VendorAction)
+                    .where(VendorAction.alert_id == alert_id, VendorAction.tenant_id == tid, VendorAction.vendor == SCRIPT_VENDOR)
+                    .order_by(VendorAction.created_at.desc())
+                    .limit(20)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    now = datetime.now(UTC)
+    return [
+        ScriptRun(
+            id=r.id,
+            script_name=str((r.params or {}).get("script_name") or "script")[:200],
+            device=(r.params or {}).get("device"),
+            ticket_id=(r.params or {}).get("ticket_id"),
+            new_ticket="create_ticket" in (r.params or {}),
+            status=effective_status(r.status, r.created_at, r.claimed_at, now),
+            result_message=r.result_message,
+            created_at=r.created_at,
+            finished_at=r.finished_at,
+        )
+        for r in rows
+    ]
 
 
 class TicketChoice(BaseModel):
@@ -207,6 +272,15 @@ async def run_alert_script(
         )
         db.add(row)
         await db.flush()
+        if body.case_id is not None:
+            # The case's own record says what was asked, so the timeline reads in order: asked here, then the output CORE adds when it finishes.
+            what = f"Script \"{script.name}\" requested on {device} from alert {alert.id}"
+            what += f", result to HaloPSA ticket {params['ticket_id']}." if "ticket_id" in params else ", result to a new HaloPSA ticket."
+            await db.execute(
+                text("INSERT INTO aisoc_case_comments (case_id, author, body, is_system, tenant_id) VALUES (:c, :a, :b, true, :t)").bindparams(
+                    c=body.case_id, a=str(current_user.user_id), b=what, t=tid
+                )
+            )
         await emit_audit(
             db=db,
             tenant_id=tid,

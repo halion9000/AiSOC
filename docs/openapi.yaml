@@ -1066,6 +1066,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/{alert_id}/scripts/runs:
+    get:
+      tags:
+      - alerts
+      summary: Alert Script Runs
+      description: The scripts asked for from this alert, newest first, with how each
+        one went (what CORE reported back).
+      operationId: alert_script_runs_api_v1_alerts__alert_id__scripts_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: alert_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Alert Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScriptRun'
+                title: Response Alert Script Runs Api V1 Alerts  Alert Id  Scripts
+                  Runs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/alerts/{alert_id}/scripts/run:
     post:
       tags:
@@ -31800,11 +31835,64 @@ components:
           - type: string
           - type: 'null'
           title: Blocked
+        suggested_script_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Suggested Script Id
       type: object
       required:
       - scripts
       - tickets
       title: ScriptOptions
+    ScriptRun:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        script_name:
+          type: string
+          title: Script Name
+        device:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device
+        ticket_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Ticket Id
+        new_ticket:
+          type: boolean
+          title: New Ticket
+          default: false
+        status:
+          type: string
+          title: Status
+        result_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Result Message
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        finished_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Finished At
+      type: object
+      required:
+      - id
+      - script_name
+      - status
+      - created_at
+      title: ScriptRun
     ScriptsReport:
       properties:
         scripts:
