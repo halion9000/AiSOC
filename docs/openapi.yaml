@@ -10545,6 +10545,26 @@ paths:
                   Get
       security:
       - HTTPBearer: []
+  /api/v1/identity/secure-scores/brief:
+    get:
+      tags:
+      - identity
+      summary: 'Per client: the Microsoft Secure Score and its 30-day change, without
+        the daily points (short, for assistants)'
+      operationId: secure_score_brief_api_v1_identity_secure_scores_brief_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/SecureScoreBrief'
+                type: array
+                title: Response Secure Score Brief Api V1 Identity Secure Scores Brief
+                  Get
+      security:
+      - HTTPBearer: []
   /api/v1/identity/secure-scores/{client_id}:
     get:
       tags:
@@ -32250,6 +32270,53 @@ components:
       required:
       - stored
       title: ScriptsResponse
+    SecureScoreBrief:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        percent:
+          type: number
+          title: Percent
+        current:
+          type: number
+          title: Current
+        max:
+          type: number
+          title: Max
+        average:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Average
+        change_30d:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Change 30D
+        points_available:
+          type: number
+          title: Points Available
+          default: 0.0
+        taken_at:
+          type: string
+          format: date-time
+          title: Taken At
+      type: object
+      required:
+      - client_id
+      - client_name
+      - percent
+      - current
+      - max
+      - taken_at
+      title: SecureScoreBrief
     SecureScoreDetail:
       properties:
         client_id:
@@ -32977,6 +33044,13 @@ components:
           - warning
           - error
           title: Status
+        kind:
+          type: string
+          enum:
+          - alerts
+          - devices
+          title: Kind
+          default: alerts
         fetched:
           type: integer
           maximum: 1000000.0

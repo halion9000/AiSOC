@@ -1,5 +1,5 @@
-"""Cipher (CORE's agent) operates AiSOC through 56 tools: 17 written out by hand and 39 read-only tools (12 detection engineering, 5
-hunting, 5 threat intelligence, 14 estate: assets, vulnerabilities, cloud posture, identity graph, client devices) declared as a table in CORE
+"""Cipher (CORE's agent) operates AiSOC through 58 tools: 17 written out by hand and 41 read-only tools (12 detection engineering, 5
+hunting, 5 threat intelligence, 16 estate: assets, vulnerabilities, cloud posture, identity graph, client devices) declared as a table in CORE
 (hud/src/aisoc-read-tools.ts). Every call they make must be one this API actually accepts.
 
 CORE builds the requests in hud/src/aisoc-requests.ts and pins them in hud/src/aisoc-requests.test.ts. Comparing every call with this API's own
@@ -107,6 +107,8 @@ CIPHER_CALLS = [
     ("aisoc_device_rollup", "GET", "/devices/rollup", [], None, False),
     ("aisoc_client_posture", "GET", "/client-posture/{client_id}", [], None, False),
     ("aisoc_mfa_summary", "GET", "/identity/mfa-summary", [], None, False),
+    ("aisoc_secure_scores", "GET", "/identity/secure-scores/brief", [], None, False),
+    ("aisoc_client_review", "GET", "/client-review/{client_id}", [], None, False),
     ("aisoc_list_assets", "GET", "/assets", ["asset_type", "criticality", "limit", "offset"], None, False),
     ("aisoc_get_asset", "GET", "/assets/{asset_id}", [], None, False),
     ("aisoc_list_vulnerabilities", "GET", "/assets/vulnerabilities", ["severity", "is_exploited", "limit", "offset"], None, False),
@@ -253,7 +255,7 @@ def test_the_page_size_cap_is_at_least_what_core_sends(path):
 
 def test_the_table_covers_all_fifty_three_tools():
     tools = {re.sub(r" \(.*\)$", "", name) for name in CALL_IDS}
-    assert len(tools) == 56, sorted(tools)
+    assert len(tools) == 58, sorted(tools)
 
 
 READ_ONLY_TOOLS = [c for c in CIPHER_CALLS if c[1] == "GET"]
@@ -324,7 +326,7 @@ def test_every_tool_in_the_contract_is_a_get():
 
 def test_the_contract_has_no_tool_listed_twice():
     names = [r["tool"] for r in CONTRACT]
-    assert len(names) == len(set(names)) == 39
+    assert len(names) == len(set(names)) == 41
 
 
 def test_the_copy_is_the_same_as_the_file_in_the_core_checkout_when_one_is_next_to_this_repo():
@@ -527,9 +529,9 @@ def test_the_sensitive_areas_have_no_tool_and_say_why_in_the_table():
     record) are deliberately out of reach."""
     for _n, _m, path, *_ in CIPHER_CALLS:
         assert not path.startswith(("/insider-threat", "/compliance")), path
-        # Nothing under /identity/ except the per-client COUNTS of people with and without Multi-Factor: no names. The lists of people, the audit scores and the posture
-        # detail stay out of reach.
-        assert not path.startswith("/identity/") or path == "/identity/mfa-summary", path
+        # Nothing under /identity/ except the per-client COUNTS of people with and without Multi-Factor and each client's Microsoft Secure Score (a number per client): no
+        # names. The lists of people, the audit scores and the posture detail stay out of reach.
+        assert not path.startswith("/identity/") or path in ("/identity/mfa-summary", "/identity/secure-scores/brief"), path
     source = Path(__file__).read_text(encoding="utf-8")
     assert "HR-sensitive" in source and "writes a record" in source
 

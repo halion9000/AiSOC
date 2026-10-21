@@ -159,3 +159,13 @@ async def test_the_lowest_percentage_comes_first(world):
     await run(world["msp"], own)
     rows = await run(world["msp"], lambda db: ep.secure_score_summary(User(world["msp"]), db))
     assert [r.current for r in rows] == [50.0, 200.0]
+
+
+@needs_pg
+async def test_the_brief_is_the_summary_without_the_daily_points_for_assistants(world):
+    await run(world["msp"], lambda db: ep.apply_secure_score(db, world["msp"], report(current=130), NOW))
+    brief = await run(world["msp"], lambda db: ep.secure_score_brief(User(world["msp"]), db))
+    assert len(brief) == 1
+    b = brief[0].model_dump()
+    assert (b["client_id"], b["current"], b["max"], b["percent"], b["change_30d"], b["points_available"]) == (world["mapped"], 130.0, 267.0, 48.7, 30.0, 16.0)
+    assert "history" not in b and "improvements" not in b, "short on purpose: no daily points and no control list"

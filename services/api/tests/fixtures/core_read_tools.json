@@ -350,6 +350,22 @@
     "numbers": {}
   },
   {
+    "tool": "aisoc_secure_scores",
+    "method": "GET",
+    "path": "/identity/secure-scores/brief",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
+    "tool": "aisoc_client_review",
+    "method": "GET",
+    "path": "/client-review/{client_id}",
+    "query": [],
+    "enums": {},
+    "numbers": {}
+  },
+  {
     "tool": "aisoc_get_asset",
     "method": "GET",
     "path": "/assets/{asset_id}",

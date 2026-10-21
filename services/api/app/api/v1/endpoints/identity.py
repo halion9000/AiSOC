@@ -707,6 +707,29 @@ async def secure_score_summary(current_user: Annotated[AuthUser, Depends(require
     return out
 
 
+class SecureScoreBrief(BaseModel):
+    client_id: uuid.UUID
+    client_name: str | None
+    percent: float
+    current: float
+    max: float
+    average: float | None = None
+    change_30d: float | None = None
+    points_available: float = 0.0
+    taken_at: datetime
+
+
+@router.get(
+    "/secure-scores/brief", response_model=list[SecureScoreBrief], summary="Per client: the Microsoft Secure Score and its 30-day change, without the daily points (short, for assistants)"
+)
+async def secure_score_brief(current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> list[SecureScoreBrief]:
+    rows = await _score_rows(db, current_user.tenant_id)
+    keep = SecureScoreBrief.model_fields.keys()
+    out = [SecureScoreBrief(**{k: v for k, v in _summary_of(row, name).items() if k in keep}) for row, name in rows]
+    out.sort(key=lambda s: (s.percent, (s.client_name or "").lower()))
+    return out
+
+
 @router.get("/secure-scores/{client_id}", response_model=SecureScoreDetail, summary="One client's Secure Score with the controls still missing points")
 async def secure_score_detail(
     client_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
