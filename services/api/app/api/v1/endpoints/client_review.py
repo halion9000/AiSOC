@@ -2,6 +2,7 @@
 from data AiSOC already holds, and what it does not hold is reported as unknown rather than guessed.
 
 ``GET /api/v1/client-review/{client_id}``. For a quarterly business review or a cyber-insurance questionnaire; the checklist answers are evidence from the connected tools, not a certification.
+``POST /api/v1/inbox/core-feed/{token}/vcio-reviews``: CORE's daily summary of a client's vCIO Toolbox recommendations and risks (authenticated by the secret in the path, like the other core-feed routes).
 """
 
 from __future__ import annotations
@@ -9,24 +10,30 @@ from __future__ import annotations
 import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, bindparam, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.api.v1.endpoints.alerts import FINISHED_STATUSES
 from app.api.v1.endpoints.client_posture import devices_part
 from app.api.v1.endpoints.devices import _load_cached, _master_of, _scope, rollup_of
 from app.api.v1.endpoints.identity import counts_for_mfa
+from app.api.v1.endpoints.inbox_core_feed import _verify_core_feed_token
+from app.api.v1.endpoints.signins import targets_by_tenant
+from app.api.v1.endpoints.devices import UnmappedClient
 from app.db.rls_scope import acting_as_tenant
+from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
-from app.models.signin import IdentityMfaUser, IdentitySecureScore
+from app.models.signin import ClientVcioReview, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.client_review import DeviceFacts, Readiness, device_facts, readiness
 
 router = APIRouter(prefix="/client-review", tags=["posture"])
+ingest_router = APIRouter(prefix="/inbox", tags=["inbox-core-feed"])
 
 WINDOW_DAYS = 30
 _CASE_FINISHED = ("resolved", "closed")
@@ -54,6 +61,91 @@ class ReviewScore(BaseModel):
     taken_at: datetime
 
 
+class VcioRecommendation(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    priority: str | None = Field(default=None, max_length=20)
+    adoption: str = Field(max_length=40)
+    due: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    on_roadmap: bool = False
+
+
+class VcioRecommendations(BaseModel):
+    total: int = Field(ge=0, le=100000)
+    pending: int = Field(ge=0, le=100000)
+    adopted: int = Field(ge=0, le=100000)
+    declined: int = Field(ge=0, le=100000)
+    top: list[VcioRecommendation] = Field(default_factory=list, max_length=15)
+
+
+class VcioRisk(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    category: str | None = Field(default=None, max_length=60)
+    priority: str | None = Field(default=None, max_length=20)
+    impact: float | None = None
+    likelihood: float | None = None
+    score: float | None = None
+    inherent: str | None = Field(default=None, max_length=20)
+
+
+class VcioReviewReport(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    vendor_client_id: str = Field(min_length=1, max_length=200)
+    recommendations: VcioRecommendations
+    risks: list[VcioRisk] = Field(default_factory=list, max_length=30)
+
+
+class VcioReviewResponse(BaseModel):
+    accepted: int
+    unmapped: int = 0
+    ignored: int = 0
+    unmapped_clients: list[UnmappedClient] = Field(default_factory=list)
+
+
+class _VcioView:
+    """Lets the shared client mapping place a report that belongs to one client, as a list of one item."""
+
+    def __init__(self, report: VcioReviewReport) -> None:
+        self.vendor = report.vendor
+        self.items = [report]
+
+
+async def apply_vcio_review(db: Any, owner: uuid.UUID, report: VcioReviewReport, now: datetime | None = None) -> VcioReviewResponse:
+    """Replace the client's vCIO Toolbox summary with this report. The caller owns the transaction."""
+    now = now or datetime.now(UTC)
+    by_tenant, unmapped, ignored, waiting = await targets_by_tenant(db, owner, _VcioView(report))
+    accepted = 0
+    for tid in by_tenant:
+        async with acting_as_tenant(db, tid):
+            values = {
+                "tenant_id": tid,
+                "source": report.vendor,
+                "recommendations": report.recommendations.model_dump(),
+                "risks": [r.model_dump() for r in report.risks],
+                "refreshed_at": now,
+            }
+            stmt = pg_insert(ClientVcioReview).values(values)
+            update = {c: stmt.excluded[c] for c in values if c not in ("tenant_id", "source")}
+            await db.execute(stmt.on_conflict_do_update(index_elements=["tenant_id", "source"], set_=update))
+            accepted += 1
+    return VcioReviewResponse(accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=waiting)
+
+
+@ingest_router.post("/core-feed/{tenant_token}/vcio-reviews", response_model=VcioReviewResponse)
+async def report_core_feed_vcio_review(tenant_token: str, body: VcioReviewReport, db: DBSession) -> VcioReviewResponse:
+    """Record one client's vCIO Toolbox recommendations and risks (replacing the last summary)."""
+    owner = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, owner)
+    result = await apply_vcio_review(db, owner, body)
+    await db.commit()
+    return result
+
+
+class ReviewVcio(BaseModel):
+    recommendations: VcioRecommendations
+    risks: list[VcioRisk]
+    refreshed_at: datetime
+
+
 class ClientReview(BaseModel):
     client_id: uuid.UUID
     client_name: str | None
@@ -66,6 +158,8 @@ class ClientReview(BaseModel):
     alerts: ReviewAlerts
     cases: ReviewCases
     readiness: Readiness
+    # What vCIO Toolbox holds for the client (recommendations by adoption, the pending ones that matter most, risks); None when CORE has not sent it.
+    vcio: ReviewVcio | None = None
 
 
 @router.get("/{client_id}", response_model=ClientReview, summary="One client's coverage, identity, alerts and cases for a review, with a cyber-insurance readiness checklist")
@@ -86,6 +180,7 @@ async def client_review(client_id: uuid.UUID, current_user: Annotated[AuthUser, 
     async with contextlib.nullcontext() if client_id == owner else acting_as_tenant(db, client_id):
         users = (await db.execute(select(IdentityMfaUser).where(IdentityMfaUser.tenant_id == client_id))).scalars().all()
         score_row = (await db.execute(select(IdentitySecureScore).where(IdentitySecureScore.tenant_id == client_id))).scalars().first()
+        vcio_row = (await db.execute(select(ClientVcioReview).where(ClientVcioReview.tenant_id == client_id))).scalars().first()
         a = (
             await db.execute(
                 select(
@@ -130,4 +225,13 @@ async def client_review(client_id: uuid.UUID, current_user: Annotated[AuthUser, 
         alerts=ReviewAlerts(open=a[0], critical_open=a[1], high_open=a[2], opened_30d=a[3], closed_30d=a[4]),
         cases=ReviewCases(open=c[0], opened_30d=c[1], resolved_30d=c[2]),
         readiness=readiness(facts, mfa, score.percent if score else None),
+        vcio=(
+            ReviewVcio(
+                recommendations=VcioRecommendations(**(vcio_row.recommendations or {})),
+                risks=[VcioRisk(**r) for r in (vcio_row.risks or []) if isinstance(r, dict)],
+                refreshed_at=vcio_row.refreshed_at,
+            )
+            if vcio_row is not None
+            else None
+        ),
     )

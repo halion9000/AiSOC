@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from app.api.v1.endpoints import alerts as ep
 from app.db.database import Base
 from app.models.alert import Alert
@@ -20,7 +21,12 @@ async def no_scope(_db, _tenant_id):
     yield
 
 
-ep.acting_as_tenant = no_scope  # the real one sets a Postgres setting; these tests run on SQLite
+
+
+@pytest.fixture(autouse=True)
+def _sqlite_has_no_tenant_scope(monkeypatch):
+    """The real scope sets a Postgres setting; these tests run on SQLite. Patched per test (not at import) so no other test module sees it."""
+    monkeypatch.setattr(ep, "acting_as_tenant", no_scope)
 
 
 def run(fn):

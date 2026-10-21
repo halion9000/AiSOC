@@ -10624,6 +10624,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/vcio-reviews:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Vcio Review
+      description: Record one client's vCIO Toolbox recommendations and risks (replacing
+        the last summary).
+      operationId: report_core_feed_vcio_review_api_v1_inbox_core_feed__tenant_token__vcio_reviews_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VcioReviewReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VcioReviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/client-review/{client_id}:
     get:
       tags:
@@ -20966,6 +21000,10 @@ components:
           $ref: '#/components/schemas/ReviewCases'
         readiness:
           $ref: '#/components/schemas/Readiness'
+        vcio:
+          anyOf:
+          - $ref: '#/components/schemas/ReviewVcio'
+          - type: 'null'
       type: object
       required:
       - client_id
@@ -30481,6 +30519,25 @@ components:
       - max
       - taken_at
       title: ReviewScore
+    ReviewVcio:
+      properties:
+        recommendations:
+          $ref: '#/components/schemas/VcioRecommendations'
+        risks:
+          items:
+            $ref: '#/components/schemas/VcioRisk'
+          type: array
+          title: Risks
+        refreshed_at:
+          type: string
+          format: date-time
+          title: Refreshed At
+      type: object
+      required:
+      - recommendations
+      - risks
+      - refreshed_at
+      title: ReviewVcio
     RiskProfileOut:
       properties:
         id:
@@ -35614,6 +35671,164 @@ components:
       - msg
       - type
       title: ValidationError
+    VcioRecommendation:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        priority:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Priority
+        adoption:
+          type: string
+          maxLength: 40
+          title: Adoption
+        due:
+          anyOf:
+          - type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+          - type: 'null'
+          title: Due
+        on_roadmap:
+          type: boolean
+          title: On Roadmap
+          default: false
+      type: object
+      required:
+      - name
+      - adoption
+      title: VcioRecommendation
+    VcioRecommendations:
+      properties:
+        total:
+          type: integer
+          maximum: 100000.0
+          minimum: 0.0
+          title: Total
+        pending:
+          type: integer
+          maximum: 100000.0
+          minimum: 0.0
+          title: Pending
+        adopted:
+          type: integer
+          maximum: 100000.0
+          minimum: 0.0
+          title: Adopted
+        declined:
+          type: integer
+          maximum: 100000.0
+          minimum: 0.0
+          title: Declined
+        top:
+          items:
+            $ref: '#/components/schemas/VcioRecommendation'
+          type: array
+          maxItems: 15
+          title: Top
+      type: object
+      required:
+      - total
+      - pending
+      - adopted
+      - declined
+      title: VcioRecommendations
+    VcioReviewReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        vendor_client_id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Vendor Client Id
+        recommendations:
+          $ref: '#/components/schemas/VcioRecommendations'
+        risks:
+          items:
+            $ref: '#/components/schemas/VcioRisk'
+          type: array
+          maxItems: 30
+          title: Risks
+      type: object
+      required:
+      - vendor
+      - vendor_client_id
+      - recommendations
+      title: VcioReviewReport
+    VcioReviewResponse:
+      properties:
+        accepted:
+          type: integer
+          title: Accepted
+        unmapped:
+          type: integer
+          title: Unmapped
+          default: 0
+        ignored:
+          type: integer
+          title: Ignored
+          default: 0
+        unmapped_clients:
+          items:
+            $ref: '#/components/schemas/UnmappedClient'
+          type: array
+          title: Unmapped Clients
+      type: object
+      required:
+      - accepted
+      title: VcioReviewResponse
+    VcioRisk:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        category:
+          anyOf:
+          - type: string
+            maxLength: 60
+          - type: 'null'
+          title: Category
+        priority:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Priority
+        impact:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Impact
+        likelihood:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Likelihood
+        score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Score
+        inherent:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Inherent
+      type: object
+      required:
+      - name
+      title: VcioRisk
     VendorActionItem:
       properties:
         id:

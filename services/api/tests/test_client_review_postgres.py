@@ -111,3 +111,48 @@ async def test_a_client_with_nothing_reports_unknown_not_failures_and_a_stranger
     with pytest.raises(HTTPException) as err:
         await run(world["msp"], lambda db: ep.client_review(world["stranger"], NS(tenant_id=world["msp"]), db))
     assert err.value.status_code == 404
+
+
+def vcio_report(client="vcio-1", **over):
+    base = {
+        "vendor": "vciotoolbox",
+        "vendor_client_id": client,
+        "recommendations": {
+            "total": 50,
+            "pending": 40,
+            "adopted": 8,
+            "declined": 2,
+            "top": [{"name": "Restrict Group Creation", "priority": "High", "adoption": "Pending", "due": "2026-06-12", "on_roadmap": False}],
+        },
+        "risks": [{"name": "Cyber Liability", "category": "Financial Risk", "priority": "Medium", "impact": 4, "likelihood": 2, "score": 8, "inherent": "Medium"}],
+    }
+    base.update(over)
+    return ep.VcioReviewReport(**base)
+
+
+async def test_a_mapped_clients_vcio_summary_is_stored_replaced_and_shown_in_the_review_and_an_unmapped_one_waits(world):
+    async def alias(db):
+        await db.execute(
+            text(
+                "insert into client_aliases (tenant_id, vendor, vendor_client_id, vendor_client_name, normalized_name, child_tenant_id, ignored, match_source) "
+                "values (:t, 'vciotoolbox', 'vcio-1', 'vcio-1', 'vcio-1', :c, false, 'manual')"
+            ),
+            {"t": world["msp"], "c": world["client"]},
+        )
+
+    await run(world["msp"], alias)
+    waiting = await run(world["msp"], lambda db: ep.apply_vcio_review(db, world["msp"], vcio_report(client="nobody")))
+    assert (waiting.accepted, waiting.unmapped) == (0, 1)
+    first = await run(world["msp"], lambda db: ep.apply_vcio_review(db, world["msp"], vcio_report()))
+    assert (first.accepted, first.unmapped) == (1, 0)
+    await run(world["msp"], lambda db: ep.apply_vcio_review(db, world["msp"], vcio_report(recommendations={"total": 51, "pending": 41, "adopted": 8, "declined": 2, "top": []})))
+    r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
+    assert r.vcio is not None
+    assert (r.vcio.recommendations.total, r.vcio.recommendations.pending, r.vcio.recommendations.top) == (51, 41, []), "the second report replaced the first"
+    assert [(k.name, k.score) for k in r.vcio.risks] == [("Cyber Liability", 8.0)]
+
+
+async def test_a_client_with_no_vcio_summary_has_none(world):
+    r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
+    assert r.vcio is None
+

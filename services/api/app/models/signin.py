@@ -94,6 +94,18 @@ class IdentityMfaUser(Base):
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
 
+class ClientVcioReview(Base):
+    """One client's vCIO Toolbox recommendations (counts and the pending ones that matter most) and risks (migration 095)."""
+
+    __tablename__ = "client_vcio_reviews"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), primary_key=True)
+    recommendations: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    risks: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+
 class IdentitySecureScore(Base):
     """One client's latest Microsoft Secure Score with its trend and what is still missing (migration 094)."""
 

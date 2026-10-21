@@ -23,6 +23,24 @@ export interface ReadinessItem {
   evidence: string;
 }
 
+export interface VcioRecommendation {
+  name: string;
+  priority: string | null;
+  adoption: string;
+  due: string | null;
+  on_roadmap: boolean;
+}
+
+export interface VcioRisk {
+  name: string;
+  category: string | null;
+  priority: string | null;
+  impact: number | null;
+  likelihood: number | null;
+  score: number | null;
+  inherent: string | null;
+}
+
 export interface Review {
   client_id: string;
   client_name: string | null;
@@ -34,6 +52,7 @@ export interface Review {
   alerts: { open: number; critical_open: number; high_open: number; opened_30d: number; closed_30d: number };
   cases: { open: number; opened_30d: number; resolved_30d: number };
   readiness: { met: number; partly: number; not_met: number; unknown: number; items: ReadinessItem[] };
+  vcio?: { recommendations: { total: number; pending: number; adopted: number; declined: number; top: VcioRecommendation[] }; risks: VcioRisk[]; refreshed_at: string } | null;
 }
 
 interface ClientChoice {
@@ -67,6 +86,15 @@ export function readinessHeadline(r: Review["readiness"]): string {
   if (gaps > 0) parts.push(`${gaps} ${gaps === 1 ? "needs" : "need"} work`);
   if (r.unknown > 0) parts.push(`${r.unknown} ${r.unknown === 1 ? "is" : "are"} not known to AiSOC`);
   return `${parts.join(", ")}.`;
+}
+
+/** "Due 12 Jun 2026" or an empty string, from the ISO date vCIO Toolbox's summary carries. */
+export function dueText(iso: string | null): string {
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null;
+  if (!m) return "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const month = months[Number(m[2]) - 1];
+  return month ? `due ${Number(m[3])} ${month} ${m[1]}` : "";
 }
 
 /** Tools worth showing: the ones some of this client's machines should be running, in the order given by the API. */
@@ -240,6 +268,45 @@ export function ClientReview() {
                 <p className="mt-2 text-sm text-slate-500">No Microsoft Secure Score read for this client yet.</p>
               )}
             </Card>
+
+            {review.vcio ? (
+              <Card title="From vCIO Toolbox">
+                <p className="text-sm text-slate-300" data-testid="vcio-line">
+                  {review.vcio.recommendations.total} recommendations: {review.vcio.recommendations.pending} pending, {review.vcio.recommendations.adopted} adopted, {review.vcio.recommendations.declined} declined.
+                </p>
+                {review.vcio.recommendations.top.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm" data-testid="vcio-top">
+                    {review.vcio.recommendations.top.map((r) => (
+                      <li key={r.name} className="text-slate-300">
+                        {r.name}
+                        <span className="text-xs text-slate-500">
+                          {r.priority ? ` · ${r.priority}` : ""}
+                          {dueText(r.due) ? ` · ${dueText(r.due)}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {review.vcio.risks.length > 0 && (
+                  <>
+                    <p className="mb-1 mt-3 text-xs uppercase text-slate-500">Risks</p>
+                    <ul className="space-y-1 text-sm" data-testid="vcio-risks">
+                      {review.vcio.risks.map((k) => (
+                        <li key={k.name} className="text-slate-300">
+                          {k.name}
+                          <span className="text-xs text-slate-500">
+                            {k.score !== null ? ` · score ${k.score}` : ""}
+                            {k.impact !== null && k.likelihood !== null ? ` (impact ${k.impact}, likelihood ${k.likelihood})` : ""}
+                            {k.category ? ` · ${k.category}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <p className="mt-2 text-xs text-slate-500">Read from vCIO Toolbox on {new Date(review.vcio.refreshed_at).toLocaleDateString()}. The IT review answers themselves are not available through its API.</p>
+              </Card>
+            ) : null}
 
             <Card title="Alerts">
               <p className="text-sm text-slate-300" data-testid="alerts-line">

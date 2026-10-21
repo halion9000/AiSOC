@@ -7,7 +7,7 @@ vi.mock('@/lib/auth-session', () => ({ authFetch }));
 const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
 
-import { ClientReview, readinessHeadline, visibleCoverage, type Review } from './ClientReview';
+import { ClientReview, dueText, readinessHeadline, visibleCoverage, type Review } from './ClientReview';
 
 const reply = (body: unknown, ok = true, status = 200) => ({ ok, status: ok ? 200 : status, json: () => Promise.resolve(body) });
 
@@ -100,3 +100,37 @@ describe('ClientReview', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('That client was not found.');
   });
 });
+
+describe('the vCIO Toolbox part', () => {
+  const vcio = {
+    recommendations: { total: 50, pending: 40, adopted: 8, declined: 2, top: [{ name: 'Restrict Group Creation', priority: 'High', adoption: 'Pending', due: '2026-06-12', on_roadmap: false }] },
+    risks: [{ name: 'Cyber Liability', category: 'Financial Risk', priority: 'Medium', impact: 4, likelihood: 2, score: 8, inherent: 'Medium' }],
+    refreshed_at: '2026-10-21T08:00:00Z',
+  };
+
+  it('writes a due date plainly, and nothing for a missing or odd one', () => {
+    expect(dueText('2026-06-12')).toBe('due 12 Jun 2026');
+    expect(dueText(null)).toBe('');
+    expect(dueText('06/12/26')).toBe('');
+    expect(dueText('2026-13-01')).toBe('');
+  });
+
+  it('shows the recommendations by adoption, the first pending ones and the risks, and says the review answers are not available', async () => {
+    routerParams.current = new URLSearchParams('client=c1');
+    authFetch.mockImplementation((url?: string) => Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply(review({ vcio })) : reply([{ id: 'c1', name: 'Acme Dental' }])));
+    render(<ClientReview />);
+    expect(await screen.findByTestId('vcio-line')).toHaveTextContent('50 recommendations: 40 pending, 8 adopted, 2 declined.');
+    expect(screen.getByTestId('vcio-top')).toHaveTextContent('Restrict Group Creation · High · due 12 Jun 2026');
+    expect(screen.getByTestId('vcio-risks')).toHaveTextContent('Cyber Liability · score 8 (impact 4, likelihood 2) · Financial Risk');
+    expect(screen.getByText(/IT review answers themselves are not available/)).toBeInTheDocument();
+  });
+
+  it('leaves the section out when CORE has not sent anything for the client', async () => {
+    routerParams.current = new URLSearchParams('client=c1');
+    authFetch.mockImplementation((url?: string) => Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply(review({ vcio: null })) : reply([{ id: 'c1', name: 'Acme Dental' }])));
+    render(<ClientReview />);
+    await screen.findByTestId('review-title');
+    expect(screen.queryByText('From vCIO Toolbox')).not.toBeInTheDocument();
+  });
+});
+
