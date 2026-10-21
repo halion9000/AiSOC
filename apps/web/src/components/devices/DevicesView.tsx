@@ -24,6 +24,12 @@ export function toolsOf(d: DeviceRow): string[] {
   return [...new Set(d.sources.map((s) => s.vendor))].sort();
 }
 
+/** The link into the tool's own page for this device, when its record carries one (NinjaOne, ScreenConnect): only a plain https address. */
+export function sourceLink(s: { details?: Record<string, unknown> }): string | null {
+  const url = s.details?.url;
+  return typeof url === 'string' && url.length <= 1000 && /^https:\/\/[^\s]+$/i.test(url) ? url : null;
+}
+
 /** What a struck-through tool badge says on hover, or undefined when the tool has seen the device recently (or gives no time). */
 export function staleNote(d: DeviceRow, vendor: string, now: number = Date.now()): string | undefined {
   const s = d.sources.find((x) => x.vendor === vendor && x.stale);
@@ -633,6 +639,11 @@ function DeviceRowView({ d, master, open, onToggle, onHide }: { d: DeviceRow; ma
                   <VendorBadge vendor={s.vendor} struck={staleNote(d, s.vendor)} />
                   <span>{vendorLabel(s.vendor)}</span>
                   {s.name && <span className="text-gray-400">as “{s.name}”</span>}
+                  {sourceLink(s) && (
+                    <a href={sourceLink(s) as string} target="_blank" rel="noopener noreferrer" className="rounded border border-gray-700 px-1.5 py-0.5 text-[11px] text-blue-300 hover:border-gray-600" data-testid="source-link">
+                      Open in {vendorLabel(s.vendor)} ↗
+                    </a>
+                  )}
                   <span className="ml-auto text-xs text-gray-500">seen {when(s.last_seen)}</span>
                   {facts(s).length > 0 && (
                     <details className="basis-full pl-8 text-xs text-gray-400">

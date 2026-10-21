@@ -39,6 +39,28 @@ beforeEach(() => {
   childrenMock.mockReset().mockResolvedValue([{ id: 'c1', name: 'Acme', mssp_role: 'child' }]);
 });
 
+describe('a link into the tool that feeds a device', () => {
+  it('opens the machine in ScreenConnect or NinjaOne, only for a plain https address', async () => {
+    listMock.mockResolvedValue(
+      list([
+        device({
+          hostname: 'LINKED-1',
+          sources: [
+            { vendor: 'screenconnect', name: 'LINKED-1', last_seen: NOW, details: { url: 'https://liveoakit.screenconnect.com/Host#Access/All%20Machines//abc/Join' } },
+            { vendor: 'ninjaone', name: 'LINKED-1', last_seen: NOW, details: { url: 'javascript:alert(1)' } },
+          ],
+        }),
+      ]),
+    );
+    render(<DevicesView />);
+    await userEvent.click(await screen.findByText('LINKED-1'));
+    const links = await screen.findAllByTestId('source-link');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveTextContent('Open in ScreenConnect');
+    expect(links[0]).toHaveAttribute('href', 'https://liveoakit.screenconnect.com/Host#Access/All%20Machines//abc/Join');
+  });
+});
+
 describe('the not-in tiles for ScreenConnect and Field Effect', () => {
   it('appear only once that tool reports devices, and filter the list when pressed', async () => {
     listMock.mockResolvedValue(list([device({ hostname: 'A-1' })], { summary: { total: 1, not_in_master: 0, not_in_screenconnect: 4, not_in_fieldeffect: 2, reporting_tools: ['ninjaone', 'screenconnect', 'fieldeffect'] } }));

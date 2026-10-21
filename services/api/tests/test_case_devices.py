@@ -32,3 +32,10 @@ def test_unsafe_addresses_are_dropped_and_a_machine_with_no_record_still_lists()
 def test_alerts_naming_the_same_machine_are_counted_once_per_alert_and_sorted():
     out = build_case_devices([_alert(["b-host", "A-host"]), _alert(["B-HOST"])], [], [])
     assert [d["hostname"] for d in out] == ["A-host", "b-host"] and out[1]["alerts"] == 2
+
+
+def test_a_screenconnect_machine_gets_an_open_in_screenconnect_link_from_its_record():
+    devices = [NS(id=D1, hostname="PC-07", os="Windows 11")]
+    sources = [NS(device_id=D1, vendor="screenconnect", details={"url": "https://liveoakit.screenconnect.com/Host#Access/All%20Machines//abc/Join"})]
+    out = build_case_devices([_alert(["PC-07"])], devices, sources)
+    assert [(link["vendor"], link["label"]) for link in out[0]["links"]] == [("screenconnect", "ScreenConnect")]
