@@ -1,0 +1,113 @@
+"""The client review endpoint against a REAL Postgres (opt in with AISOC_TEST_PG_URL, a DISPOSABLE, fully migrated database incl. migration 094)."""
+
+import os
+import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace as NS
+
+import pytest
+from app.api.v1.endpoints import client_review as ep
+from app.db.rls import set_rls_context
+from app.db.rls_scope import acting_as_tenant
+from app.models.signin import IdentityMfaUser, IdentitySecureScore
+from app.services.device_upsert import DeviceReport, upsert_device
+from fastapi import HTTPException
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+PG_URL = os.environ.get("AISOC_TEST_PG_URL", "")
+pytestmark = pytest.mark.skipif(not PG_URL, reason="set AISOC_TEST_PG_URL to a DISPOSABLE, fully migrated API database")
+
+
+@pytest.fixture
+async def world():
+    tag = uuid.uuid4().hex[:8]
+    ids = {k: uuid.uuid4() for k in ("msp", "client", "stranger")}
+    engine = create_async_engine(PG_URL)
+    async with engine.begin() as c:
+        await c.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
+        for key, tid in ids.items():
+            await c.execute(
+                text("insert into tenants (id, name, slug, parent_tenant_id, mssp_role) values (:i, :n, :s, :p, :r)"),
+                {"i": tid, "n": f"cr-{key}-{tag}", "s": f"cr-{key}-{tag}", "p": ids["msp"] if key == "client" else None, "r": "child" if key == "client" else "parent"},
+            )
+        for sev, status, days_ago in (("critical", "new", 1), ("high", "investigating", 3), ("low", "resolved", 2), ("critical", "new", 60)):
+            await c.execute(
+                text(
+                    "insert into alerts (id, tenant_id, title, severity, status, created_at, updated_at) "
+                    "values (gen_random_uuid(), :t, 'x', :sev, :st, now() - make_interval(days => :d), now() - make_interval(days => :d))"
+                ),
+                {"t": ids["client"], "sev": sev, "st": status, "d": days_ago},
+            )
+        for n, (status, days_ago) in enumerate((("new", 2), ("closed", 5), ("resolved", 90))):
+            await c.execute(
+                text(
+                    "insert into cases (id, tenant_id, case_number, title, status, created_at, updated_at) "
+                    "values (gen_random_uuid(), :t, :n, 'c', :s, now() - make_interval(days => :d), now() - make_interval(days => :d))"
+                ),
+                {"t": ids["client"], "n": f"CR-{tag}-{n}", "s": status, "d": days_ago},
+            )
+    yield ids
+    async with engine.begin() as c:
+        await c.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
+        await c.execute(text("delete from cases where tenant_id = :t"), {"t": ids["client"]})
+        await c.execute(text("delete from tenants where id = any(cast(:t as uuid[]))"), {"t": [str(x) for x in ids.values()]})
+    await engine.dispose()
+
+
+async def run(owner, work):
+    engine = create_async_engine(PG_URL, poolclass=NullPool)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await set_rls_context(db, owner)
+            out = await work(db)
+            await db.commit()
+            return out
+    finally:
+        await engine.dispose()
+
+
+async def test_the_review_counts_the_last_thirty_days_and_answers_the_checklist_from_what_is_held(world):
+    async def seed(db):
+        async with acting_as_tenant(db, world["client"]):
+            for vendor, ext, host, os_name, kw in (
+                ("huntress", "h1", "PC-1", "Microsoft Windows 11 Pro", {"serial": "CNB1234567"}),
+                ("ninjaone", "n1", "PC-1", "Microsoft Windows 11 Pro", {"serial": "CNB1234567"}),
+                ("ninjaone", "n2", "PC-2", "Microsoft Windows 10 Pro", {}),
+            ):
+                await upsert_device(db, world["client"], DeviceReport(vendor, ext, host, os=os_name, **kw))
+            snap = uuid.uuid4()
+            for uid, registered, admin in (("1", True, False), ("2", False, True)):
+                db.add(IdentityMfaUser(tenant_id=world["client"], source="cipp", user_id=uid, upn=f"{uid}@x.com", enabled=True, user_type="Member", admin=admin, licensed=True, registered=registered, ca_enforced=True, snapshot_id=snap))
+            db.add(
+                IdentitySecureScore(
+                    tenant_id=world["client"], source="cipp", taken_at=datetime(2026, 10, 21, tzinfo=UTC), current_score=130, max_score=260, average_score=54, history=[], improvements=[]
+                )
+            )
+            await db.flush()
+
+    await run(world["msp"], seed)
+    r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
+    assert r.client_name.startswith("cr-client-")
+    assert (r.alerts.open, r.alerts.critical_open, r.alerts.high_open) == (3, 2, 1)
+    assert (r.alerts.opened_30d, r.alerts.closed_30d) == (3, 1), "the 60-day-old alert is outside the window; one alert was closed inside it"
+    assert (r.cases.open, r.cases.opened_30d, r.cases.resolved_30d) == (1, 2, 1), "the 90-day-old resolved case is outside the window"
+    assert r.devices.endpoints == 2
+    cov = {c.tool: (c.have, c.of) for c in r.devices.coverage}
+    assert cov["huntress"] == (1, 2) and cov["ninjaone"] == (2, 2)
+    assert r.mfa is not None and (r.mfa["people"], r.mfa["with_mfa"], r.mfa["admins_without_mfa"]) == (2, 1, 1)
+    assert r.secure_score is not None and (r.secure_score.percent, r.secure_score.average) == (50.0, 54.0)
+    status = {i.key: i.status for i in r.readiness.items}
+    assert status["mfa_admins"] == "not_met" and status["edr"] == "not_met" and status["management"] == "met"
+    assert status["secure_score"] == "partly"
+    assert status["backups"] == "unknown"
+
+
+async def test_a_client_with_nothing_reports_unknown_not_failures_and_a_stranger_is_not_found(world):
+    r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
+    assert r.mfa is None and r.secure_score is None and r.devices.endpoints == 0
+    assert {i.key: i.status for i in r.readiness.items}["edr"] == "unknown"
+    with pytest.raises(HTTPException) as err:
+        await run(world["msp"], lambda db: ep.client_review(world["stranger"], NS(tenant_id=world["msp"]), db))
+    assert err.value.status_code == 404

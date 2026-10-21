@@ -21,6 +21,7 @@ from app.api.v1.endpoints import (
     canary,
     cases,
     client_posture,
+    client_review,
     community,
     compliance,
     connectors,
@@ -205,6 +206,7 @@ api_router.include_router(signins.router)
 api_router.include_router(identity.ingest_router)
 api_router.include_router(identity.router)
 api_router.include_router(client_posture.router)
+api_router.include_router(client_review.router)
 api_router.include_router(mssp.router)
 api_router.include_router(mssp_clients.router)
 api_router.include_router(insider_threat.router)

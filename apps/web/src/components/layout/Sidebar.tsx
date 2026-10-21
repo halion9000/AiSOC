@@ -380,6 +380,11 @@ const navSections: NavSection[] = [
         icon: <DocumentReportIcon />,
       },
       {
+        label: 'Client Review',
+        href: '/reports/client-review',
+        icon: <DocumentReportIcon />,
+      },
+      {
         label: 'Cost Dashboard',
         href: '/costs',
         icon: <CurrencyIcon />,

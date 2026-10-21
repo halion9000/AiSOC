@@ -12,6 +12,7 @@ import { safeFormat } from '@/lib/safe-date';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import { CreateCaseModal } from './CreateCaseModal';
+import { ActNowBoard } from './ActNowBoard';
 
 // WS-F3 — the saved-views API stores an opaque filter blob per view, so we
 // flatten the three filter slices Cases tracks today into a single shape the
@@ -208,6 +209,9 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
           </button>
         </div>
       </div>
+
+      {/* What to work first, from the cases loaded below. Shown on the Open and All tiles only: on Resolved or Closed it would only say there is nothing open. */}
+      {casesData && (statusFilter === 'open' || statusFilter === 'all') && <ActNowBoard cases={casesData.cases ?? []} />}
 
       {/* Stats */}
       <div className="grid grid-cols-5 gap-3">

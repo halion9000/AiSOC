@@ -1,0 +1,102 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+const authFetch = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth-session', () => ({ authFetch }));
+const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
+vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
+
+import { ClientReview, readinessHeadline, visibleCoverage, type Review } from './ClientReview';
+
+const reply = (body: unknown, ok = true, status = 200) => ({ ok, status: ok ? 200 : status, json: () => Promise.resolve(body) });
+
+const review = (over: Partial<Review> = {}): Review => ({
+  client_id: 'c1',
+  client_name: 'Acme Dental',
+  generated_at: '2026-10-21T12:00:00Z',
+  window_days: 30,
+  devices: {
+    endpoints: 20,
+    coverage: [
+      { tool: 'huntress', have: 17, of: 20, percent: 85 },
+      { tool: 'autoelevate', have: 0, of: 0, percent: null },
+    ],
+    stale_agents: 2,
+    offline: 1,
+    with_known_exploited: 3,
+    with_ransomware_exploit: 1,
+  },
+  mfa: { people: 20, with_mfa: 15, not_required: 2, without_mfa: 3, admins_without_mfa: 1 },
+  secure_score: { percent: 43.1, current: 115, max: 267, average: 54, taken_at: '2026-10-21T00:00:00Z' },
+  alerts: { open: 5, critical_open: 1, high_open: 2, opened_30d: 9, closed_30d: 7 },
+  cases: { open: 2, opened_30d: 3, resolved_30d: 1 },
+  readiness: {
+    met: 2,
+    partly: 1,
+    not_met: 1,
+    unknown: 4,
+    items: [
+      { key: 'edr', question: 'Is endpoint detection and response on every computer?', status: 'partly', evidence: '17 of 20 Windows, Mac and Linux machines (85%) report Huntress.' },
+      { key: 'backups', question: 'Are backups tested and kept offline?', status: 'unknown', evidence: 'AiSOC does not collect this yet; answer it from the client\'s own records.' },
+    ],
+  },
+  ...over,
+});
+
+beforeEach(() => {
+  authFetch.mockReset();
+  routerParams.current = new URLSearchParams('');
+});
+
+describe('the helpers', () => {
+  it('says how many answers are met, need work and are not known, in plain words', () => {
+    expect(readinessHeadline({ met: 2, partly: 1, not_met: 1, unknown: 4, items: new Array(8).fill(null) })).toBe('2 of 8 answers are met, 2 need work, 4 are not known to AiSOC.');
+    expect(readinessHeadline({ met: 9, partly: 0, not_met: 0, unknown: 0, items: new Array(9).fill(null) })).toBe('9 of 9 answers are met.');
+    expect(readinessHeadline({ met: 0, partly: 0, not_met: 1, unknown: 1, items: new Array(2).fill(null) })).toBe('0 of 2 answers are met, 1 needs work, 1 is not known to AiSOC.');
+  });
+  it('shows only the tools some of the client\'s machines should run', () => {
+    expect(visibleCoverage(review().devices.coverage).map((c) => c.tool)).toEqual(['huntress']);
+  });
+});
+
+describe('ClientReview', () => {
+  it('asks to choose a client, then loads that client\'s review and lays it out', async () => {
+    authFetch.mockImplementation((url?: string) =>
+      Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply(review()) : reply([{ id: 'c1', name: 'Acme Dental' }, { id: 'c0', name: 'Birch Law' }])),
+    );
+    const user = userEvent.setup();
+    render(<ClientReview />);
+    expect(screen.getByText('Choose a client to see its review.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Acme Dental' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText('Client'), 'c1');
+    expect(await screen.findByTestId('review-title')).toHaveTextContent('Acme Dental');
+    expect(screen.getByTestId('review-headline')).toHaveTextContent('2 of 2 answers are met, 2 need work, 4 are not known to AiSOC.');
+    expect(screen.getByTestId('readiness')).toHaveTextContent('Partly');
+    expect(screen.getByTestId('readiness')).toHaveTextContent('Not known');
+    expect(screen.getByTestId('coverage')).toHaveTextContent('Huntress (endpoint detection)');
+    expect(screen.getByTestId('coverage')).toHaveTextContent('17 of 20 (85%)');
+    expect(screen.getByTestId('mfa-line')).toHaveTextContent('15 of 20 people have a required second factor; 3 have none, 1 of them administrators.');
+    expect(screen.getByTestId('score-line')).toHaveTextContent('Microsoft Secure Score 43.1% (115 of 267), Microsoft\'s average is 54.');
+    expect(screen.getByTestId('alerts-line')).toHaveTextContent('5 open (1 critical, 2 high). 9 raised and 7 closed in the last 30 days.');
+    expect(screen.getByTestId('cases-line')).toHaveTextContent('2 open. 3 opened and 1 resolved in the last 30 days.');
+    expect(authFetch).toHaveBeenCalledWith('/api/v1/client-review/c1');
+  });
+
+  it('opens straight on the client named in the address and says so plainly when data is missing', async () => {
+    routerParams.current = new URLSearchParams('client=c1');
+    authFetch.mockImplementation((url?: string) =>
+      Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply(review({ mfa: null, secure_score: null })) : reply([{ id: 'c1', name: 'Acme Dental' }])),
+    );
+    render(<ClientReview />);
+    expect(await screen.findByText('No multi-factor data for this client yet.')).toBeInTheDocument();
+    expect(screen.getByText('No Microsoft Secure Score read for this client yet.')).toBeInTheDocument();
+  });
+
+  it('shows an error when the client is not found', async () => {
+    routerParams.current = new URLSearchParams('client=gone');
+    authFetch.mockImplementation((url?: string) => Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply({}, false, 404) : reply([])));
+    render(<ClientReview />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('That client was not found.');
+  });
+});

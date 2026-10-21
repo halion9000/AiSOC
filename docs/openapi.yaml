@@ -10604,6 +10604,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/client-review/{client_id}:
+    get:
+      tags:
+      - posture
+      summary: One client's coverage, identity, alerts and cases for a review, with
+        a cyber-insurance readiness checklist
+      operationId: client_review_api_v1_client_review__client_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Client Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientReview'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/mssp/children:
     get:
       tags:
@@ -20879,6 +20909,56 @@ components:
       - alerts
       - open_cases
       title: ClientPosture
+    ClientReview:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        window_days:
+          type: integer
+          title: Window Days
+        devices:
+          $ref: '#/components/schemas/DeviceFacts'
+        mfa:
+          anyOf:
+          - additionalProperties:
+              type: integer
+            type: object
+          - type: 'null'
+          title: Mfa
+        secure_score:
+          anyOf:
+          - $ref: '#/components/schemas/ReviewScore'
+          - type: 'null'
+        alerts:
+          $ref: '#/components/schemas/ReviewAlerts'
+        cases:
+          $ref: '#/components/schemas/ReviewCases'
+        readiness:
+          $ref: '#/components/schemas/Readiness'
+      type: object
+      required:
+      - client_id
+      - client_name
+      - generated_at
+      - window_days
+      - devices
+      - mfa
+      - secure_score
+      - alerts
+      - cases
+      - readiness
+      title: ClientReview
     ClientRollup:
       properties:
         client_id:
@@ -22982,6 +23062,39 @@ components:
       - id
       - title
       title: DeviceAlertOut
+    DeviceFacts:
+      properties:
+        endpoints:
+          type: integer
+          title: Endpoints
+        coverage:
+          items:
+            $ref: '#/components/schemas/ToolCoverage'
+          type: array
+          title: Coverage
+        stale_agents:
+          type: integer
+          title: Stale Agents
+        offline:
+          type: integer
+          title: Offline
+        with_known_exploited:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: With Known Exploited
+        with_ransomware_exploit:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: With Ransomware Exploit
+      type: object
+      required:
+      - endpoints
+      - coverage
+      - stale_agents
+      - offline
+      title: DeviceFacts
     DeviceIn:
       properties:
         vendor:
@@ -29826,6 +29939,54 @@ components:
       required:
       - score
       title: RatingIn
+    Readiness:
+      properties:
+        met:
+          type: integer
+          title: Met
+        partly:
+          type: integer
+          title: Partly
+        not_met:
+          type: integer
+          title: Not Met
+        unknown:
+          type: integer
+          title: Unknown
+        items:
+          items:
+            $ref: '#/components/schemas/ReadinessItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - met
+      - partly
+      - not_met
+      - unknown
+      - items
+      title: Readiness
+    ReadinessItem:
+      properties:
+        key:
+          type: string
+          title: Key
+        question:
+          type: string
+          title: Question
+        status:
+          type: string
+          title: Status
+        evidence:
+          type: string
+          title: Evidence
+      type: object
+      required:
+      - key
+      - question
+      - status
+      - evidence
+      title: ReadinessItem
     RealtimeTicket:
       properties:
         token:
@@ -30203,6 +30364,48 @@ components:
       required:
       - action
       title: ReviewAction
+    ReviewAlerts:
+      properties:
+        open:
+          type: integer
+          title: Open
+        critical_open:
+          type: integer
+          title: Critical Open
+        high_open:
+          type: integer
+          title: High Open
+        opened_30d:
+          type: integer
+          title: Opened 30D
+        closed_30d:
+          type: integer
+          title: Closed 30D
+      type: object
+      required:
+      - open
+      - critical_open
+      - high_open
+      - opened_30d
+      - closed_30d
+      title: ReviewAlerts
+    ReviewCases:
+      properties:
+        open:
+          type: integer
+          title: Open
+        opened_30d:
+          type: integer
+          title: Opened 30D
+        resolved_30d:
+          type: integer
+          title: Resolved 30D
+      type: object
+      required:
+      - open
+      - opened_30d
+      - resolved_30d
+      title: ReviewCases
     ReviewCommentRequest:
       properties:
         comment:
@@ -30231,6 +30434,33 @@ components:
       required:
       - decision
       title: ReviewEvidenceRequest
+    ReviewScore:
+      properties:
+        percent:
+          type: number
+          title: Percent
+        current:
+          type: number
+          title: Current
+        max:
+          type: number
+          title: Max
+        average:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Average
+        taken_at:
+          type: string
+          format: date-time
+          title: Taken At
+      type: object
+      required:
+      - percent
+      - current
+      - max
+      - taken_at
+      title: ReviewScore
     RiskProfileOut:
       properties:
         id:
@@ -34163,6 +34393,29 @@ components:
       - access_token
       - refresh_token
       title: TokenResponse
+    ToolCoverage:
+      properties:
+        tool:
+          type: string
+          title: Tool
+        have:
+          type: integer
+          title: Have
+        of:
+          type: integer
+          title: Of
+        percent:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Percent
+      type: object
+      required:
+      - tool
+      - have
+      - of
+      - percent
+      title: ToolCoverage
     TopCostCase:
       properties:
         case_id:

@@ -52,7 +52,7 @@ describe('the cases page', () => {
     api.counts.mockResolvedValue({ all: 3, open: 3, in_progress: 0, resolved: 0, closed: 0 });
     api.list.mockResolvedValue({ cases: [caseRow(1), caseRow(2), caseRow(3)], total: 3 });
     show();
-    await screen.findByText('Case 1');
+    await screen.findAllByText('Case 1'); // the title is also on the Act now card
     expect(screen.queryByTestId('cases-truncated')).not.toBeInTheDocument();
   });
 
@@ -64,5 +64,18 @@ describe('the cases page', () => {
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith({ status: 'closed', limit: 500 }));
     await user.click(screen.getByTestId('cases-count-all'));
     await waitFor(() => expect(api.list).toHaveBeenLastCalledWith({ status: undefined, limit: 500 }));
+  });
+});
+
+describe('the Act now board on the cases page', () => {
+  it('says what is open and starts with the most severe case, only on the Open and All tiles', async () => {
+    const user = userEvent.setup();
+    api.counts.mockResolvedValue({ all: 2, open: 2, in_progress: 0, resolved: 0, closed: 0 });
+    api.list.mockResolvedValue({ cases: [{ ...caseRow(1), severity: 'low' }, { ...caseRow(2), severity: 'critical' }], total: 2 });
+    show();
+    expect(await screen.findByTestId('act-now-headline')).toHaveTextContent('2 open cases, 2 with no owner. Start with Case 2.');
+    expect(screen.getAllByTestId('act-now-card')[0]).toHaveTextContent('Act now');
+    await user.click(screen.getByTestId('cases-count-closed'));
+    expect(screen.queryByTestId('act-now')).not.toBeInTheDocument();
   });
 });

@@ -25,6 +25,7 @@ const routeLabels: Record<string, { title: string; description: string }> = {
   '/settings/rbac': { title: 'Roles & Permissions', description: 'Access control and team management' },
   '/settings/client-posture': { title: 'Client Posture', description: 'Devices, Multi-Factor, alerts and cases for one client' },
   '/settings/mfa': { title: 'Multi-Factor', description: 'Who has Multi-Factor sign-in, per client' },
+  '/reports/client-review': { title: 'Client Review', description: 'Coverage, identity, alerts and insurance readiness for one client' },
   '/settings/secure-score': { title: 'Secure Score', description: 'Microsoft Secure Score per client, and what would raise it' },
   '/settings/signin-scores': { title: 'Sign-in Scores', description: 'The most unusual sign-ins, across clients' },
   '/settings/client-cleanup': { title: 'Client Cleanup', description: 'Clients with nothing in them' },

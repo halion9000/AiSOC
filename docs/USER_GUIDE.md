@@ -126,6 +126,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 
 ## 7. Cases
 
+- **Act now board (new).** Above the status tiles, one sentence says how many cases are open and how many have no owner ("12 open cases, 8 with no owner. Start with Ransomware Attempt."), and three cards show the first cases to work: most severe first, then ones nobody owns, then the oldest. It is shown on the **Open** and **All** tiles and reads the cases loaded on the page.
 - **Devices panel (new).** A case's left column lists the machines its alerts are about, each with **Open in NinjaOne** / **Open in Huntress** buttons to that machine in the tool, and **In Devices** to its page here. A tool appears only when AiSOC holds a link for it: NinjaOne from the device record, Huntress from the alert. Other tools (ConnectWise Control, HaloPSA assets) are not linked yet. The case description is also laid out with headings and tables now, and a linked alert opens that alert. Built and tested; not yet seen on a live case.
 - **My organization / All clients (new).** An organization with clients has a switch above the tiles. **All clients** lists this organization's cases and every client's together, each client's case showing its client name, and the tiles count all of them. A **Client** picker narrows it to one. Opening a client's case works like opening its alerts. The choice is remembered in this browser. (Cases opened for client alerts live under that client, which is why "My organization" shows far fewer.)
 - Opens on **Open** (new and triaged). The tiles are **Open, In Progress, Resolved, Closed** and **All Cases**, last; the numbers come from the whole caseload, not one page.
@@ -180,6 +181,11 @@ CORE reads each Microsoft 365 tenant through CIPP in the background.
 - Counts cover enabled, licensed member accounts (shared mailboxes, guests and disabled accounts are left out).
 
 **Secure Score (daily).** The score Microsoft gives each tenant's Microsoft 365 setup (current points out of the maximum), with up to 90 days of daily points, Microsoft's average across all tenants, and the controls still missing the most points. Read through CIPP; read-only, nothing is changed in a tenant. **New; built and tested, not yet seen on live data.**
+
+**Reports > Client Review (new).** Pick a client to see, on one printable page: a **cyber-insurance readiness** checklist (each answer **Met**, **Partly**, **Not met** or **Not known**, with the numbers behind it), **tool coverage** (how many of the client's computers each tool reports, with phones and tablets never counted against a tool that has no agent for them), Multi-Factor and Microsoft Secure Score, and the last 30 days of alerts and cases. **Print or save as PDF** makes a copy for a client review or a questionnaire.
+- The checklist covers Multi-Factor for everyone and for administrators, endpoint detection, management, web filtering, privilege control, agents checking in, known-exploited vulnerabilities and the Microsoft Secure Score. Backups, e-mail filtering, awareness training and a written incident plan are always **Not known**: AiSOC does not collect them yet.
+- Thresholds: endpoint detection and management need 95% of computers to be Met (80% Partly); Multi-Factor needs 95% of people (80% Partly) and **no** administrator without it; the Secure Score needs 60% (40% Partly).
+- It is evidence from the connected tools, not a certification, and a missing tool shows as **Not known**, never as a guess. **New; built and tested, not yet seen on live data.**
 
 **Client Security > Secure Score**
 - Per client: the score as a bar with its percentage and points, the **30 days** change (+ or -), a small **Trend** line, Microsoft's average for comparison (amber when the client is below it), and the people count.
