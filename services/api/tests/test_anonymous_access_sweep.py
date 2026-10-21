@@ -78,6 +78,12 @@ PUBLIC = {
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/mfa-users"): (
         "CORE's multi-factor status per person read through CIPP: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only write under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
     ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/scripts"): (
+        "CORE's list of the scripts its owner switched on, for the Run script button: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only store that tenant's own script list (the 422 here is the empty body)"
+    ),
+    ("POST", "/api/v1/inbox/core-feed/{tenant_token}/secure-scores"): (
+        "CORE's Microsoft Secure Score per client read through CIPP: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only write under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
+    ),
     ("POST", "/api/v1/inbox/core-feed/{tenant_token}/signins"): (
         "CORE's sign-ins read through CIPP: authenticated by the secret core-feed token in the URL (401 in the handler otherwise); it can only add sign-ins under that feed's own client tenants, and only for clients already mapped (the 422 here is the empty body)"
     ),

@@ -27,7 +27,7 @@ The left sidebar groups the console:
 | Work | Dashboard, SOC Insights, **Alerts**, **Devices**, Investigation Queue, **Cases**, Hunt, Explore |
 | Detection | Detection Rules, Detection Catalog, Vendor Detections, MITRE Coverage, Detection Tuning, Shifts |
 | Intelligence | Threat Intel, Attack Graph, AI Copilot, Investigation Chat, Coverage Advisor, EASM |
-| Client Security | **Client Posture**, **Multi-Factor**, **Sign-in Scores**, **Client Cleanup**, **Platform Health** |
+| Client Security | **Client Posture**, **Multi-Factor**, **Secure Score**, **Sign-in Scores**, **Client Cleanup**, **Platform Health** |
 | Response and testing | Playbooks, Marketplace, File Integrity, Honeytokens, Purple Team |
 | Admin | Get started, **Connectors**, Roles & Permissions, Compliance, **MSSP Dashboard**, Team Analytics, SLA Tracking, Executive Digest, Cost Dashboard, Audit Log, **Settings** |
 
@@ -182,6 +182,14 @@ CORE reads each Microsoft 365 tenant through CIPP in the background.
 - Click a number to see the people (administrators first, marked). A link from Client Posture opens straight to one client's list.
 - The filter **Only clients with administrators that have no Multi-Factor** narrows the table.
 - Counts cover enabled, licensed member accounts (shared mailboxes, guests and disabled accounts are left out).
+
+**Secure Score (daily).** The score Microsoft gives each tenant's Microsoft 365 setup (current points out of the maximum), with up to 90 days of daily points, Microsoft's average across all tenants, and the controls still missing the most points. Read through CIPP; read-only, nothing is changed in a tenant. **New; built and tested, not yet seen on live data.**
+
+**Client Security > Secure Score**
+- Per client: the score as a bar with its percentage and points, the **30 days** change (+ or -), a small **Trend** line, Microsoft's average for comparison (amber when the client is below it), and the people count.
+- **Order by** lowest score first (the default), biggest 30-day drop first, or client name; **Search clients** narrows the table. The line above it says how many clients have fallen in 30 days.
+- Click a client's name to see the controls that would add the most points: the points, Microsoft's title for the control, its user impact and cost, and what the tenant has now.
+- A client appears after CORE's next daily CIPP read, once its CIPP tenant is mapped to a client on the MSSP page.
 
 **Client Security > Sign-in Scores**
 - The sign-ins the behaviour service flagged as unusual for that person, across clients, with person, client, when, where, address, app, result, "no MFA" and risk. Pick **Last day / 7 days / 30 days**. The service keeps a score only for the ones it flags, and flags little while it is still learning each person's pattern, so an empty list early on is normal.

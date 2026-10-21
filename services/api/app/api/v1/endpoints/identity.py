@@ -3,6 +3,7 @@
 - ``POST /api/v1/inbox/core-feed/{token}/directory-audits`` and ``.../mfa-users``: authenticated by the secret in the path, like the other core-feed endpoints; placed under the client the CIPP customer
   is mapped to (a customer not mapped yet is counted and skipped, and arrives again after the mapping).
 - ``GET /api/v1/identity/mfa-summary`` and ``GET /api/v1/identity/mfa-users``: who has no Multi-Factor, per client.
+- ``POST /api/v1/inbox/core-feed/{token}/secure-scores`` and ``GET /api/v1/identity/secure-scores``: each client's Microsoft Secure Score, its trend and what is still missing.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -24,7 +25,7 @@ from app.api.v1.endpoints.inbox_core_feed import _verify_core_feed_token
 from app.api.v1.endpoints.signins import targets_by_tenant
 from app.db.rls_scope import acting_as_tenant
 from app.db.rls_sessions import adopt_tenant
-from app.models.signin import DirectoryAuditEvent, IdentityMfaUser
+from app.models.signin import DirectoryAuditEvent, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.directory_scoring import directory_features, sensitivity_of
 from app.services.signin_scoring import HISTORY_DAYS, score_events
@@ -536,3 +537,183 @@ async def top_changes(
         )
     found.sort(key=lambda c: (-c.score, c.occurred_at))
     return found[:limit]
+
+
+# ---- Microsoft Secure Score ----------------------------------------------------------------------------------------------------------------------------
+
+MAX_HISTORY = 90
+MAX_IMPROVEMENTS = 15
+
+
+class SecureScorePoint(BaseModel):
+    d: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    c: float = Field(ge=0, le=100000)
+    m: float = Field(ge=0, le=100000)
+
+
+class SecureScoreImprovementIn(BaseModel):
+    id: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=200)
+    category: str | None = Field(default=None, max_length=60)
+    service: str | None = Field(default=None, max_length=60)
+    missing: float = Field(ge=0, le=100000)
+    max: float = Field(ge=0, le=100000)
+    rank: float | None = None
+    user_impact: str | None = Field(default=None, max_length=40)
+    cost: str | None = Field(default=None, max_length=40)
+    status: str | None = Field(default=None, max_length=200)
+    description: str | None = Field(default=None, max_length=300)
+
+
+class SecureScoreReport(BaseModel):
+    vendor: str = Field(pattern=_VENDOR)
+    vendor_client_id: str = Field(min_length=1, max_length=200)
+    taken_at: datetime
+    current: float = Field(ge=0, le=100000)
+    max: float = Field(gt=0, le=100000)
+    average: float | None = Field(default=None, ge=0, le=100000)
+    active_users: int | None = Field(default=None, ge=0)
+    licensed_users: int | None = Field(default=None, ge=0)
+    history: list[SecureScorePoint] = Field(default_factory=list, max_length=MAX_HISTORY)
+    improvements: list[SecureScoreImprovementIn] = Field(default_factory=list, max_length=MAX_IMPROVEMENTS)
+
+
+class _ScoreView:
+    """Lets the shared client mapping place a report that belongs to one client, as a list of one item."""
+
+    def __init__(self, report: SecureScoreReport) -> None:
+        self.vendor = report.vendor
+        self.items = [report]
+
+
+class SecureScoreResponse(BaseModel):
+    accepted: int
+    unmapped: int = 0
+    ignored: int = 0
+    unmapped_clients: list[UnmappedClient] = Field(default_factory=list)
+
+
+async def apply_secure_score(db: Any, owner: uuid.UUID, report: SecureScoreReport, now: datetime | None = None) -> SecureScoreResponse:
+    """Replace the client's Secure Score with this report. The caller owns the transaction."""
+    now = now or datetime.now(UTC)
+    by_tenant, unmapped, ignored, waiting = await targets_by_tenant(db, owner, _ScoreView(report))
+    accepted = 0
+    for tid in by_tenant:
+        async with acting_as_tenant(db, tid):
+            values = {
+                "tenant_id": tid,
+                "source": report.vendor,
+                "taken_at": _utc(report.taken_at),
+                "current_score": report.current,
+                "max_score": report.max,
+                "average_score": report.average,
+                "active_users": report.active_users,
+                "licensed_users": report.licensed_users,
+                "history": [p.model_dump() for p in report.history],
+                "improvements": [i.model_dump(exclude_none=True) for i in report.improvements],
+                "refreshed_at": now,
+            }
+            stmt = pg_insert(IdentitySecureScore).values(values)
+            update = {c: stmt.excluded[c] for c in values if c not in ("tenant_id", "source")}
+            await db.execute(stmt.on_conflict_do_update(index_elements=["tenant_id", "source"], set_=update))
+            accepted += 1
+    return SecureScoreResponse(accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=waiting)
+
+
+@ingest_router.post("/core-feed/{tenant_token}/secure-scores", response_model=SecureScoreResponse)
+async def report_core_feed_secure_score(tenant_token: str, body: SecureScoreReport, db: DBSession) -> SecureScoreResponse:
+    """Record one client's Microsoft Secure Score (replacing the last one)."""
+    owner = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, owner)
+    result = await apply_secure_score(db, owner, body)
+    await db.commit()
+    return result
+
+
+def change_over(history: list[dict[str, Any]], days: int = 30) -> float | None:
+    """How many points the score moved over the last ``days`` days: the newest point against the newest point at least that old (or the oldest there is, when the history is shorter).
+    None with fewer than two points."""
+    points = sorted((p for p in history if isinstance(p, dict) and isinstance(p.get("d"), str) and isinstance(p.get("c"), (int, float))), key=lambda p: p["d"])
+    if len(points) < 2:
+        return None
+    newest = points[-1]
+    try:
+        cutoff = (datetime.fromisoformat(newest["d"]) - timedelta(days=days)).date().isoformat()
+    except ValueError:
+        return None
+    older = [p for p in points[:-1] if p["d"] <= cutoff]
+    base = older[-1] if older else points[0]
+    return round(float(newest["c"]) - float(base["c"]), 2)
+
+
+class SecureScoreSummary(BaseModel):
+    client_id: uuid.UUID
+    client_name: str | None
+    current: float
+    max: float
+    percent: float
+    average: float | None = None
+    change_30d: float | None = None
+    active_users: int | None = None
+    licensed_users: int | None = None
+    taken_at: datetime
+    refreshed_at: datetime
+    history: list[SecureScorePoint] = Field(default_factory=list)
+    # Points the kept improvements would add together (only the top ones are kept, so this is a floor).
+    points_available: float = 0.0
+
+
+class SecureScoreDetail(SecureScoreSummary):
+    improvements: list[SecureScoreImprovementIn] = Field(default_factory=list)
+
+
+def _summary_of(row: Any, name: str | None) -> dict[str, Any]:
+    history = [p for p in (row.history or []) if isinstance(p, dict)]
+    current, maximum = float(row.current_score), float(row.max_score)
+    return {
+        "client_id": row.tenant_id,
+        "client_name": name,
+        "current": current,
+        "max": maximum,
+        "percent": round(100 * current / maximum, 1) if maximum > 0 else 0.0,
+        "average": float(row.average_score) if row.average_score is not None else None,
+        "change_30d": change_over(history),
+        "active_users": row.active_users,
+        "licensed_users": row.licensed_users,
+        "taken_at": row.taken_at,
+        "refreshed_at": row.refreshed_at,
+        "history": history,
+        "points_available": round(sum(float(i.get("missing", 0) or 0) for i in (row.improvements or []) if isinstance(i, dict)), 2),
+    }
+
+
+async def _score_rows(db: Any, owner: uuid.UUID, only: uuid.UUID | None = None) -> list[tuple[Any, str | None]]:
+    names = {r.id: r.name for r in (await db.execute(select(Tenant.id, Tenant.name).where(Tenant.parent_tenant_id == owner))).all()}
+    out: list[tuple[Any, str | None]] = []
+    for tid in [owner, *names]:
+        if only is not None and tid != only:
+            continue
+        async with contextlib.nullcontext() if tid == owner else acting_as_tenant(db, tid):
+            rows = (await db.execute(select(IdentitySecureScore).where(IdentitySecureScore.tenant_id == tid))).scalars().all()
+        out.extend((row, names.get(tid)) for row in rows)
+    return out
+
+
+@router.get("/secure-scores", response_model=list[SecureScoreSummary], summary="Per client: the Microsoft Secure Score, its 30-day change and trend")
+async def secure_score_summary(current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> list[SecureScoreSummary]:
+    rows = await _score_rows(db, current_user.tenant_id)
+    out = [SecureScoreSummary(**_summary_of(row, name)) for row, name in rows]
+    out.sort(key=lambda s: (s.percent, (s.client_name or "").lower()))
+    return out
+
+
+@router.get("/secure-scores/{client_id}", response_model=SecureScoreDetail, summary="One client's Secure Score with the controls still missing points")
+async def secure_score_detail(
+    client_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
+) -> SecureScoreDetail:
+    rows = await _score_rows(db, current_user.tenant_id, only=client_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="No Secure Score for that client yet")
+    row, name = rows[0]
+    improvements = [i for i in (row.improvements or []) if isinstance(i, dict)]
+    return SecureScoreDetail(**_summary_of(row, name), improvements=improvements)

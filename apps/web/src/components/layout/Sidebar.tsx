@@ -280,6 +280,11 @@ const navSections: NavSection[] = [
         icon: <EyeIcon />,
       },
       {
+        label: 'Secure Score',
+        href: '/settings/secure-score',
+        icon: <ShieldIcon />,
+      },
+      {
         label: 'Sign-in Scores',
         href: '/settings/signin-scores',
         icon: <ChartBarIcon />,

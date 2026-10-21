@@ -5,8 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -91,4 +91,22 @@ class IdentityMfaUser(Base):
     security_defaults: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     methods: Mapped[str | None] = mapped_column(String(400), nullable=True)
     snapshot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class IdentitySecureScore(Base):
+    """One client's latest Microsoft Secure Score with its trend and what is still missing (migration 094)."""
+
+    __tablename__ = "identity_secure_scores"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), primary_key=True)
+    taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    current_score: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False)
+    max_score: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False)
+    average_score: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    active_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    licensed_users: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    history: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    improvements: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)

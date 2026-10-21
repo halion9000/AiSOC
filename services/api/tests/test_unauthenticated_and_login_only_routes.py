@@ -98,6 +98,14 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
     ): "CORE's multi-factor status (CIPP): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write under that feed's own mapped client tenants",
     (
         "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/scripts",
+    ): "CORE's script list (Run script button): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only store that tenant's own list",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/secure-scores",
+    ): "CORE's Microsoft Secure Score (CIPP): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write under that feed's own mapped client tenants",
+    (
+        "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/signins",
     ): "CORE's sign-ins (CIPP): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add sign-ins under that feed's own mapped client tenants",
     (
