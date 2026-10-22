@@ -48,8 +48,9 @@ def unguarded_routes() -> list[str]:
                 header = ast.get_source_segment(src, fn) or ""
                 header = header.partition(":\n")[0]
                 decorator = ast.get_source_segment(src, dec) or ""  # dependencies=[Depends(require_permission(...))] lives here
-                declared = bool(re.search(r'require_permission\(\s*["\']', header)) or bool(
-                    re.search(r'require_permission\(\s*["\']', decorator)
+                # case_scoped("x") is require_permission("x") plus working on a client's case (app/services/case_scope.py).
+                declared = bool(re.search(r'(?:require_permission|case_scoped)\(\s*["\']', header)) or bool(
+                    re.search(r'(?:require_permission|case_scoped)\(\s*["\']', decorator)
                 )
                 body = (
                     fn.body[1:]

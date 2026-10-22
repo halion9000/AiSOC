@@ -74,7 +74,8 @@ def test_run_eval_subprocess_builds_correct_argv(tmp_path: Path):
     # cwd is the repo root so relative imports inside the runner work.
     assert captured["cwd"] == str(dp_endpoint._REPO_ROOT)
     # PYTHONPATH points at services/agents so the runner can import the eval modules.
-    assert "services/agents" in captured["env"].get("PYTHONPATH", "")
+    # (compared as a path, not as text: the separator is a backslash on Windows)
+    assert str(Path("services") / "agents") in captured["env"].get("PYTHONPATH", "")
 
 
 def test_run_eval_subprocess_includes_baseline_when_provided(tmp_path: Path):

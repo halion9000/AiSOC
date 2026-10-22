@@ -63,7 +63,7 @@ def test_each_token_is_only_ever_sent_by_the_modules_meant_to_send_it():
         ("ingest_service_headers", {"api/v1/endpoints/graph_ws.py"}),
         ("enrichment_service_headers", {"api/v1/endpoints/enrichment.py"}),
     ):
-        users = {str(f.relative_to(APP)) for f in APP.rglob("*.py") if helper in f.read_text(encoding="utf-8")} - {"core/internal_auth.py"}
+        users = {f.relative_to(APP).as_posix() for f in APP.rglob("*.py") if helper in f.read_text(encoding="utf-8")} - {"core/internal_auth.py"}
         assert users == allowed, (helper, users)
 
 

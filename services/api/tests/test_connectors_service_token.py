@@ -75,13 +75,13 @@ def test_the_token_is_only_ever_sent_by_the_connectors_clients():
     users = set()
     for f in APP.rglob("*.py"):
         if "connectors_service_headers" in f.read_text(encoding="utf-8"):
-            users.add(str(f.relative_to(APP)))
+            users.add(f.relative_to(APP).as_posix())
     assert users == set(CLIENT_MODULES) | {"core/internal_auth.py"}, users
 
 
 def test_no_other_module_that_uses_the_connectors_url_builds_an_unauthenticated_client():
     for f in APP.rglob("*.py"):
-        rel = str(f.relative_to(APP))
+        rel = f.relative_to(APP).as_posix()
         text = f.read_text(encoding="utf-8")
         if (
             "CONNECTORS_SERVICE_URL" in text
@@ -179,5 +179,5 @@ def test_every_fusion_client_sends_the_fusion_token_and_only_that_module_uses_th
     assert calls, "the fusion gateway builds no httpx client any more: update this test"
     for call in calls:
         assert [ast.unparse(k.value) for k in call.keywords if k.arg == "headers"] == ["fusion_service_headers()"], call.lineno
-    users = {str(f.relative_to(APP)) for f in APP.rglob("*.py") if "fusion_service_headers" in f.read_text(encoding="utf-8")}
+    users = {f.relative_to(APP).as_posix() for f in APP.rglob("*.py") if "fusion_service_headers" in f.read_text(encoding="utf-8")}
     assert users == {"api/v1/endpoints/fusion.py", "core/internal_auth.py"}, users

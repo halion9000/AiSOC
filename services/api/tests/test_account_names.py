@@ -519,7 +519,7 @@ class TestEveryCreationPathSetsAName:
         for p in APP.rglob("*.py"):
             for _n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
                 if re.search(r"(?<![\w.])User\(\s*$", line) or re.search(r"(?<![\w.])User\(id=|(?<![\w.])User\(tenant_id=", line):
-                    found.append(str(p.relative_to(APP)))
+                    found.append(p.relative_to(APP).as_posix())
         assert sorted(set(found)) == [
             "api/v1/endpoints/tenants.py",
             "scripts/bootstrap_production.py",

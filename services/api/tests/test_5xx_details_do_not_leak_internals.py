@@ -180,7 +180,7 @@ def _count(source: str) -> int:
 def _sites():
     found = {}
     for path in sorted(APP.rglob("*.py")):
-        rel = str(path.relative_to(APP))
+        rel = path.relative_to(APP).as_posix()
         if rel.startswith("tests/"):
             continue
         try:
