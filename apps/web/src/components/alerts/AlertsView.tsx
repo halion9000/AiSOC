@@ -16,6 +16,8 @@ import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import BulkTicketBar from './BulkTicketBar';
 import { loadFilters, saveFilters } from '@/lib/remembered-filters';
 import { rememberable, restoreFilters } from '@/lib/alert-filter-memory';
+import { sourceLink } from './AlertContext';
+import { vendorLabel } from '@/components/mssp/ClientMapping';
 
 // Wave 1 of the AiSOC v6 capability roadmap. The "entities" tab renders the
 // rolled-up Risk-Based Alerting queue — alerts contribute time-decayed risk
@@ -274,6 +276,7 @@ export function AlertRow({
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
+  const toolLink = sourceLink(alert);
   return (
     <Link
       href={`/alerts/${alert.id}`}
@@ -321,6 +324,32 @@ export function AlertRow({
             </>
           )}
           <span className="text-xs text-gray-600">{alert.source}</span>
+          {toolLink && (
+            // The row is itself a link, so this is not an anchor inside it: it opens the tool's own page for this alert in a new tab and leaves the row alone.
+            <>
+              <span className="text-gray-700">·</span>
+              <span
+                role="link"
+                tabIndex={0}
+                data-testid="alert-open-in-tool"
+                title={`Open this alert in ${vendorLabel(alert.source)}`}
+                className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  window.open(toolLink.href, '_blank', 'noopener,noreferrer');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  window.open(toolLink.href, '_blank', 'noopener,noreferrer');
+                }}
+              >
+                {toolLink.label}
+              </span>
+            </>
+          )}
           {alert.device && (
             <>
               <span className="text-gray-700">·</span>
