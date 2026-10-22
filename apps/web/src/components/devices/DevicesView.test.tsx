@@ -67,7 +67,7 @@ describe('the not-in tiles for ScreenConnect and Field Effect', () => {
     render(<DevicesView />);
     expect(await screen.findByTestId('devices-missing-screenconnect')).toHaveTextContent('4');
     expect(screen.getByTestId('devices-missing-fieldeffect')).toHaveTextContent('2');
-    expect(screen.getByText(/not iOS\/macOS/)).toBeInTheDocument();
+    expect(screen.getByText(/not iOS\/iPadOS\/tvOS/)).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('devices-missing-screenconnect').closest('button') as HTMLElement);
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: 'screenconnect' })));
   });

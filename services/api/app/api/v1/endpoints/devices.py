@@ -131,8 +131,8 @@ class DeviceSettings(BaseModel):
 
 
 _APPLE_OS = re.compile(r"mac\s?os|os\s?x|darwin")
-# iPhones and iPads are managed in Addigy only: they never run the RMM or security agents, so they are not "missing" from those tools.
-_MOBILE = re.compile(r"\b(ios|ipados|iphone|ipad)\d*\b")
+# iPhones, iPads and Apple TVs are managed in Addigy only: they never run the RMM or security agents, so they are not "missing" from those tools.
+_MOBILE = re.compile(r"\b(ios|ipados|tvos|watchos|iphone|ipad)\d*\b")
 
 
 def is_mobile(d: Any) -> bool:
@@ -308,9 +308,7 @@ def is_missing_from(d: DeviceOut, tool: str) -> bool:
         return False
     if tool == "addigy":
         return bool(_APPLE_OS.search((d.os or "").lower()))
-    if tool == "screenconnect":
-        # Remote-support agents are not put on iOS or macOS devices here.
-        return os_family(d) not in ("mac", "ios")
+    # ScreenConnect runs on Windows, macOS and Linux; the phones, tablets and TVs it cannot run on were already left out above.
     return True
 
 

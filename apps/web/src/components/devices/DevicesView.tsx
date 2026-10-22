@@ -305,7 +305,7 @@ export default function DevicesView() {
               <div className="text-xs text-gray-400">
                 Not in {vendorLabel(tool)}
                 {tool === 'addigy' && <span className="text-gray-500"> (Macs)</span>}
-                {tool === 'screenconnect' && <span className="text-gray-500"> (not iOS/macOS)</span>}
+                {tool === 'screenconnect' && <span className="text-gray-500"> (not iOS/iPadOS/tvOS)</span>}
               </div>
               <div className="text-2xl font-semibold text-amber-300" data-testid={`devices-missing-${tool}`}>
                 {count ?? '—'}

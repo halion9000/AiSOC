@@ -43,11 +43,12 @@ def test_a_machine_without_a_huntress_agent_is_missing_from_it_but_phones_and_ta
     assert not is_missing_from(device("iOS 18", [("addigy", {})]), "huntress")
 
 
-def test_screenconnect_is_expected_on_windows_and_linux_machines_but_not_on_macs_or_iphones():
+def test_screenconnect_is_expected_on_windows_mac_and_linux_machines_but_not_on_iphones_ipads_or_apple_tvs():
     assert is_missing_from(device("Windows 11", [("ninjaone", {})]), "screenconnect")
     assert is_missing_from(device("Ubuntu 22.04", [("ninjaone", {})]), "screenconnect")
-    assert not is_missing_from(device("macOS 14", [("ninjaone", {})]), "screenconnect")
-    assert not is_missing_from(device("iOS 18", [("addigy", {})]), "screenconnect")
+    assert is_missing_from(device("macOS 14", [("ninjaone", {})]), "screenconnect")
+    for os_name in ("iOS 18", "iPadOS 17", "tvOS 18"):
+        assert not is_missing_from(device(os_name, [("addigy", {})]), "screenconnect"), os_name
     assert not is_missing_from(device("Windows 11", [("screenconnect", {})]), "screenconnect")
 
 
