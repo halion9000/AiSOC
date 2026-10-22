@@ -39,6 +39,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import html
 import json
 import os
 import time
@@ -315,17 +316,19 @@ def render_approval_email(
         f"This link expires in 60 minutes. Replies to this email are not monitored.\n"
     )
 
+    # The case, action and rationale are an agent's own words about an alert: shown as text, never as markup (a rationale holding a link would be a second "Approve" button).
+    esc = html.escape
     html_body = (
         f"<p><strong>AiSOC approval request</strong></p>"
         f"<table style='border-collapse:collapse'>"
-        f"<tr><td><strong>Case</strong></td><td>{case_number}</td></tr>"
-        f"<tr><td><strong>Action</strong></td><td><code>{action_type}</code></td></tr>"
-        f"<tr><td><strong>Target</strong></td><td><code>{target}</code></td></tr>"
-        f"<tr><td><strong>Rationale</strong></td><td>{rationale}</td></tr>"
+        f"<tr><td><strong>Case</strong></td><td>{esc(str(case_number))}</td></tr>"
+        f"<tr><td><strong>Action</strong></td><td><code>{esc(str(action_type))}</code></td></tr>"
+        f"<tr><td><strong>Target</strong></td><td><code>{esc(str(target))}</code></td></tr>"
+        f"<tr><td><strong>Rationale</strong></td><td>{esc(rationale)}</td></tr>"
         f"</table>"
         f"<p style='margin-top:16px'>"
-        f"<a href='{approve_url}' style='background:#16a34a;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;margin-right:8px'>Approve</a>"  # noqa: E501
-        f"<a href='{reject_url}' style='background:#dc2626;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none'>Deny</a>"
+        f"<a href='{esc(approve_url)}' style='background:#16a34a;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;margin-right:8px'>Approve</a>"  # noqa: E501
+        f"<a href='{esc(reject_url)}' style='background:#dc2626;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none'>Deny</a>"
         f"</p>"
         f"<p style='color:#6b7280;font-size:12px'>This link expires in 60 minutes.</p>"
     )
