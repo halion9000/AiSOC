@@ -21,6 +21,7 @@ const review = (over: Partial<Review> = {}): Review => ({
     coverage: [
       { tool: 'huntress', have: 17, of: 20, percent: 85 },
       { tool: 'autoelevate', have: 0, of: 0, percent: null },
+      { tool: 'dnsfilter', have: 0, of: 20, percent: 0, enrolled: false },
     ],
     stale_agents: 2,
     offline: 1,
@@ -56,7 +57,7 @@ describe('the helpers', () => {
     expect(readinessHeadline({ met: 0, partly: 0, not_met: 1, unknown: 1, items: new Array(2).fill(null) })).toBe('0 of 2 answers are met, 1 needs work, 1 is not known to AiSOC.');
   });
   it('shows only the tools some of the client\'s machines should run', () => {
-    expect(visibleCoverage(review().devices.coverage).map((c) => c.tool)).toEqual(['huntress']);
+    expect(visibleCoverage(review().devices.coverage).map((c) => c.tool)).toEqual(['huntress', 'dnsfilter']);
   });
 });
 
@@ -76,6 +77,9 @@ describe('ClientReview', () => {
     expect(screen.getByTestId('readiness')).toHaveTextContent('Not known');
     expect(screen.getByTestId('coverage')).toHaveTextContent('Huntress (endpoint detection)');
     expect(screen.getByTestId('coverage')).toHaveTextContent('17 of 20 (85%)');
+    expect(screen.getByTestId('not-enrolled')).toHaveTextContent('DNSFilter');
+    expect(screen.getByTestId('not-enrolled')).toHaveTextContent('Not currently enrolled');
+    expect(screen.getByTestId('not-enrolled')).not.toHaveTextContent('0 of 20');
     expect(screen.getByTestId('mfa-line')).toHaveTextContent('15 of 20 people have a required second factor; 3 have none, 1 of them administrators.');
     expect(screen.getByTestId('score-line')).toHaveTextContent('Microsoft Secure Score 43.1% (115 of 267), Microsoft\'s average is 54.');
     expect(screen.getByTestId('alerts-line')).toHaveTextContent('5 open (1 critical, 2 high). 9 raised and 7 closed in the last 30 days.');

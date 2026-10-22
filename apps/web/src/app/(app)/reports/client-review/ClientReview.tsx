@@ -15,6 +15,8 @@ export interface Coverage {
   have: number;
   of: number;
   percent: number | null;
+  /** False: the client is not in this tool at all ("Not currently enrolled"). Absent or null: not known. */
+  enrolled?: boolean | null;
 }
 
 export interface ReadinessItem {
@@ -231,7 +233,14 @@ export function ClientReview() {
               ) : (
                 <ul className="space-y-2 text-sm" data-testid="coverage">
                   {coverage.map((c) => (
-                    <li key={c.tool}>
+                    <li key={c.tool} data-testid={c.enrolled === false ? "not-enrolled" : undefined}>
+                      {c.enrolled === false ? (
+                        <div className="flex justify-between text-slate-500">
+                          <span>{TOOL_NAMES[c.tool] ?? c.tool}</span>
+                          <span>Not currently enrolled</span>
+                        </div>
+                      ) : (
+                      <>
                       <div className="flex justify-between text-slate-300">
                         <span>{TOOL_NAMES[c.tool] ?? c.tool}</span>
                         <span>
@@ -242,6 +251,8 @@ export function ClientReview() {
                       <div className="mt-1 h-1.5 rounded bg-slate-800" aria-hidden="true">
                         <div className={`h-1.5 rounded ${(c.percent ?? 0) >= 90 ? "bg-emerald-500" : (c.percent ?? 0) >= 60 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${Math.min(100, c.percent ?? 0)}%` }} />
                       </div>
+                      </>
+                      )}
                     </li>
                   ))}
                 </ul>

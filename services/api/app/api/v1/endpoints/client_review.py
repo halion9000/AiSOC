@@ -20,14 +20,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.api.v1.endpoints.alerts import FINISHED_STATUSES
 from app.api.v1.endpoints.client_posture import devices_part
-from app.api.v1.endpoints.devices import _load_cached, _master_of, _scope, rollup_of
+from app.api.v1.endpoints.devices import UnmappedClient, _load_cached, _master_of, _scope, rollup_of
 from app.api.v1.endpoints.identity import counts_for_mfa
 from app.api.v1.endpoints.inbox_core_feed import _verify_core_feed_token
 from app.api.v1.endpoints.signins import targets_by_tenant
-from app.api.v1.endpoints.devices import UnmappedClient
 from app.db.rls_scope import acting_as_tenant
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
+from app.models.client_alias import ClientAlias
 from app.models.signin import ClientVcioReview, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.client_review import DeviceFacts, Readiness, device_facts, readiness
@@ -173,7 +173,15 @@ async def client_review(client_id: uuid.UUID, current_user: Annotated[AuthUser, 
     master = _master_of(await db.get(Tenant, owner))
     shown = [d for d in await _load_cached(db, owner, scope, clients, master) if d.hidden_since is None]
     rolled = devices_part(rollup_of(shown), client_id)
-    facts = device_facts(shown, stale_agents=rolled.stale_agents, offline=rolled.offline)
+    # Which tools this client is mapped to an organization in (a tool with no mapped client at all cannot say).
+    aliases = (await db.execute(select(ClientAlias.vendor, ClientAlias.child_tenant_id).where(ClientAlias.tenant_id == owner, ClientAlias.ignored.is_(False), ClientAlias.child_tenant_id.is_not(None)))).all()
+    facts = device_facts(
+        shown,
+        stale_agents=rolled.stale_agents,
+        offline=rolled.offline,
+        enrolled_in={v for v, tid in aliases if tid == client_id},
+        mapped_tools={v for v, _ in aliases},
+    )
 
     now = datetime.now(UTC)
     since = now - timedelta(days=WINDOW_DAYS)

@@ -29,9 +29,28 @@ def test_coverage_counts_each_tool_over_the_machines_it_should_be_on_and_ignores
     assert cov["huntress"] == (2, 3, 66.7)
     assert cov["ninjaone"] == (2, 3, 66.7)
     assert cov["autoelevate"] == (1, 2, 50.0), "Windows only"
-    assert cov["screenconnect"] == (1, 2, 50.0), "Windows and Linux only"
+    assert cov["screenconnect"] == (1, 3, 33.3), "every computer, Macs included; the iPhone is not counted"
     assert cov["addigy"] == (1, 1, 100.0), "Macs only: the iPhone and the Windows machines are not counted against it"
     assert facts.stale_agents == 1
+
+
+def test_a_client_the_tool_does_not_have_is_not_enrolled_and_one_it_has_is():
+    devices = [dev("Windows 11 Pro", "ninjaone"), dev("Windows 10 Pro", "ninjaone")]
+    facts = device_facts(devices, 0, 0, enrolled_in={"huntress"}, mapped_tools={"huntress", "dnsfilter", "ninjaone"})
+    enrolled = {c.tool: c.enrolled for c in facts.coverage}
+    assert enrolled["ninjaone"] is True, "it reports machines"
+    assert enrolled["huntress"] is True, "mapped to a Huntress organization, though none of its machines report yet"
+    assert enrolled["dnsfilter"] is False, "DNSFilter maps clients and this one is not among them"
+    assert enrolled["fieldeffect"] is None, "Field Effect maps no clients, so AiSOC cannot tell"
+    assert {c.tool: c.enrolled for c in device_facts(devices, 0, 0).coverage}["dnsfilter"] is None, "nothing known about mapping: no claim"
+
+
+def test_a_check_for_a_tool_the_client_is_not_enrolled_in_says_so_in_those_words():
+    devices = [dev("Windows 11 Pro", "ninjaone")]
+    facts = device_facts(devices, 0, 0, enrolled_in=set(), mapped_tools={"dnsfilter", "ninjaone"})
+    item = {i.key: i for i in readiness(facts, None, None).items}["dns"]
+    assert item.status == "not_met"
+    assert item.evidence.startswith("Not currently enrolled in DNSFilter")
 
 
 def test_a_tool_with_no_eligible_machine_has_no_percentage():
@@ -52,7 +71,9 @@ def test_known_exploited_counts_come_from_the_scanned_machines_only():
 
 
 def test_a_well_covered_client_meets_everything_AiSOC_can_see_and_leaves_the_rest_unknown():
-    devices = [dev("Windows 11", "huntress", "ninjaone", "dnsfilter", "autoelevate", "threatmate", threatmate={"kev_count": 0}) for _ in range(20)]
+    devices = [
+        dev("Windows 11", "huntress", "ninjaone", "dnsfilter", "autoelevate", "threatmate", threatmate={"kev_count": 0}) for _ in range(20)
+    ]
     r = readiness(device_facts(devices, 0, 0), FULL_MFA, 72.0)
     got = {i.key: i.status for i in r.items}
     for key in ("mfa_everyone", "mfa_admins", "edr", "management", "dns", "privilege", "agents_reporting", "patching", "secure_score"):

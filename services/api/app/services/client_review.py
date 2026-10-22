@@ -21,7 +21,8 @@ COVERAGE_RULES: dict[str, set[str]] = {
     "threatmate": _ENDPOINT,
     "fieldeffect": _ENDPOINT,
     "autoelevate": {"windows"},
-    "screenconnect": {"windows", "linux"},
+    # ScreenConnect runs on Macs too; only phones, tablets and TVs are left out.
+    "screenconnect": _ENDPOINT,
     "addigy": {"mac"},
 }
 
@@ -31,6 +32,9 @@ class ToolCoverage(BaseModel):
     have: int
     of: int
     percent: float | None
+    # Whether this client exists in the tool at all: True when the tool reports some of its machines or the client is mapped to one of its organizations, False when the tool maps clients and this one is not
+    # among them ("not currently enrolled"), None when AiSOC cannot tell (the tool has no client mapping).
+    enrolled: bool | None = None
 
 
 class DeviceFacts(BaseModel):
@@ -47,7 +51,7 @@ def _vendors(device: Any) -> set[str]:
     return {s.vendor for s in device.sources}
 
 
-def device_facts(devices: list[Any], stale_agents: int, offline: int) -> DeviceFacts:
+def device_facts(devices: list[Any], stale_agents: int, offline: int, enrolled_in: set[str] | None = None, mapped_tools: set[str] | None = None) -> DeviceFacts:
     """Coverage of each tool over the machines it should be on, and the known-exploited counts, from a client's shown devices (anything with ``os`` and ``sources``)."""
     kinds = [(d, os_kind(d.os)) for d in devices]
     endpoints = [d for d, k in kinds if k in _ENDPOINT]
@@ -55,7 +59,8 @@ def device_facts(devices: list[Any], stale_agents: int, offline: int) -> DeviceF
     for tool, wanted in COVERAGE_RULES.items():
         eligible = [d for d, k in kinds if k in wanted]
         have = sum(1 for d in eligible if tool in _vendors(d))
-        coverage.append(ToolCoverage(tool=tool, have=have, of=len(eligible), percent=round(100 * have / len(eligible), 1) if eligible else None))
+        enrolled = True if have > 0 or (enrolled_in is not None and tool in enrolled_in) else (False if mapped_tools is not None and tool in mapped_tools else None)
+        coverage.append(ToolCoverage(tool=tool, have=have, of=len(eligible), percent=round(100 * have / len(eligible), 1) if eligible else None, enrolled=enrolled))
     scanned = [d for d in endpoints if "threatmate" in _vendors(d)]
     kev = ransomware = 0
     for d in scanned:
@@ -123,6 +128,8 @@ def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: fl
         c = cov[tool]
         if c.of == 0:
             add(key, question, "unknown", f"No {what} machines are listed for this client.")
+        elif c.enrolled is False:
+            add(key, question, "not_met", f"Not currently enrolled in {tool_label(tool)}: none of the {c.of} {what} machines report it.")
         else:
             add(key, question, _banded(c.percent or 0.0, met, partly), f"{c.have} of {c.of} {what} machines ({c.percent:.0f}%) report {tool_label(tool)}.")
 
