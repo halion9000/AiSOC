@@ -130,3 +130,15 @@ describe('externalCheckUrl', () => {
     expect(externalCheckUrl({ type: 'email', value: 'a@b.c' })).toBeNull();
   });
 });
+
+describe('iocIdentifiers', () => {
+  it('lists family, actor, campaign, at most three tags (no repeats) and the alert count', async () => {
+    const { iocIdentifiers } = await import('./ThreatIntelView');
+    const out = iocIdentifiers({ malwareFamily: 'Emotet', threatActor: 'TA542', campaign: null, tags: ['emotet', 'botnet', 'loader', 'x', 'y'], linkedAlerts: ['a', 'b'] } as never);
+    expect(out.map((o) => o.text)).toEqual(['Emotet', 'TA542', 'botnet', 'loader', 'x', '2 alerts']);
+  });
+  it('is empty when nothing is known', async () => {
+    const { iocIdentifiers } = await import('./ThreatIntelView');
+    expect(iocIdentifiers({ tags: [], linkedAlerts: [] } as never)).toEqual([]);
+  });
+});

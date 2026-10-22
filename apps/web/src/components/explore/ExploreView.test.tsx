@@ -65,7 +65,7 @@ describe('ExploreView', () => {
     const user = userEvent.setup();
     render(<ExploreView />);
     await user.click(screen.getByRole('button', { name: 'Identity' }));
-    expect(screen.getByRole('link', { name: /Open Identity/i })).toHaveAttribute('href', '/identity');
+    expect(screen.getByRole('link', { name: /Open Identity/i })).toHaveAttribute('href', '/identity/permissions');
   });
 
   it('translates an NL question to SQL, runs it, and renders rows', async () => {

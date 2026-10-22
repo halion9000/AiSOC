@@ -111,3 +111,16 @@ def test_search_covers_the_workspace_and_its_clients_newest_first_and_filters():
     assert len(r["limit"].hits) == 2 and r["limit"].total == 4
     first = r["all"].hits[0]
     assert first.source == "huntress" and first.fields["client"] == "Acme Dental" and first.fields["hosts"] == ["PC-1"]
+
+
+def test_a_client_name_fits_when_it_is_close_not_only_when_it_is_exact():
+    from app.api.v1.endpoints.hunt_alert_search import client_matches as m
+
+    assert m("sportsmans finest", "Sportsman's Finest")
+    assert m("Sportsmans Finest", "Sportsman's Finest")
+    assert m("live oak", "Live Oak Technologies, LLC")
+    assert m("hill country christian", "Hill Country Christian School of Austin")
+    assert m("sportsman finest", "Sportsman's Finest")  # a missing letter still counts
+    assert not m("sportsmans finest", "Austin Gamblers")
+    assert not m("", "Anyone")
+    assert not m("apple", "Austin FC")

@@ -54,7 +54,7 @@ const SOURCES: SourceDef[] = [
     id: 'identity',
     label: 'Identity',
     description: 'Effective permissions for a principal across your IdPs and clouds.',
-    pivotHref: '/identity',
+    pivotHref: '/identity/permissions',
   },
   {
     id: 'graph',

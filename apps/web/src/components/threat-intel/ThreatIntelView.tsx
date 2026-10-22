@@ -106,11 +106,38 @@ function LookupForm() {
   );
 }
 
+// ─── What a row says an indicator is ─────────────────────────────────────
+
+export interface IocIdentifier {
+  kind: 'malware family' | 'threat actor' | 'campaign' | 'tag' | 'alerts';
+  text: string;
+}
+
+/** The facts that tell you what an indicator is without opening it: malware family, threat actor, campaign, up to three tags, and how many alerts name it. */
+export function iocIdentifiers(ioc: Pick<ThreatIndicator, 'malwareFamily' | 'threatActor' | 'campaign' | 'tags' | 'linkedAlerts'>): IocIdentifier[] {
+  const out: IocIdentifier[] = [];
+  if (ioc.malwareFamily) out.push({ kind: 'malware family', text: ioc.malwareFamily });
+  if (ioc.threatActor) out.push({ kind: 'threat actor', text: ioc.threatActor });
+  if (ioc.campaign) out.push({ kind: 'campaign', text: ioc.campaign });
+  const seen = new Set(out.map((o) => o.text.toLowerCase()));
+  for (const tag of ioc.tags ?? []) {
+    if (out.filter((o) => o.kind === 'tag').length >= 3) break;
+    if (tag && !seen.has(tag.toLowerCase())) {
+      seen.add(tag.toLowerCase());
+      out.push({ kind: 'tag', text: tag });
+    }
+  }
+  const n = ioc.linkedAlerts?.length ?? 0;
+  if (n > 0) out.push({ kind: 'alerts', text: `${n} alert${n === 1 ? '' : 's'}` });
+  return out;
+}
+
 // ─── IOC Row ──────────────────────────────────────────────────────────────────
 
 function IOCRow({ ioc }: { ioc: ThreatIndicator }) {
   const typeCfg = TYPE_CONFIG[ioc.type] || TYPE_CONFIG.ip;
   const [open, setOpen] = useState(false);
+  const identifiers = iocIdentifiers(ioc);
 
   return (
     <div className="border-b border-gray-800/60 last:border-0">
@@ -134,6 +161,15 @@ function IOCRow({ ioc }: { ioc: ThreatIndicator }) {
 
         <div className="flex-1 min-w-0">
           <p className="text-sm font-mono text-gray-300 truncate">{ioc.value}</p>
+          {identifiers.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1" data-testid="ioc-identifiers">
+              {identifiers.map((i) => (
+                <span key={`${i.kind}:${i.text}`} title={i.kind} className={clsx('text-[11px] px-1.5 py-0.5 rounded border', i.kind === 'malware family' ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-gray-700 bg-gray-800/60 text-gray-400')}>
+                  {i.text}
+                </span>
+              ))}
+            </div>
+          )}
           <p className="text-xs text-gray-600 mt-0.5 truncate">{ioc.description ?? ''}</p>
         </div>
 

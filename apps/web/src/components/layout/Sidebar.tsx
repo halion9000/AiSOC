@@ -452,7 +452,7 @@ export function Sidebar() {
           </span>
         </div>
         <div>
-          <span className="text-fg-primary font-bold text-base tracking-tight">A.C.</span>
+          <span className="text-brand-400 font-bold text-base tracking-tight">A.C.</span>
           <span className="text-brand-400 font-bold text-base tracking-tight">O.R.N</span>
           <p className="text-[10px] leading-tight text-fg-subtle -mt-0.5 max-w-[9.5rem]">Automated Cyber Operations &amp; Response Network</p>
         </div>

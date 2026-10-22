@@ -7,6 +7,7 @@ words, "quoted phrases", ``field:value`` and a leading ``-`` for "not". Fields: 
 
 from __future__ import annotations
 
+import difflib
 import re
 import time
 import uuid
@@ -53,6 +54,24 @@ def parse_query(query: str) -> list[Term]:
             continue
         terms.append(Term(value=value, field=field, negate=bool(m.group("neg"))))
     return terms[:MAX_TERMS]
+
+
+def _squash(s: str) -> str:
+    """Lower case, letters and digits only: "Sportsman's  Finest" and "sportsmans finest" both become "sportsmansfinest"."""
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def client_matches(query: str, name: str) -> bool:
+    """Does a client name fit what was typed? Close is enough: case, spaces and punctuation are ignored, every word typed must be found in the name, and a word that is a
+    typo or a short form of one still counts (difflib ratio of 0.8 or better against some word in the name)."""
+    q, n = _squash(query), _squash(name)
+    if not q:
+        return False
+    if q in n:
+        return True
+    words = [_squash(w) for w in re.split(r"\s+", name) if _squash(w)]
+    typed = [_squash(w) for w in re.split(r"\s+", query) if _squash(w)]
+    return bool(typed) and all(any(w in cand or difflib.SequenceMatcher(None, w, cand).ratio() >= 0.8 for cand in words) for w in typed)
 
 
 def _like(column: Any, value: str) -> Any:
@@ -155,7 +174,7 @@ async def hunt_search(body: HuntQuery, user: AuthUser, db: TenantDBSession) -> H
         clauses = [Alert.tenant_id == tid]
         for t in terms:
             if t.field == "client":
-                match = [i for i, n in names.items() if t.value.lower() in n.lower()]
+                match = [i for i, n in names.items() if client_matches(t.value, n)]
                 clauses.append((not_ if t.negate else (lambda c: c))(Alert.tenant_id.in_(match)))
             else:
                 clauses.append(condition(t))
