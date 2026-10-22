@@ -166,31 +166,19 @@ describe('asking a question in plain language', () => {
     return user;
   };
 
-  it('translates, puts the query in the editor, and runs it', async () => {
-    translate.mockResolvedValue({ esql: 'FROM auth | WHERE user == "alice"', explanation: 'alice logins' });
+  it('turns the question into an alert search, puts it in the editor, and runs THAT (never ES|QL)', async () => {
     search.mockResolvedValue(realHits);
-    await type('alice logins');
+    await type('any suspicious logins at live oak');
     await waitFor(() => expect(search).toHaveBeenCalledTimes(1));
-    expect(search.mock.calls[0][0]).toMatchObject({ query: 'FROM auth | WHERE user == "alice"', language: 'esql' });
-    expect((screen.getByTestId('editor') as HTMLTextAreaElement).value).toBe('FROM auth | WHERE user == "alice"');
+    expect(search.mock.calls[0][0]).toMatchObject({ query: 'suspicious login client:"live oak"', language: 'kql' });
+    expect((screen.getByTestId('editor') as HTMLTextAreaElement).value).toBe('suspicious login client:"live oak"');
+    expect(translate).not.toHaveBeenCalled();
   });
 
-  it('STOPS when the question cannot be translated: it runs nothing, and says why', async () => {
-    translate.mockRejectedValue(new Error('translator offline'));
-    const { container } = { container: document.body };
-    await type('anything');
+  it('a question with nothing searchable in it runs nothing and says so', async () => {
+    await type('show me all of the alerts?');
     await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(toastError.mock.calls[0][0]).toContain('Could not translate the question: translator offline');
-    expect(search).not.toHaveBeenCalled(); // it used to run whatever was already in the editor
-    expect(container.textContent).not.toMatch(/demo/i);
-    for (const invented of INVENTED_HITS) expect(container.textContent).not.toContain(invented);
-  });
-
-  it('treats a translation with no query in it as a failure, not as a reason to run something else', async () => {
-    translate.mockResolvedValue({ esql: '   ', explanation: '' });
-    await type('anything');
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(toastError.mock.calls[0][0]).toContain('the translator returned no query');
+    expect(toastError.mock.calls[0][0]).toContain('Nothing searchable');
     expect(search).not.toHaveBeenCalled();
   });
 });

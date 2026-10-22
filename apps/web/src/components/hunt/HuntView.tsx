@@ -32,7 +32,6 @@ import { safeDistance, safeFormat } from '@/lib/safe-date';
 import toast from 'react-hot-toast';
 import {
   huntApi,
-  nlQueryApi,
   savedHuntsApi,
   type AlertSeverity,
   type HuntQuery,
@@ -41,6 +40,7 @@ import {
   type SavedHunt,
   type SavedSearch,
 } from '@/lib/api';
+import { questionToAlertSearch } from './alert-query';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -56,10 +56,7 @@ const MonacoEditor = dynamic(
 type Lang = NonNullable<HuntQuery['language']>;
 
 const LANGS: Array<{ id: Lang; label: string; monaco: string }> = [
-  { id: 'kql', label: 'KQL', monaco: 'plaintext' },
-  { id: 'lucene', label: 'Lucene', monaco: 'plaintext' },
-  { id: 'sql', label: 'SQL', monaco: 'sql' },
-  { id: 'esql', label: 'ES|QL', monaco: 'plaintext' },
+  { id: 'kql', label: 'Alert search', monaco: 'plaintext' },
 ];
 
 const TIME_PRESETS: Array<{ id: string; label: string; ms: number }> = [
@@ -594,32 +591,20 @@ export function HuntView() {
     setActiveSavedHuntId(null);
     setRunError(null);
 
-    let translatedEsql = '';
-    let explanation = '';
-    try {
-      const t = await nlQueryApi.translate({ question: cleaned });
-      translatedEsql = t.esql || '';
-      if (!translatedEsql.trim()) throw new Error('the translator returned no query');
-      explanation = t.explanation || '';
-      setLanguage('esql');
-      setQuery(translatedEsql);
-      lastStarter.current = ''; // user-controlled now
-      setNlSubmittedQuery(cleaned);
-      setNlExplanation(explanation || null);
-    } catch (err) {
-      console.error('NL translate failed', err);
-      toast.error(`Could not translate the question: ${err instanceof Error && err.message ? err.message : 'the translator is unreachable'}. Edit the query and press Run.`);
+    const built = questionToAlertSearch(cleaned);
+    setNlPending(false);
+    if (!built) {
+      toast.error('Nothing searchable in that question. Try a word, a "quoted phrase", or field:value (severity, status, source, host, user, ip, tag, title, client).');
       setNlSubmittedQuery(cleaned);
       setNlExplanation(null);
       return;
-    } finally {
-      setNlPending(false);
     }
-
-    void runHunt({
-      languageOverride: 'esql',
-      queryOverride: translatedEsql || query,
-    });
+    setLanguage('kql');
+    setQuery(built);
+    lastStarter.current = ''; // user-controlled now
+    setNlSubmittedQuery(cleaned);
+    setNlExplanation('Searches the alerts A.C.O.R.N holds (title, description, hosts, users, IPs, tags, tool). Edit the search and press Run to refine it.');
+    void runHunt({ languageOverride: 'kql', queryOverride: built });
   };
 
   const runHunt = async (

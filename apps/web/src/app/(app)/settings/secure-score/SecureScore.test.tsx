@@ -95,3 +95,13 @@ describe('SecureScore', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The API answered 500');
   });
 });
+
+describe("visibleScores column sorting", () => {
+  const mk = (name: string, percent: number, users: number | null): ScoreClient => ({ client_id: name, client_name: name, current: 1, max: 2, percent, average: 54, change_30d: 0, active_users: users, licensed_users: 0, taken_at: "", refreshed_at: "2026-10-20T00:00:00Z", history: [], points_available: 0 });
+  const list = [mk("B", 20, 5), mk("A", 40, 50), mk("C", 30, null)];
+  it("orders by the clicked column, biggest first or smallest first", () => {
+    expect(visibleScores(list, { sort: "lowest", column: { key: "score", dir: "desc" } }).map((c) => c.client_name)).toEqual(["A", "C", "B"]);
+    expect(visibleScores(list, { sort: "lowest", column: { key: "people", dir: "asc" } }).map((c) => c.client_name)).toEqual(["C", "B", "A"]);
+    expect(visibleScores(list, { sort: "lowest", column: { key: "client", dir: "desc" } }).map((c) => c.client_name)).toEqual(["C", "B", "A"]);
+  });
+});

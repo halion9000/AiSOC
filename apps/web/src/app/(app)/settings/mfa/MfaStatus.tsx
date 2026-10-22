@@ -29,16 +29,26 @@ export interface MfaPerson {
   methods: string | null;
 }
 
+export type SortKey = "client" | "people" | "covered" | "not_required" | "without" | "admins";
+export type Sort = { key: SortKey; dir: "asc" | "desc" } | null;
+
 type Which = "without" | "not_required";
 type Open = { id: string; which: Which } | null;
 
 /** Clients A to Z by name (the organization's own entry, which has no name, goes first), optionally only those whose name contains ``query``, only those with administrators lacking Multi-Factor, or only one client. */
-export function visibleClients(clients: MfaClient[], opts: { query?: string; adminsOnly?: boolean; onlyClient?: string | null }): MfaClient[] {
+export function visibleClients(clients: MfaClient[], opts: { query?: string; adminsOnly?: boolean; onlyClient?: string | null; sort?: Sort }): MfaClient[] {
   const needle = (opts.query ?? "").trim().toLowerCase();
   const nameOf = (c: MfaClient) => c.client_name ?? "";
   return clients
     .filter((c) => (!opts.onlyClient || c.client_id === opts.onlyClient) && (!opts.adminsOnly || c.admins_without_mfa > 0) && (!needle || (nameOf(c) || "this organization").toLowerCase().includes(needle)))
-    .sort((a, b) => nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: "base", numeric: true }));
+    .sort((a, b) => {
+      const byName = nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: "base", numeric: true });
+      const s = opts.sort;
+      if (!s || s.key === "client") return s?.dir === "desc" ? -byName : byName;
+      const value = (c: MfaClient) => (s.key === "people" ? c.people : s.key === "covered" ? (c.people === 0 ? -1 : c.with_mfa / c.people) : s.key === "not_required" ? c.not_required : s.key === "without" ? c.without_mfa : c.admins_without_mfa);
+      const diff = value(a) - value(b);
+      return (s.dir === "desc" ? -diff : diff) || byName;
+    });
 }
 
 /** "86%" of people covered, or a dash when there are none. */
@@ -135,6 +145,7 @@ export function MfaStatus() {
   const [open, setOpen] = useState<Open>(linkedClient && linkedWhich ? { id: linkedClient, which: linkedWhich } : null);
   const [adminsOnly, setAdminsOnly] = useState(params?.get("admins") === "1");
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort>(null);
   const [onlyClient, setOnlyClient] = useState<string | null>(linkedClient);
 
   const load = useCallback(async () => {
@@ -150,7 +161,12 @@ export function MfaStatus() {
     void load();
   }, [load]);
 
-  const shownClients = useMemo(() => visibleClients(clients ?? [], { query, adminsOnly, onlyClient }), [clients, query, adminsOnly, onlyClient]);
+  const shownClients = useMemo(() => visibleClients(clients ?? [], { query, adminsOnly, onlyClient, sort }), [clients, query, adminsOnly, onlyClient, sort]);
+
+  // First click: biggest first (a name: A to Z); second: the other way; third: back to A to Z.
+  const toggleSort = (key: SortKey) =>
+    setSort((s) => (s?.key !== key ? { key, dir: key === "client" ? "asc" : "desc" } : s.dir === (key === "client" ? "asc" : "desc") ? { key, dir: key === "client" ? "desc" : "asc" } : null));
+  const arrow = (key: SortKey) => (sort?.key === key ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
 
   const totals = (clients ?? []).reduce((t, c) => ({ people: t.people + c.people, without: t.without + c.without_mfa, admins: t.admins + c.admins_without_mfa }), { people: 0, without: 0, admins: 0 });
 
@@ -200,12 +216,36 @@ export function MfaStatus() {
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate-700 text-slate-500">
-                <th className="py-2">Client</th>
-                <th>People</th>
-                <th>Covered</th>
-                <th>Registered, not required</th>
-                <th>No Multi-Factor</th>
-                <th>Administrators without</th>
+                <th className="py-2" aria-sort={sort?.key === "client" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleSort("client")} className="font-medium hover:text-slate-200" data-testid="sort-client">
+                    Client{arrow("client")}
+                  </button>
+                </th>
+                <th className="" aria-sort={sort?.key === "people" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleSort("people")} className="font-medium hover:text-slate-200" data-testid="sort-people">
+                    People{arrow("people")}
+                  </button>
+                </th>
+                <th className="" aria-sort={sort?.key === "covered" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleSort("covered")} className="font-medium hover:text-slate-200" data-testid="sort-covered">
+                    Covered{arrow("covered")}
+                  </button>
+                </th>
+                <th className="" aria-sort={sort?.key === "not_required" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleSort("not_required")} className="font-medium hover:text-slate-200" data-testid="sort-not_required">
+                    Registered, not required{arrow("not_required")}
+                  </button>
+                </th>
+                <th className="" aria-sort={sort?.key === "without" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleSort("without")} className="font-medium hover:text-slate-200" data-testid="sort-without">
+                    No Multi-Factor{arrow("without")}
+                  </button>
+                </th>
+                <th className="" aria-sort={sort?.key === "admins" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleSort("admins")} className="font-medium hover:text-slate-200" data-testid="sort-admins">
+                    Administrators without{arrow("admins")}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>

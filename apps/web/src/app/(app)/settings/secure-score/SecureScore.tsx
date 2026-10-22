@@ -45,6 +45,7 @@ export interface Improvement {
   description?: string;
 }
 
+export type Column = { key: "client" | "score" | "change" | "average" | "people" | "read"; dir: "asc" | "desc" } | null;
 type Sort = "lowest" | "biggest_drop" | "name";
 
 /** The lines drawn for a small trend chart: the points as an SVG path scaled into ``width`` by ``height`` (the lowest point at the bottom). An empty string for fewer than two points. */
@@ -67,11 +68,20 @@ export function changeText(change: number | null): string {
 }
 
 /** Clients filtered by name and ordered: lowest score first, biggest 30-day drop first, or by name (the organization's own entry has no name and goes first). */
-export function visibleScores(clients: ScoreClient[], opts: { query?: string; sort: Sort }): ScoreClient[] {
+export function visibleScores(clients: ScoreClient[], opts: { query?: string; sort: Sort; column?: Column }): ScoreClient[] {
   const needle = (opts.query ?? "").trim().toLowerCase();
   const nameOf = (c: ScoreClient) => c.client_name ?? "";
   const list = clients.filter((c) => !needle || (nameOf(c) || "this organization").toLowerCase().includes(needle));
   const byName = (a: ScoreClient, b: ScoreClient) => nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: "base", numeric: true });
+  const col = opts.column;
+  if (col) {
+    const num = (c: ScoreClient): number =>
+      col.key === "score" ? c.percent : col.key === "change" ? (c.change_30d ?? 0) : col.key === "average" ? (c.average ?? -1) : col.key === "people" ? (c.active_users ?? -1) : col.key === "read" ? Date.parse(c.refreshed_at) || 0 : 0;
+    return list.sort((a, b) => {
+      const d = col.key === "client" ? byName(a, b) : num(a) - num(b);
+      return (col.dir === "desc" ? -d : d) || byName(a, b);
+    });
+  }
   if (opts.sort === "name") return list.sort(byName);
   if (opts.sort === "biggest_drop") return list.sort((a, b) => (a.change_30d ?? 0) - (b.change_30d ?? 0) || byName(a, b));
   return list.sort((a, b) => a.percent - b.percent || byName(a, b));
@@ -137,6 +147,14 @@ export function SecureScore() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("lowest");
   const [open, setOpen] = useState<string | null>(null);
+  const [column, setColumn] = useState<Column>(null);
+  // First click: biggest first (a name: A to Z); second: the other way; third: back to the Order by choice.
+  const toggleColumn = (key: NonNullable<Column>["key"]) =>
+    setColumn((c) => {
+      const first = key === "client" ? "asc" : "desc";
+      return c?.key !== key ? { key, dir: first } : c.dir === first ? { key, dir: first === "asc" ? "desc" : "asc" } : null;
+    });
+  const mark = (key: string) => (column?.key === key ? (column.dir === "asc" ? " ▲" : " ▼") : "");
 
   const load = useCallback(async () => {
     try {
@@ -151,7 +169,7 @@ export function SecureScore() {
     void load();
   }, [load]);
 
-  const shown = useMemo(() => visibleScores(clients ? [...clients] : [], { query, sort }), [clients, query, sort]);
+  const shown = useMemo(() => visibleScores(clients ? [...clients] : [], { query, sort, column }), [clients, query, sort, column]);
   const overall = clients && clients.length > 0 ? Math.round(clients.reduce((t, c) => t + c.percent, 0) / clients.length) : null;
   const falling = (clients ?? []).filter((c) => c.change_30d !== null && c.change_30d < 0).length;
 
@@ -201,13 +219,37 @@ export function SecureScore() {
           <table className="w-full text-left text-sm">
             <thead className="text-xs uppercase text-slate-500">
               <tr className="border-b border-slate-700">
-                <th className="py-2">Client</th>
-                <th>Score</th>
-                <th>30 days</th>
+                <th className="py-2" aria-sort={column?.key === "client" ? (column.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleColumn("client")} className="uppercase hover:text-slate-200" data-testid="sort-client">
+                    Client{mark("client")}
+                  </button>
+                </th>
+                <th  aria-sort={column?.key === "score" ? (column.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleColumn("score")} className="uppercase hover:text-slate-200" data-testid="sort-score">
+                    Score{mark("score")}
+                  </button>
+                </th>
+                <th  aria-sort={column?.key === "change" ? (column.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleColumn("change")} className="uppercase hover:text-slate-200" data-testid="sort-change">
+                    30 days{mark("change")}
+                  </button>
+                </th>
                 <th>Trend</th>
-                <th>Microsoft average</th>
-                <th>People</th>
-                <th>Read</th>
+                <th  aria-sort={column?.key === "average" ? (column.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleColumn("average")} className="uppercase hover:text-slate-200" data-testid="sort-average">
+                    Microsoft average{mark("average")}
+                  </button>
+                </th>
+                <th  aria-sort={column?.key === "people" ? (column.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleColumn("people")} className="uppercase hover:text-slate-200" data-testid="sort-people">
+                    People{mark("people")}
+                  </button>
+                </th>
+                <th  aria-sort={column?.key === "read" ? (column.dir === "asc" ? "ascending" : "descending") : "none"}>
+                  <button type="button" onClick={() => toggleColumn("read")} className="uppercase hover:text-slate-200" data-testid="sort-read">
+                    Read{mark("read")}
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>

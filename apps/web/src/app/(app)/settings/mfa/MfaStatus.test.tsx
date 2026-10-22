@@ -7,7 +7,7 @@ vi.mock('@/lib/auth-session', () => ({ authFetch }));
 const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
 
-import { MfaStatus, coveragePercent, visibleClients } from './MfaStatus';
+import { MfaStatus, coveragePercent, visibleClients, type MfaClient } from './MfaStatus';
 
 const reply = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 500, json: () => Promise.resolve(body) });
 const client = (over: Record<string, unknown> = {}) => ({ client_id: 'c1', client_name: 'Acme Dental', people: 20, with_mfa: 15, not_required: 2, without_mfa: 3, admins_without_mfa: 1, refreshed_at: '2026-10-19T10:00:00Z', ...over });
@@ -135,5 +135,16 @@ describe('visibleClients', () => {
     expect(visibleClients(cs, { query: ' BE ' }).map((c) => c.client_id)).toEqual(['x']);
     expect(visibleClients(cs, { adminsOnly: true }).map((c) => c.client_id)).toEqual(['x']);
     expect(visibleClients(cs, { onlyClient: 'y' }).map((c) => c.client_id)).toEqual(['y']);
+  });
+});
+
+describe("visibleClients sorting", () => {
+  const mk = (name: string, people: number, withMfa: number, without: number): MfaClient => ({ client_id: name, client_name: name, people, with_mfa: withMfa, not_required: 0, without_mfa: without, admins_without_mfa: 0, refreshed_at: null });
+  const list = [mk("B", 10, 5, 5), mk("A", 50, 50, 0), mk("C", 0, 0, 0)];
+  it("orders by a number, biggest first or smallest first, and by coverage", () => {
+    expect(visibleClients(list, { sort: { key: "people", dir: "desc" } }).map((c) => c.client_name)).toEqual(["A", "B", "C"]);
+    expect(visibleClients(list, { sort: { key: "without", dir: "asc" } }).map((c) => c.client_name)).toEqual(["A", "C", "B"]);
+    expect(visibleClients(list, { sort: { key: "covered", dir: "desc" } }).map((c) => c.client_name)).toEqual(["A", "B", "C"]);
+    expect(visibleClients(list, { sort: { key: "client", dir: "desc" } }).map((c) => c.client_name)).toEqual(["C", "B", "A"]);
   });
 });
