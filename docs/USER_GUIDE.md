@@ -231,6 +231,7 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 - **Honeytokens:** only a link or a document carrying a beacon link can alert; every other type is "Decoy only" and nothing watches it.
 - **Compliance:** evidence items with a tamper-evident hash chain; controls that need a policy document stay "missing" rather than invented.
 - **Approvals and actions:** risky actions (isolate host, disable user, reset password...) always wait for a person.
+- **Opening AiSOC from another computer:** in CORE's AiSOC settings tick **Allow other computers on this network**, then rebuild AiSOC. The web page (port 3000) and the push gateway (port 8086) are then reachable at this computer's address, for example `http://<this computer's address>:3000`; the API itself stays on this computer and is reached through the web page. It is plain HTTP, so use it on a network you trust only, and Windows Firewall may need to allow ports 3000 and 8086. Built and tested, but **not yet seen working from a second computer**.
 - **Backups:** `./scripts/local-backup.sh` (database and Qdrant); it does not back up ClickHouse, Redis, Neo4j, OpenSearch or your `.env` secrets. Keep the credential key safe separately.
 
 ## 14. What is not finished, and what has not been checked live
@@ -255,6 +256,7 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 | "N sign-ins are waiting to be scored" | Normal for a while after a restart: they are scored a hundred at a time. If it is not falling, ask Cipher to check the behaviour service log |
 | Sign-in scores page is empty | Normal early on: it lists only sign-ins the service flags, and it flags little until it has learned each person |
 | No Huntress ITDR alerts | They are read back 30 days when CORE starts; check the Huntress card for a warning |
+| AiSOC opens here but not from another computer | Is **Allow other computers on this network** ticked and AiSOC rebuilt? Then the firewall (ports 3000 and 8086) and the address you typed |
 | Not sure what a page means | Ask Cipher |
 
 ---
