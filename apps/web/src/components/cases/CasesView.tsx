@@ -119,6 +119,8 @@ type FilterStatus = Case['status'] | 'all' | 'auto_closed';
 
 /** The most cases the list loads at once (the API's own ceiling), newest first. The tiles above it count every case. */
 const CASES_FETCHED = 500;
+/** Every status that still needs somebody: the Act now board picks among these. */
+const ACT_NOW_STATUSES = 'new,triaged,open,pending,investigating,contained,in_progress';
 
 interface CasesViewProps {
   /**
@@ -171,6 +173,15 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
         ...(effectiveScope === 'all' ? { scope: 'all' as const, clientId: effectiveClient || undefined } : {}),
       }),
   );
+  // The first few cases to work, asked for in work order: the page loaded above is only the newest of them.
+  const { data: actNowData, mutate: mutateActNow } = useSWR(['cases-act-now', effectiveScope, effectiveClient], () =>
+    casesApi.list({
+      status: ACT_NOW_STATUSES,
+      sort: 'work',
+      limit: 3,
+      ...(effectiveScope === 'all' ? { scope: 'all' as const, clientId: effectiveClient || undefined } : {}),
+    }),
+  );
   // The tiles count the whole caseload, not the page of it that is loaded below.
   const { data: counts, mutate: mutateCounts } = useSWR(['cases-counts', effectiveScope, effectiveClient], () => casesApi.counts(effectiveScope, effectiveClient || undefined));
 
@@ -190,6 +201,7 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
       <CreateCaseModal open={creating} onClose={() => setCreating(false)} onCreated={() => {
           void mutate();
           void mutateCounts();
+          void mutateActNow();
         }} />
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -212,7 +224,12 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
       </div>
 
       {/* What to work first, from the cases loaded below. Shown on the Open and All tiles only: on Resolved or Closed it would only say there is nothing open. */}
-      {casesData && (statusFilter === 'open' || statusFilter === 'all') && <ActNowBoard cases={casesData.cases ?? []} />}
+      {casesData && actNowData && (statusFilter === 'open' || statusFilter === 'all') && (
+        <ActNowBoard
+          cases={actNowData.cases ?? []}
+          totals={counts && counts.unassigned !== undefined ? { open: counts.open + counts.in_progress, unassigned: counts.unassigned } : undefined}
+        />
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-6 gap-3">

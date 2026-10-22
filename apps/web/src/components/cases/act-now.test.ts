@@ -34,6 +34,12 @@ describe('actNow', () => {
     expect(board.headline).toBe('4 open cases, 2 with no owner. Start with Ransomware Attempt.');
     expect(board.top.map((x) => x.id)).toEqual(['1', '2', '5']);
   });
+  it('says how many are open from the whole caseload when it is given, not from the few cases passed in', () => {
+    const board = actNow([c({ title: 'Croatia', severity: 'high' })], 3, { open: 3074, unassigned: 3000 });
+    expect(board.open).toBe(3074);
+    expect(board.headline).toBe('3074 open cases, 3000 with no owner. Start with Croatia.');
+    expect(actNow([], 3, { open: 0, unassigned: 0 }).headline).toBe('No open cases. Nothing needs you right now.');
+  });
   it('reads naturally for one case, for all owned, and for none', () => {
     expect(actNow([c({ title: 'Only', assignee: 'a@x.com' })]).headline).toBe('1 open case, all with an owner. Start with Only.');
     expect(actNow([]).headline).toBe('No open cases. Nothing needs you right now.');

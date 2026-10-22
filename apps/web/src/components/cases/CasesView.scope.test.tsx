@@ -39,7 +39,8 @@ describe('the cases page: all clients', () => {
     show();
     await waitFor(() => expect(api.list).toHaveBeenCalled());
     expect(screen.queryByTestId('cases-scope')).not.toBeInTheDocument();
-    expect(api.list).toHaveBeenLastCalledWith({ status: 'open', limit: 500 });
+    expect(api.list).toHaveBeenCalledWith({ status: 'open', limit: 500 });
+    expect(api.list).not.toHaveBeenCalledWith(expect.objectContaining({ scope: 'all' }));
     expect(api.counts).toHaveBeenLastCalledWith('own', undefined);
   });
 
@@ -50,7 +51,7 @@ describe('the cases page: all clients', () => {
     expect(await screen.findByTestId('cases-count-open')).toHaveTextContent('64');
     expect(screen.queryByTestId('case-client')).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole('button', { name: 'All clients' }));
-    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith({ status: 'open', limit: 500, scope: 'all', clientId: undefined }));
+    await waitFor(() => expect(api.list).toHaveBeenCalledWith({ status: 'open', limit: 500, scope: 'all', clientId: undefined }));
     expect(api.counts).toHaveBeenLastCalledWith('all', undefined);
     expect(await screen.findByTestId('cases-count-open')).toHaveTextContent('3878');
     expect(await screen.findByTestId('case-client')).toHaveTextContent('Acme Dental');

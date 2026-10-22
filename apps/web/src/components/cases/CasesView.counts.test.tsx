@@ -35,6 +35,14 @@ describe('the cases page', () => {
     expect(screen.getByTestId('cases-count-closed')).toHaveTextContent('5');
   });
 
+  it('asks the API for the cases to work first in work order, and its headline counts the whole caseload', async () => {
+    api.counts.mockResolvedValue({ all: 3935, open: 3062, in_progress: 12, resolved: 0, closed: 1, auto_closed: 860, unassigned: 3070 });
+    api.list.mockImplementation(async (f: { sort?: string }) => (f.sort === 'work' ? { cases: [caseRow(1)], total: 1 } : { cases: [], total: 0 }));
+    show();
+    expect(await screen.findByTestId('act-now-headline')).toHaveTextContent('3074 open cases, 3070 with no owner. Start with Case 1.');
+    expect(api.list).toHaveBeenCalledWith(expect.objectContaining({ sort: 'work', limit: 3 }));
+  });
+
   it('lists Open first, then Closed and Auto-Closed, and All Cases last', async () => {
     show();
     await screen.findByTestId('cases-count-open');

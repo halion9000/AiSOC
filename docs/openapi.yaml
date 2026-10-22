@@ -1298,6 +1298,20 @@ paths:
           description: With scope=all, only this client's cases.
           title: Client Id
         description: With scope=all, only this client's cases.
+      - name: sort
+        in: query
+        required: false
+        schema:
+          enum:
+          - newest
+          - work
+          type: string
+          description: '``work``: the order to work them in: most severe first, then
+            no owner, then the oldest (the Act now board asks for this).'
+          default: newest
+          title: Sort
+        description: '``work``: the order to work them in: most severe first, then
+          no owner, then the oldest (the Act now board asks for this).'
       responses:
         '200':
           description: Successful Response
@@ -20519,6 +20533,10 @@ components:
         auto_closed:
           type: integer
           title: Auto Closed
+          default: 0
+        unassigned:
+          type: integer
+          title: Unassigned
           default: 0
         by_status:
           additionalProperties:

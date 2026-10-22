@@ -418,6 +418,9 @@ async def list_cases(
         "own", description="``all``: this organization's cases AND those of its clients (each tagged with the client's name)."
     ),
     client_id: uuid.UUID | None = Query(None, description="With scope=all, only this client's cases."),
+    sort: Literal["newest", "work"] = Query(
+        "newest", description="``work``: the order to work them in: most severe first, then no owner, then the oldest (the Act now board asks for this)."
+    ),
 ) -> list[CaseResponse]:
     # Tenant scoping is non-optional. The aisoc_cases table has carried a
     # tenant_id column since migration 012; until P2-W1 the API simply
@@ -466,19 +469,25 @@ async def list_cases(
         where_clauses.append(f"{col}assignee = :assignee")
         params["assignee"] = assignee
 
+    def order(prefix: str) -> str:
+        if sort == "work":
+            sev = f"CASE lower({prefix}severity) WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
+            return f"{sev}, ({prefix}assignee IS NOT NULL AND {prefix}assignee <> ''), {prefix}created_at ASC"
+        return f"{prefix}created_at DESC"
+
     if scope == "all":
         q = f"""
         SELECT c.*, CASE WHEN c.tenant_id = :tenant_id THEN NULL ELSE t.name END AS client_name
         FROM aisoc_cases c LEFT JOIN tenants t ON t.id = c.tenant_id
         WHERE {" AND ".join(where_clauses)}
-        ORDER BY c.created_at DESC
+        ORDER BY {order("c.")}
         LIMIT :limit OFFSET :offset
     """
     else:
         q = f"""
         SELECT * FROM aisoc_cases
         WHERE {" AND ".join(where_clauses)}
-        ORDER BY created_at DESC
+        ORDER BY {order("")}
         LIMIT :limit OFFSET :offset
     """
     try:
@@ -504,6 +513,8 @@ class CaseCounts(BaseModel):
     # Closed by a person; the ones AiSOC closed itself are counted in ``auto_closed``.
     closed: int
     auto_closed: int = 0
+    # Cases still to be worked (not resolved or closed) that nobody owns.
+    unassigned: int = 0
     by_status: dict[str, int]
 
 
@@ -526,6 +537,16 @@ async def case_counts(
                     ).bindparams(tenants=tenants, only=only)
                 )
                 by_status = {str(status): int(n) for status, n in rows.fetchall()}
+                unassigned = int(
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT count(*) FROM aisoc_cases WHERE tenant_id = ANY(CAST(:tenants AS UUID[])) AND tenant_id = ANY(CAST(:only AS UUID[])) "
+                                "AND status NOT IN ('resolved', 'closed') AND (assignee IS NULL OR assignee = '')"
+                            ).bindparams(tenants=tenants, only=only)
+                        )
+                    ).scalar_one()
+                )
         else:
             rows = await db.execute(
                 text(
@@ -534,6 +555,15 @@ async def case_counts(
                 ).bindparams(tenant_id=user.tenant_id)
             )
             by_status = {str(status): int(n) for status, n in rows.fetchall()}
+            unassigned = int(
+                (
+                    await db.execute(
+                        text(
+                            "SELECT count(*) FROM aisoc_cases WHERE tenant_id = :tenant_id AND status NOT IN ('resolved', 'closed') AND (assignee IS NULL OR assignee = '')"
+                        ).bindparams(tenant_id=user.tenant_id)
+                    )
+                ).scalar_one()
+            )
     except Exception as exc:
         logger.exception("Database error in cases counts")
         raise HTTPException(status_code=503, detail="Database error") from exc
@@ -549,6 +579,7 @@ async def case_counts(
         resolved=group("resolved"),
         closed=group("closed"),
         auto_closed=group("auto_closed"),
+        unassigned=unassigned,
         by_status=by_status,
     )
 

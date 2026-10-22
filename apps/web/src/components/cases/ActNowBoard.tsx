@@ -14,10 +14,10 @@ const SEVERITY_TONE: Record<string, string> = {
 
 /**
  * The top of the Cases page: one sentence on what is open and who has it, and the first few cases to work, most severe first, with the ones nobody owns ahead of the ones somebody does.
- * It reads the cases the page already loaded (open, in progress and pending ones only), so it never shows a case the list below would not.
+ * `cases` are the first few in work order, asked for from the API in that order (not picked from the page of cases below, which is only the newest); `totals` are the whole caseload's counts.
  */
-export function ActNowBoard({ cases }: { cases: readonly Case[] }) {
-  const board = actNow(cases);
+export function ActNowBoard({ cases, totals }: { cases: readonly Case[]; totals?: { open: number; unassigned: number } }) {
+  const board = actNow(cases, 3, totals);
   return (
     <section aria-label="Act now" data-testid="act-now" className="space-y-3">
       <h2 className="text-lg font-semibold text-gray-100" data-testid="act-now-headline">

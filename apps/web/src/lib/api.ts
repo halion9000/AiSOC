@@ -1880,6 +1880,8 @@ export interface CaseFilters {
   scope?: 'own' | 'all';
   /** With scope ``all``, only this client's cases. */
   clientId?: string;
+  /** ``work``: most severe first, then no owner, then oldest. Left out: newest first. */
+  sort?: 'newest' | 'work';
 }
 
 /**
@@ -2015,6 +2017,8 @@ export interface CaseCounts {
   /** Closed by a person; the ones AiSOC closed itself are in `auto_closed`. */
   closed: number;
   auto_closed?: number;
+  /** Cases still to be worked (not resolved or closed) that nobody owns. */
+  unassigned?: number;
 }
 
 export const casesApi = {

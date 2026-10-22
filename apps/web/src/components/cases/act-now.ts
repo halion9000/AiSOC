@@ -26,15 +26,19 @@ export function workOrder(a: Case, b: Case): number {
   return Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.title.localeCompare(b.title);
 }
 
-/** What to look at first among the cases loaded: "12 open cases, 8 with no owner. Start with Ransomware Attempt." */
-export function actNow(cases: readonly Case[], howMany = 3): ActNow {
+/**
+ * What to look at first: "12 open cases, 8 with no owner. Start with Ransomware Attempt."
+ * `cases` are the ones to pick from; `totals` are the counts over the whole caseload when the caller has them (the list is one page of it, so counting it would understate).
+ */
+export function actNow(cases: readonly Case[], howMany = 3, totals?: { open: number; unassigned: number }): ActNow {
   const live = cases.filter((c) => LIVE.has(c.status)).sort(workOrder);
-  const unassigned = live.filter((c) => !c.assignee).length;
+  const unassigned = totals?.unassigned ?? live.filter((c) => !c.assignee).length;
+  const openCount = totals?.open ?? live.length;
   const first = live[0] ?? null;
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const headline =
-    live.length === 0
+    openCount === 0
       ? 'No open cases. Nothing needs you right now.'
-      : `${plural(live.length, 'open case')}, ${unassigned === 0 ? 'all with an owner' : `${unassigned} with no owner`}. Start with ${first?.title ?? ''}.`;
-  return { open: live.length, unassigned, first, top: live.slice(0, howMany), headline };
+      : `${plural(openCount, 'open case')}, ${unassigned === 0 ? 'all with an owner' : `${unassigned} with no owner`}. Start with ${first?.title ?? ''}.`;
+  return { open: openCount, unassigned, first, top: live.slice(0, howMany), headline };
 }

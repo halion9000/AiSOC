@@ -152,6 +152,8 @@ def _mk_db(rows: list[Any]) -> MagicMock:
         else:
             result.fetchone = MagicMock(return_value=payload)
             result.fetchall = MagicMock(return_value=[payload] if payload else [])
+            if isinstance(payload, int):
+                result.scalar_one = MagicMock(return_value=payload)
         return result
 
     db.execute = AsyncMock(side_effect=_execute)
@@ -273,6 +275,30 @@ async def test_counts_cover_the_whole_caseload_grouped_the_way_the_console_shows
     assert out.by_status["triaged"] == 9
     _assert_tenant_scoped(db.executed, user.tenant_id)
     assert "group by s" in re.sub(r"\s+", " ", db.executed[0][0]).lower()
+
+
+@pytest.mark.asyncio
+async def test_counts_say_how_many_cases_still_to_be_worked_have_no_owner_over_the_whole_caseload_and_in_the_tenant() -> None:
+    user = _user()
+    db = _mk_db([[("new", 40), ("resolved", 5)], 33])
+    out = await case_counts(db=db, user=user)
+    assert out.unassigned == 33
+    sql, params = db.executed[1]
+    normalized = re.sub(r"\s+", " ", sql).lower()
+    assert "tenant_id = :tenant_id" in normalized and params["tenant_id"] == user.tenant_id
+    assert "status not in ('resolved', 'closed')" in normalized and "assignee is null" in normalized
+
+
+@pytest.mark.asyncio
+async def test_the_work_order_is_most_severe_first_then_no_owner_then_oldest_and_the_default_is_newest_first() -> None:
+    user = _user()
+    db = _mk_db([[], []])
+    await list_cases(db=db, user=user, sort="work")
+    work = re.sub(r"\s+", " ", db.executed[0][0]).lower()
+    assert "order by case lower(severity) when 'critical' then 0 when 'high' then 1" in work
+    assert "(assignee is not null and assignee <> ''), created_at asc" in work
+    await list_cases(db=db, user=user, sort="newest")
+    assert "order by created_at desc" in re.sub(r"\s+", " ", db.executed[1][0]).lower()
 
 
 @pytest.mark.asyncio
