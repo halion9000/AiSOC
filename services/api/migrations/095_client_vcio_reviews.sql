@@ -1,7 +1,7 @@
 -- Migration 095: each client's vCIO Toolbox recommendations and risks, summarised by CORE once a day.
 --
 -- client_vcio_reviews: ONE row per client and source, replaced by each daily report. `recommendations` holds the counts by adoption state and the pending ones that matter most, `risks` the client's
--- risks, both as small JSON documents. READ-ONLY on the vCIO Toolbox side: AiSOC never writes back.
+-- risks, both as small JSON documents. Only read here; what a person approves is sent by CORE (migration 096).
 --
 -- Row-level security with the standard policy, honouring the fail-closed switch (migration 081). Idempotent.
 

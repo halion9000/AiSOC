@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { authFetch } from "@/lib/auth-session";
+import { VcioSuggestions } from "./VcioSuggestions";
 
 export interface Coverage {
   tool: string;
@@ -307,6 +308,8 @@ export function ClientReview() {
                 <p className="mt-2 text-xs text-slate-500">Read from vCIO Toolbox on {new Date(review.vcio.refreshed_at).toLocaleDateString()}. The IT review answers themselves are not available through its API.</p>
               </Card>
             ) : null}
+
+            <VcioSuggestions clientId={review.client_id} />
 
             <Card title="Alerts">
               <p className="text-sm text-slate-300" data-testid="alerts-line">

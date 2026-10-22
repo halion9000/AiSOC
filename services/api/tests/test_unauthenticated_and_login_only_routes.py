@@ -106,6 +106,14 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
     ): "CORE's vCIO Toolbox summary per client: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write under that feed's own mapped client tenants",
     (
         "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/vcio-proposals/approved",
+    ): "CORE collecting approved vCIO Toolbox suggestions: authenticated by the core-feed token in the path, checked in the handler (401 without it); reads only that feed's own client tenants",
+    (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/vcio-proposals/{proposal_id}/result",
+    ): "CORE's result for an approved vCIO Toolbox suggestion: authenticated by the core-feed token in the path, checked in the handler (401 without it); answers an approved suggestion of that feed's own client tenants once",
+    (
+        "POST",
         "/api/v1/inbox/core-feed/{tenant_token}/secure-scores",
     ): "CORE's Microsoft Secure Score (CIPP): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only write under that feed's own mapped client tenants",
     (
