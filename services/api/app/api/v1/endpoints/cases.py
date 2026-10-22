@@ -439,13 +439,26 @@ async def list_cases(
         where_clauses = ["tenant_id = :tenant_id"]
     col = "c." if scope == "all" else ""
     statuses = [s.strip() for s in (status_filter if isinstance(status_filter, str) else "").split(",") if s.strip()]
-    if len(statuses) == 1:
+    # "Auto-closed" is a closed case AiSOC closed itself (``tags.auto_closed``); "closed" is the ones a person closed. Neither is a status of its own in the database.
+    auto = f"coalesce({col}tags->>'auto_closed', '') = 'true'"
+    if len(statuses) == 1 and statuses[0] == "auto_closed":
+        where_clauses.append(f"{col}status = 'closed' AND {auto}")
+    elif len(statuses) == 1 and statuses[0] == "closed":
+        where_clauses.append(f"{col}status = 'closed' AND NOT ({auto})")
+    elif len(statuses) == 1:
         where_clauses.append(f"{col}status = :status")
         params["status"] = statuses[0]
     elif statuses:
         # A comma-separated list ("new,triaged") is any of them: the console's Open tab is every case still waiting to be worked.
-        where_clauses.append(f"{col}status = ANY(CAST(:statuses AS TEXT[]))")
-        params["statuses"] = statuses
+        plain = [s for s in statuses if s not in ("auto_closed", "closed")]
+        parts = [f"{col}status = ANY(CAST(:statuses AS TEXT[]))"] if plain else []
+        if "closed" in statuses:
+            parts.append(f"({col}status = 'closed' AND NOT ({auto}))")
+        if "auto_closed" in statuses:
+            parts.append(f"({col}status = 'closed' AND {auto})")
+        where_clauses.append("(" + " OR ".join(parts) + ")")
+        if plain:
+            params["statuses"] = plain
     if severity:
         where_clauses.append(f"{col}severity = :severity")
         params["severity"] = severity
@@ -488,7 +501,9 @@ class CaseCounts(BaseModel):
     open: int
     in_progress: int
     resolved: int
+    # Closed by a person; the ones AiSOC closed itself are counted in ``auto_closed``.
     closed: int
+    auto_closed: int = 0
     by_status: dict[str, int]
 
 
@@ -506,15 +521,17 @@ async def case_counts(
             async with cross_tenant_reads(db):
                 rows = await db.execute(
                     text(
-                        "SELECT status, count(*) FROM aisoc_cases WHERE tenant_id = ANY(CAST(:tenants AS UUID[])) AND tenant_id = ANY(CAST(:only AS UUID[])) GROUP BY status"
+                        "SELECT CASE WHEN status = 'closed' AND coalesce(tags->>'auto_closed', '') = 'true' THEN 'auto_closed' ELSE status END AS s, count(*) "
+                        "FROM aisoc_cases WHERE tenant_id = ANY(CAST(:tenants AS UUID[])) AND tenant_id = ANY(CAST(:only AS UUID[])) GROUP BY s"
                     ).bindparams(tenants=tenants, only=only)
                 )
                 by_status = {str(status): int(n) for status, n in rows.fetchall()}
         else:
             rows = await db.execute(
-                text("SELECT status, count(*) FROM aisoc_cases WHERE tenant_id = :tenant_id GROUP BY status").bindparams(
-                    tenant_id=user.tenant_id
-                )
+                text(
+                    "SELECT CASE WHEN status = 'closed' AND coalesce(tags->>'auto_closed', '') = 'true' THEN 'auto_closed' ELSE status END AS s, count(*) "
+                    "FROM aisoc_cases WHERE tenant_id = :tenant_id GROUP BY s"
+                ).bindparams(tenant_id=user.tenant_id)
             )
             by_status = {str(status): int(n) for status, n in rows.fetchall()}
     except Exception as exc:
@@ -531,6 +548,7 @@ async def case_counts(
         in_progress=group("investigating", "contained", "in_progress"),
         resolved=group("resolved"),
         closed=group("closed"),
+        auto_closed=group("auto_closed"),
         by_status=by_status,
     )
 

@@ -19,7 +19,7 @@ import { ActNowBoard } from './ActNowBoard';
 // bar can snapshot and replay. Nothing else in the view consumes this — it's
 // purely the wire format between the bar and the local state setters.
 type CaseFilterSnapshot = {
-  status: Case['status'] | 'all';
+  status: Case['status'] | 'all' | 'auto_closed';
   severity: Case['severity'] | 'all';
   search: string;
 };
@@ -65,7 +65,7 @@ function CaseCard({ c }: { c: Case }) {
               </span>
               <span className={clsx('flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border', sts.className)}>
                 <span className={clsx('w-1.5 h-1.5 rounded-full', sts.dot)} />
-                {sts.label}
+                {c.autoClosed ? 'Auto-closed' : sts.label}
               </span>
             </div>
             <h3 className="text-sm font-medium text-gray-200 group-hover:text-white truncate">{c.title}</h3>
@@ -114,7 +114,8 @@ function CaseCard({ c }: { c: Case }) {
 
 // ─── Main View ────────────────────────────────────────────────────────────────
 
-type FilterStatus = Case['status'] | 'all';
+// "Auto-closed" is a closed case AiSOC closed itself; the API treats it as its own filter so it can be told apart from one a person closed.
+type FilterStatus = Case['status'] | 'all' | 'auto_closed';
 
 /** The most cases the list loads at once (the API's own ceiling), newest first. The tiles above it count every case. */
 const CASES_FETCHED = 500;
@@ -180,7 +181,7 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
   });
 
   const loaded = casesData?.cases ?? [];
-  const statCounts = counts ?? { all: undefined, open: undefined, in_progress: undefined, resolved: undefined, closed: undefined };
+  const statCounts: Partial<Record<FilterStatus | 'in_progress', number | undefined>> = counts ?? { all: undefined, open: undefined, in_progress: undefined, resolved: undefined, closed: undefined, auto_closed: undefined };
   // How many cases the chosen tile has in all, to say so when the list below is cut short.
   const inTile = statusFilter === 'pending' ? undefined : statCounts[statusFilter];
 
@@ -214,8 +215,8 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
       {casesData && (statusFilter === 'open' || statusFilter === 'all') && <ActNowBoard cases={casesData.cases ?? []} />}
 
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-3">
-        {(['open', 'in_progress', 'resolved', 'closed', 'all'] as const).map((s) => {
+      <div className="grid grid-cols-6 gap-3">
+        {(['open', 'in_progress', 'resolved', 'closed', 'auto_closed', 'all'] as const).map((s) => {
           return (
             <button
               key={s}
@@ -227,7 +228,7 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
             >
               <p className="text-2xl font-bold text-gray-100" data-testid={`cases-count-${s}`}>{statCounts[s] ?? '—'}</p>
               <p className="text-xs text-gray-500 mt-0.5 capitalize">
-                {s === 'all' ? 'All Cases' : s.replace('_', ' ')}
+                {s === 'all' ? 'All Cases' : s === 'auto_closed' ? 'Auto-Closed' : s.replace('_', ' ')}
               </p>
             </button>
           );

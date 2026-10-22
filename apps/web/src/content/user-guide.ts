@@ -137,6 +137,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 - The list loads up to 500 cases, newest first, and tells you when it is cut short. (It used to show only 50, which is why the numbers never moved.)
 - Status only moves forward: new, triaged, investigating, contained, resolved, closed. Steps can be skipped; going back is refused with the reason.
 - CORE opens a case automatically for each new alert from its tools (limited per run); an analyst can open one by hand.
+- **Cases close themselves (new).** A case AiSOC opened itself is closed once every alert in it is closed (resolved, closed or a false positive) and nobody has been assigned to it. It gets a system note saying why, and shows as **Auto-closed** (its own tile and filter, so it is told apart from a case a person closed: the **Closed** tile counts only the ones a person closed). A case someone opened by hand, or one with an assignee, is never closed this way, and nothing is changed on a Halo ticket. This runs each time CORE reports in (every few minutes); the first run after the change closes every case that already qualifies. To turn it off, set \`AISOC_AUTO_CLOSE_CASES=false\` for the API.
 
 ## 8. Devices
 

@@ -1722,6 +1722,8 @@ export interface Case {
   /** Cached count from the backend so the UI doesn't have to re-aggregate. */
   alertCount?: number;
   tags?: string[];
+  /** A closed case that AiSOC closed itself (every alert in it was closed and nobody had taken it). */
+  autoClosed?: boolean;
   mitre?: string[];
   resolution?: string;
   createdBy?: string;
@@ -1951,6 +1953,7 @@ function normalizeCase(raw: unknown): Case {
       (r.alertCount as number | undefined) ??
       (alertIds ? alertIds.length : undefined),
     tags,
+    autoClosed: !!tagsRaw && typeof tagsRaw === 'object' && !Array.isArray(tagsRaw) && (tagsRaw as Record<string, unknown>).auto_closed === true && String(r.status) === 'closed',
     mitre,
     resolution: (r.resolution as string | undefined) ?? undefined,
     createdBy:
@@ -2009,7 +2012,9 @@ export interface CaseCounts {
   open: number;
   in_progress: number;
   resolved: number;
+  /** Closed by a person; the ones AiSOC closed itself are in `auto_closed`. */
   closed: number;
+  auto_closed?: number;
 }
 
 export const casesApi = {

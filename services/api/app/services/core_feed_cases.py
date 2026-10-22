@@ -3,6 +3,9 @@
 CORE only pushes alerts; nothing opened cases from them, so those pages stayed empty. Each run looks at the workspace and its client tenants for recent
 alerts from CORE's tools that no case holds yet, and opens one case per alert, linked both ways (the same shape ``POST /cases`` writes).
 A kill switch (``AISOC_AUTO_CASES=false``), a 24-hour look-back and a per-run cap keep a first run from opening a case for every old alert.
+
+The other half: ``close_finished_cases`` closes a case AiSOC opened itself once every alert in it is closed (resolved, closed or a false positive) and nobody has taken it. Cases a person opened, and
+cases somebody is assigned to, are never closed this way; nothing is pushed to a PSA ticket (that stays a person's decision). A kill switch (``AISOC_AUTO_CLOSE_CASES=false``) turns it off.
 """
 
 from __future__ import annotations
@@ -26,6 +29,15 @@ SEVERITIES = ("critical", "high", "medium", "low", "info")
 VENDORS = ("huntress", "petra", "blumira", "ninjaone", "fieldeffect", "threatmate", "addigy")
 LOOK_BACK = timedelta(hours=24)
 PER_RUN_CAP = 50
+
+
+FINISHED_ALERT = ("resolved", "closed", "false_positive", "fp")
+CLOSE_PER_RUN_CAP = 1000
+AUTO_CLOSE_NOTE = "Closed automatically: every alert in this case is closed, and nobody had taken it."
+
+
+def auto_close_enabled() -> bool:
+    return os.getenv("AISOC_AUTO_CLOSE_CASES", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def enabled() -> bool:
@@ -97,4 +109,51 @@ async def open_cases_for_new_alerts(
                 total += await open_cases_in_scope(db, tid, now, PER_RUN_CAP - total)
         except Exception:  # one tenant's failure must not stop the rest
             logger.exception("core_feed_cases.failed", extra={"tenant_id": str(tid)})
+    return total
+
+
+async def close_finished_cases_in_scope(db: Any, tenant_id: uuid.UUID, now: datetime, limit: int = CLOSE_PER_RUN_CAP) -> int:
+    """Close this tenant's open, system-opened, unassigned cases whose alerts are all finished. Returns how many were closed. ``db`` is already in the tenant's scope; the caller commits."""
+    closed = (
+        await db.execute(
+            text(
+                "WITH due AS ("
+                " SELECT c.id FROM aisoc_cases c WHERE c.tenant_id = :t AND c.status NOT IN ('resolved', 'closed') AND c.created_by = 'system' AND c.assignee IS NULL"
+                " AND coalesce(cardinality(c.alert_ids), 0) > 0"
+                " AND EXISTS (SELECT 1 FROM unnest(c.alert_ids) AS x(aid) JOIN alerts a ON a.id = x.aid WHERE a.tenant_id = :t)"
+                " AND NOT EXISTS (SELECT 1 FROM unnest(c.alert_ids) AS x(aid) JOIN alerts a ON a.id = x.aid WHERE a.tenant_id = :t AND a.status <> ALL(CAST(:done AS TEXT[])))"
+                " ORDER BY c.updated_at LIMIT :n)"
+                " UPDATE aisoc_cases c SET status = 'closed', resolved_at = coalesce(c.resolved_at, :now), closed_at = :now, updated_at = :now, tags = coalesce(c.tags, '{}'::jsonb) || '{\"auto_closed\": true}'::jsonb FROM due WHERE c.id = due.id RETURNING c.id"
+            ),
+            {"t": tenant_id, "done": list(FINISHED_ALERT), "now": now, "n": limit},
+        )
+    ).all()
+    for (case_id,) in closed:
+        await db.execute(
+            text("INSERT INTO aisoc_case_comments (id, case_id, tenant_id, author, body, is_system, created_at) VALUES (:id, :c, :t, 'system', :body, true, :now)"),
+            {"id": uuid.uuid4(), "c": case_id, "t": tenant_id, "body": AUTO_CLOSE_NOTE, "now": now},
+        )
+    return len(closed)
+
+
+async def close_finished_cases(
+    db: Any,
+    parent_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+    scope: Callable[[Any, uuid.UUID], Any] = acting_as_tenant,
+) -> int:
+    """Run ``close_finished_cases_in_scope`` for the workspace and each client tenant. Returns how many cases were closed. The caller commits."""
+    if not auto_close_enabled():
+        return 0
+    now = now or datetime.now(UTC)
+    ids = [parent_id]
+    ids += [r[0] for r in (await db.execute(text("SELECT id FROM tenants WHERE parent_tenant_id = :p"), {"p": parent_id})).all()]
+    total = 0
+    for tid in ids:
+        try:
+            async with scope(db, tid), db.begin_nested():
+                total += await close_finished_cases_in_scope(db, tid, now)
+        except Exception:  # one tenant's failure must not stop the rest
+            logger.exception("core_feed_cases.auto_close_failed", extra={"tenant_id": str(tid)})
     return total

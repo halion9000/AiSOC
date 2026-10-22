@@ -20516,6 +20516,10 @@ components:
         closed:
           type: integer
           title: Closed
+        auto_closed:
+          type: integer
+          title: Auto Closed
+          default: 0
         by_status:
           additionalProperties:
             type: integer

@@ -35,11 +35,11 @@ describe('the cases page', () => {
     expect(screen.getByTestId('cases-count-closed')).toHaveTextContent('5');
   });
 
-  it('lists Open first and All Cases after Closed', async () => {
+  it('lists Open first, then Closed and Auto-Closed, and All Cases last', async () => {
     show();
     await screen.findByTestId('cases-count-open');
     const labels = screen.getAllByTestId(/^cases-count-/).map((el) => el.getAttribute('data-testid'));
-    expect(labels).toEqual(['cases-count-open', 'cases-count-in_progress', 'cases-count-resolved', 'cases-count-closed', 'cases-count-all']);
+    expect(labels).toEqual(['cases-count-open', 'cases-count-in_progress', 'cases-count-resolved', 'cases-count-closed', 'cases-count-auto_closed', 'cases-count-all']);
   });
 
   it('says when the list is cut short, and not otherwise', async () => {
@@ -77,5 +77,19 @@ describe('the Act now board on the cases page', () => {
     expect(screen.getAllByTestId('act-now-card')[0]).toHaveTextContent('Act now');
     await user.click(screen.getByTestId('cases-count-closed'));
     expect(screen.queryByTestId('act-now')).not.toBeInTheDocument();
+  });
+});
+
+describe('Auto-Closed cases', () => {
+  it('has its own tile with its own count, asks the API for auto_closed when chosen, and marks the card', async () => {
+    const user = userEvent.setup();
+    api.counts.mockResolvedValue({ all: 9, open: 2, in_progress: 1, resolved: 1, closed: 2, auto_closed: 3 });
+    api.list.mockResolvedValue({ cases: [{ ...caseRow(1), status: 'closed', autoClosed: true }], total: 1 });
+    show();
+    expect(await screen.findByTestId('cases-count-auto_closed')).toHaveTextContent('3');
+    expect(screen.getByTestId('cases-count-closed')).toHaveTextContent('2');
+    await user.click(screen.getByTestId('cases-count-auto_closed'));
+    await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'auto_closed' })));
+    expect((await screen.findAllByText('Auto-closed')).length).toBeGreaterThan(0);
   });
 });
