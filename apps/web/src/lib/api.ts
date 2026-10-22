@@ -511,6 +511,16 @@ export interface AlertScriptRun {
   finished_at: string | null;
 }
 
+export interface BulkScriptRun {
+  batch_id: string | null;
+  preview: boolean;
+  script_name: string;
+  runs_at_once: boolean;
+  queued: number;
+  skipped: number;
+  items: Array<{ alert_id: string; device: string | null; outcome: 'queued' | 'skipped'; reason: string | null; request_id: string | null }>;
+}
+
 export interface AlertScriptOptions {
   scripts: Array<{ id: number; name: string; one_click: boolean }>;
   device: string | null;
@@ -1346,6 +1356,10 @@ export const alertsApi = {
   /** Queue a script for CORE to run on the alert's machine; the result goes on the HaloPSA ticket and the case. Nothing has run when this returns. */
   runScript: (id: string, body: { script_id: number; ticket: { mode: 'link' | 'create'; number?: string }; case_id?: string }) =>
     request<{ id: string; status: string; runs_at_once: boolean }>(`/api/v1/alerts/${id}/scripts/run`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** One script for the machines of many alerts: one request (and one new HaloPSA ticket) per machine, one approval in CORE. `preview` queues nothing and says what would happen. */
+  runScriptBulk: (body: { script_id: number; alert_ids: string[]; preview?: boolean }) =>
+    request<BulkScriptRun>('/api/v1/alerts/scripts/run-bulk', { method: 'POST', body: JSON.stringify(body) }),
 
   /** Other alerts from the last 30 days that name the same device or user, from any tool. */
   related: (id: string) => request<{ items: RelatedAlert[]; more: number }>(`/api/v1/alerts/${id}/related`),

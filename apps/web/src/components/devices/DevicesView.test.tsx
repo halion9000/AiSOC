@@ -139,6 +139,7 @@ describe('DevicesView', () => {
       list([
         device({ hostname: 'NUC-ASP-PRKNG', sources: [{ vendor: 'threatmate', name: 'NUC-ASP-PRKNG', last_seen: NOW, details: { discovery_source: 'network', discovered_on_network: true } }] }),
         device({ hostname: 'MANAGED-PC', sources: [{ vendor: 'threatmate', name: 'MANAGED-PC', last_seen: NOW, details: { discovery_source: 'agent', discovered_on_network: false } }] }),
+        device({ hostname: 'ALSO-IN-NINJA', sources: [{ vendor: 'threatmate', name: 'ALSO-IN-NINJA', last_seen: NOW, details: { discovered_on_network: true } }, { vendor: 'ninjaone', name: 'ALSO-IN-NINJA', last_seen: NOW, details: {} }] }),
         device({ hostname: 'NO-TAG' }),
       ]),
     );
@@ -147,6 +148,7 @@ describe('DevicesView', () => {
     expect(within(found).getByText('Discovered on network')).toBeInTheDocument();
     expect(within(screen.getByText('MANAGED-PC').closest('tr') as HTMLElement).queryByText('Discovered on network')).not.toBeInTheDocument();
     expect(within(screen.getByText('NO-TAG').closest('tr') as HTMLElement).queryByText('Discovered on network')).not.toBeInTheDocument();
+    expect(within(screen.getByText('ALSO-IN-NINJA').closest('tr') as HTMLElement).queryByText('Discovered on network')).not.toBeInTheDocument();
   });
 
   it('flags a device the master tool does not report, and the tally counts it', async () => {

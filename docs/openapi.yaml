@@ -1151,6 +1151,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alerts/scripts/run-bulk:
+    post:
+      tags:
+      - alerts
+      summary: Run Script Bulk
+      description: 'Queue one script for every machine the chosen alerts name: ONE
+        request per machine, each opening its own HaloPSA ticket, all tagged with
+        one batch id so CORE asks its owner ONCE.
+
+
+        A machine is asked for once however many alerts name it. An alert that names
+        no machine, cannot be found, or already has a request waiting is skipped,
+        with the reason; the rest go. With
+
+        ``preview`` nothing is queued: the same answer comes back so the page can
+        show what would happen before the person confirms.'
+      operationId: run_script_bulk_api_v1_alerts_scripts_run_bulk_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkRunRequest'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkRunResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/alerts/{alert_id}/related:
     get:
       tags:
@@ -10703,13 +10741,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/inbox/core-feed/{tenant_token}/vcio-proposals/approved:
-    get:
+    post:
       tags:
       - inbox-core-feed
       summary: Approved Proposals
       description: The suggestions a person approved and CORE has not yet sent, with
         the vCIO Toolbox customer each belongs to.
-      operationId: approved_proposals_api_v1_inbox_core_feed__tenant_token__vcio_proposals_approved_get
+      operationId: approved_proposals_api_v1_inbox_core_feed__tenant_token__vcio_proposals_approved_post
       parameters:
       - name: tenant_token
         in: path
@@ -20611,6 +20649,100 @@ components:
       required:
       - results
       title: BulkResponse
+    BulkRunItem:
+      properties:
+        alert_id:
+          type: string
+          format: uuid
+          title: Alert Id
+        device:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device
+        outcome:
+          type: string
+          enum:
+          - queued
+          - skipped
+          title: Outcome
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        request_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Request Id
+      type: object
+      required:
+      - alert_id
+      - outcome
+      title: BulkRunItem
+    BulkRunRequest:
+      properties:
+        script_id:
+          type: integer
+          maximum: 2000000000.0
+          minimum: 1.0
+          title: Script Id
+        alert_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          maxItems: 200
+          minItems: 1
+          title: Alert Ids
+        preview:
+          type: boolean
+          title: Preview
+          description: 'True: say what would be queued, queue nothing.'
+          default: false
+      type: object
+      required:
+      - script_id
+      - alert_ids
+      title: BulkRunRequest
+    BulkRunResponse:
+      properties:
+        batch_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Batch Id
+        preview:
+          type: boolean
+          title: Preview
+        script_name:
+          type: string
+          title: Script Name
+        runs_at_once:
+          type: boolean
+          title: Runs At Once
+        queued:
+          type: integer
+          title: Queued
+        skipped:
+          type: integer
+          title: Skipped
+        items:
+          items:
+            $ref: '#/components/schemas/BulkRunItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - preview
+      - script_name
+      - runs_at_once
+      - queued
+      - skipped
+      - items
+      title: BulkRunResponse
     BulkToggleBody:
       properties:
         ruleIds:
@@ -34907,6 +35039,11 @@ components:
           - type: number
           - type: 'null'
           title: Percent
+        enrolled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enrolled
       type: object
       required:
       - tool

@@ -709,9 +709,10 @@ export function attentionOf(d: DeviceRow): string[] {
   return d.sources.flatMap((s) => (Array.isArray(s.details?.needs_attention) ? (s.details.needs_attention as unknown[]).filter((x): x is string => typeof x === 'string' && x !== '') : []));
 }
 
-/** True when a tool says it only found this device by scanning the network (ThreatMate's asset source), not through an agent. */
+/** True when ThreatMate found this device by scanning the network AND no other tool lists it. */
 export function discoveredOnNetwork(d: DeviceRow): boolean {
-  return d.sources.some((s) => s.details?.discovered_on_network === true);
+  // Only when nothing else reports it: a machine NinjaOne, Huntress or any other tool also lists is not just "found by a scan".
+  return d.sources.some((s) => s.details?.discovered_on_network === true) && d.sources.every((s) => s.vendor === 'threatmate');
 }
 
 /** Memory, processor and disks from whichever feed reports them (first one wins), as label/value pairs. */

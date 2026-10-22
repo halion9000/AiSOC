@@ -14,6 +14,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { CreateAlertModal } from './CreateAlertModal';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
 import BulkTicketBar from './BulkTicketBar';
+import BulkScriptBar from './BulkScriptBar';
 import { loadFilters, saveFilters } from '@/lib/remembered-filters';
 import { rememberable, restoreFilters } from '@/lib/alert-filter-memory';
 import { sourceLink } from './AlertContext';
@@ -691,6 +692,13 @@ export function AlertsTableGrid({
   return (
     <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl overflow-hidden">
       <BulkTicketBar alertIds={tickedIds} onDone={onChanged} onClear={() => setTicked(new Set())} />
+      <BulkScriptBar
+        alertIds={tickedIds}
+        onDone={() => {
+          onChanged();
+          setTicked(new Set());
+        }}
+      />
       <div className="flex items-center px-4 py-2 border-b border-gray-800/60 bg-gray-900/80">
         <span className="text-xs text-gray-500 flex-1 pl-2">ALERT</span>
         <span className="text-xs text-gray-500 w-20">CONFIDENCE</span>
