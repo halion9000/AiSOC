@@ -31,6 +31,7 @@ from app.models.client_alias import ClientAlias
 from app.models.signin import ClientVcioReview, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.client_review import DeviceFacts, Readiness, device_facts, readiness
+from app.services.tech_stack import TechAnswer, tech_stack
 
 router = APIRouter(prefix="/client-review", tags=["posture"])
 ingest_router = APIRouter(prefix="/inbox", tags=["inbox-core-feed"])
@@ -160,10 +161,18 @@ class ClientReview(BaseModel):
     readiness: Readiness
     # What vCIO Toolbox holds for the client (recommendations by adoption, the pending ones that matter most, risks); None when CORE has not sent it.
     vcio: ReviewVcio | None = None
+    # Suggested answers to the vCIO Toolbox review template's technology questions, from what A.C.O.R.N can see (nothing is sent to vCIO Toolbox).
+    tech_stack: list[TechAnswer] = Field(default_factory=list)
 
 
-@router.get("/{client_id}", response_model=ClientReview, summary="One client's coverage, identity, alerts and cases for a review, with a cyber-insurance readiness checklist")
-async def client_review(client_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> ClientReview:
+@router.get(
+    "/{client_id}",
+    response_model=ClientReview,
+    summary="One client's coverage, identity, alerts and cases for a review, with a cyber-insurance readiness checklist",
+)
+async def client_review(
+    client_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
+) -> ClientReview:
     owner = current_user.tenant_id
     if client_id != owner:
         found = (await db.execute(select(Tenant.id).where(Tenant.id == client_id, Tenant.parent_tenant_id == owner))).scalar_one_or_none()
@@ -174,7 +183,13 @@ async def client_review(client_id: uuid.UUID, current_user: Annotated[AuthUser, 
     shown = [d for d in await _load_cached(db, owner, scope, clients, master) if d.hidden_since is None]
     rolled = devices_part(rollup_of(shown), client_id)
     # Which tools this client is mapped to an organization in (a tool with no mapped client at all cannot say).
-    aliases = (await db.execute(select(ClientAlias.vendor, ClientAlias.child_tenant_id).where(ClientAlias.tenant_id == owner, ClientAlias.ignored.is_(False), ClientAlias.child_tenant_id.is_not(None)))).all()
+    aliases = (
+        await db.execute(
+            select(ClientAlias.vendor, ClientAlias.child_tenant_id).where(
+                ClientAlias.tenant_id == owner, ClientAlias.ignored.is_(False), ClientAlias.child_tenant_id.is_not(None)
+            )
+        )
+    ).all()
     facts = device_facts(
         shown,
         stale_agents=rolled.stale_agents,
@@ -233,6 +248,7 @@ async def client_review(client_id: uuid.UUID, current_user: Annotated[AuthUser, 
         alerts=ReviewAlerts(open=a[0], critical_open=a[1], high_open=a[2], opened_30d=a[3], closed_30d=a[4]),
         cases=ReviewCases(open=c[0], opened_30d=c[1], resolved_30d=c[2]),
         readiness=readiness(facts, mfa, score.percent if score else None),
+        tech_stack=tech_stack(shown, facts, has_microsoft_365=bool(users)),
         vcio=(
             ReviewVcio(
                 recommendations=VcioRecommendations(**(vcio_row.recommendations or {})),

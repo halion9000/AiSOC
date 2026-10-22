@@ -112,3 +112,47 @@ def test_known_exploited_machines_are_partly_met_when_few_and_not_met_when_many(
     assert items(readiness(device_facts(many, 0, 0), None, None))["patching"].status == "not_met"
     ransom = [dev("Windows 11", "threatmate", threatmate={"kev_count": 1, "kev_ransomware": True})]
     assert "used in ransomware" in items(readiness(device_facts(ransom, 0, 0), None, None))["patching"].evidence
+
+
+# ---- technology-stack suggestions ---------------------------------------------------------------------------------------------------------------------------
+
+
+def _dev(os_name, *vendors):
+    return NS(os=os_name, sources=[NS(vendor=v, details={}) for v in vendors], hidden_since=None)
+
+
+def _stack(devices, enrolled=None, mapped=None, m365=False):
+    from app.services.client_review import device_facts
+    from app.services.tech_stack import tech_stack
+
+    facts = device_facts(devices, stale_agents=0, offline=0, enrolled_in=enrolled or set(), mapped_tools=mapped or set())
+    return {a.key: a for a in tech_stack(devices, facts, has_microsoft_365=m365)}
+
+
+def test_tech_stack_has_every_template_question_in_order_and_guesses_nothing():
+    from app.services.tech_stack import QUESTIONS
+
+    answers = _stack([])
+    assert list(answers) == [q[0] for q in QUESTIONS] and len(QUESTIONS) == 24
+    assert all(a.status == "unknown" and a.suggested is None for a in answers.values())
+
+
+def test_tech_stack_names_the_tool_when_machines_report_it_and_says_none_seen_when_they_do_not():
+    devs = [
+        _dev("Windows 11 Pro", "ninjaone", "huntress", "dnsfilter"),
+        _dev("Windows 10 Pro", "ninjaone"),
+        _dev("macOS 14", "ninjaone", "addigy"),
+    ]
+    a = _stack(devs, m365=True)
+    assert (a["edr_pc"].status, a["edr_pc"].suggested) == ("seen", "Huntress") and "1 of 2 Windows" in a["edr_pc"].evidence
+    assert a["edr_mac"].status == "not_seen" and a["edr_mac"].suggested == "None seen"
+    assert a["apple_mdm"].suggested == "Addigy"
+    assert a["dns_filter"].suggested == "DNSFilter" and "1 of 3 computers" in a["dns_filter"].evidence
+    assert a["pam"].status == "not_seen"
+    assert a["email_service"].suggested == "Microsoft 365"
+
+
+def test_tech_stack_without_mac_or_windows_machines_is_unknown_not_none_seen():
+    a = _stack([_dev("Windows 11", "ninjaone")])
+    assert a["edr_mac"].status == "unknown" and "No Macs" in a["edr_mac"].evidence
+    assert a["email_service"].status == "unknown"

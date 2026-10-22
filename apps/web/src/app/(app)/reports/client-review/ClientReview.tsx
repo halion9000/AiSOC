@@ -4,7 +4,7 @@
  * Client review: one client's tool coverage, Multi-Factor, Microsoft Secure Score, the last 30 days of alerts and cases, and a cyber-insurance readiness checklist, on one printable page.
  * Backed by GET /api/v1/client-review/{client}. Every answer is evidence from the connected tools; what A.C.O.R.N does not hold is shown as "Not known", never guessed.
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { authFetch } from "@/lib/auth-session";
@@ -44,6 +44,16 @@ export interface VcioRisk {
   inherent: string | null;
 }
 
+export interface TechAnswer {
+  key: string;
+  group: string;
+  question: string;
+  /** seen: A.C.O.R.N found something; not_seen: the tool covers other clients but not this one; unknown: A.C.O.R.N cannot see this. */
+  status: 'seen' | 'not_seen' | 'unknown';
+  suggested: string | null;
+  evidence: string;
+}
+
 export interface Review {
   client_id: string;
   client_name: string | null;
@@ -55,6 +65,7 @@ export interface Review {
   alerts: { open: number; critical_open: number; high_open: number; opened_30d: number; closed_30d: number };
   cases: { open: number; opened_30d: number; resolved_30d: number };
   readiness: { met: number; partly: number; not_met: number; unknown: number; items: ReadinessItem[] };
+  tech_stack?: TechAnswer[];
   vcio?: { recommendations: { total: number; pending: number; adopted: number; declined: number; top: VcioRecommendation[] }; risks: VcioRisk[]; refreshed_at: string } | null;
 }
 
@@ -225,6 +236,36 @@ export function ClientReview() {
               ))}
             </ul>
           </Card>
+
+          {(review.tech_stack ?? []).length > 0 && (
+            <Card title="Technology stack: suggested answers">
+              <p className="mb-2 text-xs text-slate-500">
+                The vCIO Toolbox review template's technology questions, with what A.C.O.R.N can see. Anything marked Ask the client is something A.C.O.R.N has no way to see. Nothing here is sent to vCIO Toolbox.
+              </p>
+              <table className="w-full text-left text-sm" data-testid="tech-stack">
+                <tbody>
+                  {(review.tech_stack ?? []).map((a, i, all) => (
+                    <Fragment key={a.key}>
+                      {(i === 0 || all[i - 1].group !== a.group) && (
+                        <tr>
+                          <th colSpan={3} className="pt-3 text-xs font-medium uppercase text-slate-500">
+                            {a.group}
+                          </th>
+                        </tr>
+                      )}
+                      <tr className="border-b border-slate-800 align-top">
+                        <td className="py-1.5 pr-3 text-slate-300">{a.question}</td>
+                        <td className={`w-32 pr-3 ${a.status === 'seen' ? 'text-emerald-300' : a.status === 'not_seen' ? 'text-amber-300' : 'text-slate-500'}`}>
+                          {a.status === 'unknown' ? 'Ask the client' : a.suggested}
+                        </td>
+                        <td className="text-xs text-slate-500">{a.evidence}</td>
+                      </tr>
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card title="Tool coverage">

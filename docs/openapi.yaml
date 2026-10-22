@@ -21402,6 +21402,11 @@ components:
           anyOf:
           - $ref: '#/components/schemas/ReviewVcio'
           - type: 'null'
+        tech_stack:
+          items:
+            $ref: '#/components/schemas/TechAnswer'
+          type: array
+          title: Tech Stack
       type: object
       required:
       - client_id
@@ -34158,6 +34163,36 @@ components:
       - status
       - createdAt
       title: TaskResponse
+    TechAnswer:
+      properties:
+        key:
+          type: string
+          title: Key
+        group:
+          type: string
+          title: Group
+        question:
+          type: string
+          title: Question
+        status:
+          type: string
+          title: Status
+        suggested:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Suggested
+        evidence:
+          type: string
+          title: Evidence
+      type: object
+      required:
+      - key
+      - group
+      - question
+      - status
+      - evidence
+      title: TechAnswer
     TemplateCreate:
       properties:
         name:

@@ -7,7 +7,7 @@ vi.mock('@/lib/auth-session', () => ({ authFetch }));
 const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
 
-import { ClientReview, dueText, readinessHeadline, visibleCoverage, type Review } from './ClientReview';
+import { ClientReview, dueText, readinessHeadline, visibleCoverage, type Review, type TechAnswer } from './ClientReview';
 
 const reply = (body: unknown, ok = true, status = 200) => ({ ok, status: ok ? 200 : status, json: () => Promise.resolve(body) });
 
@@ -136,5 +136,21 @@ describe('the vCIO Toolbox part', () => {
     await screen.findByTestId('review-title');
     expect(screen.queryByText('From vCIO Toolbox')).not.toBeInTheDocument();
   });
-});
 
+  it('lays out the technology questions with the suggestion and what it was based on, and says Ask the client where A.C.O.R.N cannot see', async () => {
+    routerParams.current = new URLSearchParams('client=c1');
+    const tech_stack: TechAnswer[] = [
+      { key: 'edr_pc', group: 'Security tools', question: 'What endpoint security is in use for PCs', status: 'seen', suggested: 'Huntress', evidence: '17 of 20 Windows computers report Huntress.' },
+      { key: 'edr_mac', group: 'Security tools', question: 'What endpoint security is in use for Macs', status: 'not_seen', suggested: 'None seen', evidence: "None of the client's 3 Macs report Huntress." },
+      { key: 'firewall', group: 'Network equipment', question: 'What is the client Firewall', status: 'unknown', suggested: null, evidence: 'A.C.O.R.N does not collect this; ask the client.' },
+    ];
+    authFetch.mockImplementation((url?: string) => Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply(review({ tech_stack })) : reply([{ id: 'c1', name: 'Acme Dental' }])));
+    render(<ClientReview />);
+    const table = await screen.findByTestId('tech-stack');
+    expect(table).toHaveTextContent('Huntress');
+    expect(table).toHaveTextContent('17 of 20 Windows computers report Huntress.');
+    expect(table).toHaveTextContent('None seen');
+    expect(table).toHaveTextContent('Ask the client');
+    expect(table).toHaveTextContent('Network equipment');
+  });
+});
