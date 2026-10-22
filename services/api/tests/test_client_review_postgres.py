@@ -30,9 +30,20 @@ async def world():
         for key, tid in ids.items():
             await c.execute(
                 text("insert into tenants (id, name, slug, parent_tenant_id, mssp_role) values (:i, :n, :s, :p, :r)"),
-                {"i": tid, "n": f"cr-{key}-{tag}", "s": f"cr-{key}-{tag}", "p": ids["msp"] if key == "client" else None, "r": "child" if key == "client" else "parent"},
+                {
+                    "i": tid,
+                    "n": f"cr-{key}-{tag}",
+                    "s": f"cr-{key}-{tag}",
+                    "p": ids["msp"] if key == "client" else None,
+                    "r": "child" if key == "client" else "parent",
+                },
             )
-        for sev, status, days_ago in (("critical", "new", 1), ("high", "investigating", 3), ("low", "resolved", 2), ("critical", "new", 60)):
+        for sev, status, days_ago in (
+            ("critical", "new", 1),
+            ("high", "investigating", 3),
+            ("low", "resolved", 2),
+            ("critical", "new", 60),
+        ):
             await c.execute(
                 text(
                     "insert into alerts (id, tenant_id, title, severity, status, created_at, updated_at) "
@@ -79,10 +90,31 @@ async def test_the_review_counts_the_last_thirty_days_and_answers_the_checklist_
                 await upsert_device(db, world["client"], DeviceReport(vendor, ext, host, os=os_name, **kw))
             snap = uuid.uuid4()
             for uid, registered, admin in (("1", True, False), ("2", False, True)):
-                db.add(IdentityMfaUser(tenant_id=world["client"], source="cipp", user_id=uid, upn=f"{uid}@x.com", enabled=True, user_type="Member", admin=admin, licensed=True, registered=registered, ca_enforced=True, snapshot_id=snap))
+                db.add(
+                    IdentityMfaUser(
+                        tenant_id=world["client"],
+                        source="cipp",
+                        user_id=uid,
+                        upn=f"{uid}@x.com",
+                        enabled=True,
+                        user_type="Member",
+                        admin=admin,
+                        licensed=True,
+                        registered=registered,
+                        ca_enforced=True,
+                        snapshot_id=snap,
+                    )
+                )
             db.add(
                 IdentitySecureScore(
-                    tenant_id=world["client"], source="cipp", taken_at=datetime(2026, 10, 21, tzinfo=UTC), current_score=130, max_score=260, average_score=54, history=[], improvements=[]
+                    tenant_id=world["client"],
+                    source="cipp",
+                    taken_at=datetime(2026, 10, 21, tzinfo=UTC),
+                    current_score=130,
+                    max_score=260,
+                    average_score=54,
+                    history=[],
+                    improvements=[],
                 )
             )
             await db.flush()
@@ -91,7 +123,10 @@ async def test_the_review_counts_the_last_thirty_days_and_answers_the_checklist_
     r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
     assert r.client_name.startswith("cr-client-")
     assert (r.alerts.open, r.alerts.critical_open, r.alerts.high_open) == (3, 2, 1)
-    assert (r.alerts.opened_30d, r.alerts.closed_30d) == (3, 1), "the 60-day-old alert is outside the window; one alert was closed inside it"
+    assert (r.alerts.opened_30d, r.alerts.closed_30d) == (
+        3,
+        1,
+    ), "the 60-day-old alert is outside the window; one alert was closed inside it"
     assert (r.cases.open, r.cases.opened_30d, r.cases.resolved_30d) == (1, 2, 1), "the 90-day-old resolved case is outside the window"
     assert r.devices.endpoints == 2
     cov = {c.tool: (c.have, c.of) for c in r.devices.coverage}
@@ -122,9 +157,21 @@ def vcio_report(client="vcio-1", **over):
             "pending": 40,
             "adopted": 8,
             "declined": 2,
-            "top": [{"name": "Restrict Group Creation", "priority": "High", "adoption": "Pending", "due": "2026-06-12", "on_roadmap": False}],
+            "top": [
+                {"name": "Restrict Group Creation", "priority": "High", "adoption": "Pending", "due": "2026-06-12", "on_roadmap": False}
+            ],
         },
-        "risks": [{"name": "Cyber Liability", "category": "Financial Risk", "priority": "Medium", "impact": 4, "likelihood": 2, "score": 8, "inherent": "Medium"}],
+        "risks": [
+            {
+                "name": "Cyber Liability",
+                "category": "Financial Risk",
+                "priority": "Medium",
+                "impact": 4,
+                "likelihood": 2,
+                "score": 8,
+                "inherent": "Medium",
+            }
+        ],
     }
     base.update(over)
     return ep.VcioReviewReport(**base)
@@ -145,10 +192,19 @@ async def test_a_mapped_clients_vcio_summary_is_stored_replaced_and_shown_in_the
     assert (waiting.accepted, waiting.unmapped) == (0, 1)
     first = await run(world["msp"], lambda db: ep.apply_vcio_review(db, world["msp"], vcio_report()))
     assert (first.accepted, first.unmapped) == (1, 0)
-    await run(world["msp"], lambda db: ep.apply_vcio_review(db, world["msp"], vcio_report(recommendations={"total": 51, "pending": 41, "adopted": 8, "declined": 2, "top": []})))
+    await run(
+        world["msp"],
+        lambda db: ep.apply_vcio_review(
+            db, world["msp"], vcio_report(recommendations={"total": 51, "pending": 41, "adopted": 8, "declined": 2, "top": []})
+        ),
+    )
     r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
     assert r.vcio is not None
-    assert (r.vcio.recommendations.total, r.vcio.recommendations.pending, r.vcio.recommendations.top) == (51, 41, []), "the second report replaced the first"
+    assert (r.vcio.recommendations.total, r.vcio.recommendations.pending, r.vcio.recommendations.top) == (
+        51,
+        41,
+        [],
+    ), "the second report replaced the first"
     assert [(k.name, k.score) for k in r.vcio.risks] == [("Cyber Liability", 8.0)]
 
 
@@ -156,3 +212,49 @@ async def test_a_client_with_no_vcio_summary_has_none(world):
     r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
     assert r.vcio is None
 
+
+def m365_report(client="m365-1", checks=None):
+    return ep.M365ChecksReport(
+        vendor="cipp",
+        vendor_client_id=client,
+        checks=checks
+        if checks is not None
+        else [
+            {"key": "safe_attachments", "status": "met", "evidence": "2 Safe Attachments policies enabled."},
+            {"key": "ga_count", "status": "not_met", "evidence": "1 Global Administrator"},
+        ],
+    )
+
+
+async def test_a_mapped_clients_m365_checks_are_stored_replaced_and_answer_the_template_questions_and_an_unmapped_one_waits(world):
+    async def alias(db):
+        await db.execute(
+            text(
+                "insert into client_aliases (tenant_id, vendor, vendor_client_id, vendor_client_name, normalized_name, child_tenant_id, ignored, match_source) "
+                "values (:t, 'cipp', 'm365-1', 'm365-1', 'm365-1', :c, false, 'manual')"
+            ),
+            {"t": world["msp"], "c": world["client"]},
+        )
+
+    await run(world["msp"], alias)
+    waiting = await run(world["msp"], lambda db: ep.apply_m365_checks(db, world["msp"], m365_report(client="nobody")))
+    assert (waiting.accepted, waiting.unmapped) == (0, 1)
+    assert (await run(world["msp"], lambda db: ep.apply_m365_checks(db, world["msp"], m365_report()))).accepted == 1
+    await run(
+        world["msp"],
+        lambda db: ep.apply_m365_checks(
+            db, world["msp"], m365_report(checks=[{"key": "safe_attachments", "status": "not_met", "evidence": "none"}])
+        ),
+    )
+    r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
+    by_q = {a.question: a for a in r.m365}
+    assert by_q["Ensure Safe Attachments policy is enabled"].status == "not_met", "the second report replaced the first"
+    assert (
+        by_q["Ensure that between two and four global admins are designated"].status == "needs_person"
+    ), "a check the second report no longer has is not kept"
+    assert r.m365_refreshed_at is not None
+
+
+async def test_a_client_with_no_m365_checks_has_every_question_marked_needs_a_person(world):
+    r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
+    assert len(r.m365) == 99 and all(a.status == "needs_person" for a in r.m365) and r.m365_refreshed_at is None

@@ -54,6 +54,21 @@ export interface TechAnswer {
   evidence: string;
 }
 
+export interface M365Answer {
+  group: string;
+  question: string;
+  /** From a check CORE read through CIPP (or the multi-factor list); needs_person when A.C.O.R.N has nothing that answers it. */
+  status: 'met' | 'partly' | 'not_met' | 'needs_person';
+  evidence: string;
+}
+
+/** "20 of 99 answered: 11 met, 1 partly, 8 not met. 79 need a person." */
+export function m365Headline(items: M365Answer[]): string {
+  const n = (s: M365Answer['status']) => items.filter((i) => i.status === s).length;
+  const answered = items.length - n('needs_person');
+  return `${answered} of ${items.length} answered: ${n('met')} met, ${n('partly')} partly, ${n('not_met')} not met. ${n('needs_person')} need a person.`;
+}
+
 export interface Review {
   client_id: string;
   client_name: string | null;
@@ -66,6 +81,8 @@ export interface Review {
   cases: { open: number; opened_30d: number; resolved_30d: number };
   readiness: { met: number; partly: number; not_met: number; unknown: number; items: ReadinessItem[] };
   tech_stack?: TechAnswer[];
+  m365?: M365Answer[];
+  m365_refreshed_at?: string | null;
   vcio?: { recommendations: { total: number; pending: number; adopted: number; declined: number; top: VcioRecommendation[] }; risks: VcioRisk[]; refreshed_at: string } | null;
 }
 
@@ -257,6 +274,44 @@ export function ClientReview() {
                         <td className="py-1.5 pr-3 text-slate-300">{a.question}</td>
                         <td className={`w-32 pr-3 ${a.status === 'seen' ? 'text-emerald-300' : a.status === 'not_seen' ? 'text-amber-300' : 'text-slate-500'}`}>
                           {a.status === 'unknown' ? 'Ask the client' : a.suggested}
+                        </td>
+                        <td className="text-xs text-slate-500">{a.evidence}</td>
+                      </tr>
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+
+          {(review.m365 ?? []).length > 0 && (
+            <Card title="Microsoft 365: suggested answers">
+              <p className="mb-1 text-sm text-slate-300" data-testid="m365-headline">
+                {m365Headline(review.m365 ?? [])}
+              </p>
+              <p className="mb-2 text-xs text-slate-500">
+                The vCIO Toolbox review template's Microsoft 365 questions. An answer is shown only where A.C.O.R.N read the setting through CIPP
+                {review.m365_refreshed_at ? ` (last read ${new Date(review.m365_refreshed_at).toLocaleDateString()})` : ''} or holds the multi-factor list; the rest need a person. Nothing here is sent to vCIO Toolbox.
+              </p>
+              <table className="w-full text-left text-sm" data-testid="m365">
+                <tbody>
+                  {(review.m365 ?? []).map((a, i, all) => (
+                    <Fragment key={a.question}>
+                      {(i === 0 || all[i - 1].group !== a.group) && (
+                        <tr>
+                          <th colSpan={3} className="pt-3 text-xs font-medium uppercase text-slate-500">
+                            {a.group}
+                          </th>
+                        </tr>
+                      )}
+                      <tr className="border-b border-slate-800 align-top">
+                        <td className="py-1.5 pr-3 text-slate-300">{a.question}</td>
+                        <td className="w-24 pr-3">
+                          {a.status === 'needs_person' ? (
+                            <span className="text-slate-500">Needs a person</span>
+                          ) : (
+                            <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${STATUS[a.status].className}`}>{STATUS[a.status].label}</span>
+                          )}
                         </td>
                         <td className="text-xs text-slate-500">{a.evidence}</td>
                       </tr>

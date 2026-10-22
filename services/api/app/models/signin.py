@@ -106,6 +106,17 @@ class ClientVcioReview(Base):
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
 
+class ClientM365Check(Base):
+    """One client's Microsoft 365 baseline checks (a list of {key, status, evidence}), read through CIPP by CORE (migration 097)."""
+
+    __tablename__ = "client_m365_checks"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), primary_key=True)
+    checks: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+
 class ClientVcioProposal(Base):
     """Something AiSOC suggests adding to a client's vCIO Toolbox, and what a person decided about it (migration 096)."""
 

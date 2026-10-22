@@ -10710,6 +10710,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/m365-checks:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed M365 Checks
+      description: Record one client's Microsoft 365 baseline checks (replacing the
+        last report).
+      operationId: report_core_feed_m365_checks_api_v1_inbox_core_feed__tenant_token__m365_checks_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/M365ChecksReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VcioReviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/client-review/{client_id}:
     get:
       tags:
@@ -21407,6 +21441,17 @@ components:
             $ref: '#/components/schemas/TechAnswer'
           type: array
           title: Tech Stack
+        m365:
+          items:
+            $ref: '#/components/schemas/M365Answer'
+          type: array
+          title: M365
+        m365_refreshed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: M365 Refreshed At
       type: object
       required:
       - client_id
@@ -27366,6 +27411,69 @@ components:
       - revoked
       - detail
       title: LogoutResponse
+    M365Answer:
+      properties:
+        group:
+          type: string
+          title: Group
+        question:
+          type: string
+          title: Question
+        status:
+          type: string
+          title: Status
+        evidence:
+          type: string
+          title: Evidence
+          default: ''
+      type: object
+      required:
+      - group
+      - question
+      - status
+      title: M365Answer
+    M365CheckIn:
+      properties:
+        key:
+          type: string
+          pattern: ^[a-z0-9_]{1,60}$
+          title: Key
+        status:
+          type: string
+          pattern: ^(met|partly|not_met)$
+          title: Status
+        evidence:
+          type: string
+          maxLength: 300
+          title: Evidence
+          default: ''
+      type: object
+      required:
+      - key
+      - status
+      title: M365CheckIn
+    M365ChecksReport:
+      properties:
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        vendor_client_id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Vendor Client Id
+        checks:
+          items:
+            $ref: '#/components/schemas/M365CheckIn'
+          type: array
+          maxItems: 80
+          title: Checks
+      type: object
+      required:
+      - vendor
+      - vendor_client_id
+      title: M365ChecksReport
     MSSPKpiOverview:
       properties:
         total_tenants:

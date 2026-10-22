@@ -7,7 +7,7 @@ vi.mock('@/lib/auth-session', () => ({ authFetch }));
 const routerParams = vi.hoisted(() => ({ current: new URLSearchParams('') }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => routerParams.current }));
 
-import { ClientReview, dueText, readinessHeadline, visibleCoverage, type Review, type TechAnswer } from './ClientReview';
+import { ClientReview, dueText, readinessHeadline, visibleCoverage, type Review, type TechAnswer, type M365Answer, m365Headline } from './ClientReview';
 
 const reply = (body: unknown, ok = true, status = 200) => ({ ok, status: ok ? 200 : status, json: () => Promise.resolve(body) });
 
@@ -152,5 +152,23 @@ describe('the vCIO Toolbox part', () => {
     expect(table).toHaveTextContent('None seen');
     expect(table).toHaveTextContent('Ask the client');
     expect(table).toHaveTextContent('Network equipment');
+  });
+
+  it('lays out the Microsoft 365 questions: a status and what was read where answered, Needs a person where not, and says how many are answered', async () => {
+    routerParams.current = new URLSearchParams('client=c1');
+    const m365: M365Answer[] = [
+      { group: 'M365 Defender', question: 'Ensure Safe Attachments policy is enabled', status: 'met', evidence: '2 Safe Attachments policies enabled.' },
+      { group: 'M365 Defender', question: 'Ensure Safe Links for Office Applications is Enabled', status: 'not_met', evidence: 'No Safe Links policy covers Office applications.' },
+      { group: 'Microsoft Purview', question: 'Ensure DLP policies are enabled', status: 'needs_person', evidence: '' },
+    ];
+    authFetch.mockImplementation((url?: string) => Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply(review({ m365, m365_refreshed_at: '2026-10-22T10:00:00Z' })) : reply([{ id: 'c1', name: 'Acme Dental' }])));
+    render(<ClientReview />);
+    const table = await screen.findByTestId('m365');
+    expect(screen.getByTestId('m365-headline')).toHaveTextContent('2 of 3 answered: 1 met, 0 partly, 1 not met. 1 need a person.');
+    expect(table).toHaveTextContent('2 Safe Attachments policies enabled.');
+    expect(table).toHaveTextContent('Not met');
+    expect(table).toHaveTextContent('Needs a person');
+    expect(table).toHaveTextContent('Microsoft Purview');
+    expect(m365Headline([])).toBe('0 of 0 answered: 0 met, 0 partly, 0 not met. 0 need a person.');
   });
 });

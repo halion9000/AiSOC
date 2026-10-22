@@ -28,9 +28,10 @@ from app.db.rls_scope import acting_as_tenant
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
-from app.models.signin import ClientVcioReview, IdentityMfaUser, IdentitySecureScore
+from app.models.signin import ClientM365Check, ClientVcioReview, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.client_review import DeviceFacts, Readiness, device_facts, readiness
+from app.services.m365_review import M365Answer, m365_answers
 from app.services.tech_stack import TechAnswer, tech_stack
 
 router = APIRouter(prefix="/client-review", tags=["posture"])
@@ -141,6 +142,51 @@ async def report_core_feed_vcio_review(tenant_token: str, body: VcioReviewReport
     return result
 
 
+class M365CheckIn(BaseModel):
+    key: str = Field(pattern=r"^[a-z0-9_]{1,60}$")
+    status: str = Field(pattern=r"^(met|partly|not_met)$")
+    evidence: str = Field(default="", max_length=300)
+
+
+class M365ChecksReport(BaseModel):
+    vendor: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")
+    vendor_client_id: str = Field(min_length=1, max_length=200)
+    checks: list[M365CheckIn] = Field(default_factory=list, max_length=80)
+
+
+class _M365View:
+    """Lets the shared client mapping place a report that belongs to one client, as a list of one item."""
+
+    def __init__(self, report: M365ChecksReport) -> None:
+        self.vendor = report.vendor
+        self.items = [report]
+
+
+async def apply_m365_checks(db: Any, owner: uuid.UUID, report: M365ChecksReport, now: datetime | None = None) -> VcioReviewResponse:
+    """Replace the client's Microsoft 365 baseline checks with this report. The caller owns the transaction."""
+    now = now or datetime.now(UTC)
+    by_tenant, unmapped, ignored, waiting = await targets_by_tenant(db, owner, _M365View(report))
+    accepted = 0
+    for tid in by_tenant:
+        async with acting_as_tenant(db, tid):
+            values = {"tenant_id": tid, "source": report.vendor, "checks": [c.model_dump() for c in report.checks], "refreshed_at": now}
+            stmt = pg_insert(ClientM365Check).values(values)
+            update = {c: stmt.excluded[c] for c in values if c not in ("tenant_id", "source")}
+            await db.execute(stmt.on_conflict_do_update(index_elements=["tenant_id", "source"], set_=update))
+            accepted += 1
+    return VcioReviewResponse(accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=waiting)
+
+
+@ingest_router.post("/core-feed/{tenant_token}/m365-checks", response_model=VcioReviewResponse)
+async def report_core_feed_m365_checks(tenant_token: str, body: M365ChecksReport, db: DBSession) -> VcioReviewResponse:
+    """Record one client's Microsoft 365 baseline checks (replacing the last report)."""
+    owner = await _verify_core_feed_token(db, tenant_token)
+    await adopt_tenant(db, owner)
+    result = await apply_m365_checks(db, owner, body)
+    await db.commit()
+    return result
+
+
 class ReviewVcio(BaseModel):
     recommendations: VcioRecommendations
     risks: list[VcioRisk]
@@ -163,6 +209,9 @@ class ClientReview(BaseModel):
     vcio: ReviewVcio | None = None
     # Suggested answers to the vCIO Toolbox review template's technology questions, from what A.C.O.R.N can see (nothing is sent to vCIO Toolbox).
     tech_stack: list[TechAnswer] = Field(default_factory=list)
+    # Suggested answers to the template's Microsoft 365 questions (checks CORE read through CIPP, plus the multi-factor list); the rest are needs_person.
+    m365: list[M365Answer] = Field(default_factory=list)
+    m365_refreshed_at: datetime | None = None
 
 
 @router.get(
@@ -204,6 +253,7 @@ async def client_review(
         users = (await db.execute(select(IdentityMfaUser).where(IdentityMfaUser.tenant_id == client_id))).scalars().all()
         score_row = (await db.execute(select(IdentitySecureScore).where(IdentitySecureScore.tenant_id == client_id))).scalars().first()
         vcio_row = (await db.execute(select(ClientVcioReview).where(ClientVcioReview.tenant_id == client_id))).scalars().first()
+        m365_row = (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id))).scalars().first()
         a = (
             await db.execute(
                 select(
@@ -249,6 +299,8 @@ async def client_review(
         cases=ReviewCases(open=c[0], opened_30d=c[1], resolved_30d=c[2]),
         readiness=readiness(facts, mfa, score.percent if score else None),
         tech_stack=tech_stack(shown, facts, has_microsoft_365=bool(users)),
+        m365=m365_answers([c for c in (m365_row.checks if m365_row is not None else []) if isinstance(c, dict)], list(users)),
+        m365_refreshed_at=m365_row.refreshed_at if m365_row is not None else None,
         vcio=(
             ReviewVcio(
                 recommendations=VcioRecommendations(**(vcio_row.recommendations or {})),
