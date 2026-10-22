@@ -1,5 +1,5 @@
 /**
- * T3.8 — AiSOC console Badge primitive.
+ * T3.8 — A.C.O.R.N console Badge primitive.
  *
  * The console scatters ~30 inline ``<span class="text-xs ...">`` badges
  * with subtly different palettes. This component codifies the five

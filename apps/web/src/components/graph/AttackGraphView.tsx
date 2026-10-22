@@ -314,7 +314,7 @@ export function AttackGraphView() {
           <div className="p-8 text-center space-y-3 border-b border-white/5">
             <h2 className="text-lg font-semibold text-gray-200">Attack Graph Unavailable</h2>
             <p className="text-sm text-gray-400 max-w-xl mx-auto">
-              The graph overview (<code>GET /api/v1/graph</code>) did not load. If AiSOC was just rebuilt or restarted, reload in a minute; otherwise check
+              The graph overview (<code>GET /api/v1/graph</code>) did not load. If A.C.O.R.N was just rebuilt or restarted, reload in a minute; otherwise check
               Settings, Platform health for a service that is down.
             </p>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gray-800/60 text-xs text-gray-400 border border-gray-700">

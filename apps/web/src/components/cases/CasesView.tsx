@@ -114,7 +114,7 @@ function CaseCard({ c }: { c: Case }) {
 
 // ─── Main View ────────────────────────────────────────────────────────────────
 
-// "Auto-closed" is a closed case AiSOC closed itself; the API treats it as its own filter so it can be told apart from one a person closed.
+// "Auto-closed" is a closed case A.C.O.R.N closed itself; the API treats it as its own filter so it can be told apart from one a person closed.
 type FilterStatus = Case['status'] | 'all' | 'auto_closed';
 
 /** The most cases the list loads at once (the API's own ceiling), newest first. The tiles above it count every case. */

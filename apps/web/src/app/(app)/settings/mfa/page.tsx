@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { MfaStatus } from "./MfaStatus";
 
 export const metadata: Metadata = {
-  title: "Multi-factor status | Settings | AiSOC",
+  title: "Multi-factor status | Settings | A.C.O.R.N",
 };
 
 export default function MfaStatusPage() {

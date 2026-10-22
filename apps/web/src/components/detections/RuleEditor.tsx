@@ -59,7 +59,7 @@ tags:
   yara: `rule MySuspiciousBinary
 {
     meta:
-        author = "AiSOC"
+        author = "A.C.O.R.N"
         description = "Detects an embedded marker"
     strings:
         $a = "evil_marker"
@@ -666,7 +666,7 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
             hit_count: data.hitCount,
             last_triggered_at: data.lastTriggeredAt,
           }}
-          eyebrow="Ask AiSOC about this rule"
+          eyebrow="Ask A.C.O.R.N about this rule"
         />
       ) : null}
 

@@ -39,7 +39,7 @@ const review = (over: Partial<Review> = {}): Review => ({
     unknown: 4,
     items: [
       { key: 'edr', question: 'Is endpoint detection and response on every computer?', status: 'partly', evidence: '17 of 20 Windows, Mac and Linux machines (85%) report Huntress.' },
-      { key: 'backups', question: 'Are backups tested and kept offline?', status: 'unknown', evidence: 'AiSOC does not collect this yet; answer it from the client\'s own records.' },
+      { key: 'backups', question: 'Are backups tested and kept offline?', status: 'unknown', evidence: 'A.C.O.R.N does not collect this yet; answer it from the client\'s own records.' },
     ],
   },
   ...over,
@@ -52,9 +52,9 @@ beforeEach(() => {
 
 describe('the helpers', () => {
   it('says how many answers are met, need work and are not known, in plain words', () => {
-    expect(readinessHeadline({ met: 2, partly: 1, not_met: 1, unknown: 4, items: new Array(8).fill(null) })).toBe('2 of 8 answers are met, 2 need work, 4 are not known to AiSOC.');
+    expect(readinessHeadline({ met: 2, partly: 1, not_met: 1, unknown: 4, items: new Array(8).fill(null) })).toBe('2 of 8 answers are met, 2 need work, 4 are not known to A.C.O.R.N.');
     expect(readinessHeadline({ met: 9, partly: 0, not_met: 0, unknown: 0, items: new Array(9).fill(null) })).toBe('9 of 9 answers are met.');
-    expect(readinessHeadline({ met: 0, partly: 0, not_met: 1, unknown: 1, items: new Array(2).fill(null) })).toBe('0 of 2 answers are met, 1 needs work, 1 is not known to AiSOC.');
+    expect(readinessHeadline({ met: 0, partly: 0, not_met: 1, unknown: 1, items: new Array(2).fill(null) })).toBe('0 of 2 answers are met, 1 needs work, 1 is not known to A.C.O.R.N.');
   });
   it('shows only the tools some of the client\'s machines should run', () => {
     expect(visibleCoverage(review().devices.coverage).map((c) => c.tool)).toEqual(['huntress', 'dnsfilter']);
@@ -72,7 +72,7 @@ describe('ClientReview', () => {
     await waitFor(() => expect(screen.getByRole('option', { name: 'Acme Dental' })).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText('Client'), 'c1');
     expect(await screen.findByTestId('review-title')).toHaveTextContent('Acme Dental');
-    expect(screen.getByTestId('review-headline')).toHaveTextContent('2 of 2 answers are met, 2 need work, 4 are not known to AiSOC.');
+    expect(screen.getByTestId('review-headline')).toHaveTextContent('2 of 2 answers are met, 2 need work, 4 are not known to A.C.O.R.N.');
     expect(screen.getByTestId('readiness')).toHaveTextContent('Partly');
     expect(screen.getByTestId('readiness')).toHaveTextContent('Not known');
     expect(screen.getByTestId('coverage')).toHaveTextContent('Huntress (endpoint detection)');

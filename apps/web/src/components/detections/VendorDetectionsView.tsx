@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * What the connected tools' own detections have raised. Built from the alerts AiSOC holds (last 30 days), grouped by tool and detection name — it
+ * What the connected tools' own detections have raised. Built from the alerts A.C.O.R.N holds (last 30 days), grouped by tool and detection name — it
  * lists only detections that actually fired, not everything a tool could detect.
  */
 

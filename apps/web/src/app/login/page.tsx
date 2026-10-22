@@ -122,7 +122,7 @@ function LoginInner() {
               </svg>
             </div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              Sign in to AiSOC
+              Sign in to A.C.O.R.N
             </h1>
             <p className="text-sm text-zinc-400 mt-2 leading-relaxed">
               Open-source AI SOC console. Sign in with your tenant&rsquo;s account.
@@ -227,7 +227,7 @@ function LoginInner() {
 
       <div className="px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-center">
         <p className="text-[10px] text-zinc-700 uppercase tracking-widest">
-          AiSOC · MIT-licensed · Open-source AI SOC
+          A.C.O.R.N · MIT-licensed · Open-source AI SOC
         </p>
       </div>
     </div>

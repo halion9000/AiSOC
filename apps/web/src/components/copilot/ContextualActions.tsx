@@ -371,7 +371,7 @@ function ContextualPanel({
           ) : null}
           {fallback ? (
             <span
-              title="LLM backend unreachable. Rebuild AISOC or check CORE provider sync."
+              title="LLM backend unreachable. Rebuild A.C.O.R.N or check CORE provider sync."
               className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-200"
             >
               Offline
@@ -465,7 +465,7 @@ function ContextualPanel({
 // We deliberately avoid pulling in `react-markdown` + `remark-gfm` for this
 // surface — the LLM only emits a tight subset (headings, code blocks, lists,
 // inline emphasis, links). A bespoke renderer keeps the bundle small and the
-// output styled to match the rest of the AiSOC console.
+// output styled to match the rest of the A.C.O.R.N console.
 
 function Markdown({ text }: { text: string }) {
   const blocks = useMemo(() => parseMarkdownBlocks(text), [text]);

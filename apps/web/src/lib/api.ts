@@ -1,5 +1,5 @@
 /**
- * AiSOC API Client
+ * A.C.O.R.N API Client
  *
  * Typed HTTP client that talks to the Core API service and a few sibling
  * microservices (agents, fusion, threatintel, enrichment).
@@ -1533,7 +1533,7 @@ export const queueApi = {
 
 // ─── Risk-Based Alerting (entity rollup) ─────────────────────────────────────
 //
-// Wave 1 of the AiSOC v6 capability roadmap: alerts contribute time-decayed
+// Wave 1 of the A.C.O.R.N v6 capability roadmap: alerts contribute time-decayed
 // risk *points* onto the entities they touch (user / host / src_ip / domain).
 // Once an entity crosses ``rba_promotion_threshold`` it becomes the primary
 // unit of triage in the UI — so the analyst opens "the user fox.beach" with
@@ -1722,7 +1722,7 @@ export interface Case {
   /** Cached count from the backend so the UI doesn't have to re-aggregate. */
   alertCount?: number;
   tags?: string[];
-  /** A closed case that AiSOC closed itself (every alert in it was closed and nobody had taken it). */
+  /** A closed case that A.C.O.R.N closed itself (every alert in it was closed and nobody had taken it). */
   autoClosed?: boolean;
   mitre?: string[];
   resolution?: string;
@@ -2014,7 +2014,7 @@ export interface CaseCounts {
   open: number;
   in_progress: number;
   resolved: number;
-  /** Closed by a person; the ones AiSOC closed itself are in `auto_closed`. */
+  /** Closed by a person; the ones A.C.O.R.N closed itself are in `auto_closed`. */
   closed: number;
   auto_closed?: number;
   /** Cases still to be worked (not resolved or closed) that nobody owns. */

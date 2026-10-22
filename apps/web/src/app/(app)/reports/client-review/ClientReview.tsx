@@ -2,7 +2,7 @@
 
 /**
  * Client review: one client's tool coverage, Multi-Factor, Microsoft Secure Score, the last 30 days of alerts and cases, and a cyber-insurance readiness checklist, on one printable page.
- * Backed by GET /api/v1/client-review/{client}. Every answer is evidence from the connected tools; what AiSOC does not hold is shown as "Not known", never guessed.
+ * Backed by GET /api/v1/client-review/{client}. Every answer is evidence from the connected tools; what A.C.O.R.N does not hold is shown as "Not known", never guessed.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -87,7 +87,7 @@ export function readinessHeadline(r: Review["readiness"]): string {
   const gaps = r.not_met + r.partly;
   const parts = [`${r.met} of ${total} answers are met`];
   if (gaps > 0) parts.push(`${gaps} ${gaps === 1 ? "needs" : "need"} work`);
-  if (r.unknown > 0) parts.push(`${r.unknown} ${r.unknown === 1 ? "is" : "are"} not known to AiSOC`);
+  if (r.unknown > 0) parts.push(`${r.unknown} ${r.unknown === 1 ? "is" : "are"} not known to A.C.O.R.N`);
   return `${parts.join(", ")}.`;
 }
 
@@ -169,7 +169,7 @@ export function ClientReview() {
         <div>
           <h1 className="text-xl font-semibold text-slate-100">Client review</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Coverage, identity, alerts and a cyber-insurance readiness checklist for one client, from the tools AiSOC is connected to. Evidence, not a certification: what AiSOC cannot see is marked Not known.
+            Coverage, identity, alerts and a cyber-insurance readiness checklist for one client, from the tools A.C.O.R.N is connected to. Evidence, not a certification: what A.C.O.R.N cannot see is marked Not known.
           </p>
         </div>
         <div className="flex items-center gap-2 print:hidden">

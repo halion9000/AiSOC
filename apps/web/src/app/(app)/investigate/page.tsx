@@ -16,7 +16,7 @@
 import { permanentRedirect } from "next/navigation";
 
 export const metadata = {
-  title: "Investigate | AiSOC",
+  title: "Investigate | A.C.O.R.N",
 };
 
 interface InvestigatePageProps {

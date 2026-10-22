@@ -78,14 +78,14 @@ const SUGGESTED_PROMPTS: Array<{ label: string; prompt: string }> = [
 // pattern CopilotDock.tsx already uses: state what's actually true.
 function failureReply(prompt: string, err: unknown): CopilotMessage {
   // States what is actually true: the copilot could not answer, and why (the backend's own reason when it gave one). No suggestion chips: clicking one sends its text to
-  // the model as a prompt, so "Retry" and "Open AISOC status" were never actions.
+  // the model as a prompt, so "Retry" and "Open A.C.O.R.N status" were never actions.
   return {
     id: `offline-${Date.now()}`,
     role: 'assistant',
     createdAt: new Date().toISOString(),
     content:
       `${copilotFailureText(err)}.\n\nYour message was: "${prompt}"\n\n` +
-      'If this keeps happening, check that the AiSOC stack is running and that CORE\'s provider config is synced (rebuild AISOC from the HUD).',
+      'If this keeps happening, check that the A.C.O.R.N stack is running and that CORE\'s provider config is synced (rebuild A.C.O.R.N from the HUD).',
   };
 }
 

@@ -24,7 +24,7 @@ export function agoLabel(iso: string | null | undefined, now: number = Date.now(
 
 export function RefreshStatusButton({ alertId, onRefreshed }: { alertId: string; onRefreshed: () => void }) {
   const [waiting, setWaiting] = useState(false);
-  // When CORE last told AiSOC this incident's state (shared with the remediation panel, so one request serves both).
+  // When CORE last told A.C.O.R.N this incident's state (shared with the remediation panel, so one request serves both).
   const { data: actions, mutate: recheck } = useSWR(['alerts', alertId, 'vendor-actions'] as const, () => alertsApi.vendorActions(alertId), { shouldRetryOnError: false });
   const checked = agoLabel(actions?.vendor_state?.at);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);

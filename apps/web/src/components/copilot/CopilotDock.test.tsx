@@ -40,7 +40,7 @@ describe('the dock when the copilot cannot answer', () => {
     copilotApi.chat.mockRejectedValue(new ApiError('Network error', 0, ''));
     render(<CopilotDock />);
     await openAndAsk('Anything?');
-    expect(await screen.findByText(/The copilot could not answer: the AiSOC API could not be reached\./)).toBeInTheDocument();
+    expect(await screen.findByText(/The copilot could not answer: the A.C.O.R.N API could not be reached\./)).toBeInTheDocument();
   });
 });
 

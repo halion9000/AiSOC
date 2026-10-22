@@ -121,7 +121,7 @@ class DashboardErrorBoundary extends Component<{ children: ReactNode }, { hasErr
 // `metrics.X` reads further down this same render (metrics.alerts.total,
 // metrics.sources.map, etc.) - none of them were updated to optional-chain,
 // so the dashboard would throw at runtime the moment hasRealAlerts is false,
-// i.e. for exactly the real-but-empty AiSOC instance this whole cleanup pass
+// i.e. for exactly the real-but-empty A.C.O.R.N instance this whole cleanup pass
 // was for. A non-null empty object keeps every existing read working
 // unchanged, with the same honest zero/empty values as before - not
 // fabricated data, just a safe default shape.

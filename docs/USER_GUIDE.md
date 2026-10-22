@@ -1,4 +1,4 @@
-# AiSOC and CORE: how to use them
+# A.C.O.R.N and CORE: how to use them
 
 A working guide for the people who run the SOC day to day. It covers what each page does, where to click, and what to expect. It is written from the code as of **2026-10-19**.
 
@@ -8,11 +8,11 @@ A working guide for the people who run the SOC day to day. It covers what each p
 
 ## 1. How the pieces fit
 
-- **CORE** is the desktop app. It holds the credentials for your tools (Huntress, Blumira, Petra, NinjaOne, ThreatMate, Addigy, HaloPSA, CIPP and so on). AiSOC never stores those keys for the CORE-fed tools.
-- **AiSOC** is the SOC console (a web app running in Docker, opened inside CORE). It stores alerts, devices, cases and scores, and shows them.
-- **The loop.** Every 5 minutes CORE reads each connected tool and sends new alerts to AiSOC. Every hour it also sends each tool's client list and devices. A few jobs run in the background (sign-ins and identity changes from CIPP). CORE always opens the connection; nothing calls into CORE.
+- **CORE** is the desktop app. It holds the credentials for your tools (Huntress, Blumira, Petra, NinjaOne, ThreatMate, Addigy, HaloPSA, CIPP and so on). A.C.O.R.N never stores those keys for the CORE-fed tools.
+- **A.C.O.R.N** is the SOC console (a web app running in Docker, opened inside CORE). It stores alerts, devices, cases and scores, and shows them.
+- **The loop.** Every 5 minutes CORE reads each connected tool and sends new alerts to A.C.O.R.N. Every hour it also sends each tool's client list and devices. A few jobs run in the background (sign-ins and identity changes from CIPP). CORE always opens the connection; nothing calls into CORE.
 - **Clients.** You are the parent organization; each customer is a *client* (a child tenant). Alerts and devices are filed under the client they belong to. Anything that cannot be matched to a client waits, it is never thrown away.
-- **Cipher** is CORE's AiSOC expert agent. It knows how all of this works and can explain a page or a symptom. It describes what the console shows; it does not click for you.
+- **Cipher** is CORE's A.C.O.R.N expert agent. It knows how all of this works and can explain a page or a symptom. It describes what the console shows; it does not click for you.
 
 ## 2. Getting around
 
@@ -37,20 +37,20 @@ Open the **Connections** list in CORE.
 
 - Tools are split into two sections, **connected** and **not connected**, each in alphabetical order, each with the tool's logo (a lettered badge where no logo exists).
 - To connect a tool, open it and fill in its fields (API key, client id and secret, and so on). A tool counts as connected only when **all** its required fields are saved.
-- A tool that is not connected is skipped silently; it never produces a card or an error in AiSOC.
+- A tool that is not connected is skipped silently; it never produces a card or an error in A.C.O.R.N.
 
 Things worth knowing per tool:
 
-- **Huntress.** One key reads incidents, **ITDR escalations** and **signals** (Managed ITDR, Footholds, Process Insights). Approving, rejecting or resolving a remediation from AiSOC needs a *user-based key with write permission*; the default read-only key is refused (403). Huntress's SIEM has no public API, so no SIEM alerts can come from it.
+- **Huntress.** One key reads incidents, **ITDR escalations** and **signals** (Managed ITDR, Footholds, Process Insights). Approving, rejecting or resolving a remediation from A.C.O.R.N needs a *user-based key with write permission*; the default read-only key is refused (403). Huntress's SIEM has no public API, so no SIEM alerts can come from it.
 - **Blumira.** Findings arrive with a summary and the analysis text. Findings with a user or address create entities; some operational ones do not.
-- **Petra.** Read only. Petra has no write API, so nothing can be actioned in Petra from AiSOC.
+- **Petra.** Read only. Petra has no write API, so nothing can be actioned in Petra from A.C.O.R.N.
 - **HaloPSA.** Needs its client id, secret and subdomain in CORE; without them tickets are not linked and the Halo card says so.
 - **CIPP (new).** Connected through an Entra app (client id and secret) plus the CIPP address. Feeds clients, sign-ins and identity data (sections 9 and 10).
 - **DNSFilter and AutoElevate (new).** Each provides its clients (to map) and its devices (they show with their logo on the Devices page). AutoElevate's API does not say which users own a computer, so machine names are the only evidence it gives.
 - **ConnectWise Control (ScreenConnect).** If the account uses two-factor, add the **TOTP secret** in its settings; CORE then sends the one-time code itself.
 - **ThreatMate, Addigy, NinjaOne, Field Effect.** Alerts and devices as described in sections 5 and 8.
 
-On each tool's card in AiSOC (**Connectors**, named "<Tool> (via CORE)"):
+On each tool's card in A.C.O.R.N (**Connectors**, named "<Tool> (via CORE)"):
 
 - **Test** reports what CORE last said. It does not call the tool. It fails if CORE never reported, or has been silent for 15 minutes.
 - **Sync** asks CORE to run that tool now; CORE picks the request up within about 15 seconds.
@@ -63,7 +63,7 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 **What happens automatically**
 
 1. **Name match.** A tool client whose name matches exactly one of your clients (ignoring words like LLC, Inc and punctuation) is linked for you.
-2. **Machines in common (new).** While a tool client is unmapped, AiSOC remembers the machine names it reports. If most of them are already machines under one of your clients, that client is *suggested* (at least 3 shared machines and 40% of its machines; 2 and 70% for a small client). The suggestion says why, for example "5 of its 6 devices are already under this client".
+2. **Machines in common (new).** While a tool client is unmapped, A.C.O.R.N remembers the machine names it reports. If most of them are already machines under one of your clients, that client is *suggested* (at least 3 shared machines and 40% of its machines; 2 and 70% for a small client). The suggestion says why, for example "5 of its 6 devices are already under this client".
 3. **Auto-link (new).** A tool client is linked **without asking** only when *every* one of its non-generic machine names is already under one client, there are at least three, and no other client has any of them. Generic names are ignored: stock words (mac, server, user, desktop, laptop, pc, admin...), a stock word with a short number (server2, pc-01), the "Johns-MacBook-Pro" pattern, and anything under four characters. Windows random names (DESKTOP-4F8K2QH) *do* count because they are unique. Anything you mapped, unmapped or ignored is never touched.
 
 **What you do**
@@ -103,21 +103,21 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 - **Click the device name** to open the Devices page already filtered to that machine.
 - **Halo tickets:** linked tickets are clickable. **Add by number** links one by hand; **Remove** removes one you added. A ticket CORE linked that HaloPSA no longer has (it was deleted or merged since, so it reads *Not found in HaloPSA*) can be removed too; a ticket CORE matched that HaloPSA still has cannot, CORE would report it again.
 - **Related alerts:** other alerts on the same device or user in the last 30 days.
-- **Run script** (top right of an alert that names a machine) offers the NinjaOne scripts CORE's owner switched on (Settings > Manage NinjaOne scripts). Pick the script and the HaloPSA ticket for the result: a ticket the alert already has, another ticket number, or **Open a new ticket** (needs the client linked to a Halo client in Client mapping). AiSOC opens a case for the alert first if it has none. CORE then runs the script on the machine and puts the output, unchanged, on the ticket as a private note and on the case as a comment. A script marked **Run at once when asked from AiSOC** in CORE starts within about 15 seconds; any other waits for your approval card in CORE. A low-disk alert pre-selects the disk-space script when exactly one script is about disk space. The alert page lists each run under **Script runs** with how it went, and the case gets a system comment saying it was asked. Built and tested end to end in pieces; **not yet run against a live NinjaOne, and opening a new Halo ticket has not been tried against a live Halo.**
+- **Run script** (top right of an alert that names a machine) offers the NinjaOne scripts CORE's owner switched on (Settings > Manage NinjaOne scripts). Pick the script and the HaloPSA ticket for the result: a ticket the alert already has, another ticket number, or **Open a new ticket** (needs the client linked to a Halo client in Client mapping). A.C.O.R.N opens a case for the alert first if it has none. CORE then runs the script on the machine and puts the output, unchanged, on the ticket as a private note and on the case as a comment. A script marked **Run at once when asked from A.C.O.R.N** in CORE starts within about 15 seconds; any other waits for your approval card in CORE. A low-disk alert pre-selects the disk-space script when exactly one script is about disk space. The alert page lists each run under **Script runs** with how it went, and the case gets a system comment saying it was asked. Built and tested end to end in pieces; **not yet run against a live NinjaOne, and opening a new Halo ticket has not been tried against a live Halo.**
 - **Refresh status** (top right of an alert from Huntress, Blumira or Field Effect) asks CORE to re-read that one tool now, instead of waiting for its next run, so the alert's status catches up with the tool's. Other tools are not re-read. A small "status checked 4 min ago" line under it shows when CORE last reported this incident's state (Huntress). The alert updates by itself within about a minute; it needs a write key and CORE must be running. Not yet tried against a live tool.
 - **Huntress alerts:** the remediation plan with **Approve**, **Reject** and **Resolve** (needs a write key, see section 3). Resolving can leave a private note on each linked Halo ticket and change its **status**; it never closes the ticket.
 - **Huntress ITDR escalations and signals** appear as alerts. They have no approve or resolve buttons.
 - **Blumira** alerts carry the finding's summary and the analysis text.
 
-**What AiSOC can change in other tools (and what it cannot).**
-- **Huntress incident reports:** **Approve**, **Reject** and **Resolve** the remediation plan from the alert page. Resolve needs every remediation approved first. AiSOC queues the request and CORE does it at Huntress with its own write key (CORE collects requests every 15 seconds). Each action leaves a **private note** on the incident's HaloPSA ticket(s), and **Resolve** also moves the ticket to your chosen status (set in **Settings > Tickets**, default Tech Updated). It never closes a ticket. The private note has been confirmed on a test ticket; a live approve, reject or resolve, and the status change, have **not** been run yet.
-- **Huntress ITDR escalations and signals:** read only. A signal's alert names the incident Huntress bundled it into and that incident's Halo ticket, and is resolved in AiSOC when that incident closes.
+**What A.C.O.R.N can change in other tools (and what it cannot).**
+- **Huntress incident reports:** **Approve**, **Reject** and **Resolve** the remediation plan from the alert page. Resolve needs every remediation approved first. A.C.O.R.N queues the request and CORE does it at Huntress with its own write key (CORE collects requests every 15 seconds). Each action leaves a **private note** on the incident's HaloPSA ticket(s), and **Resolve** also moves the ticket to your chosen status (set in **Settings > Tickets**, default Tech Updated). It never closes a ticket. The private note has been confirmed on a test ticket; a live approve, reject or resolve, and the status change, have **not** been run yet.
+- **Huntress ITDR escalations and signals:** read only. A signal's alert names the incident Huntress bundled it into and that incident's Halo ticket, and is resolved in A.C.O.R.N when that incident closes.
 - **Blumira:** **Resolve** only, with a reason (Valid, False Positive, No Action Needed or Risk Accepted). Nothing is written to Halo.
 - **Field Effect:** **Resolve** only. Nothing is written to Halo.
-- **Petra, NinjaOne, ThreatMate, Addigy, DNSFilter, AutoElevate, CIPP:** read only from AiSOC.
-- **HaloPSA:** AiSOC itself never writes to Halo. Only CORE does (the Huntress note and status above). **Add by number** records a link inside AiSOC and changes nothing in Halo.
+- **Petra, NinjaOne, ThreatMate, Addigy, DNSFilter, AutoElevate, CIPP:** read only from A.C.O.R.N.
+- **HaloPSA:** A.C.O.R.N itself never writes to Halo. Only CORE does (the Huntress note and status above). **Add by number** records a link inside A.C.O.R.N and changes nothing in Halo.
 
-**Statuses.** New alerts start as `new`. A vendor closing its own incident only closes the alert in AiSOC if nobody had touched it yet, and never reopens one. An analyst's decision is never overridden.
+**Statuses.** New alerts start as `new`. A vendor closing its own incident only closes the alert in A.C.O.R.N if nobody had touched it yet, and never reopens one. An analyst's decision is never overridden.
 
 **Duplicates.** One vendor incident is one alert, even if CORE re-sends it; a repeat just updates "last seen".
 
@@ -128,13 +128,13 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 ## 7. Cases
 
 - **Act now board (new).** Above the status tiles, one sentence says how many cases are open and how many have no owner ("12 open cases, 8 with no owner. Start with Ransomware Attempt."), and three cards show the first cases to work: most severe first, then ones nobody owns, then the oldest. It is shown on the **Open** and **All** tiles and reads the cases loaded on the page.
-- **Devices panel (new).** A case's left column lists the machines its alerts are about, each with **Open in NinjaOne** / **Open in Huntress** buttons to that machine in the tool, and **In Devices** to its page here. A tool appears only when AiSOC holds a link for it: NinjaOne from the device record, Huntress from the alert. Other tools (ConnectWise Control, HaloPSA assets) are not linked yet. The case description is also laid out with headings and tables now, and a linked alert opens that alert. Built and tested; not yet seen on a live case.
+- **Devices panel (new).** A case's left column lists the machines its alerts are about, each with **Open in NinjaOne** / **Open in Huntress** buttons to that machine in the tool, and **In Devices** to its page here. A tool appears only when A.C.O.R.N holds a link for it: NinjaOne from the device record, Huntress from the alert. Other tools (ConnectWise Control, HaloPSA assets) are not linked yet. The case description is also laid out with headings and tables now, and a linked alert opens that alert. Built and tested; not yet seen on a live case.
 - **My organization / All clients (new).** An organization with clients has a switch above the tiles. **All clients** lists this organization's cases and every client's together, each client's case showing its client name, and the tiles count all of them. A **Client** picker narrows it to one. Opening a client's case works like opening its alerts. The choice is remembered in this browser. (Cases opened for client alerts live under that client, which is why "My organization" shows far fewer.)
 - Opens on **Open** (new and triaged). The tiles are **Open, In Progress, Resolved, Closed** and **All Cases**, last; the numbers come from the whole caseload, not one page.
 - The list loads up to 500 cases, newest first, and tells you when it is cut short. (It used to show only 50, which is why the numbers never moved.)
 - Status only moves forward: new, triaged, investigating, contained, resolved, closed. Steps can be skipped; going back is refused with the reason.
 - CORE opens a case automatically for each new alert from its tools (limited per run); an analyst can open one by hand.
-- **Cases close themselves (new).** A case AiSOC opened itself is closed once every alert in it is closed (resolved, closed or a false positive) and nobody has been assigned to it. It gets a system note saying why, and shows as **Auto-closed** (its own tile and filter, so it is told apart from a case a person closed: the **Closed** tile counts only the ones a person closed). A case someone opened by hand, or one with an assignee, is never closed this way, and nothing is changed on a Halo ticket. This runs each time CORE reports in (every few minutes); the first run after the change closes every case that already qualifies. To turn it off, set `AISOC_AUTO_CLOSE_CASES=false` for the API.
+- **Cases close themselves (new).** A case A.C.O.R.N opened itself is closed once every alert in it is closed (resolved, closed or a false positive) and nobody has been assigned to it. It gets a system note saying why, and shows as **Auto-closed** (its own tile and filter, so it is told apart from a case a person closed: the **Closed** tile counts only the ones a person closed). A case someone opened by hand, or one with an assignee, is never closed this way, and nothing is changed on a Halo ticket. This runs each time CORE reports in (every few minutes); the first run after the change closes every case that already qualifies. To turn it off, set `AISOC_AUTO_CLOSE_CASES=false` for the API.
 
 ## 8. Devices
 
@@ -161,7 +161,7 @@ One row per machine, combined from every tool that reports it (matched on serial
 
 **A tool that has gone quiet (new).** A tool's badge on a device gets a **red line through it** when that tool has not seen the device for 10 days or more (hover for how long). When every tool that reports a check-in time is that quiet, the device **hides itself** (it is counted under Hidden and says "no tool has seen it for 10+ days") and comes back by itself as soon as one tool sees it again. A tool that gives no time (ThreatMate) cannot keep a device on the list, and a device any tool says is online right now is never hidden.
 
-**Not in ScreenConnect / Not in Field Effect (new).** Two more coverage tiles, shown only once that tool feeds devices into AiSOC. Not in ScreenConnect leaves out iPhones, iPads and Apple TVs (iOS, iPadOS, tvOS), but not Macs; Not in Field Effect leaves out phones and tablets. AiSOC cannot tell Field Effect EDR from MDR coverage, so any Field Effect record counts as covered. CORE now sends both: ScreenConnect's machines (by name, with whether each is connected and when it last reported; its companies are mapped to clients like any other tool's) and Field Effect's endpoints (name, serial, OS, online and last seen). ScreenConnect's login needs the **ManageSessionGroups** permission. Read live against your instances; **not yet seen on the Devices page**, and the ScreenConnect companies need mapping on the Clients page before their machines land under the right client.
+**Not in ScreenConnect / Not in Field Effect (new).** Two more coverage tiles, shown only once that tool feeds devices into A.C.O.R.N. Not in ScreenConnect leaves out iPhones, iPads and Apple TVs (iOS, iPadOS, tvOS), but not Macs; Not in Field Effect leaves out phones and tablets. A.C.O.R.N cannot tell Field Effect EDR from MDR coverage, so any Field Effect record counts as covered. CORE now sends both: ScreenConnect's machines (by name, with whether each is connected and when it last reported; its companies are mapped to clients like any other tool's) and Field Effect's endpoints (name, serial, OS, online and last seen). ScreenConnect's login needs the **ManageSessionGroups** permission. Read live against your instances; **not yet seen on the Devices page**, and the ScreenConnect companies need mapping on the Clients page before their machines land under the right client.
 
 **Duplicates.** Possible duplicates (same name, no serial proving they differ) can be compared and **Merged**. **Recent merges** (last 14 days) each have **Undo**, which brings the removed device back with its feeds. **Dismiss** remembers they are different machines.
 
@@ -185,10 +185,10 @@ CORE reads each Microsoft 365 tenant through CIPP in the background.
 **Secure Score (daily).** The score Microsoft gives each tenant's Microsoft 365 setup (current points out of the maximum), with up to 90 days of daily points, Microsoft's average across all tenants, and the controls still missing the most points. Read through CIPP; read-only, nothing is changed in a tenant. **New; built and tested, not yet seen on live data.**
 
 **Reports > Client Review (new).** Pick a client to see, on one printable page: a **cyber-insurance readiness** checklist (each answer **Met**, **Partly**, **Not met** or **Not known**, with the numbers behind it), **tool coverage** (how many of the client's computers each tool reports, with phones and tablets never counted against a tool that has no agent for them), Multi-Factor and Microsoft Secure Score, and the last 30 days of alerts and cases. **Print or save as PDF** makes a copy for a client review or a questionnaire.
-- The checklist covers Multi-Factor for everyone and for administrators, endpoint detection, management, web filtering, privilege control, agents checking in, known-exploited vulnerabilities and the Microsoft Secure Score. Backups, e-mail filtering, awareness training and a written incident plan are always **Not known**: AiSOC does not collect them yet.
+- The checklist covers Multi-Factor for everyone and for administrators, endpoint detection, management, web filtering, privilege control, agents checking in, known-exploited vulnerabilities and the Microsoft Secure Score. Backups, e-mail filtering, awareness training and a written incident plan are always **Not known**: A.C.O.R.N does not collect them yet.
 - Thresholds: endpoint detection and management need 95% of computers to be Met (80% Partly); Multi-Factor needs 95% of people (80% Partly) and **no** administrator without it; the Secure Score needs 60% (40% Partly).
 - **From vCIO Toolbox (new).** When vCIO Toolbox is connected in CORE and its customers are mapped to clients on the MSSP page (**vCIO Toolbox** tab), the review also shows that client's recommendations (how many are pending, adopted and declined, and the pending ones that matter most: high priority first, then the earliest due) and its risks with their scores. CORE reads this once a day. vCIO Toolbox's API does not give the IT-review answers themselves (the Engineer and CIO review text), so those are not shown. **Not yet seen on live data.**
-- **Suggested for vCIO Toolbox (new).** Under the review, a card lists recommendations AiSOC would add to this client in vCIO Toolbox, worked out from the checks above (for example administrators without Multi-Factor, machines missing endpoint protection, a low Secure Score). Each shows its evidence. **Approve** queues it and CORE adds it to the client's vCIO Toolbox customer as a Pending recommendation (it is never added twice, and nothing is changed or deleted there); **Reject** means it is not suggested again. Nothing is sent without a person pressing Approve, and Approve needs the client mapped to its vCIO Toolbox customer. **Check again** works the list out afresh; a suggestion nobody acted on that stops being true is marked as no longer applying. vCIO Toolbox's API has no review template questions or answers, so the Microsoft 365 template items themselves cannot be filled in this way. Built and tested against a real database; **not yet tried against the live vCIO Toolbox**.
+- **Suggested for vCIO Toolbox (new).** Under the review, a card lists recommendations A.C.O.R.N would add to this client in vCIO Toolbox, worked out from the checks above (for example administrators without Multi-Factor, machines missing endpoint protection, a low Secure Score). Each shows its evidence. **Approve** queues it and CORE adds it to the client's vCIO Toolbox customer as a Pending recommendation (it is never added twice, and nothing is changed or deleted there); **Reject** means it is not suggested again. Nothing is sent without a person pressing Approve, and Approve needs the client mapped to its vCIO Toolbox customer. **Check again** works the list out afresh; a suggestion nobody acted on that stops being true is marked as no longer applying. vCIO Toolbox's API has no review template questions or answers, so the Microsoft 365 template items themselves cannot be filled in this way. Built and tested against a real database; **not yet tried against the live vCIO Toolbox**.
 - It is evidence from the connected tools, not a certification, and a missing tool shows as **Not known**, never as a guess. **New; built and tested, not yet seen on live data.**
 
 **Client Security > Secure Score**
@@ -225,7 +225,7 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 
 ## 13. Everything else, briefly
 
-- **Hunt:** searches the alerts AiSOC holds (plain words, "quoted phrases", `field:value` for severity, status, source, host, user, ip, tag, title, client; a leading minus negates). It is not KQL or SPL and searches no raw event store. Saved hunts can run on a schedule (off by default).
+- **Hunt:** searches the alerts A.C.O.R.N holds (plain words, "quoted phrases", `field:value` for severity, status, source, host, user, ip, tag, title, client; a leading minus negates). It is not KQL or SPL and searches no raw event store. Saved hunts can run on a schedule (off by default).
 - **Detection Rules:** Sigma, KQL and EQL. KQL honours and, or, not and parentheses. EQL supports `sequence by <field> with maxspan=<N>m [...] [...]`. The rule editor can **test** a rule against pasted sample events.
 - **Threat Intel:** indicators open to show what is known, the alerts they were seen on, a provider lookup (only when you press the button) and a VirusTotal link. Indicators pulled out of alerts are not confirmed malicious.
 - **Attack Graph:** hosts, users, addresses and ATT&CK techniques from the last 30 days of alerts.
@@ -233,14 +233,14 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 - **Honeytokens:** only a link or a document carrying a beacon link can alert; every other type is "Decoy only" and nothing watches it.
 - **Compliance:** evidence items with a tamper-evident hash chain; controls that need a policy document stay "missing" rather than invented.
 - **Approvals and actions:** risky actions (isolate host, disable user, reset password...) always wait for a person.
-- **Opening AiSOC from another computer:** in CORE's AiSOC settings tick **Allow other computers on this network**, then rebuild AiSOC. The web page (port 3000) and the push gateway (port 8086) are then reachable at this computer's address, for example `http://<this computer's address>:3000`; the API itself stays on this computer and is reached through the web page. It is plain HTTP, so use it on a network you trust only, and Windows Firewall may need to allow ports 3000 and 8086. Built and tested, but **not yet seen working from a second computer**.
+- **Opening A.C.O.R.N from another computer:** in CORE's A.C.O.R.N settings tick **Allow other computers on this network**, then rebuild A.C.O.R.N. The web page (port 3000) and the push gateway (port 8086) are then reachable at this computer's address, for example `http://<this computer's address>:3000`; the API itself stays on this computer and is reached through the web page. It is plain HTTP, so use it on a network you trust only, and Windows Firewall may need to allow ports 3000 and 8086. Built and tested, but **not yet seen working from a second computer**.
 - **Backups:** `./scripts/local-backup.sh` (database and Qdrant); it does not back up ClickHouse, Redis, Neo4j, OpenSearch or your `.env` secrets. Keep the credential key safe separately.
 
 ## 14. What is not finished, and what has not been checked live
 
 **Not live-checked yet (built and tested on test data):** the Halo status change, ConnectWise Control TOTP, DNSFilter and AutoElevate clients and devices in the running app, Huntress escalations and signals, the CIPP sign-in and identity jobs and their scoring end to end, device auto-link on real clients, the Multi-factor, Sign-in scores, Client posture and cleanup pages, bulk ticket linking, the Devices filter memory, the Platform health needs-attention list, and the connector logos in a packaged installer.
 
-**Also built since, and not yet seen in the running app (2026-10-21):** the Act now board on Cases and the Auto-Closed status, cases closing themselves once every alert in them is closed (856 are expected to close on the first run after the update), Client Review and its cyber-insurance readiness checklist, Microsoft Secure Score through CIPP, the vCIO Toolbox collector (its data and the risks and recommendations pages), device-only connector cards (Devices read, Last sync), the Open in links for Field Effect, ThreatMate, Addigy, AutoElevate, DNSFilter and Blumira devices, the ScreenConnect logo, the MSSP Ignore all checked button, Blumira alerts that name a person only by an Entra ID object id (resolved through CIPP for CIPP-managed tenants; a tenant CIPP does not manage stays unresolved), and opening AiSOC from another computer on the network.
+**Also built since, and not yet seen in the running app (2026-10-21):** the Act now board on Cases and the Auto-Closed status, cases closing themselves once every alert in them is closed (856 are expected to close on the first run after the update), Client Review and its cyber-insurance readiness checklist, Microsoft Secure Score through CIPP, the vCIO Toolbox collector (its data and the risks and recommendations pages), device-only connector cards (Devices read, Last sync), the Open in links for Field Effect, ThreatMate, Addigy, AutoElevate, DNSFilter and Blumira devices, the ScreenConnect logo, the MSSP Ignore all checked button, Blumira alerts that name a person only by an Entra ID object id (resolved through CIPP for CIPP-managed tenants; a tenant CIPP does not manage stays unresolved), and opening A.C.O.R.N from another computer on the network.
 
 **Scoring only, no alerts yet:** sign-in anomalies and identity changes. Turning a high score into an alert is waiting until a few days of real scores have been reviewed.
 
@@ -250,17 +250,17 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 
 | Symptom | Look at |
 |---|---|
-| No new alerts | Platform health: is CORE silent? Is CORE running and able to reach AiSOC? |
+| No new alerts | Platform health: is CORE silent? Is CORE running and able to reach A.C.O.R.N? |
 | A tool's card is red or yellow | Open its card, read the latest message, press **Sync**, then **Test** |
 | A client's devices or alerts are missing | Client mapping: is it still Unmapped? |
 | Tickets not linking | Is HaloPSA connected in CORE? The card message says which part failed |
 | Cases or counts look frozen | Reload; counts come from the whole caseload now |
-| A page says a migration is pending | Rebuild or restart the AiSOC API |
+| A page says a migration is pending | Rebuild or restart the A.C.O.R.N API |
 | Sign-ins stored but not scored | Platform health list; check the behaviour service token in the API's environment |
 | "N sign-ins are waiting to be scored" | Normal for a while after a restart: they are scored a hundred at a time. If it is not falling, ask Cipher to check the behaviour service log |
 | Sign-in scores page is empty | Normal early on: it lists only sign-ins the service flags, and it flags little until it has learned each person |
 | No Huntress ITDR alerts | They are read back 30 days when CORE starts; check the Huntress card for a warning |
-| AiSOC opens here but not from another computer | Is **Allow other computers on this network** ticked and AiSOC rebuilt? Then the firewall (ports 3000 and 8086) and the address you typed |
+| A.C.O.R.N opens here but not from another computer | Is **Allow other computers on this network** ticked and A.C.O.R.N rebuilt? Then the firewall (ports 3000 and 8086) and the address you typed |
 | Not sure what a page means | Ask Cipher |
 
 ---

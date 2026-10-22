@@ -2,7 +2,7 @@
  * Alert-noise calculator for `/tools/noise`.
  *
  * Projects false-positive suppression and analyst hours saved from anonymized
- * alert-volume stats, using the AiSOC verdict-engine's published operating
+ * alert-volume stats, using the A.C.O.R.N verdict-engine's published operating
  * point. The precision/recall here are the DETERMINISTIC-tier figures reported
  * on the benchmark page — documented and linked on the tool page so the maths
  * is auditable, never a fabricated marketing number.

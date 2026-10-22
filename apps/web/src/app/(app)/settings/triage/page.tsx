@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { AutoCloseSettings } from "./AutoCloseSettings";
 
 export const metadata: Metadata = {
-  title: "Auto-close | Settings | AiSOC",
+  title: "Auto-close | Settings | A.C.O.R.N",
 };
 
 export default function TriageSettingsPage() {

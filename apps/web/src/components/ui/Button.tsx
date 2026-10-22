@@ -1,5 +1,5 @@
 /**
- * T3.8 — AiSOC console Button primitive.
+ * T3.8 — A.C.O.R.N console Button primitive.
  *
  * The console already had ~40 inline ``<button className="...">``s with
  * subtly different padding, radius, and hover colours. This component

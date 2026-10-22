@@ -143,7 +143,7 @@ export function CommandPalette() {
       items: [
         {
           id: 'action:copilot',
-          label: 'Ask AiSOC Copilot',
+          label: 'Ask A.C.O.R.N Copilot',
           hint: 'Open the floating Copilot dock',
           shortcut: ['⌘', 'J'],
           keywords: ['ai', 'copilot', 'assistant', 'investigate'],
@@ -239,7 +239,7 @@ export function CommandPalette() {
             className="relative w-full max-w-xl rounded-xl border border-gray-700/70 bg-[#0d121b] shadow-2xl shadow-black/50 overflow-hidden"
           >
             <Command
-              label="AiSOC command palette"
+              label="A.C.O.R.N command palette"
               loop
               className="flex flex-col"
             >
@@ -323,7 +323,7 @@ export function CommandPalette() {
                     select
                   </span>
                 </div>
-                <span className="hidden sm:inline">AiSOC · ⌘K to toggle</span>
+                <span className="hidden sm:inline">A.C.O.R.N · ⌘K to toggle</span>
               </div>
             </Command>
           </motion.div>

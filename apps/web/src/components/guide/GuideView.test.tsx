@@ -7,7 +7,7 @@ import { GuideView } from './GuideView';
 describe('GuideView', () => {
   it('shows the title, the status note and every section with a contents link', () => {
     render(<GuideView />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('AiSOC and CORE: how to use them');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A.C.O.R.N and CORE: how to use them');
     expect(screen.getByTestId('guide-note')).toHaveTextContent('Reading the status notes');
     const contents = screen.getByRole('navigation', { name: 'Guide contents' });
     expect(within(contents).getAllByRole('link')).toHaveLength(15);

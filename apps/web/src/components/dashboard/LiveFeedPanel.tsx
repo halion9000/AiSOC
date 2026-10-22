@@ -120,7 +120,7 @@ function eventFromMessage(msg: RealtimeAlertMessage, fallbackId: number): LiveEv
     inner.source_system ??
     (payload as { source?: string }).source ??
     (payload as { source_system?: string }).source_system ??
-    'AiSOC';
+    'A.C.O.R.N';
 
   const tsRaw = msg.timestamp ? Date.parse(msg.timestamp) : Date.now();
   const receivedAt = Number.isFinite(tsRaw) ? tsRaw : Date.now();

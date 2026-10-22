@@ -13,12 +13,13 @@ const BADGES: Record<string, { text: string; className: string }> = {
   autoelevate: { text: 'AE', className: 'bg-rose-600/80 text-white' },
   cipp: { text: 'C', className: 'bg-orange-500/80 text-white' },
   screenconnect: { text: 'SC', className: 'bg-sky-700/80 text-white' },
+  vciotoolbox: { text: 'vC', className: 'bg-blue-800/80 text-white' },
 };
 
-const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect']);
+const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox']);
 
 /** Halo first, then the rest in one fixed order so every row lines up; tools not listed follow alphabetically. */
-export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect'];
+export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox'];
 
 export function orderSources(sources: string[]): string[] {
   const rank = (v: string) => {

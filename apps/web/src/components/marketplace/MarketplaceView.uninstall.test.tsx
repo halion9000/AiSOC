@@ -12,7 +12,7 @@ vi.mock('swr', () => ({
 
 import { MarketplaceView } from './MarketplaceView';
 
-const item = (id: string, name: string): MarketplaceItem => ({ id, type: 'plugin', name, description: 'd', version: '1.0.0', author: 'AiSOC Core', tags: [], source: 'core', verified: true, plugin_type: 'action', sdks: ['python'] });
+const item = (id: string, name: string): MarketplaceItem => ({ id, type: 'plugin', name, description: 'd', version: '1.0.0', author: 'A.C.O.R.N Core', tags: [], source: 'core', verified: true, plugin_type: 'action', sdks: ['python'] });
 const A = item('cloudflare-waf', 'Cloudflare WAF');
 const B = item('okta-enricher', 'Okta Enricher');
 

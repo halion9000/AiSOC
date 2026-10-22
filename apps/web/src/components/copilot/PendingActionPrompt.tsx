@@ -15,7 +15,7 @@ function reasonFrom(err: unknown): string {
     } catch {
       /* not JSON: fall through */
     }
-    if (err.status === 0) return 'The AiSOC API could not be reached. Nothing was changed.';
+    if (err.status === 0) return 'The A.C.O.R.N API could not be reached. Nothing was changed.';
   }
   return 'Could not confirm. Nothing was changed.';
 }

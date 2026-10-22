@@ -113,7 +113,7 @@ async def upsert_device(db: Any, tenant_id: uuid.UUID, report: DeviceReport) -> 
 
 
 async def possible_duplicates(db: Any, tenant_id: uuid.UUID) -> list[tuple[uuid.UUID, uuid.UUID]]:
-    """Pairs of the client's devices a person might want to merge: the same hostname, and not provably different (two different serials mean two machines). Dismissed pairs are left out."""
+    """Pairs of the client's devices a person might want to merge: the same hostname, and not provably different (two different serials mean two machines). Dismissed pairs are left out, and so is any machine only ScreenConnect lists and that has no serial number."""
     from app.models.device import DeviceMergeDismissal
 
     rows = (await db.execute(select(Device).where(Device.tenant_id == tenant_id))).scalars().all()
@@ -121,10 +121,22 @@ async def possible_duplicates(db: Any, tenant_id: uuid.UUID) -> list[tuple[uuid.
         (d.device_a, d.device_b)
         for d in (await db.execute(select(DeviceMergeDismissal).where(DeviceMergeDismissal.tenant_id == tenant_id))).scalars().all()
     }
+    # ScreenConnect lists some machines with no serial number (a stock BIOS, a reinstall): with nothing to tell one from another they are not offered as duplicates of anything.
+    only_screenconnect = {
+        device_id
+        for (device_id,) in (
+            await db.execute(
+                select(DeviceSource.device_id)
+                .where(DeviceSource.tenant_id == tenant_id)
+                .group_by(DeviceSource.device_id)
+                .having(func.count().filter(DeviceSource.vendor != "screenconnect") == 0)
+            )
+        ).all()
+    }
     by_name: dict[str, list[Device]] = {}
     for d in rows:
         key = hostname_key(d.hostname)
-        if key:
+        if key and not (d.id in only_screenconnect and not d.serial_number):
             by_name.setdefault(key, []).append(d)
     pairs: list[tuple[uuid.UUID, uuid.UUID]] = []
     for group in by_name.values():

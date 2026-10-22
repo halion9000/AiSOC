@@ -171,7 +171,7 @@ function IOCRow({ ioc }: { ioc: ThreatIndicator }) {
   );
 }
 
-/** Where to look an indicator up by hand. Opening a link sends nothing from AiSOC; the lookup button below asks the configured providers and only when pressed. */
+/** Where to look an indicator up by hand. Opening a link sends nothing from A.C.O.R.N; the lookup button below asks the configured providers and only when pressed. */
 export function externalCheckUrl(ioc: Pick<ThreatIndicator, 'type' | 'value'>): { label: string; url: string } | null {
   const v = encodeURIComponent(ioc.value.trim());
   switch (ioc.type) {

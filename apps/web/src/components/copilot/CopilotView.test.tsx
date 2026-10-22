@@ -9,7 +9,7 @@ import { ApiError } from '@/lib/api';
 import { CopilotView } from './CopilotView';
 
 // On any failure this page showed a canned "The AI backend is currently unreachable" even when the backend WAS reached and said why it could not answer (for example, that no language-model
-// API key is configured), and offered "Retry" / "Open AISOC status" chips that, when clicked, sent that text to the model as a prompt.
+// API key is configured), and offered "Retry" / "Open A.C.O.R.N status" chips that, when clicked, sent that text to the model as a prompt.
 const reply = { id: 'a1', role: 'assistant' as const, content: 'The sender domain was registered yesterday.', createdAt: '2026-10-08T00:00:00Z' };
 const noKey = () => new ApiError('API 503', 503, JSON.stringify({ detail: 'The copilot cannot answer right now: no language-model API key is configured for the copilot.' }));
 
@@ -40,7 +40,7 @@ describe('when the copilot cannot answer', () => {
     render(<CopilotView />);
     await ask('Anything?');
     await screen.findByText(/The copilot could not answer/);
-    expect(screen.queryByText('Open AISOC status')).not.toBeInTheDocument();
+    expect(screen.queryByText('Open A.C.O.R.N status')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
@@ -48,7 +48,7 @@ describe('when the copilot cannot answer', () => {
     copilotApi.chat.mockRejectedValue(new ApiError('Network error talking to /api/v1/copilot/chat: Failed to fetch', 0, ''));
     render(<CopilotView />);
     await ask('Anything?');
-    expect(await screen.findByText(/The copilot could not answer: the AiSOC API could not be reached\./)).toBeInTheDocument();
+    expect(await screen.findByText(/The copilot could not answer: the A.C.O.R.N API could not be reached\./)).toBeInTheDocument();
   });
 });
 

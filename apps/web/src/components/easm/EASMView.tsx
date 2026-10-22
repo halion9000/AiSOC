@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * External Attack Surface Management: what AiSOC has discovered about the organisation from outside, and what changed since the last scan.
+ * External Attack Surface Management: what A.C.O.R.N has discovered about the organisation from outside, and what changed since the last scan.
  *
  * Backed by /api/v1/easm/{assets,drift,scan}. The certificate inventory the old placeholder promised has no endpoint; certificate changes appear here as drift events.
  */
@@ -93,7 +93,7 @@ export function EASMView() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-gray-100">External Attack Surface Management</h1>
-          <p className="text-sm text-gray-400 mt-1">What AiSOC can see of your organisation from the internet, and what changed.</p>
+          <p className="text-sm text-gray-400 mt-1">What A.C.O.R.N can see of your organisation from the internet, and what changed.</p>
         </div>
         <button type="button" onClick={() => void scan()} disabled={scanning} className="px-3 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50">
           {scanning ? 'Starting...' : 'Run a scan'}

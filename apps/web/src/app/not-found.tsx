@@ -10,7 +10,7 @@ import { docs } from '@/lib/docs';
  *
  * Before this page landed, Next.js shipped its default `not-found.tsx`
  * which is a bare white `404 | This page could not be found.` with no
- * navigation, no AiSOC branding, and no link home. On a dark-themed
+ * navigation, no A.C.O.R.N branding, and no link home. On a dark-themed
  * marketing site it reads as "you have left localhost" — exactly the
  * wrong signal for someone who landed on a stale `/signup` link or
  * mistyped a route.
@@ -31,9 +31,9 @@ import { docs } from '@/lib/docs';
  */
 
 export const metadata: Metadata = {
-  title: '404 — page not found · AiSOC',
+  title: '404 — page not found · A.C.O.R.N',
   description:
-    'That URL is not part of the AiSOC marketing site. Jump back to the homepage, open the dashboard, or pick one of the popular destinations below.',
+    'That URL is not part of the A.C.O.R.N marketing site. Jump back to the homepage, open the dashboard, or pick one of the popular destinations below.',
   // Tell crawlers we know this is a 404 surface; do not let them index it.
   robots: { index: false, follow: false },
 };
@@ -90,7 +90,7 @@ export default function NotFoundPage() {
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-gray-400">
             This usually means a link is out of date, a route was retired,
-            or the URL has a typo. AiSOC is still live — pick one of the
+            or the URL has a typo. A.C.O.R.N is still live — pick one of the
             destinations below, or jump back to the homepage.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

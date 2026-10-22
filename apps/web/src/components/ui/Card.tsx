@@ -1,5 +1,5 @@
 /**
- * T3.8 — AiSOC console Card primitive.
+ * T3.8 — A.C.O.R.N console Card primitive.
  *
  * Cards live everywhere on the console (KPI tiles, gallery items,
  * incident panes). Codifying the four-corner anatomy here makes it

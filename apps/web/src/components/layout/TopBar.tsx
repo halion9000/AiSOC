@@ -48,7 +48,7 @@ const routeLabels: Record<string, { title: string; description: string }> = {
   '/sla': { title: 'SLA Tracking', description: 'Response time targets and breach risk' },
   '/audit': { title: 'Audit Log', description: 'Platform activity and security events' },
   '/settings': { title: 'Settings', description: 'Platform configuration' },
-  '/guide': { title: 'User guide', description: 'How to use AiSOC, page by page' },
+  '/guide': { title: 'User guide', description: 'How to use A.C.O.R.N, page by page' },
   '/': { title: 'Dashboard', description: 'SOC overview and metrics' },
 };
 
@@ -140,7 +140,7 @@ export function TopBar({ demoOffset = false }: TopBarProps) {
           .split('-')
           .map((part) => (ACRONYMS.has(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
           .join(' ')
-      : 'AiSOC';
+      : 'A.C.O.R.N';
     return { title, description: '' };
   })();
 

@@ -35,7 +35,7 @@ export function LinkedTicketsList({ tickets }: { tickets: LinkedTicket[] }) {
                 )}
                 {t.status ? <span className="text-xs text-gray-400">{t.status}</span> : null}
               </div>
-              <p className="mt-0.5 text-gray-200">{t.summary ?? (t.manual ? 'Linked by hand (no summary: AiSOC cannot read HaloPSA)' : 'Not found in HaloPSA')}</p>
+              <p className="mt-0.5 text-gray-200">{t.summary ?? (t.manual ? 'Linked by hand (no summary: A.C.O.R.N cannot read HaloPSA)' : 'Not found in HaloPSA')}</p>
               {t.client ? <p className="text-xs text-gray-500">{t.client}</p> : null}
             </li>
           );

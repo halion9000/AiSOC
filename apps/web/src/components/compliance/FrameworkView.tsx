@@ -101,7 +101,7 @@ export function FrameworkView({ framework }: Props) {
     return (
       <div className="p-8 text-center space-y-2">
         <h2 className="text-lg font-semibold text-gray-200">{framework.toUpperCase()} Compliance</h2>
-        <p className="text-sm text-gray-400 max-w-xl mx-auto">This framework has no control list in this AiSOC build, so there is nothing to collect evidence against yet.</p>
+        <p className="text-sm text-gray-400 max-w-xl mx-auto">This framework has no control list in this A.C.O.R.N build, so there is nothing to collect evidence against yet.</p>
       </div>
     );
   }

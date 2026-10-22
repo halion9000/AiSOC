@@ -91,6 +91,20 @@ async def test_same_hostname_without_serial_is_offered_as_possible_duplicate_not
     assert pairs == [tuple(sorted((a, b), key=str))]
 
 
+async def test_a_machine_only_screenconnect_lists_and_that_has_no_serial_is_never_offered_as_a_duplicate(tenants):
+    t = tenants["acme"]
+    await run(t, lambda db: upsert_device(db, t, DeviceReport("screenconnect", "sc-1", "Mac", serial="FXWVQH07MH")))
+    await run(t, lambda db: upsert_device(db, t, DeviceReport("screenconnect", "sc-2", "Mac")))
+    assert await run(t, lambda db: possible_duplicates(db, t)) == [], "the one with no serial is left out, so there is no pair"
+    # the same name from another tool, with no serial, is still a pair for a person to look at
+    a = await run(t, lambda db: upsert_device(db, t, DeviceReport("ninjaone", "n-1", "FRONT-DESK")))
+    b = await run(t, lambda db: upsert_device(db, t, DeviceReport("addigy", "ad-1", "front-desk")))
+    assert await run(t, lambda db: possible_duplicates(db, t)) == [tuple(sorted((a, b), key=str))]
+    # but a ScreenConnect record with no serial beside them is not added to it
+    await run(t, lambda db: upsert_device(db, t, DeviceReport("screenconnect", "sc-3", "front-desk")))
+    assert await run(t, lambda db: possible_duplicates(db, t)) == [tuple(sorted((a, b), key=str))]
+
+
 async def test_different_serials_with_same_hostname_are_not_suggested(tenants):
     t = tenants["acme"]
     await run(t, lambda db: upsert_device(db, t, DeviceReport("ninjaone", "1", "LAPTOP", serial="AAAA1111")))

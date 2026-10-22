@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { ClientReview } from "./ClientReview";
 
 export const metadata: Metadata = {
-  title: "Client review | Reports | AiSOC",
+  title: "Client review | Reports | A.C.O.R.N",
 };
 
 export default function ClientReviewPage() {

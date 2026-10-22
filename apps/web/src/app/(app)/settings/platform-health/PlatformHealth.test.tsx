@@ -128,7 +128,7 @@ describe('CORE feed silence', () => {
   it('warns when CORE has gone quiet', async () => {
     authFetch.mockResolvedValue(withFeed({ sources: 7, last_report: '2026-10-19T01:00:00Z', minutes_ago: 60, silent: true }));
     render(<PlatformHealth />);
-    expect(await screen.findByTestId('core-silent')).toHaveTextContent('CORE has not reported to AiSOC since 60 minutes ago');
+    expect(await screen.findByTestId('core-silent')).toHaveTextContent('CORE has not reported to A.C.O.R.N since 60 minutes ago');
   });
 
   it('says nothing while CORE is reporting', async () => {

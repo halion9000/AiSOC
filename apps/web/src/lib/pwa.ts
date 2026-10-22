@@ -31,7 +31,7 @@ export interface ServiceWorkerStatus {
 }
 
 /**
- * Register the AiSOC service worker. Safe to call multiple times — the
+ * Register the A.C.O.R.N service worker. Safe to call multiple times — the
  * browser dedupes by `scriptUrl` + `scope`. Only runs in the browser.
  */
 export async function registerServiceWorker(

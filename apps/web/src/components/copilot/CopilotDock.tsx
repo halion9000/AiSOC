@@ -35,7 +35,7 @@ function failureReply(err: unknown): CopilotMessage {
     role: 'assistant',
     content:
       `${copilotFailureText(err)}.\n\n` +
-      'If this keeps happening, check that the AiSOC stack is running and that CORE\'s provider config is synced (rebuild AISOC from the HUD).',
+      'If this keeps happening, check that the A.C.O.R.N stack is running and that CORE\'s provider config is synced (rebuild A.C.O.R.N from the HUD).',
     createdAt: new Date().toISOString(),
   };
 }

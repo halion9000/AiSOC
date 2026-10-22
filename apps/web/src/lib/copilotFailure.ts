@@ -13,9 +13,9 @@ export function copilotFailureReason(err: unknown): string {
     } catch {
       /* the body was not JSON */
     }
-    return err.status === 0 ? 'the AiSOC API could not be reached' : `the AiSOC API answered ${err.status}`;
+    return err.status === 0 ? 'the A.C.O.R.N API could not be reached' : `the A.C.O.R.N API answered ${err.status}`;
   }
-  return err instanceof Error && err.message ? err.message : 'the AiSOC API could not be reached';
+  return err instanceof Error && err.message ? err.message : 'the A.C.O.R.N API could not be reached';
 }
 
 export function copilotFailureText(err: unknown): string {

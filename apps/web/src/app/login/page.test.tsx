@@ -48,7 +48,7 @@ describe('the sign-in page', () => {
 
   it('presents an account name and password sign-in', () => {
     render(<LoginPage />);
-    expect(screen.getByRole('heading', { name: /sign in to aisoc/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /sign in to a.c.o.r.n/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('your.account.name')).toBeInTheDocument();
     expect(screen.getByLabelText(/account name/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/^email/i)).not.toBeInTheDocument();

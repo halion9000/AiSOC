@@ -804,7 +804,7 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
             updated_at: caseRecord.updatedAt,
             due_at: caseRecord.dueAt,
           }}
-          eyebrow="Ask AiSOC about this case"
+          eyebrow="Ask A.C.O.R.N about this case"
         />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">

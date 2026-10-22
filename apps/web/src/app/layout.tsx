@@ -27,25 +27,25 @@ const siteUrl = getPublicSiteUrl();
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  applicationName: 'AiSOC',
+  applicationName: 'A.C.O.R.N',
   title: {
-    default: 'AiSOC — Open-Source AI Security Operations Center',
-    template: '%s | AiSOC',
+    default: 'A.C.O.R.N — Open-Source AI Security Operations Center',
+    template: '%s | A.C.O.R.N',
   },
   description:
-    'AiSOC is a free, self-hostable AI-powered Security Operations Center (SOC). Real-time threat detection, alert fusion, purple-team exercises, MITRE ATT&CK-aware autonomous investigation, and detection-as-code — MIT-licensed and community-driven.',
+    'A.C.O.R.N is a free, self-hostable AI-powered Security Operations Center (SOC). Real-time threat detection, alert fusion, purple-team exercises, MITRE ATT&CK-aware autonomous investigation, and detection-as-code — MIT-licensed and community-driven.',
   keywords: [...DISCOVERY_KEYWORDS],
-  authors: [{ name: 'AiSOC Community', url: 'https://github.com/beenuar/AiSOC' }],
-  creator: 'AiSOC Community',
-  publisher: 'AiSOC',
+  authors: [{ name: 'A.C.O.R.N Community', url: 'https://github.com/beenuar/AiSOC' }],
+  creator: 'A.C.O.R.N Community',
+  publisher: 'A.C.O.R.N',
   category: 'cybersecurity',
   classification: 'Security Software',
   openGraph: {
-    title: 'AiSOC — Free, Open-Source AI Security Operations Center',
+    title: 'A.C.O.R.N — Free, Open-Source AI Security Operations Center',
     description:
       'Self-hostable AI SOC with real-time threat detection, alert fusion, purple-team drills, MITRE ATT&CK investigation, and detection-as-code. MIT-licensed. Try the live demo at localhost.',
     type: 'website',
-    siteName: 'AiSOC',
+    siteName: 'A.C.O.R.N',
     url: siteUrl,
     locale: 'en_US',
     images: [
@@ -53,14 +53,14 @@ export const metadata: Metadata = {
         url: '/og-image.svg',
         width: 1200,
         height: 630,
-        alt: 'AiSOC — open-source AI SOC platform for security operations teams',
+        alt: 'A.C.O.R.N — open-source AI SOC platform for security operations teams',
         type: 'image/svg+xml',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'AiSOC — Free Open-Source AI SOC Platform',
+    title: 'A.C.O.R.N — Free Open-Source AI SOC Platform',
     description:
       'AI-powered SOC: threat detection, alert fusion, purple team, MITRE ATT&CK mapping, detection-as-code, and eval harness in CI. Self-host for free — localhost.',
     site: '@aisoc_dev',
@@ -77,7 +77,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    title: 'AiSOC',
+    title: 'A.C.O.R.N',
     statusBarStyle: 'black-translucent',
   },
   robots: { index: true, follow: true, googleBot: { index: true, follow: true } },
@@ -95,7 +95,7 @@ const jsonLd = {
   '@graph': [
     {
       '@type': 'Organization',
-      name: 'AiSOC',
+      name: 'A.C.O.R.N',
       url: siteUrl,
       logo: `${siteUrl}/favicon.svg`,
       description:
@@ -112,8 +112,8 @@ const jsonLd = {
     },
     {
       '@type': 'SoftwareApplication',
-      name: 'AiSOC',
-      alternateName: ['AI SOC', 'AiSOC Platform', 'Open Source SOC'],
+      name: 'A.C.O.R.N',
+      alternateName: ['AI SOC', 'A.C.O.R.N Platform', 'Open Source SOC'],
       applicationCategory: 'SecurityApplication',
       applicationSubCategory: 'Security Operations Center',
       operatingSystem: 'Linux, macOS, Docker',
@@ -151,7 +151,7 @@ const jsonLd = {
     },
     {
       '@type': 'WebSite',
-      name: 'AiSOC',
+      name: 'A.C.O.R.N',
       url: siteUrl,
       description: 'Open-source AI-powered Security Operations Center — localhost',
       potentialAction: {

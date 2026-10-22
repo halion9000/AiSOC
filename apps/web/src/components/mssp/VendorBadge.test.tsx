@@ -69,3 +69,12 @@ describe('the ScreenConnect badge', () => {
     expect(img?.getAttribute('alt')).toBe('ScreenConnect');
   });
 });
+
+describe('the vCIO Toolbox badge', () => {
+  it('shows its own logo image, named vCIO Toolbox', () => {
+    const { container } = render(<VendorBadge vendor="vciotoolbox" />);
+    const img = container.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('/vendors/vciotoolbox.png');
+    expect(img?.getAttribute('alt')).toBe('vCIO Toolbox');
+  });
+});

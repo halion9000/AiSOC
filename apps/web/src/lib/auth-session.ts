@@ -2,7 +2,7 @@
  * Session handling for the web console: one place that attaches the login token
  * to API requests and reacts when it stops working.
  *
- * Why this exists. In production AiSOC requires a login (access tokens last
+ * Why this exists. In production A.C.O.R.N requires a login (access tokens last
  * 30 minutes). The console used to attach the token in exactly one helper while
  * ~40 call sites used bare fetch() with no token at all, never used its refresh
  * token, and never sent anyone to the login page, so production would have
@@ -228,7 +228,7 @@ function endSession(): void {
 }
 
 /**
- * fetch() for AiSOC API calls from the browser. Drop-in replacement: same
+ * fetch() for A.C.O.R.N API calls from the browser. Drop-in replacement: same
  * arguments, same Response. Anything that is not a same-origin /api/* request
  * (or runs on the server) goes straight to fetch().
  */

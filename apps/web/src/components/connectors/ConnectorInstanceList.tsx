@@ -8,7 +8,7 @@
  * place. This component only knows how to render a `Connector[]` and emit
  * action callbacks (test, delete) when the operator clicks a row.
  *
- * Layout follows the rest of the AiSOC dashboard: 3-up grid on wide
+ * Layout follows the rest of the A.C.O.R.N dashboard: 3-up grid on wide
  * screens, with a trailing "Add Connector" tile that the parent wires to
  * the `AddConnectorModal`. Empty state replaces the grid entirely so a
  * fresh tenant gets a useful onboarding nudge instead of just the
@@ -380,7 +380,7 @@ function ConnectorCard({
         )}
         {connector.type === 'core_feed' ? (
           <span
-            title="This feed is set up in CORE: its credentials and settings live there. AiSOC only shows its status."
+            title="This feed is set up in CORE: its credentials and settings live there. A.C.O.R.N only shows its status."
             className="flex-1 text-xs bg-gray-800/40 text-gray-400 px-3 py-2 rounded-lg border border-gray-700/40 text-center select-none"
           >
             Managed in CORE
@@ -477,7 +477,7 @@ export function ConnectorInstanceList({
           </svg>
         }
         title="No connectors yet"
-        description="Connect your first security tool to start ingesting alerts. Credentials are encrypted at rest with the AiSOC vault."
+        description="Connect your first security tool to start ingesting alerts. Credentials are encrypted at rest with the A.C.O.R.N vault."
         action={
           <button
             type="button"

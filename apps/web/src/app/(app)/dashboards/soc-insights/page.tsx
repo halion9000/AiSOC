@@ -23,7 +23,7 @@
 import { SOCInsightsView } from '@/components/soc-insights/SOCInsightsView';
 
 export const metadata = {
-  title: 'SOC Insights | AiSOC',
+  title: 'SOC Insights | A.C.O.R.N',
 };
 
 export default function SOCInsightsPage() {

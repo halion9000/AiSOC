@@ -1,7 +1,7 @@
 /**
  * Typed HTTP client for FIM (file integrity monitoring) data.
  *
- * Requests go to the AiSOC API (`/api/v1/osquery/fim/*`), which checks your login and tenant and then
+ * Requests go to the A.C.O.R.N API (`/api/v1/osquery/fim/*`), which checks your login and tenant and then
  * asks the osquery service. The browser never talks to the osquery service directly: that service has
  * no user authentication of its own.
  */

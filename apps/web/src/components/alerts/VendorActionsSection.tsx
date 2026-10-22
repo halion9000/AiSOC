@@ -4,7 +4,7 @@
  * Remediation plan and actions for a Huntress alert, in the investigation rail.
  *
  * Shows what Huntress says about the incident (status, the remediation plan, the PSA ticket Huntress opened) and offers the three things Huntress allows: approve the plan,
- * reject it (sending the incident back to the Huntress SOC, with a reason), and resolve the incident once every remediation is approved. AiSOC holds no Huntress key:
+ * reject it (sending the incident back to the Huntress SOC, with a reason), and resolve the incident once every remediation is approved. A.C.O.R.N holds no Huntress key:
  * a click is queued, CORE carries it out within about a minute, and the result shows here. Every action asks for confirmation first, because it changes a live security tool
  * (approving runs "assisted" remediations on the endpoint straight away).
  *
@@ -35,7 +35,7 @@ export const REJECT_REASONS: { value: string; label: string }[] = [
 
 export type VendorActionName = 'approve' | 'reject' | 'resolve';
 
-/** Which of the three actions make sense right now. Mirrors Huntress's rules (and AiSOC's server-side check), so a button is not offered that would be refused. */
+/** Which of the three actions make sense right now. Mirrors Huntress's rules (and A.C.O.R.N's server-side check), so a button is not offered that would be refused. */
 export function availableActions(state: VendorState | null, busy: boolean): Record<VendorActionName, { enabled: boolean; why: string }> {
   const none = (why: string) => ({ enabled: false, why });
   if (busy) {
@@ -220,7 +220,7 @@ export function VendorActionsSection({ alertId }: { alertId: string }) {
               </label>
             </div>
           )}
-          <p className="mt-2 text-gray-500">AiSOC doesn&apos;t talk to Huntress itself. CORE carries this out within about a minute.</p>
+          <p className="mt-2 text-gray-500">A.C.O.R.N doesn&apos;t talk to Huntress itself. CORE carries this out within about a minute.</p>
           <div className="mt-2 flex gap-2">
             <button
               type="button"
@@ -288,7 +288,7 @@ export const BLUMIRA_RESOLUTIONS: { value: number; label: string }[] = [
 const VENDOR_NAME: Record<'blumira' | 'fieldeffect', string> = { blumira: 'Blumira', fieldeffect: 'Field Effect' };
 
 /**
- * Blumira findings and Field Effect AROs can only be resolved from here (no remediation plan to approve first). Same path as the Huntress actions: queued in AiSOC,
+ * Blumira findings and Field Effect AROs can only be resolved from here (no remediation plan to approve first). Same path as the Huntress actions: queued in A.C.O.R.N,
  * carried out by CORE, result shown below. Blumira needs the reason it is closed (its own list of four); Field Effect just takes an optional comment.
  */
 export function ResolveOnlyPanel({
@@ -389,7 +389,7 @@ export function ResolveOnlyPanel({
               />
             </label>
           </div>
-          <p className="mt-2 text-gray-500">AiSOC doesn&apos;t talk to {name} itself. CORE carries this out within about a minute.</p>
+          <p className="mt-2 text-gray-500">A.C.O.R.N doesn&apos;t talk to {name} itself. CORE carries this out within about a minute.</p>
           <div className="mt-2 flex gap-2">
             <button
               type="button"

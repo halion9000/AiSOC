@@ -19,7 +19,7 @@ import { rememberable, restoreFilters } from '@/lib/alert-filter-memory';
 import { sourceLink } from './AlertContext';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
 
-// Wave 1 of the AiSOC v6 capability roadmap. The "entities" tab renders the
+// Wave 1 of the A.C.O.R.N v6 capability roadmap. The "entities" tab renders the
 // rolled-up Risk-Based Alerting queue — alerts contribute time-decayed risk
 // points to the entities they touch, and the queue surfaces those entities
 // (not the raw alerts) to the analyst. The "alerts" tab keeps the legacy

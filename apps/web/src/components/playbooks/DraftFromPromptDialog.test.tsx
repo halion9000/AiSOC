@@ -48,7 +48,7 @@ const fakePlaybook = {
       timeout_seconds: 30,
     },
   ],
-  author: 'AiSOC NL Drafter',
+  author: 'A.C.O.R.N NL Drafter',
   enabled: false,
   created_at: '2026-06-27T00:00:00Z',
   updated_at: '2026-06-27T00:00:00Z',

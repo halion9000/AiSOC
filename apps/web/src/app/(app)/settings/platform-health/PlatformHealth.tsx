@@ -124,8 +124,8 @@ export function PlatformHealth() {
           )}
           {snapshot.core_feed?.silent && (
             <p role="note" data-testid="core-silent" className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-              CORE has not reported to AiSOC {snapshot.core_feed.minutes_ago === null ? "yet" : `since ${agoLabel(snapshot.core_feed.minutes_ago).replace(" ago", "")} ago`}. While it is silent, no new alerts, devices or
-              links arrive from Huntress, Petra, NinjaOne and the other tools. Check that CORE is running and can reach AiSOC.
+              CORE has not reported to A.C.O.R.N {snapshot.core_feed.minutes_ago === null ? "yet" : `since ${agoLabel(snapshot.core_feed.minutes_ago).replace(" ago", "")} ago`}. While it is silent, no new alerts, devices or
+              links arrive from Huntress, Petra, NinjaOne and the other tools. Check that CORE is running and can reach A.C.O.R.N.
             </p>
           )}
           {snapshot.signins && (

@@ -14,7 +14,7 @@ export interface HoneytokenRecord {
 }
 
 /**
- * What each type is, in plain words, and whether anything can notice it being used. Only a LINK can: opening it calls AiSOC. The rest are decoy values, and nothing watches for them yet
+ * What each type is, in plain words, and whether anything can notice it being used. Only a LINK can: opening it calls A.C.O.R.N. The rest are decoy values, and nothing watches for them yet
  * (an AWS key needs CloudTrail, a DNS name a name server, an e-mail address a mailbox, a login the target system's logs), so the page says so instead of letting someone plant one and wait.
  */
 export const TOKEN_TYPES: Record<string, { label: string; alerts: boolean; plant: string }> = {
@@ -31,17 +31,17 @@ export const TOKEN_TYPES: Record<string, { label: string; alerts: boolean; plant
   aws_key: {
     label: "AWS key (decoy only)",
     alerts: false,
-    plant: "A fake key that looks real. Nothing watches for it being used yet: AWS would have to report the attempt (CloudTrail) to AiSOC. Plant it only to keep a record of what you hid.",
+    plant: "A fake key that looks real. Nothing watches for it being used yet: AWS would have to report the attempt (CloudTrail) to A.C.O.R.N. Plant it only to keep a record of what you hid.",
   },
   db_credential: {
     label: "Database login (decoy only)",
     alerts: false,
-    plant: "A fake database login. Nothing watches for it yet: that database's logs would have to be sent to AiSOC.",
+    plant: "A fake database login. Nothing watches for it yet: that database's logs would have to be sent to A.C.O.R.N.",
   },
   email: {
     label: "E-mail address (decoy only)",
     alerts: false,
-    plant: "A fake address. Nothing watches for mail to it yet: a mailbox AiSOC can read would be needed.",
+    plant: "A fake address. Nothing watches for mail to it yet: a mailbox A.C.O.R.N can read would be needed.",
   },
   dns: {
     label: "DNS name (decoy only)",

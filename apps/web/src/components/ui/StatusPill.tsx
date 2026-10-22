@@ -1,5 +1,5 @@
 /**
- * T3.8 — AiSOC console StatusPill primitive.
+ * T3.8 — A.C.O.R.N console StatusPill primitive.
  *
  * Compact status indicator with an animated dot for live states. Used
  * in the runs panel, connector cards, ingest health bar, etc.

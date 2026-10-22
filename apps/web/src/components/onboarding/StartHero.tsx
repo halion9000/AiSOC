@@ -10,7 +10,7 @@ import { demoDeeplink } from '@/lib/demoMode';
 import { CONNECTOR_COUNT } from '@/data/connectorCount';
 
 /**
- * Onboarding hero for the AiSOC root (`/`).
+ * Onboarding hero for the A.C.O.R.N root (`/`).
  *
  * Implements the three CTAs from `aisoc_v1.0__buyer-value_plan` WS-A2:
  *
@@ -87,7 +87,7 @@ export function StartHero() {
           </h1>
 
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-gray-300 md:text-xl">
-            AiSOC ships four named agents — Detect, Triage, Hunt, and
+            A.C.O.R.N ships four named agents — Detect, Triage, Hunt, and
             Respond — wired to a 200-incident eval harness, a pre-seeded
             LockBit 3.0 investigation, and 26 click-and-connect security
             sources. Pick how you want to start: every option lands you in a
@@ -99,7 +99,7 @@ export function StartHero() {
               identity, cloud, insider) are capabilities of Triage, never
               first-class names here. */}
           <ul
-            aria-label="The four AiSOC agents"
+            aria-label="The four A.C.O.R.N agents"
             className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-4"
           >
             {[
@@ -236,7 +236,7 @@ export function StartHero() {
 function DemoScreencast() {
   return (
     <aside
-      aria-label="AiSOC 90-second product demo"
+      aria-label="A.C.O.R.N 90-second product demo"
       className="mt-8 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
     >
       <a
@@ -250,7 +250,7 @@ function DemoScreencast() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/demo-thumbnail.svg"
-            alt="AiSOC 90-second product demo thumbnail showing the four canonical cases (phishing, cloud takeover, insider exfil, ransomware)"
+            alt="A.C.O.R.N 90-second product demo thumbnail showing the four canonical cases (phishing, cloud takeover, insider exfil, ransomware)"
             width={1280}
             height={720}
             className="block h-auto w-full"
@@ -332,7 +332,7 @@ function HeroVisual() {
       >
         <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-400">
           <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-brand-500 text-[11px] font-bold text-white">A</span>
-          AiSOC Agent
+          A.C.O.R.N Agent
           <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-emerald-300">streaming</span>
         </div>
         <p className="text-sm leading-relaxed text-gray-200">

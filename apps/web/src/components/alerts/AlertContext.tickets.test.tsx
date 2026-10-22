@@ -5,7 +5,7 @@ import { vi } from 'vitest';
 import { TicketRows } from './AlertContext';
 
 describe('TicketRows', () => {
-  it('shows what AiSOC was told, and says a hand-added ticket has no summary because AiSOC cannot read HaloPSA', () => {
+  it('shows what A.C.O.R.N was told, and says a hand-added ticket has no summary because A.C.O.R.N cannot read HaloPSA', () => {
     render(<TicketRows tickets={[{ id: '4521', system: 'halopsa', summary: 'Disk full', status: 'Open' }, { id: '555871', system: 'halopsa', manual: true }]} />);
     expect(screen.getByText(/Disk full/)).toBeInTheDocument();
     expect(screen.getByText(/Linked by hand/)).toBeInTheDocument();

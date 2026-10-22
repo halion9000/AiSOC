@@ -22,7 +22,7 @@ const BADGE_STYLES: Record<Contributor['badge'], { bg: string; text: string; bor
 };
 
 const CORE_CONTRIBUTORS: Contributor[] = [
-  { name: 'AiSOC', rules: 218, categories: ['cloud', 'endpoint', 'identity', 'network', 'application'], badge: 'platinum' },
+  { name: 'A.C.O.R.N', rules: 218, categories: ['cloud', 'endpoint', 'identity', 'network', 'application'], badge: 'platinum' },
 ];
 
 const BADGE_THRESHOLDS: { tier: Contributor['badge']; min: number; label: string }[] = [

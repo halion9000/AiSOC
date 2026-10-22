@@ -29,9 +29,9 @@ import { ApiError } from '@/lib/api';
 import { SettingsView, profileFromAccount, workspaceProblem } from './SettingsView';
 
 // Settings > Profile used to show a made-up person ("Sasha Lin", sasha.lin@example.com, "Senior SOC Analyst") kept only in this browser, not the
-// signed-in account, and Settings > Workspace showed a made-up workspace ("AiSOC Demo", tenant_demo_01H0XE4T2WJ9N6, region "us-east-1", a creation
+// signed-in account, and Settings > Workspace showed a made-up workspace ("A.C.O.R.N Demo", tenant_demo_01H0XE4T2WJ9N6, region "us-east-1", a creation
 // date computed as "96 days ago") and five made-up members. Now both show the real account and tenant.
-const DEMO = ['Sasha Lin', 'sasha.lin@example.com', 'Senior SOC Analyst', 'AiSOC Demo', 'tenant_demo_01H0XE4T2WJ9N6', 'us-east-1', 'Avi Sharma', 'Diego Vega', 'Mia Ocampo', 'CI Service', 'demo data'];
+const DEMO = ['Sasha Lin', 'sasha.lin@example.com', 'Senior SOC Analyst', 'A.C.O.R.N Demo', 'tenant_demo_01H0XE4T2WJ9N6', 'us-east-1', 'Avi Sharma', 'Diego Vega', 'Mia Ocampo', 'CI Service', 'demo data'];
 
 const account: AuthUser = { id: 'u1', account_name: 'hal.owner', email: 'owner@liveoak.test', username: 'hal', role: 'admin', tenant_id: 't1', preferences: {} };
 const tenant: TenantDetails = { id: '0b6f2a52-1c1e-4a8e-9a55-0c4a3f1d9d11', name: 'Live Oak IT', slug: 'live-oak-it', plan: 'open-source', is_active: true, created_at: '2026-10-07T12:00:00Z' };

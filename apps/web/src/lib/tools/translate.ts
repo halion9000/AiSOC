@@ -86,7 +86,7 @@ function wrap(fmt: DetectionFormat, rule: string): string {
     case "esql":
       return `FROM logs-*\n| WHERE ${rule}`;
     case "yara_l2":
-      return `rule translated_rule {\n  meta:\n    author = "AiSOC"\n  condition:\n    ${rule}\n}`;
+      return `rule translated_rule {\n  meta:\n    author = "A.C.O.R.N"\n  condition:\n    ${rule}\n}`;
     case "udm":
       return `// Chronicle UDM Search\n${rule}`;
     case "sigma":

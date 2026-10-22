@@ -40,7 +40,7 @@ async function send(path: string): Promise<Response> {
 }
 
 /**
- * What AiSOC suggests adding to this client's vCIO Toolbox, worked out from the checks above. Each one is a recommendation a person approves or rejects; only an approved one is sent, and CORE sends it.
+ * What A.C.O.R.N suggests adding to this client's vCIO Toolbox, worked out from the checks above. Each one is a recommendation a person approves or rejects; only an approved one is sent, and CORE sends it.
  * Not part of a printed review.
  */
 export function VcioSuggestions({ clientId }: { clientId: string }) {
@@ -95,7 +95,7 @@ export function VcioSuggestions({ clientId }: { clientId: string }) {
         </button>
       </div>
       <p className="text-xs text-slate-500">
-        Recommendations AiSOC would add to this client in vCIO Toolbox, from the checks in this review. Nothing is sent until you approve it, and CORE does the sending.
+        Recommendations A.C.O.R.N would add to this client in vCIO Toolbox, from the checks in this review. Nothing is sent until you approve it, and CORE does the sending.
       </p>
       {data && !data.mapped && (
         <p className="mt-2 text-sm text-yellow-300" data-testid="vcio-unmapped">

@@ -13,7 +13,7 @@ export function getPublicSiteUrl(): string {
 /** Meta keywords for cyber/SOC discovery (localhost demo + self-host). */
 export const DISCOVERY_KEYWORDS: readonly string[] = [
   // Brand
-  "AiSOC",
+  "A.C.O.R.N",
   "AI SOC",
   "tryaisoc",
   "localhost",

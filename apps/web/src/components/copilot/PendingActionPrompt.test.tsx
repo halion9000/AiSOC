@@ -75,7 +75,7 @@ describe('confirming', () => {
     copilotApi.confirmAction.mockRejectedValue(new ApiError('Network error', 0, ''));
     render(<PendingActionPrompt action={pending()} />);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Delete' }));
-    expect(await screen.findByText('The AiSOC API could not be reached. Nothing was changed.')).toBeInTheDocument();
+    expect(await screen.findByText('The A.C.O.R.N API could not be reached. Nothing was changed.')).toBeInTheDocument();
   });
 
   it('falls back to a plain message for an unexpected error', async () => {
