@@ -802,10 +802,11 @@ class EntitiesReport(BaseModel):
 async def apply_entities(db: Any, tenant_id: Any, report: EntitiesReport) -> int:
     """Give stored alerts the host, user and address a vendor's evidence names, and a link to the alert in the vendor's tool, in ``tenant_id``. Each is filled only where it is EMPTY: what ingestion
     already set is never overwritten, and nothing is re-scored. Returns how many alert fields were filled. The caller owns the transaction."""
-    prefix = f"{report.vendor}:"
+    # A vendor's alert ids start with its name and a colon (``huntress:123``) or, for a second kind of alert from the same tool, its name and a dash (``huntress-escalation:123``).
+    prefixes = (f"{report.vendor}:", f"{report.vendor}-")
     filled = 0
     for item in report.items:
-        if not item.uid.startswith(prefix):
+        if not item.uid.startswith(prefixes):
             continue
         for column, value in (
             (Alert.affected_hosts, item.hostname),

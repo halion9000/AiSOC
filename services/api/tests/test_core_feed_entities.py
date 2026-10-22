@@ -92,6 +92,22 @@ async def test_a_link_is_set_only_on_an_alert_that_has_none_and_only_when_it_is_
         EntityItem(uid="huntress:1", url="http://insecure.example.com/x")
 
 
+@pytest.mark.asyncio
+async def test_a_second_kind_of_alert_from_the_same_tool_is_matched_and_another_tools_alert_is_not():
+    db = _db([1])
+    report = EntitiesReport(
+        vendor="huntress",
+        items=[
+            EntityItem(uid="huntress-escalation:1218671", url="https://acme.huntress.io/account/escalations/1218671"),
+            EntityItem(uid="blumira:1", url="https://app.blumira.com/x"),
+            EntityItem(uid="huntressX:1", url="https://acme.huntress.io/y"),
+        ],
+    )
+    assert await apply_entities(db, TENANT, report) == 1
+    assert len(db.executed) == 1, "only the escalation was looked up"
+    assert "huntress-escalation:1218671" in _sql(db.executed[0])[1].values()
+
+
 def test_links_keep_only_the_known_keys_and_plain_https_addresses():
     item = EntityItem(
         uid="huntress:1",
