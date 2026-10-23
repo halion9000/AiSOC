@@ -31,7 +31,7 @@ from app.models.client_alias import ClientAlias
 from app.models.signin import ClientM365Check, ClientVcioReview, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.client_review import DeviceFacts, Readiness, device_facts, readiness
-from app.services.infra_review import SAAS_SOURCE
+from app.services.infra_review import SAAS_SOURCES
 from app.services.m365_review import M365Answer, m365_answers
 from app.services.sat_review import SAT_SOURCE
 from app.services.tech_stack import TechAnswer, tech_stack
@@ -256,7 +256,7 @@ async def client_review(
         score_row = (await db.execute(select(IdentitySecureScore).where(IdentitySecureScore.tenant_id == client_id))).scalars().first()
         vcio_row = (await db.execute(select(ClientVcioReview).where(ClientVcioReview.tenant_id == client_id))).scalars().first()
         m365_row = (
-            (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source.notin_([SAT_SOURCE, SAAS_SOURCE]))))
+            (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source.notin_([SAT_SOURCE, *SAAS_SOURCES]))))
             .scalars()
             .first()
         )
@@ -265,11 +265,7 @@ async def client_review(
             .scalars()
             .first()
         )
-        saas_row = (
-            (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source == SAAS_SOURCE)))
-            .scalars()
-            .first()
-        )
+        saas_rows = (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source.in_(SAAS_SOURCES)))).scalars().all()
         a = (
             await db.execute(
                 select(
@@ -304,7 +300,8 @@ async def client_review(
         else None
     )
     sat_checks = [c for c in (sat_row.checks if sat_row is not None else []) if isinstance(c, dict)]
-    saas_checks = [c for c in (saas_row.checks if saas_row is not None else []) if isinstance(c, dict)]
+    # Each cloud backup tool's checks, tagged with the tool that sent them so the answer can name it.
+    saas_checks = [{**c, "source": row.source} for row in saas_rows for c in (row.checks or []) if isinstance(c, dict)]
     return ClientReview(
         client_id=client_id,
         client_name=clients.get(client_id),
@@ -315,7 +312,7 @@ async def client_review(
         secure_score=score,
         alerts=ReviewAlerts(open=a[0], critical_open=a[1], high_open=a[2], opened_30d=a[3], closed_30d=a[4]),
         cases=ReviewCases(open=c[0], opened_30d=c[1], resolved_30d=c[2]),
-        readiness=readiness(facts, mfa, score.percent if score else None, sat=sat_checks, devices=shown, saas=saas_checks),
+        readiness=readiness(facts, mfa, score.percent if score else None, sat=sat_checks, devices=shown, saas=saas_checks, enrolled_in={v for v, tid in aliases if tid == client_id}),
         tech_stack=tech_stack(shown, facts, has_microsoft_365=bool(users), sat=sat_checks, saas=saas_checks, enrolled_in={v for v, tid in aliases if tid == client_id}, mapped_tools={v for v, _ in aliases}),
         m365=m365_answers([c for c in (m365_row.checks if m365_row is not None else []) if isinstance(c, dict)], list(users)),
         m365_refreshed_at=m365_row.refreshed_at if m365_row is not None else None,

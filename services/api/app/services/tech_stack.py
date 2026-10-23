@@ -15,11 +15,11 @@ from app.services.client_review import DeviceFacts, tool_label
 from app.services.device_merge import os_kind
 from app.services.infra_review import (
     EDR_TOOLS,
-    SAAS_NAME,
     backup_answer,
     edr_answer,
     network_answer,
     saas_backup,
+    saas_tools,
     server_brand_answer,
     soc_answer,
     virtualization_answer,
@@ -166,7 +166,7 @@ def tech_stack(
     put("backup_bcdr", *backup_answer(devices))
     cloud = saas_backup(saas)
     if cloud is None:
-        put("backup_saas", "unknown", None, "No Datto SaaS Protection data has arrived for this client (A.C.O.R.N does not read Dropsuite); it may use another cloud backup, so ask the client.")
+        put("backup_saas", "unknown", None, "No Datto SaaS Protection or Dropsuite data has arrived for this client; it may use another cloud backup, or not be mapped to one of them yet, so ask the client.")
     else:
-        put("backup_saas", "seen", SAAS_NAME, cloud[1])
+        put("backup_saas", "seen", saas_tools(saas) or "Cloud backup", cloud[1])
     return out

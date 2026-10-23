@@ -191,7 +191,7 @@ def test_saas_backup_is_the_worst_product_and_none_reported_is_unknown():
 
 def test_the_cloud_backup_question_names_datto_saas_when_it_reports_and_is_unknown_otherwise():
     devices = []
-    a = {x.key: x for x in tech_stack(devices, device_facts(devices, 0, 0), False, saas=[chk("saas_backup_microsoft", "met", "Microsoft 365 backed up")])}
+    a = {x.key: x for x in tech_stack(devices, device_facts(devices, 0, 0), False, saas=[{**chk("saas_backup_microsoft", "met", "Microsoft 365 backed up"), "source": "datto-saas"}])}
     assert (a["backup_saas"].status, a["backup_saas"].suggested) == ("seen", "Datto SaaS Protection")
     assert "Microsoft 365 backed up" in a["backup_saas"].evidence
     none = {x.key: x for x in tech_stack(devices, device_facts(devices, 0, 0), False)}
@@ -329,3 +329,37 @@ def test_not_being_in_huntress_sat_when_others_are_says_none_seen_and_results_st
     assert stack(set(), set())["awareness"].status == "unknown"
     with_results = stack({"huntress-sat"}, {"huntress-sat"}, sat=[chk("sat_training_assigned", "met", "2 assignments running")])
     assert "2 assignments running" in with_results["awareness"].evidence
+
+
+def test_dropsuite_and_datto_saas_are_both_named_when_both_report():
+    both = [
+        {**chk("saas_backup_microsoft", "met", "Microsoft 365 backed up"), "source": "datto-saas"},
+        {**chk("saas_backup_email", "partly", "Email backed up by Dropsuite: 14 of 20 mailboxes"), "source": "dropsuite"},
+    ]
+    a = {x.key: x for x in tech_stack([], device_facts([], 0, 0), False, saas=both)}["backup_saas"]
+    assert (a.status, a.suggested) == ("seen", "Datto SaaS Protection + Dropsuite")
+    only = [{**chk("saas_backup_email", "met", "ok"), "source": "dropsuite"}]
+    assert {x.key: x for x in tech_stack([], device_facts([], 0, 0), False, saas=only)}["backup_saas"].suggested == "Dropsuite"
+    status, evidence = saas_backup(both)
+    assert status == "partly"
+    assert "14 of 20" in evidence
+
+
+def test_the_checklist_uses_dropsuite_email_backup_and_drafts_an_action_when_it_fails():
+    facts = device_facts([], 0, 0)
+    bad = [{**chk("saas_backup_email", "not_met", "3 of 20 mailboxes"), "source": "dropsuite"}]
+    r = readiness(facts, None, None, saas=bad)
+    assert {i.key: i for i in r.items}["saas_backup"].status == "not_met"
+    assert "saas_backup" in {d.key for d in drafts_from_readiness(r)}
+
+
+def test_the_training_item_says_where_its_answer_comes_from():
+    facts = device_facts([], 0, 0)
+    plain = {i.key: i for i in readiness(facts, None, None).items}["training"]
+    assert plain.status == "unknown"
+    assert "Huntress SAT" in plain.evidence and "Client Mapping" in plain.evidence
+    enrolled = {i.key: i for i in readiness(facts, None, None, enrolled_in={"huntress-sat"}).items}["training"]
+    assert enrolled.status == "unknown"
+    assert "set up in Huntress SAT" in enrolled.evidence
+    done = {i.key: i for i in readiness(facts, None, None, enrolled_in={"huntress-sat"}, sat=[chk("sat_training_assigned", "met", "2 assignments running")]).items}["training"]
+    assert done.status == "met"

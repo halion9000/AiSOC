@@ -89,3 +89,16 @@ def test_the_microsoft_365_answer_agrees():
     assert "25 of 25" in evidence
     admins_status, _ = from_mfa(tenant_without_registration_data(3, admin=True))["admins"]
     assert admins_status == "met"
+
+
+def test_disabled_unlicensed_and_guest_accounts_are_not_counted_as_people():
+    users = [
+        person(security_defaults=True),
+        person(security_defaults=True, enabled=False),
+        person(security_defaults=True, licensed=False),
+        person(security_defaults=True, user_type="Guest"),
+        person(security_defaults=True, enabled=False, admin=True),
+    ]
+    c = counts_for_mfa(users)
+    assert c["people"] == 1
+    assert c["admins_without_mfa"] == 0

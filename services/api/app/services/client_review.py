@@ -124,7 +124,9 @@ def readiness(
     mfa: dict[str, int] | None,
     secure_percent: float | None,
     sat: list[dict[str, Any]] | None = None,
-    devices: list[Any] | None = None, saas: list[dict[str, Any]] | None = None,
+    devices: list[Any] | None = None,
+    saas: list[dict[str, Any]] | None = None,
+    enrolled_in: set[str] | None = None,
 ) -> Readiness:
     """The checklist. ``mfa`` is ``counts_for_mfa``'s output (None when no multi-factor data has arrived); ``secure_percent`` is the Microsoft Secure Score as a percentage (None when not read)."""
     cov = {c.tool: c for c in facts.coverage}
@@ -179,9 +181,19 @@ def readiness(
     else:
         edr = edr_summary(devices, _ENDPOINT)
         if edr.total == 0:
-            add("edr", "Is endpoint detection and response on every computer?", "unknown", "No Windows, Mac or Linux machines are listed for this client.")
+            add(
+                "edr",
+                "Is endpoint detection and response on every computer?",
+                "unknown",
+                "No Windows, Mac or Linux machines are listed for this client.",
+            )
         elif edr.covered == 0 and all(cov[t].enrolled is False for t in EDR_TOOLS if t in cov):
-            add("edr", "Is endpoint detection and response on every computer?", "not_met", f"Not currently enrolled in Huntress or Field Effect: none of the {edr.total} Windows, Mac and Linux machines report an EDR.")
+            add(
+                "edr",
+                "Is endpoint detection and response on every computer?",
+                "not_met",
+                f"Not currently enrolled in Huntress or Field Effect: none of the {edr.total} Windows, Mac and Linux machines report an EDR.",
+            )
         else:
             add(
                 "edr",
@@ -243,7 +255,12 @@ def readiness(
 
     backups = backup_readiness(devices or [])
     if backups is None:
-        add("backups", "Are backups tested and kept offline?", "unknown", "AiSOC does not collect this yet; answer it from the client's own records.")
+        add(
+            "backups",
+            "Are backups tested and kept offline?",
+            "unknown",
+            "AiSOC does not collect this yet; answer it from the client's own records.",
+        )
     else:
         add("backups", "Are backups tested and kept offline?", backups[0], backups[1])
 
@@ -258,16 +275,25 @@ def readiness(
             "network_online",
             "Is the network equipment online and reporting?",
             _banded(100 * up / known, 98, 90),
-            f"{up} of {known} network devices (Meraki, UniFi) are online." if up < known else f"All {known} network devices (Meraki, UniFi) are online.",
+            f"{up} of {known} network devices (Meraki, UniFi) are online."
+            if up < known
+            else f"All {known} network devices (Meraki, UniFi) are online.",
         )
 
     trained = sat_training(sat)
-    if trained is None:
+    if trained is None and "huntress-sat" in (enrolled_in or set()):
         add(
             "training",
             "Do staff take security awareness training?",
             "unknown",
-            "AiSOC does not collect this yet; answer it from the client's own records.",
+            "The client is set up in Huntress SAT; its training results arrive with the next daily read.",
+        )
+    elif trained is None:
+        add(
+            "training",
+            "Do staff take security awareness training?",
+            "unknown",
+            "Answered from Huntress SAT once this client is mapped to its SAT account (Client Mapping) and CORE has read it; until then, ask the client.",
         )
     else:
         add("training", "Do staff take security awareness training?", trained[0], f"Huntress SAT: {trained[1]}")

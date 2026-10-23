@@ -48,7 +48,15 @@ def network_role(device: Any) -> tuple[str, str] | None:
             role = _MERAKI_ROLE.get(_kind_text(det.get("product_type")))
         elif s.vendor == "unifi":
             model = str(getattr(device, "model", None) or "").strip()
-            role = "firewall" if _UNIFI_FIREWALL.match(model) else "switch" if _UNIFI_SWITCH.match(model) else "wireless" if _UNIFI_WIRELESS.match(model) else None
+            role = (
+                "firewall"
+                if _UNIFI_FIREWALL.match(model)
+                else "switch"
+                if _UNIFI_SWITCH.match(model)
+                else "wireless"
+                if _UNIFI_WIRELESS.match(model)
+                else None
+            )
         elif s.vendor == "auvik":
             role = _AUVIK_ROLE.get(_kind_text(det.get("device_type")))
         if role:
@@ -58,7 +66,9 @@ def network_role(device: Any) -> tuple[str, str] | None:
 
 
 def _brand(maker: Any) -> str | None:
-    text = re.sub(r"[,.]?\s*\b(inc|corp|corporation|ltd|llc|co|company|technologies|international)\b\.?", "", str(maker or ""), flags=re.IGNORECASE).strip(" ,.")
+    text = re.sub(
+        r"[,.]?\s*\b(inc|corp|corporation|ltd|llc|co|company|technologies|international)\b\.?", "", str(maker or ""), flags=re.IGNORECASE
+    ).strip(" ,.")
     return text[:60] or None
 
 
@@ -80,7 +90,11 @@ def network_answer(devices: list[Any], role: str, noun: str) -> tuple[str, str |
         return "seen", _summary(brands), f"{len(found)} {noun}{'' if len(found) == 1 else 's'} listed by the network tools.{shown}"
     if any(_has_network_tool(d) for d in devices):
         return "not_seen", "None seen", f"The client's network equipment is listed, but none of it is a {noun}."
-    return "unknown", None, "No network equipment is listed for this client (Meraki, UniFi and Auvik are the tools A.C.O.R.N reads); ask the client."
+    return (
+        "unknown",
+        None,
+        "No network equipment is listed for this client (Meraki, UniFi and Auvik are the tools A.C.O.R.N reads); ask the client.",
+    )
 
 
 def _is_server(device: Any) -> bool:
@@ -171,7 +185,9 @@ def edr_answer(devices: list[Any], kind: str, what: str, enrolled: dict[str, boo
     """Suggested answer for "what endpoint security is in use": every EDR that covers machines of this kind, with its count."""
     s = edr_summary(devices, {kind})
     if s.covered > 0:
-        names = ", ".join(f"{EDR_TOOLS[t]} ({n})" if len(s.by_tool) > 1 else EDR_TOOLS[t] for t, n in sorted(s.by_tool.items(), key=lambda kv: -kv[1]))
+        names = ", ".join(
+            f"{EDR_TOOLS[t]} ({n})" if len(s.by_tool) > 1 else EDR_TOOLS[t] for t, n in sorted(s.by_tool.items(), key=lambda kv: -kv[1])
+        )
         return "seen", names, f"{s.covered} of {s.total} {what} report an EDR ({s.line()})."
     if s.total == 0:
         return "unknown", None, f"No {what} are listed for this client."
@@ -193,7 +209,11 @@ def soc_answer(enrolled: set[str] | None, mapped: set[str] | None) -> tuple[str,
     have = [t for t in MDR_TOOLS if t in (enrolled or set())]
     if have:
         names = " + ".join(MDR_TOOLS[t] for t in have)
-        return "seen", names, f"The client is set up in {', '.join(MDR_TOOLS[t] for t in have)}. A.C.O.R.N sees that the client is in the tool, not which services are switched on for it."
+        return (
+            "seen",
+            names,
+            f"The client is set up in {', '.join(MDR_TOOLS[t] for t in have)}. A.C.O.R.N sees that the client is in the tool, not which services are switched on for it.",
+        )
     if any(t in (mapped or set()) for t in MDR_TOOLS):
         return "not_seen", "None seen", "The client is not set up in Huntress, Field Effect or Petra, although other clients are."
     return "unknown", None, "Huntress, Field Effect and Petra have no clients mapped here yet; ask the client."
@@ -204,8 +224,9 @@ def soc_answer(enrolled: set[str] | None, mapped: set[str] | None) -> tuple[str,
 # The tools that back up machines: Datto BCDR and Slide both protect servers (and the computers a client chooses to add). Datto SaaS Protection backs up Microsoft 365 and Google Workspace instead and is
 # read through its own checks (see ``saas_backup``).
 BACKUP_TOOLS = {"datto-bcdr": "Datto BCDR", "slide": "Slide"}
-SAAS_SOURCE = "datto-saas"
-SAAS_NAME = "Datto SaaS Protection"
+# The tools that back up Microsoft 365 / Google Workspace data or email in the cloud, by the source name each sends its checks under.
+SAAS_NAMES = {"datto-saas": "Datto SaaS Protection", "dropsuite": "Dropsuite"}
+SAAS_SOURCES = tuple(SAAS_NAMES)
 _BACKUP_OS = {"windows", "mac", "linux"}
 STALE_SNAPSHOT_DAYS = 3
 
@@ -278,7 +299,11 @@ def backup_answer(devices: list[Any], now: datetime | None = None) -> tuple[str,
     """Suggested answer for "what vendor is the client using for backup services (Datto is our standard)": every machine backup tool that protects some of the client's machines."""
     s = backup_summary(devices, now)
     if s is None:
-        return "unknown", None, "No machine reports Datto BCDR or Slide, the backup tools A.C.O.R.N reads for machines; another tool may be in use, so ask the client."
+        return (
+            "unknown",
+            None,
+            "No machine reports Datto BCDR or Slide, the backup tools A.C.O.R.N reads for machines; another tool may be in use, so ask the client.",
+        )
     ranked = sorted(s.tools.items(), key=lambda kv: -(kv[1].servers + kv[1].computers))
     names = ", ".join(f"{BACKUP_TOOLS[k]} ({t.servers + t.computers})" if len(s.tools) > 1 else BACKUP_TOOLS[k] for k, t in ranked)
     return "seen", names, " ".join(_tool_line(k, t, s) for k, t in ranked)
@@ -301,7 +326,7 @@ def backup_readiness(devices: list[Any], now: datetime | None = None) -> tuple[s
 # ---- cloud backups (Datto SaaS Protection) ---------------------------------------------------------------------------------------------------------------
 
 _RANK = {"met": 0, "partly": 1, "not_met": 2}
-_SAAS_KEYS = {"saas_backup_microsoft": "Microsoft 365", "saas_backup_google": "Google Workspace"}
+_SAAS_KEYS = {"saas_backup_microsoft": "Microsoft 365", "saas_backup_google": "Google Workspace", "saas_backup_email": "Email"}
 
 
 def saas_backup(checks: list[dict[str, Any]] | None) -> tuple[str, str] | None:
@@ -325,7 +350,11 @@ def network_online(devices: list[Any]) -> tuple[int, int] | None:
     for d in devices:
         for s in d.sources:
             det = s.details or {}
-            if s.vendor not in ("meraki", "unifi") or (s.vendor == "meraki" and _kind_text(det.get("product_type")) not in _MERAKI_NETWORK) or (s.vendor == "unifi" and _kind_text(det.get("product_line")) == "protect"):
+            if (
+                s.vendor not in ("meraki", "unifi")
+                or (s.vendor == "meraki" and _kind_text(det.get("product_type")) not in _MERAKI_NETWORK)
+                or (s.vendor == "unifi" and _kind_text(det.get("product_line")) == "protect")
+            ):
                 continue
             state = _kind_text(det.get("status"))
             if state in _ONLINE:
@@ -336,3 +365,13 @@ def network_online(devices: list[Any]) -> tuple[int, int] | None:
                 known += 1
                 break
     return (online, known) if known else None
+
+
+def saas_tools(checks: list[dict[str, Any]] | None) -> str | None:
+    """The cloud backup tools that reported, by name ("Datto SaaS Protection + Dropsuite"), from the ``source`` each check was tagged with. None when none did."""
+    names = [
+        SAAS_NAMES[src]
+        for src in SAAS_NAMES
+        if any(isinstance(c, dict) and c.get("source") == src and c.get("key") in _SAAS_KEYS for c in checks or [])
+    ]
+    return " + ".join(names) or None
