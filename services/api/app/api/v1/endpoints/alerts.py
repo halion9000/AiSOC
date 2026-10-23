@@ -183,7 +183,7 @@ def has_ticket_expr() -> Any:
 
 # ``status=open`` on the list means every alert that is not finished (resolved, closed or a false positive): the console's "Open all" tab.
 OPEN_STATUS = "open"
-FINISHED_STATUSES = ("resolved", "closed", "false_positive", "fp")
+FINISHED_STATUSES = ("resolved", "closed", "false_positive", "fp", "suppressed")
 _UNRESOLVED = {"new", "triaging", "in_progress", "investigating"}
 
 
@@ -766,6 +766,9 @@ async def list_alerts(
             filters.append(Alert.status.notin_(FINISHED_STATUSES))
         elif status:
             filters.append(Alert.status == status)
+        else:
+            # Alerts hidden by a "hide this alert type" rule stay out of the list unless they are asked for (status=suppressed).
+            filters.append(Alert.status != "suppressed")
         if category:
             filters.append(Alert.category == category)
         if ticket == "linked":
@@ -880,7 +883,8 @@ async def get_alert_stats(
     """Get alert statistics for the dashboard."""
     from datetime import timedelta
 
-    tenant_filter = Alert.tenant_id == current_user.tenant_id
+    # Alerts hidden by a "hide this alert type" rule are not counted anywhere.
+    tenant_filter = and_(Alert.tenant_id == current_user.tenant_id, Alert.status != "suppressed")
 
     # Total count
     total_result = await db.execute(select(func.count()).select_from(Alert).where(tenant_filter))

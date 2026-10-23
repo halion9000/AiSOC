@@ -25,6 +25,7 @@ import { clsx } from 'clsx';
 import { ContextualActions } from '@/components/copilot/ContextualActions';
 import { ExplainDrawer } from '@/components/alerts/ExplainDrawer';
 import { CreateCaseModal } from '@/components/alerts/CreateCaseModal';
+import { HideAlertTypeModal } from '@/components/alerts/HideAlertTypeModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -761,6 +762,8 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
   // "Create Case" affordance; lets the analyst spin up a new case or attach
   // the alert to an existing one before running a playbook.
   const [createCaseOpen, setCreateCaseOpen] = useState(false);
+  // "Hide this alert type": hides alerts of the same type for a device, the client or everyone, for some days or without end.
+  const [hideOpen, setHideOpen] = useState(false);
 
   const { data: alert, isLoading, mutate } = useSWR(
     ['alert', alertId],
@@ -858,6 +861,14 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
               <line x1="9" y1="22" x2="15" y2="22" />
             </svg>
             Explain
+          </button>
+          <button
+            type="button"
+            onClick={() => setHideOpen(true)}
+            title="Hide every alert of this type for this device, this client or all clients"
+            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-sm px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Hide alert type
           </button>
           <button
             type="button"
@@ -1047,6 +1058,13 @@ export function AlertDetailView({ alertId }: { alertId: string }) {
         open={createCaseOpen}
         onClose={() => setCreateCaseOpen(false)}
         alert={alert}
+      />
+
+      <HideAlertTypeModal
+        open={hideOpen}
+        onClose={() => setHideOpen(false)}
+        alert={alert}
+        onHidden={() => void mutate()}
       />
     </div>
   );

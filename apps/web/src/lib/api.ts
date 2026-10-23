@@ -1298,7 +1298,33 @@ export interface VendorActionRequest {
   resolution?: number;
 }
 
+/** A rule that hides an alert type (see /api/v1/alert-suppressions). */
+export interface AlertSuppression {
+  id: string;
+  scope: 'device' | 'client' | 'all';
+  client_id: string | null;
+  client_name: string | null;
+  device: string | null;
+  source: string | null;
+  title: string;
+  expires_at: string | null;
+  indefinite: boolean;
+  created_at: string;
+  active: boolean;
+  hidden_alerts: number;
+}
+
 export const alertsApi = {
+  /** Hide this alert's type for a device, its client or all clients, for ``days`` days or (null) without end. */
+  hideType: (body: { alertId: string; scope: 'device' | 'client' | 'all'; days: number | null; device?: string }) =>
+    request<AlertSuppression>('/api/v1/alert-suppressions', {
+      method: 'POST',
+      body: JSON.stringify({ alert_id: body.alertId, scope: body.scope, days: body.days, device: body.device }),
+    }),
+  /** The rules that hide alert types, and with ``includeEnded`` the ones lifted or run out. */
+  suppressions: (includeEnded = false) => request<AlertSuppression[]>('/api/v1/alert-suppressions', { params: includeEnded ? { include_ended: 'true' } : undefined }),
+  /** Stop hiding an alert type: its alerts come back as they were. */
+  liftSuppression: (id: string) => request<AlertSuppression>(`/api/v1/alert-suppressions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   /** Enter one alert by hand (the same endpoint `aisoc submit` uses). */
   create: (body: Record<string, unknown>) => request<{ id: string }>('/api/v1/alerts/submit', { method: 'POST', body: JSON.stringify(body) }),
   list: async (filters: AlertFilters = {}) => {

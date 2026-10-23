@@ -38,6 +38,7 @@ from app.workers.alert_email_worker import run_forever as run_alert_email
 from app.workers.hunt_scheduler import run_forever as run_hunt_scheduler
 from app.workers.oauth_refresh import run_forever as run_oauth_refresh
 from app.workers.retention_sweeper import run_retention_sweeper
+from app.workers.suppression_sweeper import run_suppression_sweeper
 from app.workers.weekly_digest_task import run_forever as run_weekly_digest
 
 _metrics_bearer = HTTPBearer(auto_error=False)
@@ -436,6 +437,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             logger.warning("retention_sweeper worker failed to start", error=str(exc))
 
+    # Hide-this-alert-type rules: hide new alerts an active rule covers and lift rules that have run out, every minute.
+    suppression_task: asyncio.Task | None = None
+    try:
+        suppression_task = asyncio.create_task(
+            _run_guarded_scheduler_worker(job_name="alert_suppression", ttl_seconds=_RETENTION_LOCK_TTL_SECONDS, worker=run_suppression_sweeper),
+            name="alert_suppression_worker",
+        )
+        logger.info("alert_suppression worker started")
+    except Exception as exc:
+        logger.warning("alert_suppression worker failed to start", error=str(exc))
+
     # Phase 2.6 — flip /readyz to 200. All lifespan-managed
     # dependencies have been touched at this point (DB, Redis,
     # Neo4j, schedulers); the load balancer can route traffic
@@ -494,6 +506,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.debug("retention_sweeper worker cancelled during shutdown")
         except Exception as exc:
             logger.warning("retention_sweeper worker shutdown error", error=type(exc).__name__)
+
+    if suppression_task is not None and not suppression_task.done():
+        suppression_task.cancel()
+        try:
+            await suppression_task
+        except asyncio.CancelledError:
+            logger.debug("alert_suppression worker cancelled during shutdown")
+        except Exception as exc:
+            logger.warning("alert_suppression worker shutdown error", error=type(exc).__name__)
 
     if demo_bootstrap_task is not None and not demo_bootstrap_task.done():
         demo_bootstrap_task.cancel()

@@ -39,6 +39,10 @@ class Alert(Base):
     rule_name: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Analyst verdict / disposition (set via feedback endpoint)
+    # Set while a "hide this alert type" rule hides the alert (status is then 'suppressed'): the status it had, and the rule, so lifting the rule puts it back (migration 100).
+    status_before_suppression: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    suppression_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
     disposition: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     # Timestamp when an analyst first viewed / started triaging the alert (for MTTD)
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

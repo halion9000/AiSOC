@@ -403,7 +403,7 @@ def _as(db: Any, owner: uuid.UUID, tid: uuid.UUID) -> Any:
     return contextlib.nullcontext() if tid == owner else acting_as_tenant(db, tid)
 
 
-_CLOSED = ("resolved", "false_positive", "fp", "closed")
+_CLOSED = ("resolved", "false_positive", "fp", "closed", "suppressed")
 _ALERTS_PER_DEVICE = 5
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 

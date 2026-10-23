@@ -54,6 +54,7 @@ QUEUE_CLOSED_STATUSES: tuple[str, ...] = (
     "closed",
     "false_positive",
     "fp",
+    "suppressed",
 )
 
 # Maximum page size for the queue endpoint. The workbench paginates

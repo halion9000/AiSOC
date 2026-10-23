@@ -1218,6 +1218,99 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alert-suppressions:
+    post:
+      tags:
+      - alerts
+      summary: Hide Alert Type
+      description: Hide this alert's type for the device, its client, or all clients,
+        and hide the open alerts of that type right away.
+      operationId: hide_alert_type_api_v1_alert_suppressions_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuppressionIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuppressionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - alerts
+      summary: List Suppressions
+      description: The active rules (and, with ``include_ended``, those lifted or
+        run out), with how many alerts each hides now.
+      operationId: list_suppressions_api_v1_alert_suppressions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: include_ended
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Ended
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SuppressionOut'
+                title: Response List Suppressions Api V1 Alert Suppressions Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/alert-suppressions/{suppression_id}:
+    delete:
+      tags:
+      - alerts
+      summary: Lift Suppression
+      description: 'Stop hiding this alert type: its hidden alerts come back with
+        the status they had.'
+      operationId: lift_suppression_api_v1_alert_suppressions__suppression_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: suppression_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Suppression Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuppressionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/alerts/{alert_id}/explain:
     post:
       tags:
@@ -21409,6 +21502,12 @@ components:
         open_cases:
           type: integer
           title: Open Cases
+        tools:
+          items:
+            $ref: '#/components/schemas/PostureTool'
+          type: array
+          title: Tools
+          default: []
       type: object
       required:
       - client_id
@@ -29875,6 +29974,31 @@ components:
       - resolved
       - suppressed
       title: PostureSummary
+    PostureTool:
+      properties:
+        vendor:
+          type: string
+          title: Vendor
+        vendor_client_id:
+          type: string
+          title: Vendor Client Id
+        vendor_client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Vendor Client Name
+        product:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Product
+      type: object
+      required:
+      - vendor
+      - vendor_client_id
+      title: PostureTool
+      description: A tool this client is mapped to, and its id for the client in that
+        tool (the id the tool's own page for the client is addressed by).
     PreferencesPatch:
       properties:
         preferences:
@@ -34201,6 +34325,98 @@ components:
       required:
       - reason
       title: SuppressRequest
+    SuppressionIn:
+      properties:
+        alert_id:
+          type: string
+          format: uuid
+          title: Alert Id
+        scope:
+          type: string
+          enum:
+          - device
+          - client
+          - all
+          title: Scope
+        days:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Days
+          description: 1 to 3650 days, or leave out to hide without end
+        device:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Device
+      type: object
+      required:
+      - alert_id
+      - scope
+      title: SuppressionIn
+    SuppressionOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        scope:
+          type: string
+          title: Scope
+        client_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        device:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Device
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+        title:
+          type: string
+          title: Title
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        indefinite:
+          type: boolean
+          title: Indefinite
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        active:
+          type: boolean
+          title: Active
+        hidden_alerts:
+          type: integer
+          title: Hidden Alerts
+          default: 0
+      type: object
+      required:
+      - id
+      - scope
+      - title
+      - indefinite
+      - created_at
+      - active
+      title: SuppressionOut
     SyncClaimResponse:
       properties:
         vendors:

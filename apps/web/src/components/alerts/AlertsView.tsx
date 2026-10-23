@@ -468,6 +468,9 @@ export function AlertsView() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/alerts/hidden" className="text-xs text-gray-400 hover:text-gray-200 underline">
+            Hidden alert types
+          </Link>
           <div
             role="tablist"
             aria-label="View mode"
