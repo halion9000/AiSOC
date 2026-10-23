@@ -160,7 +160,7 @@ describe('the permission picker', () => {
     expect((all as HTMLInputElement).indeterminate).toBe(true);
     await userEvent.click(all);
     expect(screen.getAllByRole('checkbox', { checked: true }).filter((c) => /^cases:/.test(c.closest('label')?.textContent ?? ''))).toHaveLength(4);
-    expect(screen.getByText(/Permissions \(5 selected\)|Permissions \(4 selected\)/)).toBeInTheDocument();
+    expect(screen.getByText("Permissions (4 selected)")).toBeInTheDocument();
     await userEvent.click(all);
     expect(screen.getByText('Permissions (0 selected)')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'connectors:read' })).not.toBeChecked();
