@@ -139,6 +139,14 @@ CHECK_QUESTIONS: dict[str, str] = {
     "guest_access": "Ensure that guest user access is restricted",
     "admin_consent_workflow": "Ensure the admin consent workflow is enabled",
     "sharepoint_modern_auth": "Ensure modern authentication for SharePoint applications is required",
+    "audit_disabled": "Ensure `AuditDisabled` organizationally is set to `False`",
+    "customer_lockbox": "Ensure the customer lockbox feature is enabled",
+    "mailtips": "Ensure MailTips are enabled for end users",
+    "exo_modern_auth": "Ensure modern authentication for Exchange Online is enabled",
+    "smtp_auth_disabled": "Ensure SMTP AUTH is disabled",
+    "owa_storage_providers": "Ensure additional storage providers are restricted in Outlook on the web",
+    "external_sender_tag": "Ensure email from external senders is identified",
+    "malware_admin_notify": "Ensure notifications for internal users sending malware is Enabled",
 }
 
 # Questions answered from the multi-factor list A.C.O.R.N already holds.
