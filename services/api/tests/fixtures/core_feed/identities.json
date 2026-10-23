@@ -1,0 +1,22 @@
+{
+  "route": "identities",
+  "method": "POST",
+  "body": {
+    "vendor": "dropsuite",
+    "items": [
+      {
+        "vendor_client_id": "7",
+        "external_id": "e1",
+        "email": "amy@acme.com",
+        "display_name": "Amy",
+        "enabled": true,
+        "kind": "user",
+        "details": {
+          "last_backup": "2026-10-22T00:00:00Z",
+          "backup_status": "Running",
+          "messages": 40
+        }
+      }
+    ]
+  }
+}

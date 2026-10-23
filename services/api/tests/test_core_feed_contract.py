@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from app.api.v1.endpoints import client_review as cr
 from app.api.v1.endpoints import devices as dev
+from app.api.v1.endpoints import identities as idn
 from app.api.v1.endpoints import identity as ident
 from app.api.v1.endpoints import inbox_core_feed as feed
 from app.api.v1.endpoints import signins as sig
@@ -48,6 +49,7 @@ MODELS = {
     "vcio-proposals-approved": None,
     "vcio-proposals-result": vp.ProposalResult,
     "m365-checks": cr.M365ChecksReport,
+    "identities": idn.IdentitiesReport,
 }
 
 # Not a core-feed route: the alert push goes to the ingest service (`POST /v1/inbox/{token}`, the generic-json template). It is checked against the real template by
