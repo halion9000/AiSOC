@@ -15,6 +15,7 @@ const BADGES: Record<string, { text: string; className: string }> = {
   slide: { text: 'Sl', className: 'bg-sky-600/80 text-white' },
   'huntress-sat': { text: 'Hs', className: 'bg-orange-600/80 text-white' },
   itglue: { text: 'IT', className: 'bg-indigo-600/80 text-white' },
+  meraki: { text: 'M', className: 'bg-green-600/80 text-white' },
   autoelevate: { text: 'AE', className: 'bg-rose-600/80 text-white' },
   cipp: { text: 'C', className: 'bg-orange-500/80 text-white' },
   screenconnect: { text: 'SC', className: 'bg-sky-700/80 text-white' },
@@ -24,7 +25,7 @@ const BADGES: Record<string, { text: string; className: string }> = {
 const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox']);
 
 /** Halo first, then the rest in one fixed order so every row lines up; tools not listed follow alphabetically. */
-export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'auvik', 'unifi', 'slide', 'huntress-sat', 'itglue', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox'];
+export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'auvik', 'unifi', 'slide', 'huntress-sat', 'itglue', 'meraki', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox'];
 
 export function orderSources(sources: string[]): string[] {
   const rank = (v: string) => {

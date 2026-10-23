@@ -106,3 +106,18 @@ def test_the_kind_filter_combines_with_the_other_filters():
     b = device([("auvik", {"device_type": "switch"})], hostname="edge-router")
     assert [d.hostname for d in filter_devices([a, b], kind="network", search="edge")] == ["edge-router"]
     assert filter_devices([a, b], kind="camera", search="edge") == []
+
+
+@pytest.mark.parametrize("product_type", ["wireless", "switch", "appliance", "cellularGateway"])
+def test_meraki_network_gear_is_network(product_type):
+    assert device([("meraki", {"product_type": product_type})]).kind == "network"
+
+
+def test_a_meraki_camera_is_a_camera_and_a_sensor_is_other():
+    assert device([("meraki", {"product_type": "camera"})]).kind == "camera"
+    assert device([("meraki", {"product_type": "sensor"})]).kind == "other"
+    assert device([("meraki", {})]).kind == "other"
+
+
+def test_a_meraki_managed_device_is_a_computer():
+    assert device([("meraki", {"product_type": "systemsManager"})]).kind == "computer"

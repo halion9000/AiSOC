@@ -71,6 +71,8 @@ _AUVIK_NETWORK = {
     "loadbalancer", "voipswitch", "stack", "chassis", "packetprocessor", "backhaul", "telecommunications",
 }
 _AUVIK_COMPUTER = {"workstation", "server", "hypervisor", "virtualmachine", "thinclient", "tablet", "handheld"}
+# Meraki's productType: wireless, switch, appliance, cellularGateway are network gear; camera; sensor (environmental) is neither; systemsManager is a managed computer or phone.
+_MERAKI_NETWORK = {"wireless", "switch", "appliance", "cellulargateway", "wirelesscontroller"}
 _NINJA_NETWORK = re.compile(r"^NMS_(SWITCH|ROUTER|FIREWALL|WIRELESS|ACCESS_POINT|LOAD_BALANCER|NETWORK)", re.IGNORECASE)
 _NINJA_CAMERA = re.compile(r"CAMERA", re.IGNORECASE)
 # Tools whose devices are computers (an agent runs on them), unless the tool itself says otherwise.
@@ -92,6 +94,14 @@ def device_kind(sources: list[Any]) -> str:
             if str(det.get("product_line") or "").strip().lower() == "protect" and det.get("is_console") is not True:
                 camera = True
             else:
+                network = True
+        elif vendor == "meraki":
+            pt = str(det.get("product_type") or "").strip().lower()
+            if pt == "camera":
+                camera = True
+            elif pt == "systemsmanager":
+                computer = True
+            elif pt in _MERAKI_NETWORK:
                 network = True
         elif vendor == "ninjaone":
             nc = str(det.get("node_class") or "")
