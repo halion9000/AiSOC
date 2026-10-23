@@ -38,7 +38,7 @@ async def _scan(db: Any, tenant_id: uuid.UUID, since: datetime, groups: dict[tup
     rows = (
         await db.execute(
             select(Alert.title, Alert.rule_name, Alert.severity, Alert.status, Alert.raw_event, Alert.connector_type, Alert.created_at)
-            .where(and_(Alert.tenant_id == tenant_id, Alert.created_at >= since))
+            .where(and_(Alert.tenant_id == tenant_id, Alert.created_at >= since, Alert.status != "suppressed"))
             .order_by(Alert.created_at.desc())
             .limit(MAX_ALERTS)
         )

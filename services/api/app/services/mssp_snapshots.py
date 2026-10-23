@@ -25,7 +25,7 @@ from app.services import case_metrics
 
 logger = logging.getLogger(__name__)
 
-FINISHED_ALERT = ("resolved", "closed", "fp", "false_positive")
+FINISHED_ALERT = ("resolved", "closed", "fp", "false_positive", "suppressed")
 OPEN_CASES = case_metrics.OPEN + case_metrics.IN_PROGRESS
 MTTR_WINDOW = timedelta(days=30)
 REUSE_WITHIN = timedelta(hours=1)  # a snapshot newer than this is updated in place, so history is hourly, not one row per push

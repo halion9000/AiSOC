@@ -239,3 +239,29 @@ def test_the_scopes_are_exactly_device_client_all():
     assert sup.SCOPES == ("device", "client", "all")
     with pytest.raises(ValueError):
         ep.SuppressionIn(alert_id=uuid.uuid4(), scope="everything")
+
+
+# ---- hidden alerts stay out of the other views too -----------------------------------------------------------------------------------------------------
+
+
+def test_vendor_detections_do_not_count_hidden_alerts():
+    from app.services import vendor_detections as vd
+
+    seen = []
+
+    class DB:
+        async def execute(self, statement):
+            seen.append(str(statement.compile(compile_kwargs={"literal_binds": True})))
+            return SimpleNamespace(all=lambda: [])
+
+    asyncio.run(vd._scan(DB(), uuid.uuid4(), NOW, {}))
+    assert "status != 'suppressed'" in seen[0]
+
+
+def test_hidden_alerts_count_as_finished_everywhere_a_finished_status_list_is_used():
+    from app.api.v1.endpoints.alerts import FINISHED_STATUSES
+    from app.services.alert_queue import QUEUE_CLOSED_STATUSES
+    from app.services.mssp_snapshots import FINISHED_ALERT
+
+    for statuses in (FINISHED_STATUSES, QUEUE_CLOSED_STATUSES, FINISHED_ALERT):
+        assert "suppressed" in statuses

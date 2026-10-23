@@ -122,6 +122,8 @@ Each tool has its own list of customers. Mapping says which of **your** clients 
 
 **Duplicates.** One vendor incident is one alert, even if CORE re-sends it; a repeat just updates "last seen".
 
+**Hide alert type (new).** Open an alert and press **Hide alert type** to stop seeing every alert of that type (the same rule from the same tool). Choose whether to hide it for this device, for this client or for all clients, and for how many days or indefinitely. Hidden alerts leave the Alerts list, the open counts, the Investigation Queue, Vendor Detections and the dashboard, but nothing is deleted: **Alerts > Hidden alert types** lists each rule with who it covers and how many alerts it hides, and **Stop hiding** brings them back as they were. A rule that runs out brings them back by itself. New alerts of a hidden type are hidden within about a minute.
+
 ## 6. Entities
 
 **Alerts > Entities** ranks users, hosts, addresses and domains by risk. Each alert adds points to what it names (critical 40, high 20, medium 8, low 3, info 1). Scores halve every 4 hours. At **80** an entity is *promoted*. Entities expire after 24 hours without new alerts, so there are fewer entities than alerts. A dash means unknown, not zero. Sort by **Highest score** or **Heating up** (points in the last four hours); **New** and **Rising** badges mark movement. Alerts with no host, user or address (some Blumira findings) create no entity.
@@ -165,6 +167,8 @@ One row per machine, combined from every tool that reports it (matched on serial
 **Not in ScreenConnect / Not in Field Effect (new).** Two more coverage tiles, shown only once that tool feeds devices into A.C.O.R.N. Not in ScreenConnect leaves out iPhones, iPads and Apple TVs (iOS, iPadOS, tvOS), but not Macs; Not in Field Effect leaves out phones and tablets. A.C.O.R.N cannot tell Field Effect EDR from MDR coverage, so any Field Effect record counts as covered. CORE now sends both: ScreenConnect's machines (by name, with whether each is connected and when it last reported; its companies are mapped to clients like any other tool's) and Field Effect's endpoints (name, serial, OS, online and last seen). ScreenConnect's login needs the **ManageSessionGroups** permission. Read live against your instances; **not yet seen on the Devices page**, and the ScreenConnect companies need mapping on the Clients page before their machines land under the right client.
 
 **Duplicates.** Possible duplicates (same name, no serial proving they differ) can be compared and **Merged**. **Recent merges** (last 14 days) each have **Undo**, which brings the removed device back with its feeds. **Dismiss** remembers they are different machines.
+
+**Identities (new).** The **Identities** page, next to Devices, lists every person the connected tools know, one row per e-mail address per client. The logos show which tools know them (Microsoft 365 through CIPP, Datto SaaS Protection, Dropsuite, Huntress, Huntress SAT, HaloPSA, and Petra, Field Effect, Blumira or Huntress when they raised an alert about the person). Each row shows the person's Multi-Factor state and their open alerts; open a row for every tool's record, the alerts and the last 30 days of sign-ins. Filter by client, tool, Multi-Factor state or kind, use the tiles (with alerts, no Multi-Factor, administrators, disabled, in only one tool), and click the headings to sort. People appear once their client is mapped; CORE reports them once a day.
 
 ## 9. Identity (all new, from CIPP through CORE)
 
@@ -232,6 +236,8 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 - **Attack Graph:** hosts, users, addresses and ATT&CK techniques from the last 30 days of alerts.
 - **EASM:** external attack-surface scans. Needs Shodan or Censys keys, or the active scan switched on with IP targets, otherwise a scan finds nothing to record.
 - **Honeytokens:** only a link or a document carrying a beacon link can alert; every other type is "Decoy only" and nothing watches it.
+
+- **Roles and what they hide (new):** in **Roles & Permissions** a role can also hide sections or single pages of the sidebar (for example only Client Security > Client Posture). A page a role hides does not open from its address either. This is about what people see; the permissions on the role are what the server enforces. The form has starting points: Read-only analyst, Client reviewer and Auditor.
 - **Compliance:** evidence items with a tamper-evident hash chain; controls that need a policy document stay "missing" rather than invented.
 - **Approvals and actions:** risky actions (isolate host, disable user, reset password...) always wait for a person.
 - **Opening A.C.O.R.N from another computer:** in CORE's A.C.O.R.N settings tick **Allow other computers on this network**, then rebuild A.C.O.R.N. The web page (port 3000) and the push gateway (port 8086) are then reachable at this computer's address, for example `http://<this computer's address>:3000`; the API itself stays on this computer and is reached through the web page. It is plain HTTP, so use it on a network you trust only, and Windows Firewall may need to allow ports 3000 and 8086. Built and tested, but **not yet seen working from a second computer**.

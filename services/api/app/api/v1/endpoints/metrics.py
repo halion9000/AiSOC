@@ -254,12 +254,14 @@ async def _get_dashboard_metrics_impl(
     week_start = now - timedelta(days=7)
 
     # ── Alert counts ──────────────────────────────────────────────────────────
-    total_q = await db.scalar(select(func.count()).where(Alert.tenant_id.in_(tenant_ids)))
+    # Alerts hidden by a "hide this alert type" rule are not counted on the dashboard.
+    shown = Alert.status != "suppressed"
+    total_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), shown)))
     new_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.status == "new")))
-    critical_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "critical")))
-    high_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "high")))
-    medium_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "medium")))
-    low_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.severity == "low")))
+    critical_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), shown, Alert.severity == "critical")))
+    high_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), shown, Alert.severity == "high")))
+    medium_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), shown, Alert.severity == "medium")))
+    low_q = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), shown, Alert.severity == "low")))
     resolved_today_q = await db.scalar(
         select(func.count()).where(
             and_(
@@ -316,7 +318,7 @@ async def _get_dashboard_metrics_impl(
     # Count alerts per connector_type
     source_counts_rows = (
         await db.execute(
-            select(Alert.connector_type, func.count().label("cnt")).where(Alert.tenant_id.in_(tenant_ids)).group_by(Alert.connector_type)
+            select(Alert.connector_type, func.count().label("cnt")).where(Alert.tenant_id.in_(tenant_ids), shown).group_by(Alert.connector_type)
         )
     ).all()
     source_count_map: dict[str, int] = {row.connector_type: row.cnt for row in source_counts_rows if row.connector_type}
@@ -326,7 +328,7 @@ async def _get_dashboard_metrics_impl(
     vendor_count_rows = (
         await db.execute(
             select(Alert.raw_event["source"].astext.label("vendor"), func.count().label("cnt"))
-            .where(Alert.tenant_id.in_(tenant_ids), Alert.raw_event["source"].astext.isnot(None))
+            .where(Alert.tenant_id.in_(tenant_ids), shown, Alert.raw_event["source"].astext.isnot(None))
             # Group by the label, not by a second copy of the expression: each copy binds its own "source" parameter, so Postgres sees two different expressions and
             # refuses with "must appear in the GROUP BY clause". That made the whole dashboard answer 500.
             .group_by("vendor")
@@ -563,7 +565,7 @@ async def _get_soc_metrics_impl(
     escalation_rate = escalated_count / total_decisions if total_decisions > 0 else 0.0
 
     # ── Volume / case counts ──────────────────────────────────────────────────
-    alert_vol = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.created_at >= week_start))) or 0
+    alert_vol = await db.scalar(select(func.count()).where(and_(Alert.tenant_id.in_(tenant_ids), Alert.created_at >= week_start, Alert.status != "suppressed"))) or 0
     cases_opened = await _sum_cases(case_counts.count_created, db, tenant_ids, week_start)
     cases_closed = await _sum_cases(case_counts.count_finished_since, db, tenant_ids, week_start)
 
