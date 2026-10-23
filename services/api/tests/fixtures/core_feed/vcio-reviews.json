@@ -1,0 +1,34 @@
+{
+  "route": "vcio-reviews",
+  "method": "POST",
+  "body": {
+    "vendor": "vciotoolbox",
+    "vendor_client_id": "7",
+    "recommendations": {
+      "total": 1,
+      "pending": 1,
+      "adopted": 0,
+      "declined": 0,
+      "top": [
+        {
+          "name": "Restrict Group Creation",
+          "priority": "High",
+          "adoption": "Pending",
+          "due": null,
+          "on_roadmap": false
+        }
+      ]
+    },
+    "risks": [
+      {
+        "name": "Cyber Liability",
+        "category": "Financial Risk",
+        "priority": "Medium",
+        "impact": 4,
+        "likelihood": 2,
+        "score": 8,
+        "inherent": "Medium"
+      }
+    ]
+  }
+}

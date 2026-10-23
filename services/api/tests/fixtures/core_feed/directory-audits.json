@@ -1,0 +1,39 @@
+{
+  "route": "directory-audits",
+  "method": "POST",
+  "body": {
+    "vendor": "cipp",
+    "items": [
+      {
+        "vendor_client_id": "c1",
+        "id": "a1",
+        "at": "2026-10-19T10:00:00Z",
+        "actor": "admin@acme.com",
+        "actor_is_app": false,
+        "actor_ip": "1.2.3.4",
+        "activity": "Reset user password",
+        "category": "UserManagement",
+        "service": "Core Directory",
+        "success": true,
+        "reason": null,
+        "target": "bob@acme.com",
+        "target_type": "User"
+      },
+      {
+        "vendor_client_id": "c1",
+        "id": "a2",
+        "at": "2026-10-19T12:00:00Z",
+        "actor": "admin@acme.com",
+        "actor_is_app": false,
+        "actor_ip": "1.2.3.4",
+        "activity": "Reset user password",
+        "category": "UserManagement",
+        "service": "Core Directory",
+        "success": true,
+        "reason": null,
+        "target": "bob@acme.com",
+        "target_type": "User"
+      }
+    ]
+  }
+}

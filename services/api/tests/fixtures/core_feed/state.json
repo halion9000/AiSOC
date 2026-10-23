@@ -1,0 +1,37 @@
+{
+  "route": "state",
+  "method": "POST",
+  "body": {
+    "vendor": "huntress",
+    "items": [
+      {
+        "uid": "huntress:4821",
+        "status": "sent",
+        "remediations": [
+          {
+            "id": 1,
+            "type": "assisted",
+            "action": "Delete File",
+            "parameters": [
+              {
+                "name": "path",
+                "description": null
+              }
+            ],
+            "status": "pending_approval"
+          },
+          {
+            "id": 2,
+            "type": "manual",
+            "action": "Reboot",
+            "parameters": [],
+            "status": "approved"
+          }
+        ],
+        "psa_ticket_eids": [
+          "553688"
+        ]
+      }
+    ]
+  }
+}

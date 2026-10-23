@@ -1,0 +1,22 @@
+{
+  "route": "tickets",
+  "method": "POST",
+  "body": {
+    "vendor": "huntress",
+    "items": [
+      {
+        "uid": "huntress:4821",
+        "tickets": [
+          {
+            "id": "553688",
+            "system": "halopsa",
+            "summary": "Malware on PC-01",
+            "status": "Open",
+            "client": "Acme Dental",
+            "url": "https://acme.halopsa.com/tickets?id=553688"
+          }
+        ]
+      }
+    ]
+  }
+}

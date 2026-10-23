@@ -1,0 +1,9 @@
+{
+  "route": "vcio-proposals/{proposal_id}/result",
+  "method": "POST",
+  "body": {
+    "ok": true,
+    "vendor_id": "9001",
+    "message": "Added to vCIO Toolbox."
+  }
+}

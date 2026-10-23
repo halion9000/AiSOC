@@ -1,0 +1,295 @@
+{
+  "route": "m365-checks",
+  "method": "POST",
+  "body": {
+    "vendor": "cipp",
+    "vendor_client_id": "fe92f97e-1444-425a-b159-91f9abb1e707",
+    "checks": [
+      {
+        "key": "ga_count",
+        "status": "met",
+        "evidence": "2 Global Administrators; the baseline is two to four."
+      },
+      {
+        "key": "safe_attachments",
+        "status": "met",
+        "evidence": "1 Safe Attachments policy enabled."
+      },
+      {
+        "key": "anti_phishing",
+        "status": "met",
+        "evidence": "1 anti-phishing policy enabled."
+      },
+      {
+        "key": "safe_links",
+        "status": "met",
+        "evidence": "Safe Links covers Office applications in 1 policy."
+      },
+      {
+        "key": "common_attachments",
+        "status": "met",
+        "evidence": "The common attachment types filter is on."
+      },
+      {
+        "key": "conn_ip_allow",
+        "status": "met",
+        "evidence": "The connection filter's IP allow list is empty."
+      },
+      {
+        "key": "conn_safe_list",
+        "status": "met",
+        "evidence": "The connection filter's safe list is off."
+      },
+      {
+        "key": "spf",
+        "status": "met",
+        "evidence": "SPF is in place on 1 mail domain."
+      },
+      {
+        "key": "dkim",
+        "status": "met",
+        "evidence": "DKIM is in place on 1 mail domain."
+      },
+      {
+        "key": "dmarc",
+        "status": "met",
+        "evidence": "DMARC is in place on 1 mail domain."
+      },
+      {
+        "key": "user_risk_ca",
+        "status": "met",
+        "evidence": "An enabled Conditional Access policy acts on user risk (\"Risky users\")."
+      },
+      {
+        "key": "signin_risk_ca",
+        "status": "met",
+        "evidence": "An enabled Conditional Access policy acts on sign-in risk (\"Risky users\")."
+      },
+      {
+        "key": "managed_device_ca",
+        "status": "met",
+        "evidence": "An enabled Conditional Access policy requires a managed device (\"Compliant device\")."
+      },
+      {
+        "key": "admin_signin_frequency",
+        "status": "met",
+        "evidence": "Administrators are signed out on a schedule and browser sessions are not persistent (\"Admin sessions\")."
+      },
+      {
+        "key": "legacy_auth_ca",
+        "status": "met",
+        "evidence": "An enabled Conditional Access policy blocks legacy authentication (\"Block legacy authentication\")."
+      },
+      {
+        "key": "device_code_ca",
+        "status": "met",
+        "evidence": "An enabled Conditional Access policy blocks the device code flow (\"Block device code flow\")."
+      },
+      {
+        "key": "user_consent",
+        "status": "met",
+        "evidence": "Users cannot consent to apps on their own."
+      },
+      {
+        "key": "create_tenants",
+        "status": "met",
+        "evidence": "Only administrators can create tenants."
+      },
+      {
+        "key": "create_security_groups",
+        "status": "met",
+        "evidence": "Only administrators can create security groups."
+      },
+      {
+        "key": "guest_access",
+        "status": "met",
+        "evidence": "Guests are restricted to their own objects."
+      },
+      {
+        "key": "admin_consent_workflow",
+        "status": "met",
+        "evidence": "The admin consent workflow is enabled."
+      },
+      {
+        "key": "password_expiry",
+        "status": "met",
+        "evidence": "Passwords are set never to expire (the recommended setting)."
+      },
+      {
+        "key": "sharepoint_modern_auth",
+        "status": "met",
+        "evidence": "SharePoint requires modern authentication."
+      },
+      {
+        "key": "sharepoint_external_sharing",
+        "status": "met",
+        "evidence": "SharePoint external sharing is limited (disabled)."
+      },
+      {
+        "key": "shared_mailbox_signin",
+        "status": "met",
+        "evidence": "Sign-in is blocked on every shared mailbox."
+      },
+      {
+        "key": "audit_disabled",
+        "status": "met",
+        "evidence": "Mailbox auditing is on for the organization."
+      },
+      {
+        "key": "customer_lockbox",
+        "status": "met",
+        "evidence": "Customer Lockbox is on."
+      },
+      {
+        "key": "mailtips",
+        "status": "met",
+        "evidence": "MailTips are on for users."
+      },
+      {
+        "key": "exo_modern_auth",
+        "status": "met",
+        "evidence": "Modern authentication is on for Exchange Online."
+      },
+      {
+        "key": "smtp_auth_disabled",
+        "status": "met",
+        "evidence": "SMTP AUTH is disabled for the organization."
+      },
+      {
+        "key": "owa_storage_providers",
+        "status": "met",
+        "evidence": "Outlook on the web does not offer third-party storage."
+      },
+      {
+        "key": "external_sender_tag",
+        "status": "met",
+        "evidence": "Email from external senders is marked in Outlook."
+      },
+      {
+        "key": "malware_admin_notify",
+        "status": "met",
+        "evidence": "An administrator is notified when an internal user sends malware."
+      },
+      {
+        "key": "authenticator_fatigue",
+        "status": "met",
+        "evidence": "Microsoft Authenticator asks for number matching and shows the app and location (the fatigue protections)."
+      },
+      {
+        "key": "weak_auth_methods",
+        "status": "met",
+        "evidence": "SMS and voice call sign-in are disabled."
+      },
+      {
+        "key": "system_preferred_mfa",
+        "status": "met",
+        "evidence": "System-preferred multifactor authentication is on."
+      },
+      {
+        "key": "banned_passwords",
+        "status": "met",
+        "evidence": "A custom banned password list is in use (2 entries)."
+      },
+      {
+        "key": "onprem_password_protection",
+        "status": "met",
+        "evidence": "Not applicable: this tenant has no on-premises directory syncing to it."
+      },
+      {
+        "key": "password_hash_sync",
+        "status": "met",
+        "evidence": "Not applicable: this tenant has no on-premises directory syncing to it."
+      },
+      {
+        "key": "device_quota",
+        "status": "met",
+        "evidence": "Each user can register up to 10 devices (the baseline asks for 20 or fewer)."
+      },
+      {
+        "key": "laps",
+        "status": "met",
+        "evidence": "Local Administrator Password Solution is enabled."
+      },
+      {
+        "key": "ga_local_admin",
+        "status": "met",
+        "evidence": "Global Administrators are not added as local administrators on join."
+      },
+      {
+        "key": "local_admin_join",
+        "status": "met",
+        "evidence": "Nobody who joins a device becomes its local administrator."
+      },
+      {
+        "key": "guest_dynamic_group",
+        "status": "met",
+        "evidence": "A dynamic group collects guest users (\"Guests\")."
+      },
+      {
+        "key": "cloud_only_admins",
+        "status": "met",
+        "evidence": "All 2 administrators are cloud-only accounts."
+      },
+      {
+        "key": "inbound_allowed_domains",
+        "status": "met",
+        "evidence": "No inbound anti-spam policy allows whole domains."
+      },
+      {
+        "key": "outbound_spam_notify",
+        "status": "met",
+        "evidence": "An administrator is notified of outbound spam."
+      },
+      {
+        "key": "mail_forwarding_blocked",
+        "status": "met",
+        "evidence": "Automatic forwarding to outside addresses is switched off."
+      },
+      {
+        "key": "audit_bypass",
+        "status": "met",
+        "evidence": "No mailbox is excluded from auditing."
+      },
+      {
+        "key": "safe_attachments_collab",
+        "status": "met",
+        "evidence": "Safe Attachments protects SharePoint, OneDrive and Teams."
+      },
+      {
+        "key": "outlook_addins",
+        "status": "met",
+        "evidence": "Users cannot install Outlook add-ins on their own."
+      },
+      {
+        "key": "transport_whitelist",
+        "status": "met",
+        "evidence": "No mail flow rule skips spam filtering for a sender's domain."
+      },
+      {
+        "key": "unified_audit_log",
+        "status": "met",
+        "evidence": "Microsoft 365 audit log search is on."
+      },
+      {
+        "key": "zap_teams",
+        "status": "met",
+        "evidence": "Zero-hour auto purge is on for Microsoft Teams."
+      },
+      {
+        "key": "calendar_external_sharing",
+        "status": "met",
+        "evidence": "Calendars cannot be shared outside the organization."
+      },
+      {
+        "key": "bookings_restricted",
+        "status": "met",
+        "evidence": "Creating Bookings pages is switched off for users."
+      },
+      {
+        "key": "admin_license_footprint",
+        "status": "met",
+        "evidence": "Administrators hold no licence, or only an identity one."
+      }
+    ]
+  }
+}

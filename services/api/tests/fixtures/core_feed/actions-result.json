@@ -1,0 +1,8 @@
+{
+  "route": "actions/{action_id}/result",
+  "method": "POST",
+  "body": {
+    "status": "done",
+    "message": "Started. Output will go on ticket 553688."
+  }
+}

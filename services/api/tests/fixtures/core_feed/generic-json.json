@@ -1,0 +1,54 @@
+{
+  "route": "generic-json",
+  "method": "POST",
+  "body": [
+    {
+      "source": "huntress",
+      "severity": "high",
+      "timestamp": "2026-10-22T14:03:11Z",
+      "message": "Malicious process on PC-01",
+      "url": "https://acme.huntress.io/incidents/4821",
+      "links": {
+        "device_url": "https://acme.huntress.io/agents/9",
+        "user_url": "https://acme.huntress.io/identities/3"
+      },
+      "finding": {
+        "uid": "huntress:4821",
+        "title": "Malicious process on PC-01",
+        "description": "A process matching known malware ran from the Downloads folder."
+      },
+      "context": {
+        "organization_id": "7",
+        "client_name": "Acme Dental",
+        "hostname": "PC-01",
+        "username": "jsmith",
+        "device_ips": [
+          "10.0.0.23"
+        ],
+        "source_ip": "203.0.113.7"
+      },
+      "hostname": "PC-01",
+      "username": "jsmith",
+      "src_ip": "203.0.113.7",
+      "alert_id": "huntress:4821",
+      "id": "huntress:4821",
+      "title": "Malicious process on PC-01",
+      "description": "A process matching known malware ran from the Downloads folder."
+    },
+    {
+      "source": "huntress",
+      "severity": "critical",
+      "timestamp": "2026-10-22T15:00:00Z",
+      "message": "Ransomware behaviour",
+      "finding": {
+        "uid": "huntress:4822",
+        "title": "Ransomware behaviour",
+        "description": ""
+      },
+      "alert_id": "huntress:4822",
+      "id": "huntress:4822",
+      "title": "Ransomware behaviour",
+      "description": ""
+    }
+  ]
+}

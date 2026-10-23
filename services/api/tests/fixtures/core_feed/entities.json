@@ -1,0 +1,24 @@
+{
+  "route": "entities",
+  "method": "POST",
+  "body": {
+    "vendor": "huntress",
+    "items": [
+      {
+        "uid": "huntress:4821",
+        "hostname": "PC-01",
+        "username": "jsmith",
+        "src_ip": "203.0.113.7",
+        "url": "https://acme.huntress.io/incidents/4821",
+        "links": {
+          "device_url": "https://acme.huntress.io/agents/9",
+          "user_url": "https://acme.huntress.io/identities/3"
+        }
+      },
+      {
+        "uid": "huntress:4822",
+        "hostname": "PC-02"
+      }
+    ]
+  }
+}

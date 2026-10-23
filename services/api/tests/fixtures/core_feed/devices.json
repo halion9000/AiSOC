@@ -1,0 +1,45 @@
+{
+  "route": "devices",
+  "method": "POST",
+  "body": {
+    "items": [
+      {
+        "vendor": "threatmate",
+        "vendor_client_id": "tm-9",
+        "external_id": "a-1",
+        "hostname": "L-CB0373RL",
+        "serial": "FCF6GG4",
+        "os": "Microsoft Windows 11 Pro Edition",
+        "os_version": "10.0.26100",
+        "manufacturer": "Dell Inc.",
+        "model": "Latitude 5440",
+        "ip_addresses": [
+          "10.0.0.23",
+          "fe80::1"
+        ],
+        "details": {
+          "discovered_on_network": false,
+          "kev_count": 2,
+          "kev_ransomware": true,
+          "needs_attention": [
+            "Defender: Unhealthy"
+          ],
+          "url": "https://app.threatmate.example/assets/a-1"
+        }
+      },
+      {
+        "vendor": "ninjaone",
+        "vendor_client_id": null,
+        "external_id": "77",
+        "hostname": "PC-02",
+        "serial": null,
+        "os": null,
+        "os_version": null,
+        "manufacturer": null,
+        "model": null,
+        "ip_addresses": [],
+        "details": {}
+      }
+    ]
+  }
+}

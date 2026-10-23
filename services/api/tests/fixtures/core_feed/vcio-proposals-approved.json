@@ -1,0 +1,5 @@
+{
+  "route": "vcio-proposals/approved",
+  "method": "POST",
+  "body": null
+}

@@ -1,0 +1,17 @@
+{
+  "route": "clients",
+  "method": "POST",
+  "body": {
+    "vendor": "huntress",
+    "clients": [
+      {
+        "id": "7",
+        "name": "Acme Dental"
+      },
+      {
+        "id": "9",
+        "name": "Birch Law"
+      }
+    ]
+  }
+}

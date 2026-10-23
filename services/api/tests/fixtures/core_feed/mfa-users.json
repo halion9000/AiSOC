@@ -1,0 +1,46 @@
+{
+  "route": "mfa-users",
+  "method": "POST",
+  "body": {
+    "vendor": "cipp",
+    "vendor_client_id": "c1",
+    "snapshot_id": "00000000-0000-4000-8000-000000000001",
+    "last": true,
+    "items": [
+      {
+        "id": "u1",
+        "upn": "u1@acme.com",
+        "display_name": "u1",
+        "enabled": true,
+        "user_type": "Member",
+        "admin": false,
+        "licensed": true,
+        "registered": true,
+        "capable": true,
+        "per_user": "enforced",
+        "ca_enforced": true,
+        "security_defaults": false,
+        "methods": [
+          "authenticatorApp"
+        ]
+      },
+      {
+        "id": "u2",
+        "upn": "u2@acme.com",
+        "display_name": "u2",
+        "enabled": true,
+        "user_type": "Member",
+        "admin": false,
+        "licensed": true,
+        "registered": false,
+        "capable": true,
+        "per_user": "enforced",
+        "ca_enforced": true,
+        "security_defaults": false,
+        "methods": [
+          "authenticatorApp"
+        ]
+      }
+    ]
+  }
+}

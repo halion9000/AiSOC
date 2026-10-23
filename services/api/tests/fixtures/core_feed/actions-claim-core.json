@@ -1,0 +1,7 @@
+{
+  "route": "actions/claim",
+  "method": "POST",
+  "body": {
+    "vendor": "core"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "route": "closed",
+  "method": "POST",
+  "body": {
+    "vendor": "huntress",
+    "closed": [
+      {
+        "uid": "huntress:4821",
+        "state": "closed"
+      },
+      {
+        "uid": "huntress:4822",
+        "state": "resolved"
+      }
+    ]
+  }
+}

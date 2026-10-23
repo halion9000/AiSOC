@@ -1,0 +1,13 @@
+{
+  "route": "device-names",
+  "method": "POST",
+  "body": {
+    "vendor": "blumira",
+    "items": [
+      {
+        "uid": "blumira:abc-006",
+        "hostname": "SRV-FS01"
+      }
+    ]
+  }
+}

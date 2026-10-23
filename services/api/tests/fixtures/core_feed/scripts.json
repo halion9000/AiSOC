@@ -1,0 +1,18 @@
+{
+  "route": "scripts",
+  "method": "POST",
+  "body": {
+    "scripts": [
+      {
+        "id": 7,
+        "name": "Disk Space Scan",
+        "one_click": false
+      },
+      {
+        "id": 9,
+        "name": "Restart Spooler",
+        "one_click": true
+      }
+    ]
+  }
+}

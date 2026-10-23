@@ -1,0 +1,41 @@
+{
+  "route": "secure-scores",
+  "method": "POST",
+  "body": {
+    "vendor": "cipp",
+    "vendor_client_id": "c1",
+    "taken_at": "2026-10-21T00:00:00Z",
+    "current": 115,
+    "max": 267,
+    "active_users": 20,
+    "licensed_users": 25,
+    "average": 54.02,
+    "history": [
+      {
+        "d": "2026-10-20",
+        "c": 110,
+        "m": 267
+      },
+      {
+        "d": "2026-10-21",
+        "c": 115,
+        "m": 267
+      }
+    ],
+    "improvements": [
+      {
+        "id": "mfa_admins",
+        "title": "Title of mfa_admins",
+        "category": "Identity",
+        "service": "AzureAD",
+        "missing": 10,
+        "max": 10,
+        "rank": 5,
+        "user_impact": "Low",
+        "cost": "Low",
+        "status": "off",
+        "description": null
+      }
+    ]
+  }
+}

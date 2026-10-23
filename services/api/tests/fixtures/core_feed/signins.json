@@ -1,0 +1,45 @@
+{
+  "route": "signins",
+  "method": "POST",
+  "body": {
+    "vendor": "cipp",
+    "items": [
+      {
+        "vendor_client_id": "c1",
+        "id": "s1",
+        "at": "2026-10-19T10:00:00Z",
+        "user": "s1@acme.com",
+        "display_name": null,
+        "ip": "1.1.1.1",
+        "country": "US",
+        "city": "Austin",
+        "app": "Teams",
+        "client_app": null,
+        "success": true,
+        "error_code": 0,
+        "interactive": true,
+        "mfa": true,
+        "risk": null,
+        "conditional_access": null
+      },
+      {
+        "vendor_client_id": "c1",
+        "id": "s2",
+        "at": "2026-10-19T12:00:00Z",
+        "user": "s2@acme.com",
+        "display_name": null,
+        "ip": "1.1.1.1",
+        "country": "US",
+        "city": "Austin",
+        "app": "Teams",
+        "client_app": null,
+        "success": true,
+        "error_code": 0,
+        "interactive": true,
+        "mfa": true,
+        "risk": null,
+        "conditional_access": null
+      }
+    ]
+  }
+}
