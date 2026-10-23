@@ -10574,6 +10574,207 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/identities:
+    get:
+      tags:
+      - identities
+      summary: List Identities
+      description: The people across the connected tools, with the tools that know
+        each, their multi-factor state and their open alerts. The summary counts everyone
+        in scope, whatever the filters.
+      operationId: list_identities_api_v1_identities_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100000
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Page Size
+      - name: client_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Client Id
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Search
+      - name: source
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          - type: 'null'
+          description: Only people this tool knows.
+          title: Source
+        description: Only people this tool knows.
+      - name: only_in
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          - type: 'null'
+          description: Only people known to this one tool and no other.
+          title: Only In
+        description: Only people known to this one tool and no other.
+      - name: has_alerts
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Has Alerts
+      - name: mfa
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(covered|registered_not_required|none|unknown)$
+          - type: 'null'
+          title: Mfa
+      - name: admin
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Admin
+      - name: disabled
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Disabled
+      - name: kind
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(user|guest|shared|other)$
+          - type: 'null'
+          title: Kind
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: alerts
+          title: Sort
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/identities/detail:
+    get:
+      tags:
+      - identities
+      summary: Identity Detail
+      description: 'One person: every tool''s record of them, the open alerts that
+        name them, and a summary of their recent sign-ins.'
+      operationId: identity_detail_api_v1_identities_detail_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Client Id
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+          maxLength: 320
+          title: Email
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonDetail'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/inbox/core-feed/{tenant_token}/identities:
+    post:
+      tags:
+      - inbox-core-feed
+      summary: Report Core Feed Identities
+      description: Record the people a tool reports, under the client each belongs
+        to.
+      operationId: report_core_feed_identities_api_v1_inbox_core_feed__tenant_token__identities_post
+      parameters:
+      - name: tenant_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tenant Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentitiesReport'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/app__api__v1__endpoints__devices__DevicesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/identity/mfa-summary:
     get:
       tags:
@@ -10646,7 +10847,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/IdentitySummary'
+                $ref: '#/components/schemas/app__api__v1__endpoints__identity__IdentitySummary'
       security:
       - HTTPBearer: []
   /api/v1/identity/top:
@@ -18555,6 +18756,39 @@ components:
       - threat_intel_age_hours
       - checks
       title: AirgapStatus
+    AlertBrief:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        title:
+          type: string
+          title: Title
+        severity:
+          type: string
+          title: Severity
+        status:
+          type: string
+          title: Status
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Created At
+      type: object
+      required:
+      - id
+      - title
+      - severity
+      - status
+      title: AlertBrief
     AlertDetailResponse:
       properties:
         id:
@@ -26387,29 +26621,96 @@ components:
       - last_seen
       - created_at
       title: IOCOut
-    IdentitySummary:
+    IdentitiesReport:
       properties:
-        audits_last_24h:
-          type: integer
-          title: Audits Last 24H
-        audits_scored_last_24h:
-          type: integer
-          title: Audits Scored Last 24H
-        audits_unscored:
-          type: integer
-          title: Audits Unscored
-        newest_received:
-          anyOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-          title: Newest Received
+        vendor:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          title: Vendor
+        items:
+          items:
+            $ref: '#/components/schemas/IdentityIn'
+          type: array
+          maxItems: 1000
+          title: Items
       type: object
       required:
-      - audits_last_24h
-      - audits_scored_last_24h
-      - audits_unscored
-      title: IdentitySummary
+      - vendor
+      - items
+      title: IdentitiesReport
+    IdentityIn:
+      properties:
+        vendor_client_id:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Vendor Client Id
+        external_id:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: External Id
+        email:
+          type: string
+          maxLength: 320
+          minLength: 3
+          title: Email
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Display Name
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        kind:
+          type: string
+          pattern: ^(user|guest|shared|other)$
+          title: Kind
+          default: user
+        details:
+          additionalProperties: true
+          type: object
+          title: Details
+      type: object
+      required:
+      - external_id
+      - email
+      title: IdentityIn
+    IdentityList:
+      properties:
+        summary:
+          $ref: '#/components/schemas/app__api__v1__endpoints__identities__IdentitySummary'
+        items:
+          items:
+            $ref: '#/components/schemas/PersonOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+        pages:
+          type: integer
+          title: Pages
+      type: object
+      required:
+      - summary
+      - items
+      - total
+      - page
+      - page_size
+      - pages
+      title: IdentityList
     IdentityTimeline:
       properties:
         timeline_id:
@@ -29735,6 +30036,98 @@ components:
       - description
       - category
       title: PermissionOut
+    PersonDetail:
+      properties:
+        person:
+          $ref: '#/components/schemas/PersonOut'
+        alerts:
+          items:
+            $ref: '#/components/schemas/AlertBrief'
+          type: array
+          title: Alerts
+        signins:
+          $ref: '#/components/schemas/SigninBrief'
+      type: object
+      required:
+      - person
+      - alerts
+      - signins
+      title: PersonDetail
+    PersonOut:
+      properties:
+        key:
+          type: string
+          title: Key
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        client_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Client Name
+        email:
+          type: string
+          title: Email
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        kind:
+          type: string
+          title: Kind
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        admin:
+          type: boolean
+          title: Admin
+          default: false
+        licensed:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Licensed
+        mfa:
+          type: string
+          title: Mfa
+        mfa_methods:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mfa Methods
+        tools:
+          items:
+            type: string
+          type: array
+          title: Tools
+        sources:
+          items:
+            $ref: '#/components/schemas/SourceOut'
+          type: array
+          title: Sources
+        open_alerts:
+          type: integer
+          title: Open Alerts
+          default: 0
+        top_severity:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Top Severity
+      type: object
+      required:
+      - key
+      - client_id
+      - email
+      - kind
+      - mfa
+      - tools
+      title: PersonOut
     PipelineHealth:
       properties:
         overall_status:
@@ -33829,6 +34222,33 @@ components:
       required:
       - accepted
       title: SignInsResponse
+    SigninBrief:
+      properties:
+        last_30_days:
+          type: integer
+          title: Last 30 Days
+          default: 0
+        failed:
+          type: integer
+          title: Failed
+          default: 0
+        unusual:
+          type: integer
+          title: Unusual
+          default: 0
+        countries:
+          items:
+            type: string
+          type: array
+          title: Countries
+        last_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last At
+      type: object
+      title: SigninBrief
     SigninSummary:
       properties:
         last_24h:
@@ -33860,6 +34280,28 @@ components:
       - unscored
       - users_last_24h
       title: SigninSummary
+    SourceOut:
+      properties:
+        vendor:
+          type: string
+          title: Vendor
+        external_id:
+          type: string
+          title: External Id
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        details:
+          additionalProperties: true
+          type: object
+          title: Details
+      type: object
+      required:
+      - vendor
+      - external_id
+      title: SourceOut
     SourceReport:
       properties:
         vendor:
@@ -37820,6 +38262,63 @@ components:
       - completed_at
       - created_by
       title: HuntResponse
+    app__api__v1__endpoints__identities__IdentitySummary:
+      properties:
+        total:
+          type: integer
+          title: Total
+        with_alerts:
+          type: integer
+          title: With Alerts
+        without_mfa:
+          type: integer
+          title: Without Mfa
+        admins:
+          type: integer
+          title: Admins
+        disabled:
+          type: integer
+          title: Disabled
+        in_one_tool:
+          type: integer
+          title: In One Tool
+        tools:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Tools
+      type: object
+      required:
+      - total
+      - with_alerts
+      - without_mfa
+      - admins
+      - disabled
+      - in_one_tool
+      title: IdentitySummary
+    app__api__v1__endpoints__identity__IdentitySummary:
+      properties:
+        audits_last_24h:
+          type: integer
+          title: Audits Last 24H
+        audits_scored_last_24h:
+          type: integer
+          title: Audits Scored Last 24H
+        audits_unscored:
+          type: integer
+          title: Audits Unscored
+        newest_received:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Newest Received
+      type: object
+      required:
+      - audits_last_24h
+      - audits_scored_last_24h
+      - audits_unscored
+      title: IdentitySummary
     app__api__v1__endpoints__identity_timeline__TimelineEvent:
       properties:
         event_id:

@@ -129,6 +129,10 @@ OPEN_ROUTES: dict[tuple[str, str], str] = {
         "/api/v1/inbox/core-feed/{tenant_token}/devices",
     ): "CORE's devices: authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add devices under that feed's own mapped client tenants",
     (
+        "POST",
+        "/api/v1/inbox/core-feed/{tenant_token}/identities",
+    ): "CORE's people (Datto SaaS Protection, Dropsuite, Huntress SAT, HaloPSA): authenticated by the core-feed token in the path, checked in the handler (401 without it); can only add people under that feed's own mapped client tenants",
+    (
         "GET",
         "/api/v1/canary/{token_id}",
     ): "The honeytoken tripwire: a planted link must work for someone who has no AiSOC account, so it cannot require sign-in. It answers every id the same way (a one pixel image), forwards only a well-formed UUID, is rate limited per token and overall, and returns nothing about the token",

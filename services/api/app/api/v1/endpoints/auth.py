@@ -282,7 +282,13 @@ async def _hidden_nav(db: Any, user: User) -> list[str]:
     from app.models.rbac import Role, UserRole  # noqa: PLC0415
     from app.services.role_nav import hidden_for_roles  # noqa: PLC0415
 
-    rows = (await db.execute(select(Role.hidden_nav).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user.id, Role.tenant_id == user.tenant_id))).all()
+    try:
+        # In its own savepoint: a failure here (an older database without the column) must not take the sign-in check or the pages away.
+        async with db.begin_nested():
+            rows = (await db.execute(select(Role.hidden_nav).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user.id, Role.tenant_id == user.tenant_id))).all()
+    except Exception:  # noqa: BLE001
+        logger.warning("could not read the roles' hidden pages; showing everything")
+        return []
     return hidden_for_roles([list(r[0] or []) for r in rows])
 
 

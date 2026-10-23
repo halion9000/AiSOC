@@ -648,6 +648,80 @@ export interface ClientRollup {
   offline: number;
 }
 
+export type IdentitySort = 'alerts' | 'email' | 'name' | 'client' | 'tools';
+
+/** One person (e-mail identity) across the connected tools (GET /api/v1/identities). */
+export interface IdentityPerson {
+  key: string;
+  client_id: string;
+  client_name: string | null;
+  email: string;
+  display_name: string | null;
+  kind: string;
+  enabled: boolean | null;
+  admin: boolean;
+  licensed: boolean | null;
+  mfa: 'covered' | 'registered_not_required' | 'none' | 'unknown' | string;
+  mfa_methods: string | null;
+  tools: string[];
+  sources: { vendor: string; external_id: string; enabled: boolean | null; details: Record<string, unknown> }[];
+  open_alerts: number;
+  top_severity: string | null;
+}
+
+export interface IdentityList {
+  summary: { total: number; with_alerts: number; without_mfa: number; admins: number; disabled: number; in_one_tool: number; tools: Record<string, number> };
+  items: IdentityPerson[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export interface IdentityDetail {
+  person: IdentityPerson;
+  alerts: { id: string; title: string; severity: string; status: string; source: string | null; created_at: string | null }[];
+  signins: { last_30_days: number; failed: number; unusual: number; countries: string[]; last_at: string | null };
+}
+
+export interface IdentityQuery {
+  page?: number;
+  pageSize?: number;
+  clientId?: string;
+  search?: string;
+  source?: string;
+  onlyIn?: string;
+  mfa?: string;
+  kind?: string;
+  hasAlerts?: boolean;
+  admin?: boolean;
+  disabled?: boolean;
+  sort?: IdentitySort;
+}
+
+export const identitiesApi = {
+  /** The people across the connected tools, with filters and sorting. */
+  list: (q: IdentityQuery = {}) =>
+    request<IdentityList>('/api/v1/identities', {
+      params: {
+        page: q.page ?? 1,
+        page_size: q.pageSize ?? 50,
+        client_id: q.clientId,
+        search: q.search,
+        source: q.source,
+        only_in: q.onlyIn,
+        mfa: q.mfa,
+        kind: q.kind,
+        has_alerts: q.hasAlerts ? 'true' : undefined,
+        admin: q.admin ? 'true' : undefined,
+        disabled: q.disabled ? 'true' : undefined,
+        sort: q.sort,
+      } as unknown as Record<string, string>,
+    }),
+  /** One person: every tool's record of them, their open alerts and a summary of their sign-ins. */
+  detail: (clientId: string, email: string) => request<IdentityDetail>('/api/v1/identities/detail', { params: { client_id: clientId, email } }),
+};
+
 export const devicesApi = {
   /** Merges from the last two weeks that can still be undone. */
   async merges(): Promise<MergeEntry[]> {

@@ -48,6 +48,7 @@ from app.api.v1.endpoints import (
     hunt_alert_search,
     hunt_saved_searches,
     hunts,
+    identities,
     identity,
     identity_graph,
     identity_timeline,
@@ -207,6 +208,8 @@ api_router.include_router(devices.ingest_router)
 api_router.include_router(signins.ingest_router)
 api_router.include_router(signins.router)
 api_router.include_router(identity.ingest_router)
+api_router.include_router(identities.router)
+api_router.include_router(identities.ingest_router)
 api_router.include_router(identity.router)
 api_router.include_router(client_posture.router)
 api_router.include_router(client_review.ingest_router)
