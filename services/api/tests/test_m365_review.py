@@ -86,6 +86,10 @@ CORE_CHECK_KEYS = [
     "user_risk_ca",
     "signin_risk_ca",
     "managed_device_ca",
+    "register_security_info_ca",
+    "intune_enrollment_frequency_ca",
+    "idle_session_timeout",
+    "outbound_limits",
     "admin_signin_frequency",
     "legacy_auth_ca",
     "device_code_ca",
@@ -135,7 +139,7 @@ CORE_CHECK_KEYS = [
 
 def test_every_check_key_core_can_emit_has_a_template_question_and_nothing_else_is_mapped():
     assert sorted(m.CHECK_QUESTIONS) == sorted(CORE_CHECK_KEYS)
-    assert len(set(CORE_CHECK_KEYS)) == len(CORE_CHECK_KEYS) == 57
+    assert len(set(CORE_CHECK_KEYS)) == len(CORE_CHECK_KEYS) == 61
     # each key answers a different question
     questions = [m.question_for(q) for q in m.CHECK_QUESTIONS.values()]
     assert len(set(questions)) == len(questions)
@@ -195,3 +199,19 @@ def test_the_sample_payload_in_the_docs_is_accepted_by_the_real_request_model():
     report = M365ChecksReport(**sample)
     assert report.vendor == "cipp" and len(report.checks) == 3
     assert {c.key for c in report.checks} <= set(m.CHECK_QUESTIONS), "the sample only uses keys A.C.O.R.N knows"
+
+
+def test_the_four_newer_baseline_checks_answer_their_template_questions():
+    from app.services.m365_review import m365_answers
+
+    checks = [
+        {"key": "register_security_info_ca", "status": "met", "evidence": "managed device"},
+        {"key": "intune_enrollment_frequency_ca", "status": "not_met", "evidence": "none"},
+        {"key": "idle_session_timeout", "status": "met", "evidence": "after 2 hours"},
+        {"key": "outbound_limits", "status": "partly", "evidence": "one policy loose"},
+    ]
+    got = {a.question: a for a in m365_answers(checks, [])}
+    assert got["Ensure a managed device is required to register security information"].status == "met"
+    assert got["Ensure sign-in frequency for Intune Enrollment is set to 'Every time'"].status == "not_met"
+    assert got["Ensure `Idle session timeout` is set to `3 hours (or less)` for unmanaged devices"].evidence == "after 2 hours"
+    assert got["Ensure outbound anti-spam message limits are in place"].status == "partly"

@@ -21,6 +21,8 @@ Keep this table in step with `CHECK_QUESTIONS` in `services/api/app/services/m36
 | `device_code_ca` | device code sign-in flow is blocked | CIPP `ListConditionalAccessPolicies` |
 | `user_risk_ca`, `signin_risk_ca` | Identity Protection user risk / sign-in risk policies | `ListConditionalAccessPolicies` (full policy text) |
 | `managed_device_ca` | a managed device is required for authentication | `ListConditionalAccessPolicies` (full policy text) |
+| `register_security_info_ca` | a managed device is required to register security information | `ListConditionalAccessPolicies` (full policy text; the user action "register security information") |
+| `intune_enrollment_frequency_ca` | sign-in frequency for Intune Enrollment is every time | `ListConditionalAccessPolicies` (full policy text; the Intune Enrollment app) |
 | `admin_signin_frequency` | Sign-in frequency ... Administrative users | `ListConditionalAccessPolicies` (full policy text) |
 | `create_tenants` | restrict non-admin users from creating tenants | Graph `policies/authorizationPolicy` |
 | `create_security_groups` | users cannot create security groups | Graph `policies/authorizationPolicy` |
@@ -28,6 +30,7 @@ Keep this table in step with `CHECK_QUESTIONS` in `services/api/app/services/m36
 | `admin_consent_workflow` | the admin consent workflow is enabled | Graph `policies/adminConsentRequestPolicy` |
 | `sharepoint_modern_auth` | modern authentication for SharePoint | CIPP `ListSharepointSettings` |
 | `sharepoint_external_sharing` | external content sharing is restricted | CIPP `ListSharepointSettings` |
+| `idle_session_timeout` | idle session sign-out is on and 3 hours or less | CIPP `ListSharepointSettings` (SharePoint's idle session sign-out; the Microsoft 365 admin center's own setting is not separately readable) |
 | `audit_disabled` | `AuditDisabled` is `False` | Exchange `Get-OrganizationConfig` |
 | `customer_lockbox` | customer lockbox | Exchange `Get-OrganizationConfig` |
 | `mailtips` | MailTips are enabled | Exchange `Get-OrganizationConfig` |
@@ -51,6 +54,7 @@ Keep this table in step with `CHECK_QUESTIONS` in `services/api/app/services/m36
 | `cloud_only_admins` | Administrative accounts are cloud-only | `ListRoles` then Graph `users/{id}` for each administrator (at most 25) |
 | `inbound_allowed_domains` | inbound anti-spam policies do not contain allowed domains | Exchange `Get-HostedContentFilterPolicy` |
 | `outbound_spam_notify` | Spam Policies are set to notify administrators | Exchange `Get-HostedOutboundSpamFilterPolicy` |
+| `outbound_limits` | outbound message limits are in place (500 external and 1000 internal an hour, 1000 a day, user blocked) | Exchange `Get-HostedOutboundSpamFilterPolicy` |
 | `mail_forwarding_blocked` | all forms of mail forwarding are blocked | `Get-HostedOutboundSpamFilterPolicy` and `ListTransportRules` |
 | `audit_bypass` | `AuditBypassEnabled` is not enabled | Exchange `Get-MailboxAuditBypassAssociation` |
 | `safe_attachments_collab` | Safe Attachments for SharePoint, OneDrive, and Teams | Exchange `Get-AtpPolicyForO365` |

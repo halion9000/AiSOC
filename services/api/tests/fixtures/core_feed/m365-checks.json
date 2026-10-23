@@ -56,6 +56,16 @@
         "evidence": "DMARC is in place on 1 mail domain."
       },
       {
+        "key": "register_security_info_ca",
+        "status": "met",
+        "evidence": "Registering security information needs a managed device (\"Register security info safely\")."
+      },
+      {
+        "key": "intune_enrollment_frequency_ca",
+        "status": "met",
+        "evidence": "Intune enrollment asks for sign-in every time (\"Intune enrollment every time\")."
+      },
+      {
         "key": "user_risk_ca",
         "status": "met",
         "evidence": "An enabled Conditional Access policy acts on user risk (\"Risky users\")."
@@ -124,6 +134,11 @@
         "key": "sharepoint_external_sharing",
         "status": "met",
         "evidence": "SharePoint external sharing is limited (disabled)."
+      },
+      {
+        "key": "idle_session_timeout",
+        "status": "met",
+        "evidence": "SharePoint signs idle sessions out after 3 hours."
       },
       {
         "key": "shared_mailbox_signin",
@@ -239,6 +254,11 @@
         "key": "outbound_spam_notify",
         "status": "met",
         "evidence": "An administrator is notified of outbound spam."
+      },
+      {
+        "key": "outbound_limits",
+        "status": "met",
+        "evidence": "Outbound message limits are in place and a user who reaches them is blocked."
       },
       {
         "key": "mail_forwarding_blocked",
