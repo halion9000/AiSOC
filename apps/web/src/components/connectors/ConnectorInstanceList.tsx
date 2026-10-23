@@ -359,6 +359,15 @@ function ConnectorCard({
           )}
           {connector.type === 'core_feed' ? (testing ? 'Syncing…' : 'Sync') : 'Test'}
         </button>
+        {vendor && (deviceCount !== null || hasUnmappedClients(connector.errorMessage)) && (
+          <Link
+            href={`/devices?tool=${encodeURIComponent(vendor)}`}
+            title="Opens the Devices page showing only the devices this tool reports. Devices whose client is not mapped yet are not stored, so map them first."
+            className="text-xs bg-gray-800/60 text-gray-200 px-3 py-2 rounded-lg border border-gray-700/60 hover:bg-gray-800 transition-colors"
+          >
+            Devices
+          </Link>
+        )}
         {vendor && hasUnmappedClients(connector.errorMessage) && (
           <Link
             href={`/mssp?vendor=${encodeURIComponent(vendor)}`}

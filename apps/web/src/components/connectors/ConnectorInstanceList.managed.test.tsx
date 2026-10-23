@@ -72,3 +72,25 @@ describe('the button on a connector card', () => {
     expect(screen.queryByRole('button', { name: 'Sync' })).not.toBeInTheDocument();
   });
 });
+
+describe('the Devices link on a connector card', () => {
+  const cfg = (extra: Record<string, unknown>) => ({ vendor: 'unifi', ...extra });
+  const deviceFeed = { ...feed, name: 'UniFi (via CORE)', config: cfg({ kind: 'devices', devices: 78 }) } as unknown as Connector;
+
+  it('opens the Devices page filtered to that tool on a card that reads devices', () => {
+    renderList([deviceFeed]);
+    expect(screen.getByRole('link', { name: 'Devices' })).toHaveAttribute('href', '/devices?tool=unifi');
+  });
+
+  it('is also there when an alert tool has devices waiting for their client to be mapped', () => {
+    const alertFeed = { ...feed, config: { vendor: 'fieldeffect' }, status: 'warning', errorMessage: 'Alerts are flowing, but fieldeffect devices: 33 device(s) belong to clients not mapped yet: client x (33)' } as unknown as Connector;
+    renderList([alertFeed]);
+    expect(screen.getByRole('link', { name: 'Devices' })).toHaveAttribute('href', '/devices?tool=fieldeffect');
+    expect(screen.getByRole('link', { name: 'Map clients' })).toHaveAttribute('href', '/mssp?vendor=fieldeffect');
+  });
+
+  it('is not shown on a card with no devices, or on a connector that is not CORE-fed', () => {
+    renderList([{ ...feed, config: { vendor: 'huntress' } } as unknown as Connector, okta]);
+    expect(screen.queryByRole('link', { name: 'Devices' })).not.toBeInTheDocument();
+  });
+});

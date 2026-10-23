@@ -24,7 +24,7 @@ const BADGES: Record<string, { text: string; className: string }> = {
   vciotoolbox: { text: 'vC', className: 'bg-blue-800/80 text-white' },
 };
 
-const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox', 'itglue', 'unifi', 'auvik', 'slide', 'huntress-sat', 'datto-bcdr', 'datto-saas']);
+const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox', 'itglue', 'unifi', 'auvik', 'slide', 'huntress-sat', 'datto-bcdr', 'datto-saas', 'meraki', 'timus']);
 
 /** Halo first, then the rest in one fixed order so every row lines up; tools not listed follow alphabetically. */
 export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'auvik', 'unifi', 'slide', 'huntress-sat', 'itglue', 'meraki', 'datto-bcdr', 'datto-saas', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox'];
