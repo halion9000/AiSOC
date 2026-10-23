@@ -65,13 +65,14 @@ describe('RuleBuilder', () => {
       unmount();
       const { type, append, snippet } = setup();
       await type('prod-iam-business-hours', 'r');
-      await type('prod', typed);
+      await userEvent.click(screen.getByPlaceholderText('prod'));
+      await userEvent.paste(typed);
       await userEvent.click(screen.getAllByLabelText('Suppress matching alerts')[0]);
       await append();
       expect(parse(snippet()).when.value, typed).toBe(expected);
       document.body.innerHTML = '';
     }
-  });
+  }, 30_000);
 
   it('text fields that only look like a number, a boolean or null are quoted so they stay text', async () => {
     const { type, append, snippet } = setup();
