@@ -21,6 +21,7 @@ from app.services.infra_review import (
     network_answer,
     saas_backup,
     server_brand_answer,
+    soc_answer,
     virtualization_answer,
 )
 from app.services.sat_review import TOOL_NAME as SAT_NAME
@@ -83,7 +84,13 @@ def _count(devices: list[Any], kind: str, tool: str) -> tuple[int, int]:
 
 
 def tech_stack(
-    devices: list[Any], facts: DeviceFacts, has_microsoft_365: bool, sat: list[dict[str, Any]] | None = None, saas: list[dict[str, Any]] | None = None
+    devices: list[Any],
+    facts: DeviceFacts,
+    has_microsoft_365: bool,
+    sat: list[dict[str, Any]] | None = None,
+    saas: list[dict[str, Any]] | None = None,
+    enrolled_in: set[str] | None = None,
+    mapped_tools: set[str] | None = None,
 ) -> list[TechAnswer]:
     """One entry per template question, in the template's order."""
     cov = {c.tool: c for c in facts.coverage}
@@ -115,9 +122,15 @@ def tech_stack(
     for key in ("spam_filter", "anti_phishing", "password_manager", "external_email_banner"):
         put(key, "unknown", None, _UNKNOWN)
     by_tool("pam", "autoelevate", "windows", "Windows computers")
-    put("soc", "unknown", None, "A.C.O.R.N cannot tell whether a SOC watches the Microsoft environment; ask the client.")
+    put("soc", *soc_answer(enrolled_in, mapped_tools))
+    in_sat = "huntress-sat" in (enrolled_in or set())
+    sat_listed = "huntress-sat" in (mapped_tools or set())
     phishing = sat_phishing(sat)
-    if phishing is None:
+    if phishing is None and in_sat:
+        put("phishing_sim", "seen", SAT_NAME, f"The client is set up in {SAT_NAME}; its campaign results have not been read yet.")
+    elif phishing is None and sat_listed:
+        put("phishing_sim", "not_seen", "None seen", f"The client is not set up in {SAT_NAME}, although other clients are.")
+    elif phishing is None:
         put("phishing_sim", "unknown", None, _UNKNOWN)
     elif phishing[0] == "not_met":
         put("phishing_sim", "not_seen", "None seen", f"{SAT_NAME}: {phishing[1]}")
@@ -125,7 +138,11 @@ def tech_stack(
         put("phishing_sim", "seen", SAT_NAME, f"{SAT_NAME}: {phishing[1]}")
     put("edr_mac", *edr_answer(devices, "mac", "Macs", {t: cov[t].enrolled for t in EDR_TOOLS if t in cov}))
     awareness = sat_awareness(sat)
-    if awareness is None:
+    if awareness is None and in_sat:
+        put("awareness", "seen", SAT_NAME, f"The client is set up in {SAT_NAME}; its training results have not been read yet.")
+    elif awareness is None and sat_listed:
+        put("awareness", "not_seen", "None seen", f"The client is not set up in {SAT_NAME}, although other clients are.")
+    elif awareness is None:
         put("awareness", "unknown", None, _UNKNOWN)
     elif awareness[0] == "seen":
         put("awareness", "seen", SAT_NAME, f"{SAT_NAME}: {awareness[1]}")

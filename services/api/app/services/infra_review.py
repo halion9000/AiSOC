@@ -181,6 +181,24 @@ def edr_answer(devices: list[Any], kind: str, what: str, enrolled: dict[str, boo
     return "not_seen", "None seen", f"None of the client's {s.total} {what} report Huntress or Field Effect."
 
 
+# ---- the SOC watching the Microsoft environment (managed detection and response) --------------------------------------------------------------------
+
+# The managed services that watch a client's Microsoft environment: Huntress MDR with ITDR, Field Effect MDR, Petra MDR. A client is covered when it is set up in the tool, whichever of them (or all).
+MDR_TOOLS = {"huntress": "Huntress MDR/ITDR", "fieldeffect": "Field Effect MDR", "petra": "Petra MDR"}
+
+
+def soc_answer(enrolled: set[str] | None, mapped: set[str] | None) -> tuple[str, str | None, str]:
+    """Suggested answer for "is there any tool or SOC protecting the Microsoft environment". ``enrolled`` are the tools this client is set up in; ``mapped`` the tools that have any client mapped
+    (a tool nobody is mapped to is simply not in use, so its absence says nothing)."""
+    have = [t for t in MDR_TOOLS if t in (enrolled or set())]
+    if have:
+        names = " + ".join(MDR_TOOLS[t] for t in have)
+        return "seen", names, f"The client is set up in {', '.join(MDR_TOOLS[t] for t in have)}. A.C.O.R.N sees that the client is in the tool, not which services are switched on for it."
+    if any(t in (mapped or set()) for t in MDR_TOOLS):
+        return "not_seen", "None seen", "The client is not set up in Huntress, Field Effect or Petra, although other clients are."
+    return "unknown", None, "Huntress, Field Effect and Petra have no clients mapped here yet; ask the client."
+
+
 # ---- backups -------------------------------------------------------------------------------------------------------------------------------------------
 
 # The tools that back up machines: Datto BCDR and Slide both protect servers (and the computers a client chooses to add). Datto SaaS Protection backs up Microsoft 365 and Google Workspace instead and is

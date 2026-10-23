@@ -291,3 +291,41 @@ def test_the_endpoint_security_questions_name_both_edrs_for_pcs_and_macs():
     assert (nothing["edr_pc"].status, nothing["edr_pc"].suggested) == ("not_seen", "None seen")
     assert "Field Effect" in nothing["edr_pc"].evidence
     assert answers([])["edr_pc"].status == "unknown"
+
+
+# ---- the SOC, and Huntress SAT by being set up in it ---------------------------------------------------------------------------------------------------
+
+
+def stack(enrolled=None, mapped=None, sat=None):
+    return {a.key: a for a in tech_stack([], device_facts([], 0, 0), False, sat=sat, enrolled_in=enrolled, mapped_tools=mapped)}
+
+
+def test_the_soc_question_names_each_managed_service_the_client_is_set_up_in():
+    a = stack({"huntress", "petra", "ninjaone"}, {"huntress", "petra", "fieldeffect", "ninjaone"})["soc"]
+    assert a.status == "seen"
+    assert a.suggested == "Huntress MDR/ITDR + Petra MDR"
+    assert "Field Effect" not in a.suggested
+    assert stack({"fieldeffect"}, {"fieldeffect"})["soc"].suggested == "Field Effect MDR"
+    assert stack({"huntress", "fieldeffect", "petra"}, set())["soc"].suggested == "Huntress MDR/ITDR + Field Effect MDR + Petra MDR"
+
+
+def test_none_seen_when_other_clients_are_in_those_tools_but_this_one_is_not_and_unknown_when_none_is_in_use():
+    a = stack(set(), {"huntress", "ninjaone"})["soc"]
+    assert (a.status, a.suggested) == ("not_seen", "None seen")
+    assert stack(set(), {"ninjaone"})["soc"].status == "unknown"
+    assert stack()["soc"].status == "unknown"
+
+
+def test_being_set_up_in_huntress_sat_answers_awareness_and_phishing_before_results_are_read():
+    a = stack({"huntress-sat"}, {"huntress-sat"})
+    assert (a["awareness"].status, a["awareness"].suggested) == ("seen", "Huntress SAT")
+    assert (a["phishing_sim"].status, a["phishing_sim"].suggested) == ("seen", "Huntress SAT")
+    assert "not been read yet" in a["awareness"].evidence
+
+
+def test_not_being_in_huntress_sat_when_others_are_says_none_seen_and_results_still_win_over_enrolment():
+    a = stack(set(), {"huntress-sat"})
+    assert (a["awareness"].status, a["phishing_sim"].status) == ("not_seen", "not_seen")
+    assert stack(set(), set())["awareness"].status == "unknown"
+    with_results = stack({"huntress-sat"}, {"huntress-sat"}, sat=[chk("sat_training_assigned", "met", "2 assignments running")])
+    assert "2 assignments running" in with_results["awareness"].evidence
