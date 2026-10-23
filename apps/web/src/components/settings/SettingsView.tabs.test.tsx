@@ -107,3 +107,17 @@ describe('Settings tabs by capability', () => {
     expect(screen.queryByTestId('alert-email-stub')).toBeNull();
   });
 });
+
+describe('the About tab', () => {
+  it('links to this project in its renamed repository and still credits the original project it grew from', async () => {
+    currentUser.mockReturnValue(person([]));
+    render(<SettingsView />);
+    await userEvent.click(await screen.findByRole('button', { name: /^about/i }));
+    await screen.findByText('About A.C.O.R.N');
+    const hrefs = Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.some((h) => h.startsWith('https://github.com/halion9000/ACORN')), JSON.stringify(hrefs)).toBe(true);
+    expect(hrefs.some((h) => h.includes('halion9000/AiSOC')), 'no link to the old repository name').toBe(false);
+    expect(hrefs.some((h) => h === 'https://github.com/beenuar/AiSOC')).toBe(true);
+    expect(document.body.textContent).toContain('github.com/beenuar/AiSOC');
+  });
+});

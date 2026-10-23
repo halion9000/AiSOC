@@ -66,3 +66,16 @@ describe('Sidebar', () => {
     expect(license).toHaveAttribute('href', 'https://github.com/beenuar/AiSOC');
   });
 });
+
+describe('Sidebar wordmark', () => {
+  it('is one colour all the way through, with the full name underneath', () => {
+    render(<Sidebar />);
+    const a = screen.getByText('A.C.');
+    const b = screen.getByText('O.R.N');
+    const colour = (el: HTMLElement) => (el.className.match(/text-[a-z]+-\d+/) ?? [''])[0];
+    expect(colour(a)).toBe(colour(b));
+    expect(colour(a)).not.toBe('');
+    expect(screen.getByText('Automated Cyber Operations & Response Network')).toBeInTheDocument();
+    expect(screen.queryByText('open-source')).toBeNull();
+  });
+});

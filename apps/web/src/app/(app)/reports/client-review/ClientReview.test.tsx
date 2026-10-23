@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const authFetch = vi.hoisted(() => vi.fn());
@@ -170,5 +170,24 @@ describe('the vCIO Toolbox part', () => {
     expect(table).toHaveTextContent('Needs a person');
     expect(table).toHaveTextContent('Microsoft Purview');
     expect(m365Headline([])).toBe('0 of 0 answered: 0 met, 0 partly, 0 not met. 0 need a person.');
+  });
+});
+
+describe('the Microsoft 365 card colours and headings', () => {
+  it('shows each group once as a heading, and a different colour for met, partly, not met', async () => {
+    routerParams.current = new URLSearchParams('client=c1');
+    const m365: M365Answer[] = [
+      { group: 'M365 Defender', question: 'Q met', status: 'met', evidence: 'e1' },
+      { group: 'M365 Defender', question: 'Q partly', status: 'partly', evidence: 'e2' },
+      { group: 'Microsoft Purview', question: 'Q not met', status: 'not_met', evidence: 'e3' },
+      { group: 'Microsoft Purview', question: 'Q person', status: 'needs_person', evidence: '' },
+    ];
+    authFetch.mockImplementation((url?: string) => Promise.resolve(String(url).startsWith('/api/v1/client-review/') ? reply(review({ m365 })) : reply([{ id: 'c1', name: 'Acme Dental' }])));
+    render(<ClientReview />);
+    const table = await screen.findByTestId('m365');
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['M365 Defender', 'Microsoft Purview']);
+    const chip = (text: string) => within(table).getByText(text).className;
+    expect(new Set([chip('Met'), chip('Partly'), chip('Not met')]).size).toBe(3);
+    expect(within(table).getByText('Needs a person').className).not.toBe(chip('Met'));
   });
 });

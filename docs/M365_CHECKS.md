@@ -63,6 +63,12 @@ Keep this table in step with `CHECK_QUESTIONS` in `services/api/app/services/m36
 
 From the multi-factor list (no CIPP read needed): multifactor authentication for administrative roles, for all users, per-user MFA disabled, and all member users MFA capable.
 
+## What CORE posts
+`POST /api/v1/inbox/core-feed/{token}/m365-checks`, with a body like `docs/api/m365-checks-example.json` (a test checks that file against the real request model). A repeat replaces the client's last list.
+
+## What a pass costs CIPP
+Each client takes 33 reads (the table above) plus one lookup per administrator (at most 25), made six at a time and at most four clients at once, and only once a day per client (a failed or empty pass counts as done, so an unreachable client is not hammered every hour). For about 118 clients that is roughly 3,900 reads plus the administrator lookups per day. CORE's tests pin the 33 (`hud/src/aisoc-m365-reads.test.ts`), the six-at-once and four-clients limits, and the once-a-day rule.
+
 ## Known gaps
 - **Not readable through CIPP**: Purview DLP and sensitivity labels, every Teams policy, most SharePoint link and guest settings, some admin-centre settings. These stay "Needs a person".
 - **Waiting on CIPP permissions**: Privileged Identity Management approval rules and access reviews. CIPP's app needs `RoleManagementPolicy.Read.Directory` and `AccessReview.Read.All` before those reads can work.

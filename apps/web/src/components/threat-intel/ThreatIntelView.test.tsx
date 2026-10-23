@@ -159,3 +159,21 @@ describe('what the list row says an indicator is', () => {
     expect(screen.queryByTestId('ioc-identifiers')).toBeNull();
   });
 });
+
+describe('filtering the list', () => {
+  const rows = [
+    indicator({ id: 'h1', type: 'hash', value: 'a'.repeat(64), malwareFamily: 'Emotet', tags: ['botnet'], linkedAlerts: ['x'] }),
+    indicator({ id: 'i1', type: 'ip', value: '203.0.113.9', malwareFamily: 'Qakbot', tags: ['c2'], linkedAlerts: [] }),
+  ];
+
+  it('searching by an indicator value keeps the chips on the rows that remain', async () => {
+    list.mockResolvedValue({ indicators: rows, total: 2 });
+    render(<ThreatIntelView />);
+    const box = await screen.findByPlaceholderText(/search/i);
+    await userEvent.type(box, '203.0.113');
+    const chips = await screen.findAllByTestId('ioc-identifiers');
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toContain('Qakbot');
+    expect(chips[0].textContent).not.toContain('Emotet');
+  });
+});

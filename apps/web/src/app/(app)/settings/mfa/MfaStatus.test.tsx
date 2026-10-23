@@ -166,3 +166,27 @@ describe("visibleClients sorting", () => {
     expect(header.closest('th')).toHaveAttribute('aria-sort', 'none');
   });
 });
+
+describe('search, administrators-only and sorting together', () => {
+  it('narrow by name and by administrators, then sort what is left', async () => {
+    authFetch.mockResolvedValue(
+      reply([
+        client({ client_id: 'a', client_name: 'Acme Dental', people: 10, admins_without_mfa: 1 }),
+        client({ client_id: 'b', client_name: 'Acme Law', people: 40, admins_without_mfa: 2 }),
+        client({ client_id: 'c', client_name: 'Acme Farms', people: 25, admins_without_mfa: 0 }),
+        client({ client_id: 'd', client_name: 'Birch Bakery', people: 99, admins_without_mfa: 3 }),
+      ]),
+    );
+    render(<MfaStatus />);
+    await screen.findByTestId('totals');
+    const names = () => screen.getAllByTestId('client-row').map((r) => (r.textContent ?? '').slice(0, 9));
+    await userEvent.type(screen.getByLabelText('Search clients'), 'acme');
+    expect(names()).toEqual(['Acme Dent', 'Acme Farm', 'Acme Law4']);
+    await userEvent.click(screen.getByTestId('admins-only'));
+    expect(names()).toEqual(['Acme Dent', 'Acme Law4']);
+    await userEvent.click(screen.getByTestId('sort-people'));
+    expect(names()).toEqual(['Acme Law4', 'Acme Dent']);
+    await userEvent.click(screen.getByTestId('admins-only'));
+    expect(names()).toEqual(['Acme Law4', 'Acme Farm', 'Acme Dent']);
+  });
+});

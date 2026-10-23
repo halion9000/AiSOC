@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import clsx from 'clsx';
+import Link from 'next/link';
 import { authFetch } from '@/lib/auth-session';
 import { installCommunityItem } from '@/lib/communityInstall';
 
@@ -375,8 +376,8 @@ export function DetectionCatalog() {
           <p className="text-sm">No detection rules found.</p>
           <p className="text-xs mt-1 max-w-md text-center">
             This catalog lists rules people have <em>published to share</em>; nothing has been published here yet. The rules that actually run for you are under{' '}
-            <a href="/detection" className="text-sky-400 hover:underline">Detection Rules</a>, and the detections your connected tools raise are under{' '}
-            <a href="/detection/vendor-detections" className="text-sky-400 hover:underline">Vendor detections</a>.
+            <Link href="/detection" className="text-sky-400 hover:underline">Detection Rules</Link>, and the detections your connected tools raise are under{' '}
+            <Link href="/detection/vendor-detections" className="text-sky-400 hover:underline">Vendor detections</Link>.
           </p>
           <p className="text-xs mt-2">
             To share one, run <code className="text-zinc-400">aisoc detection validate &amp;&amp; aisoc detection publish</code>

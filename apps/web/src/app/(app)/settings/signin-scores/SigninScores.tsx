@@ -157,7 +157,7 @@ export function SigninScores() {
       {rows === null && !error && <p className="text-sm text-slate-500">Loading...</p>}
       {rows !== null && rows.length === 0 && (
         <p data-testid="none" className="text-sm text-slate-400">
-          No sign-ins were flagged as unusual in this period. That is normal while the service is still learning each person's usual pattern. Sign-ins arrive hourly through CORE once CIPP is connected and its tenants are mapped to clients.
+          No sign-ins were flagged as unusual in this period. That is normal while the service is still learning each person&apos;s usual pattern. Sign-ins arrive hourly through CORE once CIPP is connected and its tenants are mapped to clients.
         </p>
       )}
       {rows !== null && rows.length > 0 && (

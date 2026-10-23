@@ -1,0 +1,21 @@
+{
+  "vendor": "cipp",
+  "vendor_client_id": "fe92f97e-1444-425a-b159-91f9abb1e707",
+  "checks": [
+    {
+      "key": "ga_count",
+      "status": "not_met",
+      "evidence": "1 Global Administrator (plus 1 app or group); the baseline is two to four."
+    },
+    {
+      "key": "safe_attachments",
+      "status": "met",
+      "evidence": "2 Safe Attachments policies enabled."
+    },
+    {
+      "key": "dmarc",
+      "status": "partly",
+      "evidence": "DMARC is missing on b.example.com."
+    }
+  ]
+}

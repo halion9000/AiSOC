@@ -257,7 +257,7 @@ export function ClientReview() {
           {(review.tech_stack ?? []).length > 0 && (
             <Card title="Technology stack: suggested answers">
               <p className="mb-2 text-xs text-slate-500">
-                The vCIO Toolbox review template's technology questions, with what A.C.O.R.N can see. Anything marked Ask the client is something A.C.O.R.N has no way to see. Nothing here is sent to vCIO Toolbox.
+                The vCIO Toolbox review template&apos;s technology questions, with what A.C.O.R.N can see. Anything marked Ask the client is something A.C.O.R.N has no way to see. Nothing here is sent to vCIO Toolbox.
               </p>
               <table className="w-full text-left text-sm" data-testid="tech-stack">
                 <tbody>
@@ -290,7 +290,7 @@ export function ClientReview() {
                 {m365Headline(review.m365 ?? [])}
               </p>
               <p className="mb-2 text-xs text-slate-500">
-                The vCIO Toolbox review template's Microsoft 365 questions. An answer is shown only where A.C.O.R.N read the setting through CIPP
+                The vCIO Toolbox review template&apos;s Microsoft 365 questions. An answer is shown only where A.C.O.R.N read the setting through CIPP
                 {review.m365_refreshed_at ? ` (last read ${new Date(review.m365_refreshed_at).toLocaleDateString()})` : ''} or holds the multi-factor list; the rest need a person. Nothing here is sent to vCIO Toolbox.
               </p>
               <table className="w-full text-left text-sm" data-testid="m365">

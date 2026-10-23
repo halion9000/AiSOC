@@ -182,3 +182,27 @@ describe('asking a question in plain language', () => {
     expect(search).not.toHaveBeenCalled();
   });
 });
+
+describe('running a search', () => {
+  it('cannot be started again while it runs, and is available again when it finishes', async () => {
+    let finish: (v: unknown) => void = () => {};
+    search.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    renderHunt();
+    const user = userEvent.setup();
+    await user.click(runButton());
+    const busy = () => screen.getByRole('button', { name: /running/i });
+    await waitFor(() => expect(busy()).toBeDisabled());
+    await user.click(busy());
+    expect(search).toHaveBeenCalledTimes(1);
+    finish(realHits);
+    await waitFor(() => expect(runButton()).toBeEnabled());
+  });
+
+  it('puts a chosen saved search in the editor without running it', async () => {
+    listSaved.mockResolvedValue({ searches: [{ id: 's1', name: 'Critical on servers', query: 'severity:critical host:SRV', language: 'kql', createdAt: '2026-10-01T00:00:00Z' }] });
+    renderHunt();
+    await userEvent.setup().click(await screen.findByText('Critical on servers'));
+    expect((screen.getByTestId('editor') as HTMLTextAreaElement).value).toBe('severity:critical host:SRV');
+    expect(search).not.toHaveBeenCalled();
+  });
+});

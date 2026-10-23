@@ -77,3 +77,14 @@ describe('the Install button', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
+
+describe('an empty catalog', () => {
+  it('says what the catalog is and links to where the running rules and the vendor detections are', async () => {
+    authFetch.mockImplementation(async () => json(200, { items: [], total: 0, page: 1, page_size: 24 }));
+    render(<DetectionCatalog />);
+    expect(await screen.findByText('No detection rules found.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Detection Rules' })).toHaveAttribute('href', '/detection');
+    expect(screen.getByRole('link', { name: 'Vendor detections' })).toHaveAttribute('href', '/detection/vendor-detections');
+    expect(document.body.textContent).toContain('published to share');
+  });
+});

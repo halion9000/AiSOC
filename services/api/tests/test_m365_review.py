@@ -183,3 +183,15 @@ def test_every_check_key_is_listed_in_the_reference_document():
     doc = (Path(__file__).resolve().parents[3] / "docs" / "M365_CHECKS.md").read_text(encoding="utf-8")
     missing = [k for k in m.CHECK_QUESTIONS if f"`{k}`" not in doc]
     assert not missing, f"docs/M365_CHECKS.md does not mention: {missing}"
+
+
+def test_the_sample_payload_in_the_docs_is_accepted_by_the_real_request_model():
+    import json
+    from pathlib import Path
+
+    from app.api.v1.endpoints.client_review import M365ChecksReport
+
+    sample = json.loads((Path(__file__).resolve().parents[3] / "docs" / "api" / "m365-checks-example.json").read_text(encoding="utf-8"))
+    report = M365ChecksReport(**sample)
+    assert report.vendor == "cipp" and len(report.checks) == 3
+    assert {c.key for c in report.checks} <= set(m.CHECK_QUESTIONS), "the sample only uses keys A.C.O.R.N knows"
