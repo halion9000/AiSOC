@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const authFetch = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth-session', () => ({ authFetch }));
 
-import { SigninScores, placeLabel } from './SigninScores';
+import { SigninScores, placeLabel, resultLabel } from './SigninScores';
 
 const reply = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 500, json: () => Promise.resolve(body) });
 const row = (over: Record<string, unknown> = {}) => ({
@@ -57,6 +57,46 @@ describe('SigninScores', () => {
     expect(rows[0]).toHaveTextContent('risk: high');
     expect(rows[1]).toHaveTextContent('Failed');
     expect(authFetch).toHaveBeenCalledWith('/api/v1/signins/top?days=7&limit=100');
+  });
+
+  it('keeps score and person in separate columns of their own', async () => {
+    authFetch.mockImplementation((url?: string) => Promise.resolve((url ?? '').includes('/identity/top') ? reply([]) : reply([row()])));
+    render(<SigninScores />);
+    const cells = within(await screen.findByTestId('signin-row')).getAllByRole('cell');
+    expect(cells[0]).toHaveTextContent(/^0\.93$/);
+    expect(cells[1]).toHaveTextContent(/^bob@acme\.com$/);
+    expect(screen.getByRole('columnheader', { name: /^Score/ })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /^Person/ })).toBeInTheDocument();
+  });
+
+  it('sorts by a clicked column and filters by person, app and result', async () => {
+    const rows = [
+      row({ user: 'amy@acme.com', score: 0.5, app: 'Teams', success: true, mfa: true, risk: 'none' }),
+      row({ user: 'bob@acme.com', score: 0.93, app: 'Office 365' }),
+      row({ user: 'cat@acme.com', score: 0.7, app: 'Teams', success: false, mfa: true, risk: 'none' }),
+    ];
+    authFetch.mockImplementation((url?: string) => Promise.resolve((url ?? '').includes('/identity/top') ? reply([]) : reply(rows)));
+    const user = userEvent.setup();
+    render(<SigninScores />);
+    const people = async () => (await screen.findAllByTestId('signin-row')).map((r) => r.querySelectorAll('td')[1].textContent);
+    expect(await people()).toEqual(['bob@acme.com', 'cat@acme.com', 'amy@acme.com']);
+    await user.click(within(screen.getByRole('columnheader', { name: /^Person/ })).getByRole('button'));
+    expect(await people()).toEqual(['amy@acme.com', 'bob@acme.com', 'cat@acme.com']);
+
+    await user.selectOptions(screen.getByLabelText('Filter App'), 'Teams');
+    expect(await people()).toEqual(['amy@acme.com', 'cat@acme.com']);
+    await user.selectOptions(screen.getByLabelText('Filter Result'), 'Failed');
+    expect(await people()).toEqual(['cat@acme.com']);
+    await user.click(screen.getByRole('button', { name: /Clear filters \(1 of 3 shown\)/ }));
+    expect(await people()).toHaveLength(3);
+    await user.type(screen.getByLabelText('Minimum Score'), '0.8');
+    expect(await people()).toEqual(['bob@acme.com']);
+  });
+
+  it('names a result in one phrase for sorting and filtering', () => {
+    expect(resultLabel({ success: true, mfa: null, risk: null })).toBe('Signed in');
+    expect(resultLabel({ success: true, mfa: false, risk: 'none' })).toBe('Signed in, no MFA');
+    expect(resultLabel({ success: false, mfa: false, risk: 'high' })).toBe('Failed, no MFA, risk: high');
   });
 
   it('asks again for the period that is picked', async () => {

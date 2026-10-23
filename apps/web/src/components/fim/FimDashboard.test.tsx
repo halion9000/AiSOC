@@ -167,3 +167,19 @@ describe('the file integrity view matches the dark theme', () => {
     expect(container.querySelectorAll('.bg-white, .bg-gray-50, .bg-gray-100, .border-gray-200').length).toBe(0);
   });
 });
+
+describe('why the page could not load', () => {
+  it('says the service is not set up, did not answer, or refused the tenant, instead of a bare failure', async () => {
+    osq.getFimSummary.mockRejectedValue(new Error('osquery-api 502: {"detail":"osquery service unavailable"}'));
+    osq.getFimEvents.mockRejectedValue(new Error('osquery-api 503: {"detail":"osquery service is not configured"}'));
+    renderDashboard();
+    expect(await screen.findByText(/Could not load FIM summary\. The API could not get an answer from the osquery service/)).toBeInTheDocument();
+    expect(await screen.findByText(/Could not load FIM events\. The osquery service is not set up on this install/)).toBeInTheDocument();
+  });
+
+  it('names a tenant the caller may not read', async () => {
+    osq.getFimSummary.mockRejectedValue(new Error('osquery-api 403: {"detail":"tenant_id does not match your tenant"}'));
+    renderDashboard();
+    expect(await screen.findByText(/not allowed to read that tenant/)).toBeInTheDocument();
+  });
+});

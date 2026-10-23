@@ -11,6 +11,24 @@ import { TenantScopePicker } from '@/components/ui/TenantScopePicker';
 
 const PAGE_SIZE = 25;
 
+/** Why a load failed, in words: the API answers 503 when the osquery service is not set up, 502 when it did not answer or refused the API, 403 for a tenant the caller may not read. */
+export function fimFailureReason(error: unknown): string {
+  const text = error instanceof Error ? error.message : '';
+  const status = /osquery-api (\d{3})/.exec(text)?.[1];
+  switch (status) {
+    case '503':
+      return 'The osquery service is not set up on this install (OSQUERY_TLS_URL is empty).';
+    case '502':
+      return "The API could not get an answer from the osquery service. Check that the aisoc-osquery-tls container is running and that its API token matches the API's (AISOC_OSQUERY_TLS_API_TOKEN).";
+    case '403':
+      return "You are not allowed to read that tenant's file events.";
+    case '401':
+      return 'Your session has ended. Sign in again.';
+    default:
+      return status ? `The API answered ${status}.` : text ? `${text}` : '';
+  }
+}
+
 const ACTION_OPTIONS = [
   { label: 'All Actions', value: '' },
   { label: 'Created', value: 'CREATED' },
@@ -179,7 +197,7 @@ export function FimDashboard() {
 
       {/* Summary cards */}
       {summaryError ? (
-        <ErrorBanner message="Could not load FIM summary." />
+        <ErrorBanner message={`Could not load FIM summary. ${fimFailureReason(summaryError)}`.trim()} />
       ) : summaryLoading ? (
         <SkeletonCards />
       ) : summaryData ? (
@@ -192,7 +210,7 @@ export function FimDashboard() {
           Event Log
         </h2>
         {eventsError ? (
-          <ErrorBanner message="Could not load FIM events." />
+          <ErrorBanner message={`Could not load FIM events. ${fimFailureReason(eventsError)}`.trim()} />
         ) : eventsLoading ? (
           <SkeletonTable />
         ) : eventsData ? (

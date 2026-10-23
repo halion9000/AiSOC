@@ -15,6 +15,22 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
+import { FilterRow, SortableTh, useTable, type Column } from '@/components/ui/useTable';
+
+type Detection = NonNullable<ReturnType<typeof detectionApi.vendorDetections> extends Promise<infer R> ? R : never>['detections'][number];
+
+const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
+const RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+
+const COLUMNS: Column<Detection>[] = [
+  { key: 'tool', label: 'Tool', value: (r) => vendorLabel(r.source), filter: 'none' },
+  { key: 'detection', label: 'Detection', value: (r) => r.name, filter: 'text' },
+  { key: 'severity', label: 'Severity', value: (r) => r.severity, sortValue: (r) => RANK[r.severity] ?? -1, filter: 'none' },
+  { key: 'alerts', label: 'Alerts', value: (r) => r.count, filter: 'min', align: 'right' },
+  { key: 'open', label: 'Open', value: (r) => r.open, filter: 'min', align: 'right' },
+  { key: 'clients', label: 'Clients', value: (r) => r.clients, filter: 'min', align: 'right' },
+  { key: 'last_seen', label: 'Last seen', value: (r) => r.last_seen ?? null, sortValue: (r) => (r.last_seen ? Date.parse(r.last_seen) || null : null), filter: 'none' },
+];
 
 const SEVERITY_STYLE: Record<string, string> = {
   critical: 'bg-red-500/15 text-red-300 border-red-500/30',
@@ -37,7 +53,15 @@ export function VendorDetectionsView() {
     for (const r of rows) counts.set(r.source, (counts.get(r.source) ?? 0) + r.count);
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [rows]);
-  const shown = tool === 'all' ? rows : rows.filter((r) => r.source === tool);
+  const [severity, setSeverity] = useState<string>('all');
+  const bySeverity = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) if (tool === 'all' || r.source === tool) counts.set(r.severity, (counts.get(r.severity) ?? 0) + 1);
+    return counts;
+  }, [rows, tool]);
+  const scoped = useMemo(() => rows.filter((r) => (tool === 'all' || r.source === tool) && (severity === 'all' || r.severity === severity)), [rows, tool, severity]);
+  const table = useTable(scoped, COLUMNS, { key: 'severity', dir: 'desc' });
+  const shown = table.shown;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
@@ -92,20 +116,47 @@ export function VendorDetectionsView() {
             ))}
           </div>
 
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by severity">
+            <span className="text-xs uppercase text-gray-500">Severity</span>
+            <button
+              type="button"
+              aria-pressed={severity === 'all'}
+              onClick={() => setSeverity('all')}
+              className={`rounded-full border px-3 py-1 text-xs ${severity === 'all' ? 'border-blue-500 bg-blue-500/10 text-blue-300' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}
+            >
+              All
+            </button>
+            {SEVERITIES.map((sev) => (
+              <button
+                key={sev}
+                type="button"
+                aria-pressed={severity === sev}
+                onClick={() => setSeverity(sev)}
+                className={`rounded-full border px-3 py-1 text-xs ${severity === sev ? SEVERITY_STYLE[sev] : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}
+              >
+                {sev} ({bySeverity.get(sev) ?? 0})
+              </button>
+            ))}
+          </div>
+
           <div className="overflow-x-auto rounded-lg border border-gray-800">
             <table className="min-w-full divide-y divide-gray-800 text-left text-sm">
               <thead className="bg-gray-900/60 text-xs uppercase text-gray-500">
                 <tr>
-                  <th scope="col" className="px-3 py-2">Tool</th>
-                  <th scope="col" className="px-3 py-2">Detection</th>
-                  <th scope="col" className="px-3 py-2">Severity</th>
-                  <th scope="col" className="px-3 py-2 text-right">Alerts</th>
-                  <th scope="col" className="px-3 py-2 text-right">Open</th>
-                  <th scope="col" className="px-3 py-2 text-right">Clients</th>
-                  <th scope="col" className="px-3 py-2">Last seen</th>
+                  {COLUMNS.map((c) => (
+                    <SortableTh key={c.key} col={c} sort={table.sort} onSort={table.toggleSort} />
+                  ))}
                 </tr>
+                <FilterRow columns={COLUMNS} filters={table.filters} setFilter={table.setFilter} choices={table.choices} />
               </thead>
               <tbody className="divide-y divide-gray-800">
+                {shown.length === 0 ? (
+                  <tr>
+                    <td colSpan={COLUMNS.length} className="px-3 py-6 text-center text-gray-500">
+                      Nothing matches these filters.
+                    </td>
+                  </tr>
+                ) : null}
                 {shown.map((r) => (
                   <tr key={`${r.source}:${r.name}`} className="hover:bg-gray-900/40">
                     <td className="px-3 py-2">

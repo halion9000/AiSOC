@@ -68,6 +68,12 @@ def clean_features(features_raw: Any) -> dict[str, float]:
 STATS: dict[str, object] = {"consumed": 0, "last_message_at": None}
 
 
+def record_event() -> None:
+    """Count one event that reached the service, from the Kafka topic or from a direct ``/score`` call (the API scores sign-ins that way): either way the service is being fed."""
+    STATS["consumed"] += 1  # type: ignore[operator]
+    STATS["last_message_at"] = datetime.now(UTC).isoformat()
+
+
 class UEBAKafkaConsumer:
     def __init__(self) -> None:
         self._engine = create_async_engine(settings.database_url, pool_size=5)
@@ -183,8 +189,7 @@ class UEBAKafkaConsumer:
         async for msg in messages:
             if not self._running:
                 break
-            STATS["consumed"] += 1
-            STATS["last_message_at"] = datetime.now(UTC).isoformat()
+            record_event()
             try:
                 await self._process_message(msg.value, producer)
             except Exception:  # noqa: BLE001

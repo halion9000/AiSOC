@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.config import settings
 from app.core.service_auth import require_service_token
 from app.models.ueba import EntityBaseline, PeerGroup, UEBAAnomaly
+from app.services.kafka_consumer import record_event
 from app.services.scoring import ScoringService
 
 router = APIRouter(prefix="/api/v1/ueba", tags=["ueba"], dependencies=[Depends(require_service_token)])
@@ -96,6 +97,7 @@ async def score_event(body: ScoreEventRequest, db: DB) -> AnomalyOut | None:
             source_event_id=body.source_event_id,
             peer_group_id=body.peer_group_id,
         )
+    record_event()
     return AnomalyOut.model_validate(anomaly) if anomaly else None
 
 
