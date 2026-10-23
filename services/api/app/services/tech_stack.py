@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.services.client_review import DeviceFacts, tool_label
 from app.services.device_merge import os_kind
+from app.services.infra_review import backup_answer, network_answer, server_brand_answer, virtualization_answer
 from app.services.sat_review import TOOL_NAME as SAT_NAME
 from app.services.sat_review import sat_awareness, sat_phishing
 
@@ -95,8 +96,11 @@ def tech_stack(
         else:
             put(key, "not_seen", "None seen", f"None of the client's {of} {what} report {tool_label(tool)}.")
 
-    for key in ("firewall", "switch", "wireless", "backup_isp", "server_brand", "virtualization"):
-        put(key, "unknown", None, _UNKNOWN)
+    for key, role, noun in (("firewall", "firewall", "firewall"), ("switch", "switch", "switch"), ("wireless", "wireless", "wireless access point")):
+        put(key, *network_answer(devices, role, noun))
+    put("backup_isp", "unknown", None, _UNKNOWN)
+    put("server_brand", *server_brand_answer(devices))
+    put("virtualization", *virtualization_answer(devices))
     by_tool("edr_pc", "huntress", "windows", "Windows computers")
     put("encryption", "unknown", None, _UNKNOWN)
     for key in ("spam_filter", "anti_phishing", "password_manager", "external_email_banner"):
@@ -133,6 +137,6 @@ def tech_stack(
     put("cloud_servers", "unknown", None, _UNKNOWN)
     by_tool("apple_mdm", "addigy", "mac", "Macs")
     put("abm", "unknown", None, _UNKNOWN)
-    for key in ("backup_bcdr", "backup_saas"):
-        put(key, "unknown", None, "A.C.O.R.N does not read backup tools yet; ask the client.")
+    put("backup_bcdr", *backup_answer(devices))
+    put("backup_saas", "unknown", None, "A.C.O.R.N does not read cloud-to-cloud backup tools (Datto SaaS Protection, Dropsuite); ask the client.")
     return out

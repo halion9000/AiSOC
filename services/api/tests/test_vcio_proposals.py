@@ -48,8 +48,8 @@ def test_the_description_says_the_question_the_evidence_and_where_it_came_from()
 
 
 def test_a_check_with_no_recommendation_to_make_is_never_suggested_even_when_it_fails():
-    """Backups, e-mail filtering and the like are always 'unknown', and an unknown key has no title: nothing is invented."""
-    assert drafts_from_readiness(readiness(("backups", "not_met", "z"), ("something_new", "not_met", "z")), NOW) == []
+    """E-mail filtering and the like are always 'unknown', and an unknown key has no title: nothing is invented."""
+    assert drafts_from_readiness(readiness(("email_filtering", "not_met", "z"), ("something_new", "not_met", "z")), NOW) == []
 
 
 def test_every_title_is_plain_and_short_enough_for_vcio_toolbox():

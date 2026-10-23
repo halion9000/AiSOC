@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.services.device_merge import os_kind
+from app.services.infra_review import backup_readiness, network_online
 from app.services.sat_review import sat_training
 
 # Which machines each tool should be on. Phones and tablets are never counted against a tool that has no agent for them.
@@ -119,7 +120,11 @@ def _banded(percent: float, met: float, partly: float) -> str:
 
 
 def readiness(
-    facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: float | None, sat: list[dict[str, Any]] | None = None
+    facts: DeviceFacts,
+    mfa: dict[str, int] | None,
+    secure_percent: float | None,
+    sat: list[dict[str, Any]] | None = None,
+    devices: list[Any] | None = None,
 ) -> Readiness:
     """The checklist. ``mfa`` is ``counts_for_mfa``'s output (None when no multi-factor data has arrived); ``secure_percent`` is the Microsoft Secure Score as a percentage (None when not read)."""
     cov = {c.tool: c for c in facts.coverage}
@@ -217,11 +222,26 @@ def readiness(
         )
 
     for key, question in (
-        ("backups", "Are backups tested and kept offline?"),
         ("email_filtering", "Is e-mail filtered for phishing and malware?"),
         ("ir_plan", "Is there a written incident response plan?"),
     ):
         add(key, question, "unknown", "AiSOC does not collect this yet; answer it from the client's own records.")
+
+    backups = backup_readiness(devices or [])
+    if backups is None:
+        add("backups", "Are backups tested and kept offline?", "unknown", "AiSOC does not collect this yet; answer it from the client's own records.")
+    else:
+        add("backups", "Are backups tested and kept offline?", backups[0], backups[1])
+
+    online = network_online(devices or [])
+    if online is not None:
+        up, known = online
+        add(
+            "network_online",
+            "Is the network equipment online and reporting?",
+            _banded(100 * up / known, 98, 90),
+            f"{up} of {known} network devices (Meraki, UniFi) are online." if up < known else f"All {known} network devices (Meraki, UniFi) are online.",
+        )
 
     trained = sat_training(sat)
     if trained is None:

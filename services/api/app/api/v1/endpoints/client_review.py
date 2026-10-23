@@ -308,7 +308,7 @@ async def client_review(
         secure_score=score,
         alerts=ReviewAlerts(open=a[0], critical_open=a[1], high_open=a[2], opened_30d=a[3], closed_30d=a[4]),
         cases=ReviewCases(open=c[0], opened_30d=c[1], resolved_30d=c[2]),
-        readiness=readiness(facts, mfa, score.percent if score else None, sat=sat_checks),
+        readiness=readiness(facts, mfa, score.percent if score else None, sat=sat_checks, devices=shown),
         tech_stack=tech_stack(shown, facts, has_microsoft_365=bool(users), sat=sat_checks),
         m365=m365_answers([c for c in (m365_row.checks if m365_row is not None else []) if isinstance(c, dict)], list(users)),
         m365_refreshed_at=m365_row.refreshed_at if m365_row is not None else None,
