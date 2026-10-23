@@ -199,7 +199,7 @@ export function EditConnectorModal({
         tags: parsedTags.length > 0 ? parsedTags : undefined,
       });
 
-      toast.success(`Updated ${name || connector.name}`);
+      toast.success(`Updated ${name.trim() || connector.name}`);
       onUpdated();
       onClose();
     } catch (err) {

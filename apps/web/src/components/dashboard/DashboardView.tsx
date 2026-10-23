@@ -455,14 +455,12 @@ export function DashboardView() {
             value={metrics.alerts.total}
             sub={`${metrics.alerts.new} new today`}
             color="blue"
-            trend={{ value: 12, label: 'vs yesterday' }}
           />
           <MetricCard
             label="Critical"
             value={metrics.alerts.critical}
             sub="Require immediate action"
             color="red"
-            trend={{ value: -3, label: 'vs yesterday' }}
           />
           <MetricCard
             label="Open Cases"
@@ -475,7 +473,6 @@ export function DashboardView() {
             value={`${metrics.alerts.mttr}m`}
             sub="Mean time to resolve"
             color="green"
-            trend={{ value: -8, label: 'vs last week' }}
           />
           <MetricCard
             label="Connected Sources"
