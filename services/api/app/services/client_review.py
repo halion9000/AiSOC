@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.services.device_merge import os_kind
+from app.services.sat_review import sat_training
 
 # Which machines each tool should be on. Phones and tablets are never counted against a tool that has no agent for them.
 _ENDPOINT = {"windows", "mac", "linux"}
@@ -51,7 +52,9 @@ def _vendors(device: Any) -> set[str]:
     return {s.vendor for s in device.sources}
 
 
-def device_facts(devices: list[Any], stale_agents: int, offline: int, enrolled_in: set[str] | None = None, mapped_tools: set[str] | None = None) -> DeviceFacts:
+def device_facts(
+    devices: list[Any], stale_agents: int, offline: int, enrolled_in: set[str] | None = None, mapped_tools: set[str] | None = None
+) -> DeviceFacts:
     """Coverage of each tool over the machines it should be on, and the known-exploited counts, from a client's shown devices (anything with ``os`` and ``sources``)."""
     kinds = [(d, os_kind(d.os)) for d in devices]
     endpoints = [d for d, k in kinds if k in _ENDPOINT]
@@ -59,8 +62,20 @@ def device_facts(devices: list[Any], stale_agents: int, offline: int, enrolled_i
     for tool, wanted in COVERAGE_RULES.items():
         eligible = [d for d, k in kinds if k in wanted]
         have = sum(1 for d in eligible if tool in _vendors(d))
-        enrolled = True if have > 0 or (enrolled_in is not None and tool in enrolled_in) else (False if mapped_tools is not None and tool in mapped_tools else None)
-        coverage.append(ToolCoverage(tool=tool, have=have, of=len(eligible), percent=round(100 * have / len(eligible), 1) if eligible else None, enrolled=enrolled))
+        enrolled = (
+            True
+            if have > 0 or (enrolled_in is not None and tool in enrolled_in)
+            else (False if mapped_tools is not None and tool in mapped_tools else None)
+        )
+        coverage.append(
+            ToolCoverage(
+                tool=tool,
+                have=have,
+                of=len(eligible),
+                percent=round(100 * have / len(eligible), 1) if eligible else None,
+                enrolled=enrolled,
+            )
+        )
     scanned = [d for d in endpoints if "threatmate" in _vendors(d)]
     kev = ransomware = 0
     for d in scanned:
@@ -103,7 +118,9 @@ def _banded(percent: float, met: float, partly: float) -> str:
     return "met" if percent >= met else "partly" if percent >= partly else "not_met"
 
 
-def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: float | None) -> Readiness:
+def readiness(
+    facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: float | None, sat: list[dict[str, Any]] | None = None
+) -> Readiness:
     """The checklist. ``mfa`` is ``counts_for_mfa``'s output (None when no multi-factor data has arrived); ``secure_percent`` is the Microsoft Secure Score as a percentage (None when not read)."""
     cov = {c.tool: c for c in facts.coverage}
     items: list[ReadinessItem] = []
@@ -112,7 +129,12 @@ def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: fl
         items.append(ReadinessItem(key=key, question=question, status=status, evidence=evidence))
 
     if mfa is None or mfa["people"] == 0:
-        add("mfa_everyone", "Is Multi-Factor required for everyone?", "unknown", "No multi-factor data for this client yet (CIPP not connected or not mapped).")
+        add(
+            "mfa_everyone",
+            "Is Multi-Factor required for everyone?",
+            "unknown",
+            "No multi-factor data for this client yet (CIPP not connected or not mapped).",
+        )
         add("mfa_admins", "Is Multi-Factor required for administrators?", "unknown", "No multi-factor data for this client yet.")
     else:
         pct = _share(mfa["with_mfa"], mfa["people"])
@@ -128,7 +150,9 @@ def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: fl
             "mfa_admins",
             "Is Multi-Factor required for administrators?",
             "met" if mfa["admins_without_mfa"] == 0 else "not_met",
-            "Every administrator has Multi-Factor." if mfa["admins_without_mfa"] == 0 else f"{mfa['admins_without_mfa']} administrator(s) have no Multi-Factor.",
+            "Every administrator has Multi-Factor."
+            if mfa["admins_without_mfa"] == 0
+            else f"{mfa['admins_without_mfa']} administrator(s) have no Multi-Factor.",
         )
 
     def tool_item(key: str, question: str, tool: str, met: float, partly: float, what: str) -> None:
@@ -138,7 +162,12 @@ def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: fl
         elif c.enrolled is False:
             add(key, question, "not_met", f"Not currently enrolled in {tool_label(tool)}: none of the {c.of} {what} machines report it.")
         else:
-            add(key, question, _banded(c.percent or 0.0, met, partly), f"{c.have} of {c.of} {what} machines ({c.percent:.0f}%) report {tool_label(tool)}.")
+            add(
+                key,
+                question,
+                _banded(c.percent or 0.0, met, partly),
+                f"{c.have} of {c.of} {what} machines ({c.percent:.0f}%) report {tool_label(tool)}.",
+            )
 
     tool_item("edr", "Is endpoint detection and response on every computer?", "huntress", 95, 80, "Windows, Mac and Linux")
     tool_item("management", "Are computers managed and patched through a management tool?", "ninjaone", 95, 80, "Windows, Mac and Linux")
@@ -151,7 +180,12 @@ def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: fl
         add("agents_reporting", "Are protection agents checking in?", "met", "No agent has gone two weeks without checking in.")
     else:
         pct = _share(facts.stale_agents, facts.endpoints)
-        add("agents_reporting", "Are protection agents checking in?", "partly" if pct <= 5 else "not_met", f"{facts.stale_agents} agent(s) have not checked in for two weeks or more.")
+        add(
+            "agents_reporting",
+            "Are protection agents checking in?",
+            "partly" if pct <= 5 else "not_met",
+            f"{facts.stale_agents} agent(s) have not checked in for two weeks or more.",
+        )
 
     if facts.with_known_exploited is None:
         add("patching", "Are known-exploited vulnerabilities fixed?", "unknown", "ThreatMate does not scan this client's machines.")
@@ -160,20 +194,45 @@ def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: fl
     else:
         scanned = max(1, cov["threatmate"].have)
         ransom = f", {facts.with_ransomware_exploit} used in ransomware" if facts.with_ransomware_exploit else ""
-        add("patching", "Are known-exploited vulnerabilities fixed?", "partly" if _share(facts.with_known_exploited, scanned) <= 5 else "not_met", f"{facts.with_known_exploited} of {scanned} scanned machines have one{ransom}.")
+        add(
+            "patching",
+            "Are known-exploited vulnerabilities fixed?",
+            "partly" if _share(facts.with_known_exploited, scanned) <= 5 else "not_met",
+            f"{facts.with_known_exploited} of {scanned} scanned machines have one{ransom}.",
+        )
 
     if secure_percent is None:
-        add("secure_score", "Is Microsoft 365 configured to Microsoft's recommendations?", "unknown", "No Microsoft Secure Score read for this client yet.")
+        add(
+            "secure_score",
+            "Is Microsoft 365 configured to Microsoft's recommendations?",
+            "unknown",
+            "No Microsoft Secure Score read for this client yet.",
+        )
     else:
-        add("secure_score", "Is Microsoft 365 configured to Microsoft's recommendations?", _banded(secure_percent, 60, 40), f"Microsoft Secure Score is {secure_percent:.0f}%.")
+        add(
+            "secure_score",
+            "Is Microsoft 365 configured to Microsoft's recommendations?",
+            _banded(secure_percent, 60, 40),
+            f"Microsoft Secure Score is {secure_percent:.0f}%.",
+        )
 
     for key, question in (
         ("backups", "Are backups tested and kept offline?"),
         ("email_filtering", "Is e-mail filtered for phishing and malware?"),
-        ("training", "Do staff take security awareness training?"),
         ("ir_plan", "Is there a written incident response plan?"),
     ):
         add(key, question, "unknown", "AiSOC does not collect this yet; answer it from the client's own records.")
+
+    trained = sat_training(sat)
+    if trained is None:
+        add(
+            "training",
+            "Do staff take security awareness training?",
+            "unknown",
+            "AiSOC does not collect this yet; answer it from the client's own records.",
+        )
+    else:
+        add("training", "Do staff take security awareness training?", trained[0], f"Huntress SAT: {trained[1]}")
 
     return Readiness(
         met=sum(1 for i in items if i.status == "met"),

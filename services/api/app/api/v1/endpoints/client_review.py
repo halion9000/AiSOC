@@ -32,6 +32,7 @@ from app.models.signin import ClientM365Check, ClientVcioReview, IdentityMfaUser
 from app.models.tenant import Tenant
 from app.services.client_review import DeviceFacts, Readiness, device_facts, readiness
 from app.services.m365_review import M365Answer, m365_answers
+from app.services.sat_review import SAT_SOURCE
 from app.services.tech_stack import TechAnswer, tech_stack
 
 router = APIRouter(prefix="/client-review", tags=["posture"])
@@ -253,7 +254,16 @@ async def client_review(
         users = (await db.execute(select(IdentityMfaUser).where(IdentityMfaUser.tenant_id == client_id))).scalars().all()
         score_row = (await db.execute(select(IdentitySecureScore).where(IdentitySecureScore.tenant_id == client_id))).scalars().first()
         vcio_row = (await db.execute(select(ClientVcioReview).where(ClientVcioReview.tenant_id == client_id))).scalars().first()
-        m365_row = (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id))).scalars().first()
+        m365_row = (
+            (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source != SAT_SOURCE)))
+            .scalars()
+            .first()
+        )
+        sat_row = (
+            (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source == SAT_SOURCE)))
+            .scalars()
+            .first()
+        )
         a = (
             await db.execute(
                 select(
@@ -287,6 +297,7 @@ async def client_review(
         if score_row is not None
         else None
     )
+    sat_checks = [c for c in (sat_row.checks if sat_row is not None else []) if isinstance(c, dict)]
     return ClientReview(
         client_id=client_id,
         client_name=clients.get(client_id),
@@ -297,8 +308,8 @@ async def client_review(
         secure_score=score,
         alerts=ReviewAlerts(open=a[0], critical_open=a[1], high_open=a[2], opened_30d=a[3], closed_30d=a[4]),
         cases=ReviewCases(open=c[0], opened_30d=c[1], resolved_30d=c[2]),
-        readiness=readiness(facts, mfa, score.percent if score else None),
-        tech_stack=tech_stack(shown, facts, has_microsoft_365=bool(users)),
+        readiness=readiness(facts, mfa, score.percent if score else None, sat=sat_checks),
+        tech_stack=tech_stack(shown, facts, has_microsoft_365=bool(users), sat=sat_checks),
         m365=m365_answers([c for c in (m365_row.checks if m365_row is not None else []) if isinstance(c, dict)], list(users)),
         m365_refreshed_at=m365_row.refreshed_at if m365_row is not None else None,
         vcio=(

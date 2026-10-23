@@ -13,6 +13,8 @@ from pydantic import BaseModel
 
 from app.services.client_review import DeviceFacts, tool_label
 from app.services.device_merge import os_kind
+from app.services.sat_review import TOOL_NAME as SAT_NAME
+from app.services.sat_review import sat_awareness, sat_phishing
 
 # (id, group, the template's question)
 QUESTIONS: tuple[tuple[str, str, str], ...] = (
@@ -70,7 +72,9 @@ def _count(devices: list[Any], kind: str, tool: str) -> tuple[int, int]:
     return sum(1 for d in of if any(s.vendor == tool for s in d.sources)), len(of)
 
 
-def tech_stack(devices: list[Any], facts: DeviceFacts, has_microsoft_365: bool) -> list[TechAnswer]:
+def tech_stack(
+    devices: list[Any], facts: DeviceFacts, has_microsoft_365: bool, sat: list[dict[str, Any]] | None = None
+) -> list[TechAnswer]:
     """One entry per template question, in the template's order."""
     cov = {c.tool: c for c in facts.coverage}
     out: list[TechAnswer] = []
@@ -99,9 +103,21 @@ def tech_stack(devices: list[Any], facts: DeviceFacts, has_microsoft_365: bool) 
         put(key, "unknown", None, _UNKNOWN)
     by_tool("pam", "autoelevate", "windows", "Windows computers")
     put("soc", "unknown", None, "A.C.O.R.N cannot tell whether a SOC watches the Microsoft environment; ask the client.")
-    put("phishing_sim", "unknown", None, _UNKNOWN)
+    phishing = sat_phishing(sat)
+    if phishing is None:
+        put("phishing_sim", "unknown", None, _UNKNOWN)
+    elif phishing[0] == "not_met":
+        put("phishing_sim", "not_seen", "None seen", f"{SAT_NAME}: {phishing[1]}")
+    else:
+        put("phishing_sim", "seen", SAT_NAME, f"{SAT_NAME}: {phishing[1]}")
     by_tool("edr_mac", "huntress", "mac", "Macs")
-    put("awareness", "unknown", None, _UNKNOWN)
+    awareness = sat_awareness(sat)
+    if awareness is None:
+        put("awareness", "unknown", None, _UNKNOWN)
+    elif awareness[0] == "seen":
+        put("awareness", "seen", SAT_NAME, f"{SAT_NAME}: {awareness[1]}")
+    else:
+        put("awareness", "not_seen", "None seen", f"{SAT_NAME}: {awareness[1]}")
     all_endpoints = [d for d in devices if os_kind(d.os) in {"windows", "mac", "linux"}]
     dns = sum(1 for d in all_endpoints if any(s.vendor == "dnsfilter" for s in d.sources))
     if dns > 0:
