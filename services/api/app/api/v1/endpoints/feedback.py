@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -29,6 +29,7 @@ from sqlalchemy import and_, func, select, update
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
 from app.models.alert import Alert
+from app.services.alert_scope import alert_scope
 from app.services.memory_poisoning import plan_redisposition
 from app.services.override_learning import (
     apply_redisposition,
@@ -112,30 +113,28 @@ async def submit_alert_override(
         )
     alert_uuid = _coerce_uuid(payload.alert_id, "alert_id")
 
-    alert = await db.scalar(
-        select(Alert).where(
-            Alert.id == alert_uuid,
-            Alert.tenant_id == user.tenant_id,
-        )
-    )
+    # A client's alert belongs to the client's tenant, not to the MSSP the analyst signs in to: the work is done as the alert's own tenant (404 when the caller cannot see it).
+    async with alert_scope(db, user.tenant_id, alert_uuid) as tid:
+        return await _record_override(payload, user, db, alert_uuid, tid)
+
+
+async def _record_override(
+    payload: AlertOverrideRequest, user: Any, db: Any, alert_uuid: uuid.UUID, tid: uuid.UUID
+) -> AlertOverrideResponse:
+    alert = await db.scalar(select(Alert).where(Alert.id == alert_uuid, Alert.tenant_id == tid))
     if alert is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Alert not found",
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
     now = datetime.now(UTC)
     await db.execute(
-        update(Alert)
-        .where(Alert.id == alert_uuid, Alert.tenant_id == user.tenant_id)
-        .values(disposition=payload.corrected_verdict, updated_at=now)
+        update(Alert).where(Alert.id == alert_uuid, Alert.tenant_id == tid).values(disposition=payload.corrected_verdict, updated_at=now)
     )
     await db.commit()
 
     # Persist into institutional memory.
     signature = await record_override(
         db,
-        tenant_id=user.tenant_id,
+        tenant_id=tid,
         alert=alert,
         original_verdict=payload.original_verdict,
         corrected_verdict=payload.corrected_verdict,
@@ -151,7 +150,7 @@ async def submit_alert_override(
         memory_key = signature.memory_key()
         raw_candidates = await find_redisposition_candidates(
             db,
-            tenant_id=user.tenant_id,
+            tenant_id=tid,
             signature=signature,
             corrected_verdict=payload.corrected_verdict,
             exclude_alert_id=alert_uuid,
@@ -223,14 +222,15 @@ async def apply_redisposition_endpoint(
 
     ids = [_coerce_uuid(aid, "alert_ids") for aid in payload.alert_ids]
     try:
-        rowcount = await apply_redisposition(
-            db,
-            tenant_id=user.tenant_id,
-            alert_ids=ids,
-            new_disposition=payload.new_disposition,
-            analyst_id=user.user_id,
-            confirmation_token=payload.confirmation_token,
-        )
+        async with alert_scope(db, user.tenant_id, ids[0]) as tid:
+            rowcount = await apply_redisposition(
+                db,
+                tenant_id=tid,
+                alert_ids=ids,
+                new_disposition=payload.new_disposition,
+                analyst_id=user.user_id,
+                confirmation_token=payload.confirmation_token,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return RedispositionApplyResponse(updated=rowcount, new_disposition=payload.new_disposition)

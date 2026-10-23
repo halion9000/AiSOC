@@ -51,6 +51,17 @@ class FakeDB:
         self.commits += 1
 
 
+@pytest.fixture(autouse=True)
+def alert_is_in_the_callers_own_tenant(monkeypatch):
+    """By default the alert lives in the caller's own tenant; the tests of a client's alert replace this."""
+    from app.services import alert_scope as scope
+
+    async def own(db, own_tenant_id, alert_id):
+        return own_tenant_id
+
+    monkeypatch.setattr(scope, "find_alert_tenant", own)
+
+
 class Signature:
     def memory_key(self):
         return "sig-key"
@@ -308,3 +319,74 @@ def test_summary_with_no_rows_is_all_zero():
 def test_summary_tolerates_null_counts():
     out = run(fb.get_override_summary(user(), FakeDB(summary_rows=[("benign", None)])))
     assert out.benign_corrections == 0 and out.total_overrides == 0
+
+
+def test_a_clients_alert_is_corrected_as_the_clients_tenant_not_the_msps(monkeypatch, stub_learning):
+    """The alerts list shows a client's alerts to the MSSP signed in to the parent, so correcting one must work from there (it used to answer 404 Alert not found)."""
+    from contextlib import asynccontextmanager
+
+    from app.services import alert_scope as scope
+
+    client = uuid.uuid4()
+    acted = []
+
+    async def in_client(db, own_tenant_id, alert_id):
+        return client
+
+    @asynccontextmanager
+    async def acting_as(db, tid):
+        acted.append(tid)
+        yield
+
+    monkeypatch.setattr(scope, "find_alert_tenant", in_client)
+    monkeypatch.setattr(scope, "acting_as_tenant", acting_as)
+    db = FakeDB()
+    out = run(fb.submit_alert_override(request(), user(), db))
+    assert out.corrected_verdict == "false_positive"
+    assert acted == [client]
+    assert has(db.scalar_statements[0], client) and not has(db.scalar_statements[0], TENANT)
+    assert has(db.executed[0], client)
+    assert stub_learning["record"]["tenant_id"] == client
+    assert stub_learning["find"]["tenant_id"] == client
+
+
+def test_an_alert_the_caller_cannot_see_is_still_a_404(monkeypatch, stub_learning):
+    from app.services import alert_scope as scope
+
+    async def nowhere(db, own_tenant_id, alert_id):
+        return None
+
+    monkeypatch.setattr(scope, "find_alert_tenant", nowhere)
+    db = FakeDB()
+    with pytest.raises(HTTPException) as e:
+        run(fb.submit_alert_override(request(), user(), db))
+    assert e.value.status_code == 404
+    assert db.executed == [] and db.commits == 0
+
+
+def test_applying_a_redisposition_works_on_the_clients_alerts_too(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from app.services import alert_scope as scope
+
+    client = uuid.uuid4()
+    seen = {}
+
+    async def in_client(db, own_tenant_id, alert_id):
+        return client
+
+    @asynccontextmanager
+    async def acting_as(db, tid):
+        yield
+
+    async def fake_apply(db, **kw):
+        seen.update(kw)
+        return 1
+
+    monkeypatch.setattr(scope, "find_alert_tenant", in_client)
+    monkeypatch.setattr(scope, "acting_as_tenant", acting_as)
+    monkeypatch.setattr(fb, "apply_redisposition", fake_apply)
+    out = run(fb.apply_redisposition_endpoint(fb.RedispositionApplyRequest(alert_ids=[str(uuid.uuid4())], new_disposition="benign", confirmation_token="t"), user(), FakeDB()))
+    assert out.updated == 1
+    assert seen["tenant_id"] == client
+
