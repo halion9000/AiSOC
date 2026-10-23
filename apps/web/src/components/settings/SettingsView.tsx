@@ -2196,7 +2196,7 @@ function AboutPanel() {
           See the{' '}
           <a
             className="text-blue-400 hover:text-blue-300"
-            href="https://github.com/halion9000/AiSOC/blob/main/CONTRIBUTING.md"
+            href="https://github.com/halion9000/ACORN/blob/main/CONTRIBUTING.md"
             target="_blank"
             rel="noreferrer"
           >
@@ -2215,7 +2215,7 @@ function AboutPanel() {
           </a>
           <a
             className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
-            href="https://github.com/halion9000/AiSOC/blob/main/CHANGELOG.md"
+            href="https://github.com/halion9000/ACORN/blob/main/CHANGELOG.md"
             target="_blank"
             rel="noreferrer"
           >
@@ -2223,7 +2223,7 @@ function AboutPanel() {
           </a>
           <a
             className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
-            href="https://github.com/halion9000/AiSOC/blob/main/SECURITY.md"
+            href="https://github.com/halion9000/ACORN/blob/main/SECURITY.md"
             target="_blank"
             rel="noreferrer"
           >

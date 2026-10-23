@@ -14,10 +14,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { slug } = await params;
   const replay = await fetchPublicReplay(slug);
   if (!replay) {
-    return { title: "Replay not found · AiSOC" };
+    return { title: "Replay not found · A.C.O.R.N" };
   }
   const s = replay.snapshot;
-  const title = `${replay.title} · AiSOC investigation replay`;
+  const title = `${replay.title} · A.C.O.R.N investigation replay`;
   const description = `Verdict: ${s.verdict.replace(/_/g, " ")} · investigated in ${(s.elapsedMs / 1000).toFixed(
     0,
   )}s across ${s.stepCount} steps and ${s.toolCallCount} tool calls. Watch the agent reason through it step-by-step.`;
@@ -41,7 +41,7 @@ export default async function ReplayPage({ params }: PageProps) {
     <main style={{ background: "#0b1020", minHeight: "100vh", color: "#e6e9f5", padding: "48px 24px" }}>
       <div style={{ maxWidth: 1040, margin: "0 auto" }}>
         <Link href="/" style={{ color: "#8b93b7", textDecoration: "none", fontSize: 14 }}>
-          ← AiSOC
+          ← A.C.O.R.N
         </Link>
         <header style={{ margin: "16px 0 32px" }}>
           <div style={{ color: "#8b93b7", fontSize: 13, textTransform: "uppercase", letterSpacing: 1 }}>
@@ -59,7 +59,7 @@ export default async function ReplayPage({ params }: PageProps) {
         <footer style={{ marginTop: 48, borderTop: "1px solid #232b4d", paddingTop: 20, color: "#64748b", fontSize: 13 }}>
           Entity names, IPs, and identities are redacted. This is a read-only snapshot of an{" "}
           <a href="https://github.com/beenuar/AiSOC" style={{ color: "#8b93b7" }}>
-            open-source AiSOC
+            open-source A.C.O.R.N
           </a>{" "}
           investigation. Reproduce the demo with <code>npx aisoc triage --demo</code>.
         </footer>

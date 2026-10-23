@@ -105,3 +105,20 @@ describe("visibleScores column sorting", () => {
     expect(visibleScores(list, { sort: "lowest", column: { key: "client", dir: "desc" } }).map((c) => c.client_name)).toEqual(["C", "B", "A"]);
   });
 });
+
+describe('clicking a column header', () => {
+  it('sorts the table: biggest first, then smallest first, then back to the Order by choice', async () => {
+    authFetch.mockImplementation((url?: string) => Promise.resolve(String(url).includes('/improvements') ? reply([]) : reply([client({ client_id: 'a', client_name: 'Acme', percent: 30, active_users: 5 }), client({ client_id: 'b', client_name: 'Birch', percent: 60, active_users: 50 }), client({ client_id: 'c', client_name: 'Cedar', percent: 10, active_users: 20 })])));
+    render(<SecureScore />);
+    const names = () => screen.getAllByTestId('score-row').map((r) => (r.textContent ?? '').slice(0, 4));
+    await screen.findAllByTestId('score-row');
+    expect(names()).toEqual(['Ceda', 'Acme', 'Birc']); // lowest score first, the default
+    const header = screen.getByTestId('sort-people');
+    await userEvent.click(header);
+    expect(names()).toEqual(['Birc', 'Ceda', 'Acme']);
+    await userEvent.click(header);
+    expect(names()).toEqual(['Acme', 'Ceda', 'Birc']);
+    await userEvent.click(header);
+    expect(names()).toEqual(['Ceda', 'Acme', 'Birc']);
+  });
+});

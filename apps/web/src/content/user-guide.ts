@@ -230,7 +230,7 @@ CIPP tenants appear under Client mapping like every other tool; data for an unma
 
 ## 13. Everything else, briefly
 
-- **Hunt:** searches the alerts A.C.O.R.N holds (plain words, "quoted phrases", \`field:value\` for severity, status, source, host, user, ip, tag, title, client; a leading minus negates). It is not KQL or SPL and searches no raw event store. Saved hunts can run on a schedule (off by default).
+- **Hunt:** searches the alerts A.C.O.R.N holds (plain words, "quoted phrases", \`field:value\` for severity, status, source, host, user, ip, tag, title, client; a leading minus negates). Type a question in plain words ("any suspicious logins at live oak") and Hunt turns it into this search, shows it in the editor and runs it; filler words are dropped and a trailing "at / for / in <name>" becomes a client filter. **Client names match when close**: case, punctuation and a small typo do not matter ("sportsmans finest" finds "Sportsman's Finest"). It is not KQL, Lucene, SQL, ES|QL or SPL and searches no raw event store. Saved hunts can run on a schedule (off by default).
 - **Detection Rules:** Sigma, KQL and EQL. KQL honours and, or, not and parentheses. EQL supports \`sequence by <field> with maxspan=<N>m [...] [...]\`. The rule editor can **test** a rule against pasted sample events.
 - **Threat Intel:** indicators open to show what is known, the alerts they were seen on, a provider lookup (only when you press the button) and a VirusTotal link. Indicators pulled out of alerts are not confirmed malicious.
 - **Attack Graph:** hosts, users, addresses and ATT&CK techniques from the last 30 days of alerts.

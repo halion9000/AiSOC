@@ -4,7 +4,7 @@ import { fetchPublicReplay } from "../../../lib/replay";
 
 // Dynamic OG image for public replay unfurls on X / LinkedIn / Slack.
 export const runtime = "nodejs";
-export const alt = "AiSOC investigation replay";
+export const alt = "A.C.O.R.N investigation replay";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -39,7 +39,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
         }}
       >
         <div style={{ display: "flex", height: 8, width: "100%", background: "#7b2bbe", position: "absolute", top: 0, left: 0 }} />
-        <div style={{ fontSize: 32, fontWeight: 700 }}>AiSOC · investigation replay</div>
+        <div style={{ fontSize: 32, fontWeight: 700 }}>A.C.O.R.N · investigation replay</div>
         <div style={{ fontSize: 26, color: "#8b93b7", marginTop: 12 }}>{title.slice(0, 64)}</div>
         <div style={{ fontSize: 84, fontWeight: 800, color: verdictColor(verdict), marginTop: 40, textTransform: "uppercase" }}>
           {verdict.replace(/_/g, " ")}

@@ -61,4 +61,27 @@ describe('BulkScriptBar', () => {
     expect(bulkRunSummary(plan as never)).toContain('2 machines');
     expect(bulkRunSummary(plan as never)).toContain('1 left out');
   });
+
+  it('shows an API failure instead of swallowing it, and leaves nothing half-done', async () => {
+    runScriptBulk.mockRejectedValueOnce(new Error('The API answered 500'));
+    const onDone = vi.fn();
+    const user = userEvent.setup();
+    render(<BulkScriptBar alertIds={['a']} onDone={onDone} />);
+    await user.click(screen.getByText('Run script on these machines'));
+    await user.click(await screen.findByText('See which machines'));
+    expect((await screen.findByRole('alert')).textContent).toContain('The API answered 500');
+    expect(screen.queryByTestId('bulk-script-plan')).toBeNull();
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it('cannot be confirmed when the preview finds nothing to run', async () => {
+    runScriptBulk.mockResolvedValueOnce({ ...plan, queued: 0, skipped: 1, items: [{ alert_id: 'a', device: null, outcome: 'skipped', reason: 'This alert does not name a machine.', request_id: null }] });
+    const user = userEvent.setup();
+    render(<BulkScriptBar alertIds={['a']} onDone={() => {}} />);
+    await user.click(screen.getByText('Run script on these machines'));
+    await user.click(await screen.findByText('See which machines'));
+    const confirm = await screen.findByText('Confirm: run on 0 machines');
+    expect(confirm.closest('button')).toBeDisabled();
+    expect(screen.getByTestId('bulk-script-plan').textContent).toContain('does not name a machine');
+  });
 });

@@ -3,9 +3,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const addTicket = vi.hoisted(() => vi.fn());
+const scriptOptions = vi.hoisted(() => vi.fn());
+const runScriptBulk = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
-  alertsApi: { addTicket: (...a: unknown[]) => addTicket(...a) },
+  alertsApi: { addTicket: (...a: unknown[]) => addTicket(...a), scriptOptions: (...a: unknown[]) => scriptOptions(...a), runScriptBulk: (...a: unknown[]) => runScriptBulk(...a) },
 }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
@@ -19,7 +21,11 @@ function show(alerts: Alert[], onChanged = vi.fn()) {
   return onChanged;
 }
 
-beforeEach(() => addTicket.mockReset().mockResolvedValue({ tickets: [] }));
+beforeEach(() => {
+  addTicket.mockReset().mockResolvedValue({ tickets: [] });
+  scriptOptions.mockReset().mockResolvedValue({ scripts: [{ id: 7, name: 'Disk Space Scan', one_click: false }], device: null, tickets: [], case_id: null, case_number: null, blocked: null, suggested_script_id: null });
+  runScriptBulk.mockReset();
+});
 
 describe('ticking alerts to link one ticket to several', () => {
   it('shows the bar only while rows are ticked, with how many', async () => {
@@ -45,5 +51,35 @@ describe('ticking alerts to link one ticket to several', () => {
     expect(addTicket).toHaveBeenCalledWith('c', { id: '4521' });
     expect(addTicket).not.toHaveBeenCalledWith('b', expect.anything());
     await waitFor(() => expect(screen.queryByTestId('bulk-ticket-bar')).not.toBeInTheDocument());
+  });
+});
+
+describe('ticking alerts to run a script on their machines', () => {
+  const plan = (preview: boolean) => ({ batch_id: preview ? null : 'b'.repeat(32), preview, script_name: 'Disk Space Scan', runs_at_once: false, queued: 2, skipped: 0, items: [
+    { alert_id: 'a', device: 'PC-01', outcome: 'queued', reason: null, request_id: null },
+    { alert_id: 'c', device: 'PC-03', outcome: 'queued', reason: null, request_id: null },
+  ] });
+
+  it('shows the script bar only while rows are ticked, with how many', async () => {
+    show([alert('a', 'Alert A'), alert('b', 'Alert B')]);
+    expect(screen.queryByTestId('bulk-script-bar')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText('Select alert Alert A'));
+    expect(screen.getByTestId('bulk-script-bar')).toHaveTextContent('1 selected');
+  });
+
+  it('asks about only the ticked alerts, previews first, and after the one confirm refreshes the list and clears the ticks', async () => {
+    runScriptBulk.mockImplementation(async (body: { preview?: boolean }) => plan(Boolean(body.preview)));
+    const onChanged = show([alert('a', 'Alert A'), alert('b', 'Alert B'), alert('c', 'Alert C')]);
+    await userEvent.click(screen.getByLabelText('Select alert Alert A'));
+    await userEvent.click(screen.getByLabelText('Select alert Alert C'));
+    await userEvent.click(screen.getByText('Run script on these machines'));
+    await userEvent.click(await screen.findByText('See which machines'));
+    await screen.findByTestId('bulk-script-plan');
+    expect(runScriptBulk).toHaveBeenCalledTimes(1);
+    expect(runScriptBulk.mock.calls[0][0]).toEqual({ script_id: 7, alert_ids: ['a', 'c'], preview: true });
+    await userEvent.click(screen.getByText('Confirm: run on 2 machines'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(runScriptBulk.mock.calls[1][0]).toEqual({ script_id: 7, alert_ids: ['a', 'c'], preview: false });
+    await waitFor(() => expect(screen.queryByTestId('bulk-script-bar')).not.toBeInTheDocument());
   });
 });

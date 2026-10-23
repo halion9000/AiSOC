@@ -21,7 +21,7 @@ export function questionToAlertSearch(question: string): string {
   const parts: string[] = [];
   for (const m of text.matchAll(/"([^"]+)"/g)) parts.push(`"${m[1]}"`);
   text = text.replace(/"[^"]*"/g, ' ');
-  const org = /\b(?:at|for|in|of)\s+((?:[A-Za-z0-9&'-]+\s*){1,4})$/i.exec(text);
+  const org = /\b(?:at|for|in|of)\s+(?:the\s+)?((?:[A-Za-z0-9&'-]+\s*){1,4})$/i.exec(text);
   let client = '';
   if (org) {
     const words = org[1].trim().split(/\s+/);

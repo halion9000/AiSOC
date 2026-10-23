@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Client Review: suggested answers to the vCIO Toolbox review template.** A *Technology stack* card (24 questions, answered from which tools report the client's machines, "Ask the client" where nothing can be seen) and a *Microsoft 365* card (99 questions; about 61 answered from 57 settings CORE reads through CIPP once a day, plus the multi-factor list; the rest say "Needs a person"). Migration 097 stores the checks; `POST /api/v1/inbox/core-feed/{token}/m365-checks` receives them. Nothing is sent to vCIO Toolbox. See `docs/M365_CHECKS.md`.
+- **Run one script on many alerts' machines.** `POST /api/v1/alerts/scripts/run-bulk` queues one request (and one new HaloPSA ticket) per machine under one batch id, so CORE asks its owner once; a preview mode lists what would run. The Alerts list has a *Run script on these machines* bar.
+- **Hunt turns a plain question into an alert search and runs it** (it used to send ES|QL text to an alert-term search and always found nothing); client names match when close (case, punctuation, a typo).
+- **Threat Intel rows show what an indicator is** (family, actor, campaign, tags, alert count); the Multi-Factor and Secure Score columns sort.
+
+### Fixed
+
+- **The Run script button would have failed against a real database.** Migration 084 limited the vendor-actions queue to approve, reject and resolve; migration 098 adds `run_script`. Found by a real-Postgres test of the bulk route (the earlier tests used a mock database).
+- **"Discovered on network" showed on machines other tools also list;** it now shows only when ThreatMate is the only source. Explore's *Open Identity* link pointed at a page that does not exist.
+
 ### Fixed
 
 - **The Entities page was empty, and clicking an entity crashed the page.** The api container had no `FUSION_SERVICE_URL`, so every `/api/v1/fusion/*` route answered its offline stub (entity-risk stats showed 0 with ~2,000 entities scored in fusion); set in `docker-compose.yml`. Fusion stamped timezone-aware alert times as `...+00:00Z`, which a browser reads as an Invalid Date, and the entity drawer threw while rendering; fusion now emits valid UTC (and the api repairs records already stored). The MSSP rollup read only the first 50 client tenants, one fusion call each; fusion now has `POST /entity-risk/rollup/{queue,stats}` and the api sends the parent's whole client list in one call.

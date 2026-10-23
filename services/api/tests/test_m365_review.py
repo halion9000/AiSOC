@@ -175,3 +175,11 @@ def test_evidence_is_cut_at_300_characters_and_multifactor_answers_stand_alone()
     answered = [a.question for a in only_mfa if a.status != "needs_person"]
     assert sorted(answered) == sorted(m.question_for(q) for q in m.MFA_QUESTIONS.values())
     assert [a.question for a in only_mfa] == [q for _, q in m.QUESTIONS]
+
+
+def test_every_check_key_is_listed_in_the_reference_document():
+    from pathlib import Path
+
+    doc = (Path(__file__).resolve().parents[3] / "docs" / "M365_CHECKS.md").read_text(encoding="utf-8")
+    missing = [k for k in m.CHECK_QUESTIONS if f"`{k}`" not in doc]
+    assert not missing, f"docs/M365_CHECKS.md does not mention: {missing}"

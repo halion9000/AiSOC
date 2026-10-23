@@ -147,4 +147,22 @@ describe("visibleClients sorting", () => {
     expect(visibleClients(list, { sort: { key: "covered", dir: "desc" } }).map((c) => c.client_name)).toEqual(["A", "B", "C"]);
     expect(visibleClients(list, { sort: { key: "client", dir: "desc" } }).map((c) => c.client_name)).toEqual(["C", "B", "A"]);
   });
+
+  it('sorts when a column header is clicked: biggest first, then smallest first, then back to the A to Z default', async () => {
+    authFetch.mockResolvedValue(reply([client({ client_id: 'a', client_name: 'Acme', people: 5 }), client({ client_id: 'b', client_name: 'Birch', people: 50 }), client({ client_id: 'c', client_name: 'Cedar', people: 20 })]));
+    render(<MfaStatus />);
+    await screen.findByTestId('totals');
+    const names = () => screen.getAllByTestId('client-row').map((r) => (r.textContent ?? '').slice(0, 5));
+    expect(names()).toEqual(['Acme5', 'Birch', 'Cedar']);
+    const header = screen.getByTestId('sort-people');
+    await userEvent.click(header);
+    expect(names()).toEqual(['Birch', 'Cedar', 'Acme5']);
+    expect(header.closest('th')).toHaveAttribute('aria-sort', 'descending');
+    await userEvent.click(header);
+    expect(names()).toEqual(['Acme5', 'Cedar', 'Birch']);
+    expect(header.closest('th')).toHaveAttribute('aria-sort', 'ascending');
+    await userEvent.click(header);
+    expect(names()).toEqual(['Acme5', 'Birch', 'Cedar']);
+    expect(header.closest('th')).toHaveAttribute('aria-sort', 'none');
+  });
 });

@@ -142,3 +142,20 @@ describe('iocIdentifiers', () => {
     expect(iocIdentifiers({ tags: [], linkedAlerts: [] } as never)).toEqual([]);
   });
 });
+
+describe('what the list row says an indicator is', () => {
+  it('shows the family, actor, campaign, tags and alert count on the row itself, without opening it', async () => {
+    list.mockResolvedValue({ indicators: [indicator({ malwareFamily: 'Emotet', threatActor: 'TA542', campaign: 'Spring', tags: ['botnet', 'loader'], linkedAlerts: ['a', 'b', 'c'] })], total: 1 });
+    render(<ThreatIntelView />);
+    const chips = await screen.findByTestId('ioc-identifiers');
+    for (const text of ['Emotet', 'TA542', 'Spring', 'botnet', 'loader', '3 alerts']) expect(chips.textContent).toContain(text);
+    expect(screen.getByTitle('malware family').textContent).toBe('Emotet');
+  });
+
+  it('shows no chip line for an indicator nothing is known about', async () => {
+    list.mockResolvedValue({ indicators: [indicator({ tags: [], linkedAlerts: [] })], total: 1 });
+    render(<ThreatIntelView />);
+    await screen.findByRole('button', { name: new RegExp(`Show details for ${HASH}`) });
+    expect(screen.queryByTestId('ioc-identifiers')).toBeNull();
+  });
+});

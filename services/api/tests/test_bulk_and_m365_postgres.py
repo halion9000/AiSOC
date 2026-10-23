@@ -161,3 +161,77 @@ async def test_the_bulk_route_queues_one_request_per_machine_under_one_batch_and
     finally:
         await app.dispose()
     assert again.queued == 0 and "already waiting" in (again.items[0].reason or "")
+
+
+async def test_mfa_summary_lists_clients_worst_first_includes_the_owners_own_people_and_hides_other_msps(world):
+    from app.api.v1.endpoints.identity import mfa_summary
+
+    ids, _, owner = world
+    snap = uuid.uuid4()
+
+    def person(tid, n, admin, registered):
+        return {"t": tid, "u": f"{tid}-{n}", "upn": f"{n}@x.com", "admin": admin, "reg": registered, "snap": snap}
+
+    people = [
+        person(ids["parent"], "own1", False, True),  # the MSP's own people: listed, no client name
+        person(ids["acme"], "a1", True, False),  # an administrator with no multi-factor: worst
+        person(ids["acme"], "a2", False, False),
+        person(ids["birch"], "b1", False, False),  # a person with none, no admin
+        person(ids["birch"], "b2", False, True),
+        person(ids["stranger"], "s1", True, False),  # another MSP's client: must not appear
+    ]
+    async with owner.begin() as conn:
+        await conn.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
+        for p in people:
+            await conn.execute(
+                text(
+                    "insert into identity_mfa_users (tenant_id, source, user_id, upn, enabled, user_type, admin, licensed, registered, capable, ca_enforced, security_defaults, snapshot_id, refreshed_at) "
+                    "values (:t, 'cipp', :u, :upn, true, 'Member', :admin, true, :reg, :reg, :reg, false, :snap, now())"
+                ),
+                p,
+            )
+    app = create_async_engine(APP_URL, poolclass=NullPool)
+    try:
+        async with async_sessionmaker(app, expire_on_commit=False)() as s:
+            await set_rls_context(s, ids["parent"])
+            out = await mfa_summary(NS(tenant_id=ids["parent"]), s)
+    finally:
+        await app.dispose()
+        async with owner.begin() as conn:
+            await conn.execute(text("select set_config('app.rls_fail_closed', 'off', true)"))
+            await conn.execute(
+                text("delete from identity_mfa_users where tenant_id = any(cast(:t as uuid[]))"), {"t": [str(x) for x in ids.values()]}
+            )
+    got = [(r.client_id, r.client_name is None, r.people, r.admins_without_mfa) for r in out]
+    assert [g[0] for g in got] == [
+        ids["acme"],
+        ids["birch"],
+        ids["parent"],
+    ], "administrators without multi-factor first, then most people without, then name"
+    assert ids["stranger"] not in {r.client_id for r in out}
+    assert got[2][1] is True and got[2][2] == 1, "the owner's own entry has no client name"
+
+
+async def test_hunt_search_over_real_rows_filters_by_client_name_and_never_shows_another_msps_alerts(world):
+    from app.api.v1.endpoints import hunt_alert_search as hs
+
+    ids, a, _ = world
+    app = create_async_engine(APP_URL, poolclass=NullPool)
+    try:
+        async with async_sessionmaker(app, expire_on_commit=False)() as s:
+            await set_rls_context(s, ids["parent"])
+            user = NS(tenant_id=ids["parent"])
+
+            async def titles(q):
+                out = await hs.hunt_search(hs.HuntQuery(query=q), user, s)
+                return {h.highlight for h in out.hits}
+
+            everything = await titles("disk space")
+            only_acme = await titles("disk client:acme")
+            not_acme = await titles("disk -client:acme")
+    finally:
+        await app.dispose()
+    assert "Disk space low theirs" not in everything, "another MSP's client is invisible"
+    assert only_acme == {"Disk space low a1", "Disk space low a2", "Disk space low a2dup", "Disk space low nohost"}
+    assert not_acme == {"Disk space low b1"}
+    assert everything == only_acme | not_acme

@@ -258,3 +258,12 @@ async def test_a_mapped_clients_m365_checks_are_stored_replaced_and_answer_the_t
 async def test_a_client_with_no_m365_checks_has_every_question_marked_needs_a_person(world):
     r = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
     assert len(r.m365) == 99 and all(a.status == "needs_person" for a in r.m365) and r.m365_refreshed_at is None
+
+
+async def test_a_review_of_the_owners_own_tenant_works_and_a_client_with_no_extra_data_gets_clean_defaults(world):
+    own = await run(world["msp"], lambda db: ep.client_review(world["msp"], NS(tenant_id=world["msp"]), db))
+    assert own.client_id == world["msp"] and len(own.tech_stack) == 24 and len(own.m365) == 99
+    child = await run(world["msp"], lambda db: ep.client_review(world["client"], NS(tenant_id=world["msp"]), db))
+    assert child.vcio is None and child.mfa is None and child.secure_score is None and child.m365_refreshed_at is None
+    assert all(a.status == "needs_person" for a in child.m365)
+    assert all(a.status in {"unknown", "seen", "not_seen"} for a in child.tech_stack)
