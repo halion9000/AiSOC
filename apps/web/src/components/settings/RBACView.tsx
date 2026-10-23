@@ -6,6 +6,9 @@ import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { authFetch } from '@/lib/auth-session';
 import { failureDetail } from '@/lib/communityInstall';
+import { NAV_CATALOG } from '@/components/layout/Sidebar';
+import { RoleVisibilityPicker } from './RoleVisibilityPicker';
+import { ROLE_PRESETS, presetPermissionIds } from './rolePresets';
 
 interface Permission {
   id: string;
@@ -20,6 +23,8 @@ interface Role {
   name: string;
   description: string | null;
   is_system: boolean;
+  /** Sections ("section:Automation") and pages the role hides in the console. Absent from an older API. */
+  hidden_nav?: string[];
   permissions: Permission[];
 }
 
@@ -82,6 +87,11 @@ function RoleCard({ role, onEdit, onDelete }: { role: Role; onEdit: (r: Role) =>
           </div>
         )}
       </div>
+      {(role.hidden_nav?.length ?? 0) > 0 && (
+        <p className="mt-2 text-xs text-gray-500">
+          Hides: {role.hidden_nav!.map((h) => (h.startsWith('section:') ? h.slice('section:'.length) : h)).join(', ')}
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap gap-1.5">
         {role.permissions.length === 0 ? (
           <span className="text-xs text-gray-600 italic">No permissions assigned</span>
@@ -138,8 +148,18 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(initial?.permissions.map((p) => p.id) ?? [])
   );
+  const [hidden, setHidden] = useState<Set<string>>(new Set(initial?.hidden_nav ?? []));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const applyPreset = (key: string) => {
+    const preset = ROLE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    setHidden(new Set(preset.hidden));
+    setSelectedIds(new Set(presetPermissionIds(preset, allPermissions)));
+    if (!name.trim()) setName(preset.label);
+    if (!description.trim()) setDescription(preset.description);
+  };
 
   const categories = Array.from(new Set(allPermissions.map((p) => p.category ?? 'other'))).sort();
 
@@ -173,7 +193,7 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
       const res = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description: description || null, permission_ids: Array.from(selectedIds) }),
+        body: JSON.stringify({ name, description: description || null, permission_ids: Array.from(selectedIds), hidden_nav: Array.from(hidden) }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -195,7 +215,26 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
           <h2 className="text-lg font-semibold text-gray-900">{initial ? 'Edit Role' : 'Create Role'}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-800" aria-label="Close">✕</button>
         </div>
-        <div className="space-y-4 px-6 py-4">
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-4">
+          {!initial && (
+            <div>
+              <p className="mb-1 text-sm font-medium text-gray-800">Start from</p>
+              <div className="flex flex-wrap gap-2">
+                {ROLE_PRESETS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    title={p.description}
+                    onClick={() => applyPreset(p.key)}
+                    className="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-800 hover:border-indigo-500 hover:bg-indigo-50"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-gray-600">Fills in the permissions and what is hidden. Nothing is saved until you press Create.</p>
+            </div>
+          )}
           {error && <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-800">Name</label>
@@ -240,6 +279,11 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
                 </div>
               ))}
             </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-800">What people in this role see</label>
+            <p className="mb-2 text-xs text-gray-600">Untick a section or a page to hide it from the sidebar and stop its address opening. This is about what is shown; the permissions above are what is enforced.</p>
+            <RoleVisibilityPicker catalog={NAV_CATALOG} hidden={hidden} onChange={setHidden} />
           </div>
         </div>
         <div className="flex justify-end gap-3 border-t px-6 py-4">

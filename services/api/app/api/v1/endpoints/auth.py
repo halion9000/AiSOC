@@ -76,6 +76,8 @@ class UserMeResponse(BaseModel):
     preferences: dict[str, Any] = {}
     # What this person may do, for the console to decide which controls to show (see app.core.security.UI_CAPABILITIES). The server checks every action itself.
     capabilities: list[str] = []
+    # Sections and pages the person's roles hide in the console (see app.services.role_nav). Empty when nothing is hidden.
+    hidden_nav: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -275,6 +277,15 @@ async def authorize(body: AuthorizeRequest, current_user: AuthUser) -> Authorize
     )
 
 
+async def _hidden_nav(db: Any, user: User) -> list[str]:
+    """What this person's roles hide: the entries every one of their roles hides (see role_nav). No assigned roles hides nothing."""
+    from app.models.rbac import Role, UserRole  # noqa: PLC0415
+    from app.services.role_nav import hidden_for_roles  # noqa: PLC0415
+
+    rows = (await db.execute(select(Role.hidden_nav).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == user.id, Role.tenant_id == user.tenant_id))).all()
+    return hidden_for_roles([list(r[0] or []) for r in rows])
+
+
 @router.get("/me", response_model=UserMeResponse)
 async def get_me(current_user: AuthUser, db: DBSession) -> UserMeResponse:
     """Get current authenticated user info."""
@@ -282,7 +293,9 @@ async def get_me(current_user: AuthUser, db: DBSession) -> UserMeResponse:
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return _me(user)
+    me = _me(user)
+    me.hidden_nav = await _hidden_nav(db, user)
+    return me
 
 
 @router.patch("/me/preferences", response_model=UserMeResponse)

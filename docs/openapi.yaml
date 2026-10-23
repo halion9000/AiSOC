@@ -31282,6 +31282,12 @@ components:
           type: array
           title: Permission Ids
           default: []
+        hidden_nav:
+          items:
+            type: string
+          type: array
+          title: Hidden Nav
+          default: []
       type: object
       required:
       - name
@@ -31307,6 +31313,12 @@ components:
         is_system:
           type: boolean
           title: Is System
+        hidden_nav:
+          items:
+            type: string
+          type: array
+          title: Hidden Nav
+          default: []
         permissions:
           items:
             $ref: '#/components/schemas/PermissionOut'
@@ -31341,6 +31353,13 @@ components:
             type: array
           - type: 'null'
           title: Permission Ids
+        hidden_nav:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Hidden Nav
       type: object
       title: RoleUpdate
     RuleActionWire:
@@ -36239,6 +36258,12 @@ components:
             type: string
           type: array
           title: Capabilities
+          default: []
+        hidden_nav:
+          items:
+            type: string
+          type: array
+          title: Hidden Nav
           default: []
       type: object
       required:

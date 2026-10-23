@@ -2,6 +2,7 @@
 
 import { SWRConfig } from 'swr';
 import { Sidebar } from './Sidebar';
+import { HiddenPageGuard } from './HiddenPageGuard';
 import { TopBar } from './TopBar';
 import { CommandPalette } from './CommandPalette';
 import { TimeWindowProvider } from './TimeWindowProvider';
@@ -67,7 +68,7 @@ export function AppShell({ children }: AppShellProps) {
           <main className={`${topPadClass} min-h-screen`}>
             <div className="p-6">
               <TenantViewBanner />
-              {children}
+              <HiddenPageGuard>{children}</HiddenPageGuard>
             </div>
           </main>
         </div>

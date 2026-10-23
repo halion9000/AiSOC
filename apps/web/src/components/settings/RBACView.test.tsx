@@ -173,3 +173,91 @@ describe('the permission picker', () => {
     expect(within(dialog).getByPlaceholderText('e.g. threat-hunter').className).toMatch(/text-gray-900/);
   });
 });
+
+describe('hiding parts of the console from a role', () => {
+  const perms = [
+    { id: 'a-r', name: 'alerts:read', description: null, category: 'alerts' },
+    { id: 'a-w', name: 'alerts:write', description: null, category: 'alerts' },
+    { id: 'c-r', name: 'cases:read', description: null, category: 'cases' },
+  ];
+
+  function open(roles: unknown[] = [analyst]) {
+    const posts: Array<{ url: string; method?: string; body: Record<string, unknown> }> = [];
+    authFetch.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'POST' || init?.method === 'PATCH') {
+        posts.push({ url, method: init.method, body: JSON.parse(String(init.body)) });
+        return json(201, { ...analyst, id: 'new' });
+      }
+      if (url === '/api/v1/rbac/roles') return json(200, roles);
+      if (url === '/api/v1/rbac/permissions') return json(200, perms);
+      return json(404, {});
+    });
+    return posts;
+  }
+
+  async function openForm() {
+    render(view());
+    await screen.findByText('Analyst');
+    await userEvent.click(screen.getAllByRole('button', { name: /New Role/ })[0]);
+    await screen.findByText('Create Role');
+  }
+
+  it('saves what was unticked as the role\'s hidden sections and pages', async () => {
+    const posts = open();
+    await openForm();
+    await userEvent.type(screen.getByPlaceholderText('e.g. threat-hunter'), 'l2-tech');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show the Automation section' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show Client Posture' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body.hidden_nav).toEqual(expect.arrayContaining(['section:Automation', '/settings/client-posture']));
+    expect(posts[0].body.hidden_nav as string[]).toHaveLength(2);
+  });
+
+  it('can hide one sub-page without hiding the section it is in', async () => {
+    const posts = open();
+    await openForm();
+    await userEvent.type(screen.getByPlaceholderText('e.g. threat-hunter'), 'x');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show Client Posture' }));
+    expect(screen.getByRole('checkbox', { name: 'Show the Client Security section' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Show Multi-Factor' })).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(posts[0].body.hidden_nav).toEqual(['/settings/client-posture']));
+  });
+
+  it('greys out the pages of a hidden section, and offers no way to hide the roles page or the home page', async () => {
+    open();
+    await openForm();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show the Automation section' }));
+    expect(screen.getByRole('checkbox', { name: 'Show Playbooks' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Show Dashboard' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Show Dashboard' })).toBeChecked();
+    const rbac = screen.getAllByRole('checkbox').find((c) => (c as HTMLInputElement).disabled && /Roles/.test(c.getAttribute('aria-label') ?? ''));
+    expect(rbac).toBeTruthy();
+  });
+
+  it('a starting point fills in the permissions and what is hidden but saves nothing until Create', async () => {
+    const posts = open();
+    await openForm();
+    await userEvent.click(screen.getByRole('button', { name: 'Read-only analyst' }));
+    expect(posts).toHaveLength(0);
+    expect(screen.getByText('Permissions (2 selected)')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'alerts:write' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Show the Automation section' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Show the Platform section' })).not.toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body.name).toBe('Read-only analyst');
+    expect(posts[0].body.permission_ids).toEqual(expect.arrayContaining(['a-r', 'c-r']));
+  });
+
+  it('shows what a role hides on its card, and loads it into the editor', async () => {
+    open([{ ...analyst, hidden_nav: ['section:Automation', '/settings/mfa'] }]);
+    render(view());
+    expect(await screen.findByText('Hides: Automation, /settings/mfa')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(await screen.findByRole('checkbox', { name: 'Show the Automation section' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Show Multi-Factor' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Show Client Posture' })).toBeChecked();
+  });
+});

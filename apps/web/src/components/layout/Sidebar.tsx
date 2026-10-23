@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation';
 import { clsx } from 'clsx';
 import packageJson from '../../../package.json';
 import { LiveQueueBadge } from './LiveQueueBadge';
+import { useHiddenNav } from '@/hooks/useHiddenNav';
+import { pathIsHidden, visibleSections } from '@/lib/nav-visibility';
 
 const APP_VERSION = packageJson.version;
 
@@ -403,8 +405,26 @@ const navSections: NavSection[] = [
   },
 ];
 
+/** Every section and page of the sidebar, for the role form that picks which of them a role hides. */
+export const NAV_CATALOG: { title?: string; items: { label: string; href: string }[] }[] = navSections.map((s) => ({
+  title: s.title,
+  items: s.items.map((i) => ({ label: i.label, href: i.href })),
+}));
+
+/** The sidebar entries after a role's hidden ones are taken out (exported so the page guard uses the very same rule). */
+export function shownSections(hidden: ReadonlySet<string>): NavSection[] {
+  return visibleSections(navSections, hidden);
+}
+
+/** True when the page at ``pathname`` is one the person's role hides. */
+export function isPathHidden(hidden: ReadonlySet<string>, pathname: string): boolean {
+  return pathIsHidden(navSections, hidden, pathname);
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const hidden = useHiddenNav();
+  const sections = shownSections(hidden);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // A link is active when it is the most specific one that matches: /detection/vendor-detections must not also light up /detection.
@@ -465,7 +485,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav aria-label="Main navigation" className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
-        {navSections.map((section, si) => (
+        {sections.map((section, si) => (
           <div key={si}>
             {section.title && (
               <p className="px-3 mb-1.5 text-xs font-semibold text-fg-subtle uppercase tracking-wider">

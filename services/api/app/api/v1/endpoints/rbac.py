@@ -21,6 +21,7 @@ from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
 from app.models.rbac import Permission, Role, RolePermission, UserRole
 from app.models.tenant import User
+from app.services.role_nav import clean_hidden_nav
 
 router = APIRouter(prefix="/rbac", tags=["rbac"])
 
@@ -43,12 +44,15 @@ class RoleIn(BaseModel):
     name: str
     description: str | None = None
     permission_ids: list[uuid.UUID] = []
+    # Sections ("section:Automation") and pages ("/settings/mfa") people in this role do not see in the console. A view setting; permissions are what the server enforces.
+    hidden_nav: list[str] = []
 
 
 class RoleUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     permission_ids: list[uuid.UUID] | None = None
+    hidden_nav: list[str] | None = None
 
 
 class RoleOut(BaseModel):
@@ -57,6 +61,7 @@ class RoleOut(BaseModel):
     name: str
     description: str | None
     is_system: bool
+    hidden_nav: list[str] = []
     permissions: list[PermissionOut] = []
 
     model_config = {"from_attributes": True}
@@ -122,6 +127,7 @@ async def list_roles(
                 name=role.name,
                 description=role.description,
                 is_system=role.is_system,
+                hidden_nav=list(role.hidden_nav or []),
                 permissions=perms,
             )
         )
@@ -148,6 +154,7 @@ async def create_role(
         name=body.name,
         description=body.description,
         is_system=False,
+        hidden_nav=clean_hidden_nav(body.hidden_nav),
     )
     db.add(role)
     await db.flush()  # get role.id
@@ -165,6 +172,7 @@ async def create_role(
         name=role.name,
         description=role.description,
         is_system=role.is_system,
+        hidden_nav=list(role.hidden_nav or []),
         permissions=[PermissionOut.model_validate(p) for p in perms_to_attach],
     )
 
@@ -183,6 +191,7 @@ async def get_role(
         name=role.name,
         description=role.description,
         is_system=role.is_system,
+        hidden_nav=list(role.hidden_nav or []),
         permissions=perms,
     )
 
@@ -210,6 +219,8 @@ async def update_role(
         role.name = body.name
     if body.description is not None:
         role.description = body.description
+    if body.hidden_nav is not None:
+        role.hidden_nav = clean_hidden_nav(body.hidden_nav)
 
     if perms is not None:
         # Replace permissions
@@ -226,6 +237,7 @@ async def update_role(
         name=role.name,
         description=role.description,
         is_system=role.is_system,
+        hidden_nav=list(role.hidden_nav or []),
         permissions=perms_out,
     )
 
