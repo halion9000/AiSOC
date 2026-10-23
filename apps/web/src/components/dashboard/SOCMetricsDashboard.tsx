@@ -163,8 +163,8 @@ export function SOCMetricsDashboard() {
       {errorMessage && (
         <div className="rounded border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200">
           <span className="font-semibold">SOC metrics unavailable:</span>{" "}
-          {errorMessage}. Showing last known mock baseline; the live numbers
-          will refresh automatically once the API recovers.
+          {errorMessage}. The numbers stay empty until the API answers, and
+          refresh on their own once it does.
         </div>
       )}
 
@@ -327,7 +327,7 @@ function CostTelemetryPanel() {
       {errorMessage && (
         <div className="mb-3 rounded border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200">
           <span className="font-semibold">Cost telemetry unavailable:</span>{" "}
-          {errorMessage}. Showing baseline projections until the API recovers.
+          {errorMessage}. Nothing is shown here until the API answers; it refreshes on its own.
         </div>
       )}
 

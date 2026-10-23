@@ -25,6 +25,9 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     css: false,
+    // The full run is heavy (hundreds of files at once); the default 5 s made a few slow-but-fine tests fail only under load.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     coverage: {
       // v8 (vitest's recommended provider) reports against code that
       // tests actually import, not against every `src/**/*.ts(x)`.

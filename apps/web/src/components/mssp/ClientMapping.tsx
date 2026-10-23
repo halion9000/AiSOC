@@ -103,7 +103,7 @@ export function sourceChoices(clients: VendorClient[], synced: string[]): { vend
   return [...vendors].sort().map((vendor) => ({ vendor, on: synced.includes(vendor) }));
 }
 
-const VENDOR_NAMES: Record<string, string> = { halopsa: 'HaloPSA', ninjaone: 'NinjaOne', petra: 'Petra', huntress: 'Huntress', blumira: 'Blumira', addigy: 'Addigy', liongard: 'Liongard', threatmate: 'ThreatMate', fieldeffect: 'Field Effect', dnsfilter: 'DNSFilter', auvik: 'Auvik', autoelevate: 'AutoElevate', cipp: 'CIPP', screenconnect: 'ScreenConnect', vciotoolbox: 'vCIO Toolbox' };
+const VENDOR_NAMES: Record<string, string> = { halopsa: 'HaloPSA', ninjaone: 'NinjaOne', petra: 'Petra', huntress: 'Huntress', blumira: 'Blumira', addigy: 'Addigy', liongard: 'Liongard', threatmate: 'ThreatMate', fieldeffect: 'Field Effect', dnsfilter: 'DNSFilter', auvik: 'Auvik', unifi: 'UniFi', autoelevate: 'AutoElevate', cipp: 'CIPP', screenconnect: 'ScreenConnect', vciotoolbox: 'vCIO Toolbox' };
 
 /** "halopsa" -> "HaloPSA", "petra" -> "Petra"; a tool it doesn't know is capitalized. */
 export function vendorLabel(vendor: string): string {
