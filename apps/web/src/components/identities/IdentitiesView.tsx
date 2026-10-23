@@ -58,6 +58,7 @@ function Detail({ person }: { person: IdentityPerson }) {
             <li key={`${src.vendor}:${src.external_id}`} className="flex items-center gap-2 text-sm text-gray-200">
               <VendorBadge vendor={src.vendor} />
               <span>{vendorLabel(src.vendor)}</span>
+              {src.details?.via ? <span className="text-xs text-gray-500">({String(src.details.via)})</span> : null}
               {src.enabled === false && <span className="text-xs text-red-300">disabled</span>}
             </li>
           ))}

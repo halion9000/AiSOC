@@ -123,6 +123,35 @@ def build_people(
     return out
 
 
+# The managed detection and response tools: none lists its people to us, but each says who a threat is about. A person one of them raised an alert about is a person that tool is watching.
+ALERT_TOOLS = frozenset({"huntress", "petra", "fieldeffect", "blumira"})
+
+
+def add_alert_sources(people: list[Person], alerts: list[Any], names: dict[uuid.UUID, str], source_of: Any, tools: frozenset[str] = ALERT_TOOLS) -> list[Person]:
+    """Add each MDR tool that raised an alert naming a person to that person's tools (creating the person when no other tool knows them). Returns the people, with any new ones added."""
+    index = {p.key: p for p in people}
+    out = list(people)
+    for a in alerts:
+        tool = source_of(a.raw_event, getattr(a, "connector_type", None))
+        if tool not in tools:
+            continue
+        for raw in a.affected_users if isinstance(a.affected_users, list) else []:
+            addr = normalize_email(raw)
+            if addr is None:
+                continue
+            key = f"{a.tenant_id}:{addr}"
+            p = index.get(key)
+            if p is None:
+                p = Person(tenant_id=a.tenant_id, email=addr, client_name=names.get(a.tenant_id))
+                index[key] = p
+                out.append(p)
+            if not any(s.vendor == tool for s in p.sources):
+                p.sources.append(SourceRef(vendor=tool, external_id="alert", details={"via": "an alert it raised"}))
+    for p in out:
+        p.sources.sort(key=lambda r: (r.vendor != MICROSOFT, r.vendor, r.external_id))
+    return out
+
+
 def attach_alerts(people: list[Person], alerts: list[Any]) -> dict[str, list[Any]]:
     """Tie open alerts to the people they name (by e-mail address, same client). Sets each person's count and highest severity; returns the alerts by person key, newest first."""
     index = {p.key: p for p in people}

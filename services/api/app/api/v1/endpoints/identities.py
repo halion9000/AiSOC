@@ -24,10 +24,12 @@ from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.identity_source import IdentitySource
 from app.models.signin import IdentityMfaUser, SigninEvent
+from app.services.alert_suppression import SUPPRESSED, source_of
 from app.services.identity_people import (
     MICROSOFT,
     SORTS,
     Person,
+    add_alert_sources,
     attach_alerts,
     build_people,
     filter_people,
@@ -124,7 +126,7 @@ async def _people(db: Any, owner: uuid.UUID, client_id: uuid.UUID | None) -> tup
             (
                 await db.execute(
                     select(Alert)
-                    .where(Alert.tenant_id.in_(scope), Alert.status.notin_(FINISHED_STATUSES), Alert.created_at >= cutoff)
+                    .where(Alert.tenant_id.in_(scope), Alert.status != SUPPRESSED, Alert.created_at >= cutoff)
                     .order_by(Alert.created_at.desc())
                     .limit(MAX_ALERTS_READ)
                 )
@@ -132,8 +134,9 @@ async def _people(db: Any, owner: uuid.UUID, client_id: uuid.UUID | None) -> tup
             .scalars()
             .all()
         )
-    people = build_people(names, list(users), list(sources), now)
-    return people, attach_alerts(people, [a for a in alerts if a.affected_users])
+    named = [a for a in alerts if a.affected_users]
+    people = add_alert_sources(build_people(names, list(users), list(sources), now), named, names, source_of)
+    return people, attach_alerts(people, [a for a in named if a.status not in FINISHED_STATUSES])
 
 
 def summarize(people: list[Person]) -> IdentitySummary:

@@ -235,3 +235,46 @@ def test_apply_stores_only_real_addresses_under_the_mapped_client_and_counts_the
     assert (out.accepted, out.unmapped) == (1, 1)
     assert out.unmapped_clients[0].name == "Gone Co"
     assert len(db.statements) == 1
+
+
+# ---- people the MDR tools raised alerts about -------------------------------------------------------------------------------------------------------
+
+
+def tool_alert(tenant, users, source, **over):
+    a = alert(tenant, users, **over)
+    a.raw_event = {"source": source}
+    a.connector_type = None
+    return a
+
+
+def src_of(raw, connector=None):
+    from app.services.alert_suppression import source_of
+
+    return source_of(raw, connector)
+
+
+def test_a_person_an_mdr_tool_raised_an_alert_about_is_known_to_that_tool():
+    people = ip.build_people(NAMES, [ms(A, "amy@acme.com")], [], NOW)
+    out = ip.add_alert_sources(people, [tool_alert(A, ["Amy@Acme.com"], "petra"), tool_alert(A, ["amy@acme.com"], "fieldeffect")], NAMES, src_of)
+    amy = out[0]
+    assert amy.vendors == ["cipp", "fieldeffect", "petra"]
+    assert [s.details.get("via") for s in amy.sources if s.vendor == "petra"] == ["an alert it raised"]
+
+
+def test_a_person_only_an_alert_names_still_appears_under_that_client_with_that_tool():
+    out = ip.add_alert_sources([], [tool_alert(A, ["new.person@acme.com", "not-an-address"], "blumira")], NAMES, src_of)
+    assert [(p.email, p.client_name, p.vendors, p.mfa) for p in out] == [("new.person@acme.com", "Acme", ["blumira"], "unknown")]
+
+
+def test_a_tool_is_listed_once_per_person_and_other_tools_alerts_do_not_make_people():
+    people = ip.build_people(NAMES, [], [], NOW)
+    out = ip.add_alert_sources(people, [tool_alert(A, ["x@acme.com"], "huntress"), tool_alert(A, ["x@acme.com"], "huntress"), tool_alert(A, ["pc-user@acme.com"], "ninjaone")], NAMES, src_of)
+    assert [(p.email, p.vendors) for p in out] == [("x@acme.com", ["huntress"])]
+    assert len(out[0].sources) == 1
+
+
+def test_a_person_the_tool_lists_itself_is_not_given_a_second_row_for_the_same_tool():
+    people = ip.build_people(NAMES, [], [src(A, "huntress", "amy@acme.com")], NOW)
+    out = ip.add_alert_sources(people, [tool_alert(A, ["amy@acme.com"], "huntress")], NAMES, src_of)
+    assert len(out) == 1 and [s.vendor for s in out[0].sources] == ["huntress"]
+    assert out[0].sources[0].external_id != "alert"
