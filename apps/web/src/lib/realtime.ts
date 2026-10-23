@@ -54,14 +54,18 @@ export function useRealtimeChannel<T = unknown>(
   const [history, setHistory] = useState<T[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number>(0);
-  const cancelRef = useRef(false);
 
   useEffect(() => {
     if (!enabled || typeof window === 'undefined') return;
-    cancelRef.current = false;
+    // Local to THIS run of the effect. A flag shared between runs let a reconnect timer left over from the previous channel see "not cancelled" once the next run reset it, and open a second connection for the old channel.
+    let cancelled = false;
+    let timer: number | undefined;
+    const retryLater = (delay: number) => {
+      timer = window.setTimeout(connect, delay);
+    };
 
     async function connect() {
-      if (cancelRef.current) return;
+      if (cancelled) return;
       setStatus('connecting');
 
       // Mint a fresh short-lived ticket and attach it as `?token=` immediately
@@ -75,15 +79,15 @@ export function useRealtimeChannel<T = unknown>(
         // Could not authenticate (e.g. signed-out, or realtime ticketing is
         // not configured server-side → 503). Surface as error and retry with
         // backoff rather than opening an unauthenticated socket.
-        if (cancelRef.current) return;
+        if (cancelled) return;
         setStatus('error');
         const attempt = reconnectRef.current + 1;
         reconnectRef.current = attempt;
         const delay = Math.min(1000 * 2 ** Math.min(attempt, 6), maxBackoffMs);
-        window.setTimeout(connect, delay);
+        retryLater(delay);
         return;
       }
-      if (cancelRef.current) return;
+      if (cancelled) return;
 
       const ws = new WebSocket(target);
       wsRef.current = ws;
@@ -110,21 +114,25 @@ export function useRealtimeChannel<T = unknown>(
 
       ws.onclose = () => {
         setStatus('closed');
-        if (cancelRef.current) return;
+        if (cancelled) return;
         const attempt = reconnectRef.current + 1;
         reconnectRef.current = attempt;
         const delay = Math.min(1000 * 2 ** Math.min(attempt, 6), maxBackoffMs);
-        window.setTimeout(connect, delay);
+        retryLater(delay);
       };
     }
 
     connect();
 
     return () => {
-      cancelRef.current = true;
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         setStatus('closing');
+        ws.close();
+      } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+        // Still opening: close it too, or it connects after nobody is listening.
         ws.close();
       }
     };

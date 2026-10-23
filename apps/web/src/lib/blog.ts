@@ -122,6 +122,8 @@ export function listPosts(includeDrafts = false): BlogPost[] {
 }
 
 export function getPostBySlug(slug: string): BlogPost | null {
+  // A slug that is not a safe one cannot name a post: answer "not found" without touching the file system, so a request like /blog/..%2Fsecret is a 404, not an error page.
+  if (!SLUG_PATTERN.test(slug)) return null;
   for (const ext of ['mdx', 'md'] as const) {
     const file = path.join(CONTENT_DIR, `${slug}.${ext}`);
     if (fs.existsSync(file)) {

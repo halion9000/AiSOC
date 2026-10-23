@@ -115,8 +115,9 @@ export function translateRule(
     }
     let rule = sourceRule;
     const map = FIELD_MAP[fmt] ?? {};
+    // Whole field names only: a plain substring replace turned ParentImage into Parentprocess_name and ImageLoaded into process_nameLoaded.
     for (const [src, tgt] of Object.entries(map)) {
-      rule = rule.split(src).join(tgt);
+      rule = rule.replace(new RegExp(`(?<![A-Za-z0-9_])${src}(?![A-Za-z0-9_])`, "g"), () => tgt);
     }
     results.push({ format: fmt, label: FORMAT_LABELS[fmt], rule: wrap(fmt, rule), notes: "Template translation — verify field names." });
   }
