@@ -8,6 +8,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { authFetch } from "@/lib/auth-session";
+import VendorBadge from "@/components/mssp/VendorBadge";
+import { vendorLabel } from "@/components/mssp/ClientMapping";
+import { vendorClientUrl } from "@/lib/vendor-links";
 
 export interface Posture {
   client_id: string;
@@ -17,6 +20,8 @@ export interface Posture {
   identity: { people: number; with_mfa: number; not_required: number; without_mfa: number; admins_without_mfa: number; refreshed_at: string | null } | null;
   alerts: { open: number; critical: number; high: number; without_ticket: number };
   open_cases: number;
+  /** The tools this client is mapped to. Absent from an older API. */
+  tools?: { vendor: string; vendor_client_id: string; vendor_client_name?: string | null }[];
 }
 
 interface Client {
@@ -48,6 +53,42 @@ export function postureLinks(clientId: string): Record<string, string> {
     noTicket: `/alerts?client=${id}&ticket=none`,
     cases: `/cases?scope=all&client=${id}`,
   };
+}
+
+/** The tools this client is linked to, as their logos. A logo opens the client's own page in that tool when its address is known. */
+export function LinkedTools({ tools }: { tools: NonNullable<Posture["tools"]> }) {
+  if (tools.length === 0) return null;
+  return (
+    <section aria-label="Tools this client is linked to" className="print:hidden">
+      <h3 className="mb-2 text-sm uppercase text-slate-500">Linked tools</h3>
+      <ul className="flex flex-wrap gap-2">
+        {tools.map((t) => {
+          const url = vendorClientUrl(t.vendor, t.vendor_client_id);
+          const label = vendorLabel(t.vendor);
+          const detail = t.vendor_client_name && t.vendor_client_name !== label ? `${label}: ${t.vendor_client_name}` : label;
+          const chip = (
+            <>
+              <VendorBadge vendor={t.vendor} />
+              <span>{label}</span>
+            </>
+          );
+          return (
+            <li key={`${t.vendor}:${t.vendor_client_id}`}>
+              {url ? (
+                <a href={url} target="_blank" rel="noopener noreferrer" title={`Open ${detail} in ${label}`} className="flex items-center gap-2 rounded border border-slate-700 px-2 py-1 text-sm text-slate-200 hover:border-sky-500/60 hover:bg-slate-800/60">
+                  {chip}
+                </a>
+              ) : (
+                <span title={`${detail} (no link to this tool's page yet)`} className="flex items-center gap-2 rounded border border-slate-800 px-2 py-1 text-sm text-slate-400">
+                  {chip}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 function Stat({ label, value, bad, href }: { label: string; value: string | number; bad?: boolean; href?: string }) {
@@ -144,6 +185,7 @@ export function ClientPosture() {
           <h2 className="text-lg font-semibold text-slate-100">
             {shown.client_name ?? "This organization"} <span className="text-sm font-normal text-slate-500">as of {new Date(shown.generated_at).toLocaleString()}</span>
           </h2>
+          <LinkedTools tools={shown.tools ?? []} />
           <section>
             <h3 className="mb-2 text-sm uppercase text-slate-500">Devices</h3>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

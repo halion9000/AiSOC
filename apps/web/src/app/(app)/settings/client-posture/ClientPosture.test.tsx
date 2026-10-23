@@ -88,3 +88,40 @@ describe('postureLinks', () => {
     expect(links.adminsWithout).toBe('/settings/mfa?client=a%20b%26c&which=without&admins=1');
   });
 });
+
+describe('the tools a client is linked to', () => {
+  const tools = [
+    { vendor: 'ninjaone', vendor_client_id: '83', vendor_client_name: 'Acme Dental' },
+    { vendor: 'petra', vendor_client_id: '5', vendor_client_name: 'Acme' },
+    { vendor: 'screenconnect', vendor_client_id: 'Acme Dental', vendor_client_name: 'Acme Dental' },
+  ];
+
+  async function show(body: unknown) {
+    serve(body);
+    render(<ClientPosture />);
+    await userEvent.selectOptions(await screen.findByLabelText('Client'), 'c1');
+    return screen.findByTestId('posture');
+  }
+
+  it('shows each tool as its logo, linking to the client page in tools whose address is known', async () => {
+    await show(posture({ tools }));
+    const section = screen.getByLabelText('Tools this client is linked to');
+    const ninja = within(section).getByRole('link', { name: /NinjaOne/ });
+    expect(ninja).toHaveAttribute('href', 'https://app.ninjarmm.com/#/customerDashboard/83/overview');
+    expect(ninja).toHaveAttribute('target', '_blank');
+    expect(ninja).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(within(section).getByRole('link', { name: /ScreenConnect/ })).toHaveAttribute('href', expect.stringContaining('Acme%20Dental'));
+  });
+
+  it('shows a tool with no known page as a logo without a link, and says so on hover', async () => {
+    await show(posture({ tools }));
+    const section = screen.getByLabelText('Tools this client is linked to');
+    expect(within(section).queryByRole('link', { name: /Petra/ })).not.toBeInTheDocument();
+    expect(within(section).getByTitle(/Petra: Acme \(no link to this tool's page yet\)/)).toBeInTheDocument();
+  });
+
+  it('shows nothing when the client is linked to no tool, or the API does not send tools', async () => {
+    await show(posture({ tools: [] }));
+    expect(screen.queryByLabelText('Tools this client is linked to')).not.toBeInTheDocument();
+  });
+});

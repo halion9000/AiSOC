@@ -20,6 +20,7 @@ from app.api.v1.endpoints.devices import ClientRollup, _load_cached, _master_of,
 from app.api.v1.endpoints.identity import counts_for_mfa
 from app.db.rls_scope import acting_as_tenant
 from app.models.alert import Alert
+from app.models.client_alias import ClientAlias
 from app.models.signin import IdentityMfaUser
 from app.models.tenant import Tenant
 
@@ -52,6 +53,14 @@ class PostureAlerts(BaseModel):
     without_ticket: int
 
 
+class PostureTool(BaseModel):
+    """A tool this client is mapped to, and its id for the client in that tool (the id the tool's own page for the client is addressed by)."""
+
+    vendor: str
+    vendor_client_id: str
+    vendor_client_name: str | None = None
+
+
 class ClientPosture(BaseModel):
     client_id: uuid.UUID
     client_name: str | None
@@ -61,6 +70,8 @@ class ClientPosture(BaseModel):
     identity: PostureIdentity | None
     alerts: PostureAlerts
     open_cases: int
+    # The tools this client is mapped to (Huntress, NinjaOne...), for the page to show and link to the client's page in each.
+    tools: list[PostureTool] = []
 
 
 def devices_part(rollups: list[ClientRollup], client_id: uuid.UUID) -> PostureDevices:
@@ -113,6 +124,14 @@ async def client_posture(
                 {"t": client_id, "done": list(_CASE_FINISHED)},
             )
         ).scalar_one()
+    aliases = (
+        await db.execute(
+            select(ClientAlias.vendor, ClientAlias.vendor_client_id, ClientAlias.vendor_client_name)
+            .where(ClientAlias.tenant_id == owner, ClientAlias.child_tenant_id == client_id, ClientAlias.ignored.is_(False))
+            .order_by(ClientAlias.vendor, ClientAlias.vendor_client_name)
+        )
+    ).all()
+    tools = [PostureTool(vendor=v, vendor_client_id=i, vendor_client_name=n or None) for v, i, n in aliases]
     identity = PostureIdentity(refreshed_at=max(u.refreshed_at for u in users), **counts_for_mfa(list(users))) if users else None
     name = clients.get(client_id)
     return ClientPosture(
@@ -123,4 +142,5 @@ async def client_posture(
         identity=identity,
         alerts=PostureAlerts(open=row[0], critical=row[1], high=row[2], without_ticket=row[3]),
         open_cases=cases,
+        tools=tools,
     )
