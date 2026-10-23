@@ -93,6 +93,39 @@ function RoleCard({ role, onEdit, onDelete }: { role: Role; onEdit: (r: Role) =>
   );
 }
 
+const ACTION_ORDER = ['read', 'write', 'delete'];
+
+/** A category's permissions in one fixed order: read, write, delete, then anything else (view, work...) by name. */
+export function orderPermissions<T extends { name: string }>(perms: T[]): T[] {
+  const action = (p: T) => p.name.split(':').pop() ?? p.name;
+  const rank = (p: T) => {
+    const i = ACTION_ORDER.indexOf(action(p));
+    return i === -1 ? ACTION_ORDER.length : i;
+  };
+  return [...perms].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+/** The tick next to a category's name: ticked when all its permissions are, dashed when some are. */
+function CategoryToggle({ label, ids, selected, onChange }: { label: string; ids: string[]; selected: Set<string>; onChange: (ids: string[], on: boolean) => void }) {
+  const have = ids.filter((id) => selected.has(id)).length;
+  const all = ids.length > 0 && have === ids.length;
+  return (
+    <label className="mb-1 flex cursor-pointer items-center gap-1.5">
+      <input
+        type="checkbox"
+        aria-label={`Select all ${label} permissions`}
+        checked={all}
+        ref={(el) => {
+          if (el) el.indeterminate = have > 0 && !all;
+        }}
+        onChange={() => onChange(ids, !all)}
+        className="rounded border-gray-400 text-indigo-600"
+      />
+      <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">{label}</span>
+    </label>
+  );
+}
+
 interface RoleFormProps {
   allPermissions: Permission[];
   initial?: Role;
@@ -115,6 +148,17 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  };
+
+  const setMany = (ids: string[], on: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
   };
@@ -146,51 +190,50 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+      <div className="w-full max-w-2xl rounded-2xl bg-white text-gray-900 shadow-2xl">
         <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-semibold">{initial ? 'Edit Role' : 'Create Role'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">✕</button>
+          <h2 className="text-lg font-semibold text-gray-900">{initial ? 'Edit Role' : 'Create Role'}</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-800" aria-label="Close">✕</button>
         </div>
         <div className="space-y-4 px-6 py-4">
           {error && <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Name</label>
+            <label className="mb-1 block text-sm font-medium text-gray-800">Name</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="e.g. threat-hunter"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Description</label>
+            <label className="mb-1 block text-sm font-medium text-gray-800">Description</label>
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="Optional description"
             />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">
+            <label className="mb-2 block text-sm font-medium text-gray-800">
               Permissions ({selectedIds.size} selected)
             </label>
             <div className="max-h-64 overflow-y-auto space-y-3 rounded-lg border p-3">
               {categories.map((cat) => (
                 <div key={cat}>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{cat}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {allPermissions
-                      .filter((p) => (p.category ?? 'other') === cat)
+                  <CategoryToggle label={cat} ids={allPermissions.filter((p) => (p.category ?? 'other') === cat).map((p) => p.id)} selected={selectedIds} onChange={setMany} />
+                  <div className="flex flex-wrap gap-2 pl-6">
+                    {orderPermissions(allPermissions.filter((p) => (p.category ?? 'other') === cat))
                       .map((perm) => (
                         <label key={perm.id} className="flex cursor-pointer items-center gap-1.5">
                           <input
                             type="checkbox"
                             checked={selectedIds.has(perm.id)}
                             onChange={() => toggle(perm.id)}
-                            className="rounded border-gray-300 text-indigo-600"
+                            className="rounded border-gray-400 text-indigo-600"
                           />
-                          <span className="text-xs text-gray-700">{perm.name}</span>
+                          <span className="text-xs text-gray-800">{perm.name}</span>
                         </label>
                       ))}
                   </div>
@@ -200,7 +243,7 @@ function RoleForm({ allPermissions, initial, onClose }: RoleFormProps) {
           </div>
         </div>
         <div className="flex justify-end gap-3 border-t px-6 py-4">
-          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">
+          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
             Cancel
           </button>
           <button

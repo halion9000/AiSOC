@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SWRConfig, mutate } from 'swr';
 
 const authFetch = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth-session', () => ({ authFetch }));
 
-import { RBACView } from './RBACView';
+import { RBACView, orderPermissions } from './RBACView';
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const perm = { id: 'p1', name: 'alerts:read', description: null, category: 'alerts' };
@@ -118,5 +118,58 @@ describe('deleting a role', () => {
     render(view());
     await screen.findByText('Administrator');
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+  });
+});
+
+
+describe('the permission picker', () => {
+  const many = [
+    { id: 'c-d', name: 'cases:delete', description: null, category: 'cases' },
+    { id: 'c-w', name: 'cases:write', description: null, category: 'cases' },
+    { id: 'c-k', name: 'cases:work', description: null, category: 'cases' },
+    { id: 'c-r', name: 'cases:read', description: null, category: 'cases' },
+    { id: 'k-w', name: 'connectors:write', description: null, category: 'connectors' },
+    { id: 'k-v', name: 'connectors:view', description: null, category: 'connectors' },
+    { id: 'k-r', name: 'connectors:read', description: null, category: 'connectors' },
+  ];
+
+  it('orders every category read, write, delete, then the rest by name', () => {
+    expect(orderPermissions(many.filter((p) => p.category === 'cases')).map((p) => p.name)).toEqual(['cases:read', 'cases:write', 'cases:delete', 'cases:work']);
+    expect(orderPermissions(many.filter((p) => p.category === 'connectors')).map((p) => p.name)).toEqual(['connectors:read', 'connectors:write', 'connectors:view']);
+  });
+
+  async function openForm() {
+    authFetch.mockImplementation(async (url: string) => (url === '/api/v1/rbac/roles' ? json(200, [analyst]) : url === '/api/v1/rbac/permissions' ? json(200, many) : json(404, {})));
+    render(view());
+    await screen.findByText('Analyst');
+    await userEvent.click(screen.getAllByRole('button', { name: /New Role/ })[0]);
+    return screen.findByText('Create Role');
+  }
+
+  it('shows the permissions in that order in the form', async () => {
+    await openForm();
+    const names = screen.getAllByRole('checkbox').map((c) => c.closest('label')?.textContent ?? '').filter((t) => t.includes(':'));
+    expect(names).toEqual(['cases:read', 'cases:write', 'cases:delete', 'cases:work', 'connectors:read', 'connectors:write', 'connectors:view']);
+  });
+
+  it('puts a tick next to each category name that selects or clears all of its permissions', async () => {
+    await openForm();
+    const all = screen.getByRole('checkbox', { name: 'Select all cases permissions' });
+    expect(all.closest('label')).toHaveTextContent('cases');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'cases:read' }));
+    expect((all as HTMLInputElement).indeterminate).toBe(true);
+    await userEvent.click(all);
+    expect(screen.getAllByRole('checkbox', { checked: true }).filter((c) => /^cases:/.test(c.closest('label')?.textContent ?? ''))).toHaveLength(4);
+    expect(screen.getByText(/Permissions \(5 selected\)|Permissions \(4 selected\)/)).toBeInTheDocument();
+    await userEvent.click(all);
+    expect(screen.getByText('Permissions (0 selected)')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'connectors:read' })).not.toBeChecked();
+  });
+
+  it('shows what you type in dark text, not the page text colour', async () => {
+    await openForm();
+    const dialog = screen.getByText('Create Role').closest('div')!.parentElement!;
+    expect(within(dialog).getByPlaceholderText('Optional description').className).toMatch(/text-gray-900/);
+    expect(within(dialog).getByPlaceholderText('e.g. threat-hunter').className).toMatch(/text-gray-900/);
   });
 });
