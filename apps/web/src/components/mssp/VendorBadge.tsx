@@ -10,6 +10,7 @@ const BADGES: Record<string, { text: string; className: string }> = {
   liongard: { text: 'L', className: 'bg-teal-600/80 text-white' },
   fieldeffect: { text: 'F', className: 'bg-blue-600/80 text-white' },
   dnsfilter: { text: 'DNS', className: 'bg-amber-600/80 text-white' },
+  auvik: { text: 'Av', className: 'bg-lime-700/80 text-white' },
   autoelevate: { text: 'AE', className: 'bg-rose-600/80 text-white' },
   cipp: { text: 'C', className: 'bg-orange-500/80 text-white' },
   screenconnect: { text: 'SC', className: 'bg-sky-700/80 text-white' },
@@ -19,7 +20,7 @@ const BADGES: Record<string, { text: string; className: string }> = {
 const LOGOS = new Set(['halopsa', 'ninjaone', 'huntress', 'petra', 'addigy', 'liongard', 'threatmate', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox']);
 
 /** Halo first, then the rest in one fixed order so every row lines up; tools not listed follow alphabetically. */
-export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox'];
+export const VENDOR_ORDER = ['halopsa', 'ninjaone', 'huntress', 'threatmate', 'addigy', 'petra', 'liongard', 'blumira', 'fieldeffect', 'dnsfilter', 'auvik', 'autoelevate', 'cipp', 'screenconnect', 'vciotoolbox'];
 
 export function orderSources(sources: string[]): string[] {
   const rank = (v: string) => {

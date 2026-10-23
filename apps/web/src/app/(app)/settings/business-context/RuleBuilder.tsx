@@ -44,7 +44,8 @@ interface RuleBuilderProps {
 export function RuleBuilder({ onAppend }: RuleBuilderProps) {
   const [ruleId, setRuleId] = useState("");
   const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState(100);
+  // Kept as text so the box can be emptied and retyped; it is read as a number (1 to 1000, else 100) when the rule is built.
+  const [priorityText, setPriorityText] = useState("100");
   const [field, setField] = useState(FIELD_SUGGESTIONS[0]);
   const [op, setOp] = useState("eq");
   const [value, setValue] = useState("");
@@ -80,6 +81,8 @@ export function RuleBuilder({ onAppend }: RuleBuilderProps) {
     if (description.trim()) {
       lines.push(`${indent}  description: ${yamlSafe(description.trim())}`);
     }
+    const typedPriority = Number(priorityText);
+    const priority = Number.isInteger(typedPriority) && typedPriority >= 1 && typedPriority <= 1000 ? typedPriority : 100;
     lines.push(`${indent}  priority: ${priority}`);
     lines.push(`${indent}  when:`);
     lines.push(`${indent}    field: ${field}`);
@@ -140,8 +143,8 @@ export function RuleBuilder({ onAppend }: RuleBuilderProps) {
       <Field label="Priority (lower = earlier)">
         <input
           type="number"
-          value={priority}
-          onChange={(e) => setPriority(Number(e.target.value) || 100)}
+          value={priorityText}
+          onChange={(e) => setPriorityText(e.target.value)}
           min={1}
           max={1000}
           className={inputCls}
@@ -294,6 +297,10 @@ function formatScalar(raw: string): string {
 
 function yamlSafe(raw: string): string {
   // Identifiers / paths / single words go through bare; anything else gets
-  // JSON-quoted so YAML parsers see an unambiguous string.
-  return formatScalar(raw);
+  // JSON-quoted so YAML parsers see an unambiguous string. Unlike a condition
+  // value, these are always text: an id of "true" or a tag of "123" must not
+  // turn into a boolean or a number.
+  const formatted = formatScalar(raw);
+  const looksLikeNonText = /^(true|false|null|~|yes|no|on|off|y|n)$/i.test(raw) || /^[-+]?(\d[\d_]*)(\.\d+)?([eE][-+]?\d+)?$/.test(raw) || /^0[xo][0-9a-f]+$/i.test(raw);
+  return looksLikeNonText ? JSON.stringify(raw) : formatted;
 }

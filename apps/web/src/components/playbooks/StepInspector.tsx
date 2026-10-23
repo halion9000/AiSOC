@@ -198,11 +198,15 @@ export function StepInspector({
               value={local.condition?.field ?? ''}
               onChange={(e) =>
                 update({
-                  condition: {
-                    field: e.target.value,
-                    operator: local.condition?.operator ?? 'eq',
-                    value: local.condition?.value,
-                  },
+                  // Emptying the field (with no value typed) removes the condition, instead of saving one that names no field.
+                  condition:
+                    e.target.value === '' && !local.condition?.value
+                      ? undefined
+                      : {
+                          field: e.target.value,
+                          operator: local.condition?.operator ?? 'eq',
+                          value: local.condition?.value,
+                        },
                 })
               }
               disabled={readOnly}

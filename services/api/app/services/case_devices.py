@@ -12,7 +12,7 @@ from typing import Any
 _HTTPS = re.compile(r"^https://[^\s]+$", re.IGNORECASE)
 _MAX_URL = 1000
 
-VENDOR_LABELS = {"huntress": "Huntress", "ninjaone": "NinjaOne", "addigy": "Addigy", "blumira": "Blumira", "threatmate": "ThreatMate", "dnsfilter": "DNSFilter", "screenconnect": "ScreenConnect", "fieldeffect": "Field Effect"}
+VENDOR_LABELS = {"huntress": "Huntress", "ninjaone": "NinjaOne", "addigy": "Addigy", "blumira": "Blumira", "threatmate": "ThreatMate", "dnsfilter": "DNSFilter", "auvik": "Auvik", "screenconnect": "ScreenConnect", "fieldeffect": "Field Effect"}
 # Which key of a device record's details holds the tool's own page for the device. Add a tool here once its record carries one.
 SOURCE_URL_KEYS = {"ninjaone": "url", "screenconnect": "url"}
 

@@ -228,7 +228,8 @@ export function DetectionProposalsView() {
                           )}
                         >
                           {p.eval_result.drop_pp !== undefined
-                            ? `${(p.eval_result.drop_pp * 100).toFixed(2)}pp`
+                            // The server already reports the drop in percentage points (1.8 = 1.8 points), so it is shown as it is.
+                            ? `${p.eval_result.drop_pp.toFixed(2)}pp`
                             : '—'}
                         </div>
                       </div>
