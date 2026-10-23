@@ -377,8 +377,8 @@ async def test_resolve_only_requests_that_make_no_sense_queue_nothing(alert, bod
     db.add.assert_not_called()
 
 
-def test_core_may_claim_for_blumira_and_field_effect_but_not_for_any_other_vendor():
-    for vendor in ("huntress", "blumira", "fieldeffect"):
+def test_core_may_claim_for_its_own_queue_and_for_huntress_blumira_and_field_effect_but_not_for_any_other_vendor():
+    for vendor in ("huntress", "blumira", "fieldeffect", "core"):
         assert cf.ClaimRequest(vendor=vendor).vendor == vendor
     with pytest.raises(ValidationError):
         cf.ClaimRequest(vendor="ninjaone")

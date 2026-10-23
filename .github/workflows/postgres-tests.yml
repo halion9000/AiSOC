@@ -7,6 +7,11 @@ name: Postgres-backed tests
 #   test_view_as_audit_postgres.py                the view-as audit chain (hash chain, immutable audit_log) as the restricted role
 #   test_tenant_access_postgres.py                tenant access management with the session-tagging hook emulated
 #   test_service_migrations_postgres.py           ueba, honeytokens and purple-team migrated in sequence into one database
+#   test_bulk_and_m365_postgres.py                the bulk Run script route, Microsoft 365 check isolation, the multi-factor summary and Hunt, as the restricted role
+#   test_core_feed_scripts_postgres.py            the Run script round trip (scripts reported, queued, claimed, answered) and the check ingest, with the switch ON
+#   test_db_constraint_contract_postgres.py       every value the code writes into a limited column is allowed by the database (the Run script action was not)
+#   test_db_rls_and_grants_postgres.py            every table made since migration 083 has row-level security and a policy, and the application role can use it
+#   test_client_review_postgres.py                the client review page's numbers, the owner's own review and clean defaults
 #   test_rls_fail_closed_switch_postgres.py       the fail-closed switch of migration 081 in each state, ALTER DATABASE and RESET, and the unswitched-policy ratchet
 #   test_api_migrations_rerun_postgres.py         every API migration applied twice in a throwaway database (Postgres's init directory, then the runner), as compose does
 #   test_rls_platform_and_tenant_sessions_postgres.py  tenant/platform sessions and cross_tenant_reads with the fail-closed switch ON, across commits
@@ -213,6 +218,11 @@ jobs:
             tests/test_core_feed_sla_postgres.py \
             tests/test_iocs_from_alerts_postgres.py \
             tests/test_service_migrations_postgres.py \
+            tests/test_bulk_and_m365_postgres.py \
+            tests/test_core_feed_scripts_postgres.py \
+            tests/test_db_constraint_contract_postgres.py \
+            tests/test_db_rls_and_grants_postgres.py \
+            tests/test_client_review_postgres.py \
             -v --tb=short -rs --junitxml=postgres-tests.junit.xml
 
       # When a step above fails, put the failing test names and the end of pytest's output into ANNOTATIONS (visible on the run's summary and through the

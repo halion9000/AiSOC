@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CORE could never have collected a Run script request.** The claim route only accepted the vendors huntress, blumira and fieldeffect (CORE asks for `core`, so every poll was refused with a 422) and its answer could only describe approve, reject and resolve (a `run_script` row would have failed building the reply). Both now allow it. Found by a real-Postgres test of the whole round trip (scripts reported, request queued, claimed, answered).
 - **The Run script button would have failed against a real database.** Migration 084 limited the vendor-actions queue to approve, reject and resolve; migration 098 adds `run_script`. Found by a real-Postgres test of the bulk route (the earlier tests used a mock database).
 - **"Discovered on network" showed on machines other tools also list;** it now shows only when ThreatMate is the only source. Explore's *Open Identity* link pointed at a page that does not exist.
 

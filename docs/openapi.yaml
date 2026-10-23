@@ -21200,6 +21200,7 @@ components:
           - huntress
           - blumira
           - fieldeffect
+          - core
           title: Vendor
       type: object
       required:
@@ -21228,6 +21229,7 @@ components:
           - approve
           - reject
           - resolve
+          - run_script
           title: Action
         incident_uid:
           type: string

@@ -473,13 +473,14 @@ async def report_core_feed_state(tenant_token: str, body: StateReport, db: DBSes
     return StateResponse(updated=updated)
 
 
+# "core" is CORE's own queue: what A.C.O.R.N asks CORE to do itself rather than at a vendor (the Run script requests).
 class ClaimRequest(BaseModel):
-    vendor: Literal["huntress", "blumira", "fieldeffect"]
+    vendor: Literal["huntress", "blumira", "fieldeffect", "core"]
 
 
 class ClaimedAction(BaseModel):
     id: uuid.UUID
-    action: Literal["approve", "reject", "resolve"]
+    action: Literal["approve", "reject", "resolve", "run_script"]
     incident_uid: str
     params: dict[str, Any]
 
@@ -581,7 +582,9 @@ async def report_core_feed_action_result(
 class ScriptItem(BaseModel):
     id: int = Field(ge=1, le=2_000_000_000)
     name: str = Field(min_length=1, max_length=200)
-    one_click: bool = Field(default=False, description="Whether CORE runs it at once when asked from AiSOC (otherwise CORE asks its owner first).")
+    one_click: bool = Field(
+        default=False, description="Whether CORE runs it at once when asked from AiSOC (otherwise CORE asks its owner first)."
+    )
 
 
 class ScriptsReport(BaseModel):
@@ -601,7 +604,11 @@ async def report_core_feed_scripts(tenant_token: str, body: ScriptsReport, db: D
     await db.execute(
         update(Tenant)
         .where(Tenant.id == tenant_id)
-        .values(settings=func.jsonb_set(func.coalesce(Tenant.settings, cast({}, JSONB)), cast(["core_scripts"], ARRAY(Text)), cast(scripts, JSONB), True))
+        .values(
+            settings=func.jsonb_set(
+                func.coalesce(Tenant.settings, cast({}, JSONB)), cast(["core_scripts"], ARRAY(Text)), cast(scripts, JSONB), True
+            )
+        )
     )
     await db.commit()
     return ScriptsResponse(stored=len(scripts))
