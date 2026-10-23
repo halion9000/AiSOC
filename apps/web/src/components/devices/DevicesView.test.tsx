@@ -597,3 +597,39 @@ describe('filtersFromParams', () => {
     expect(filtersFromParams(new URLSearchParams('missing=bogus'))).toBeNull();
   });
 });
+
+describe('the tool menu', () => {
+  const summary = (tools: string[]) => ({ total: 3, not_in_master: 0, reporting_tools: tools });
+
+  it('lists every tool that reports devices, not just the ones on the rows now showing', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-1' })], { summary: summary(['addigy', 'huntress', 'ninjaone', 'screenconnect', 'threatmate', 'unifi']) }));
+    render(<DevicesView />);
+    await screen.findByText('A-1');
+    const options = within(screen.getByLabelText('Reported by')).getAllByRole('option').map((o) => (o as HTMLOptionElement).value);
+    expect(options).toEqual(expect.arrayContaining(['addigy', 'huntress', 'ninjaone', 'screenconnect', 'threatmate', 'unifi']));
+  });
+
+  it('keeps the chosen tool in the menu when a tab leaves it with no rows, and the list comes back when switching to All', async () => {
+    const all = list([device({ hostname: 'A-1', sources: [{ vendor: 'meraki', name: 'A-1', last_seen: NOW }] })], { summary: { total: 3, not_in_master: 0, reporting_tools: ['meraki', 'ninjaone'], kinds: { computer: 2, network: 1, camera: 0, other: 0 } } });
+    const none = list([], { summary: all.summary });
+    listMock.mockImplementation(async (q: { kind?: string; vendor?: string }) => (q.kind === 'network' ? none : all));
+    render(<DevicesView />);
+    await screen.findByText('A-1');
+    await userEvent.selectOptions(screen.getByLabelText('Reported by'), 'meraki');
+    await userEvent.click(screen.getByRole('tab', { name: /Network devices/ }));
+    expect(await screen.findByText('No devices match.')).toBeInTheDocument();
+    const select = screen.getByLabelText('Reported by') as HTMLSelectElement;
+    expect(select.value).toBe('meraki');
+    expect(within(select).getByRole('option', { name: 'Cisco Meraki' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /All devices/ }));
+    expect(await screen.findByText('A-1')).toBeInTheDocument();
+  });
+
+  it('shows a tool that is the filter even if the API does not list it', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-1' })], { summary: summary([]) }));
+    window.localStorage.setItem('aisoc.filters.devices', JSON.stringify({ vendor: 'meraki' }));
+    render(<DevicesView />);
+    await screen.findByText('A-1');
+    expect(within(screen.getByLabelText('Reported by')).getByRole('option', { name: 'Cisco Meraki' })).toBeInTheDocument();
+  });
+});

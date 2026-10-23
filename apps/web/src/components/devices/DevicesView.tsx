@@ -222,7 +222,9 @@ export default function DevicesView() {
   };
 
   const master = data?.master_vendor ?? null;
-  const toolChoices = [...new Set([...MASTER_CHOICES, ...(data?.items.flatMap(toolsOf) ?? []), ...(master ? [master] : [])])].sort();
+  // Every tool that reports any device (the API sends them for the whole estate, whatever the filters), plus the one chosen right now. Built from the rows on the page alone, a tool vanished from the menu as soon as a
+  // filter left it with no rows: the menu then SHOWED "Any tool" while that tool was still the filter, and nothing came back until it was cleared.
+  const toolChoices = [...new Set([...MASTER_CHOICES, ...(data?.summary.reporting_tools ?? []), ...(data?.items.flatMap(toolsOf) ?? []), ...(master ? [master] : []), ...(vendor ? [vendor] : [])])].sort();
 
   return (
     <div className="space-y-5 p-6">
