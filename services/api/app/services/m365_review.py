@@ -172,6 +172,10 @@ CHECK_QUESTIONS: dict[str, str] = {
     "outlook_addins": "Ensure users installing Outlook add-ins is not allowed",
     "transport_whitelist": "Ensure mail transport rules do not whitelist specific domains",
     "unified_audit_log": "Ensure Microsoft 365 audit log search is Enabled",
+    "zap_teams": "Ensure Zero-hour auto purge for Microsoft Teams is on",
+    "calendar_external_sharing": "Ensure `External sharing` of calendars is not available",
+    "bookings_restricted": "Ensure shared bookings paged are restricted to select users",
+    "admin_license_footprint": "Ensure administrative accounts use licenses with a reduced application footprint",
 }
 
 # Questions answered from the multi-factor list A.C.O.R.N already holds.
