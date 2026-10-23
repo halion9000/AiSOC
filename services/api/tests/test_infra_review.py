@@ -363,3 +363,14 @@ def test_the_training_item_says_where_its_answer_comes_from():
     assert "set up in Huntress SAT" in enrolled.evidence
     done = {i.key: i for i in readiness(facts, None, None, enrolled_in={"huntress-sat"}, sat=[chk("sat_training_assigned", "met", "2 assignments running")]).items}["training"]
     assert done.status == "met"
+
+
+def test_saas_products_say_which_cloud_the_checks_cover():
+    from app.services.infra_review import saas_products
+
+    assert saas_products([chk("saas_backup_microsoft", "met")]) == "microsoft"
+    assert saas_products([chk("saas_backup_google", "met")]) == "google"
+    assert saas_products([chk("saas_backup_microsoft", "met"), chk("saas_backup_google", "met")]) == "both"
+    assert saas_products([chk("saas_backup_email", "met")]) is None
+    assert saas_products(None) is None
+    assert saas_products([]) is None

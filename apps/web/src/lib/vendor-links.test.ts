@@ -13,7 +13,7 @@ describe('vendorClientUrl', () => {
     expect(vendorClientUrl('dnsfilter', '5963484')).toBe('https://app.dnsfilter.com/organizations/5963484');
     expect(vendorClientUrl('timus', 'any-customer')).toBe('https://partners.timusnetworks.com/customers?page=1&limit=50');
     expect(vendorClientUrl('itglue', '7713933')).toBe('https://liveoak.itglue.com/7713933');
-    expect(vendorClientUrl('datto-saas', '494057')).toBe('https://app.backupify.com/office365/customers/494057');
+    expect(vendorClientUrl('datto-saas', '494057', 'microsoft')).toBe('https://app.backupify.com/office365/customers/494057');
     expect(vendorClientUrl('blumira', '49368bf5-a906-4d90-99e5-e637405db6c6')).toBe('https://app.blumira.com/49368bf5-a906-4d90-99e5-e637405db6c6/dashboard/summary');
     expect(vendorClientUrl('huntress-sat', '96354')).toBe('https://mycurricula.com/company/96354/dashboard');
   });
@@ -51,5 +51,21 @@ describe('vendorClientUrl', () => {
   it('ignores an environment value that is not JSON', () => {
     vi.stubEnv('NEXT_PUBLIC_VENDOR_LINKS', 'not json');
     expect(vendorClientUrl('ninjaone', '83')).toBe('https://app.ninjarmm.com/#/customerDashboard/83/overview');
+  });
+});
+
+describe('Datto SaaS Protection links', () => {
+  const LIST = 'https://portal.dattobackup.com/status/saas/overview';
+  it('a Microsoft 365 customer opens its own page', () => {
+    expect(vendorClientUrl('datto-saas', '494057', 'microsoft')).toBe('https://app.backupify.com/office365/customers/494057');
+  });
+  it('a Google customer, one with both, and one whose product is not known open the SaaS Protection list', () => {
+    expect(vendorClientUrl('datto-saas', '433930', 'google')).toBe(LIST);
+    expect(vendorClientUrl('datto-saas', '433930', 'both')).toBe(LIST);
+    expect(vendorClientUrl('datto-saas', '433930', null)).toBe(LIST);
+    expect(vendorClientUrl('datto-saas', '433930')).toBe(LIST);
+  });
+  it('the product makes no difference to other tools', () => {
+    expect(vendorClientUrl('ninjaone', '83', 'google')).toBe('https://app.ninjarmm.com/#/customerDashboard/83/overview');
   });
 });

@@ -21,7 +21,7 @@ export interface Posture {
   alerts: { open: number; critical: number; high: number; without_ticket: number };
   open_cases: number;
   /** The tools this client is mapped to. Absent from an older API. */
-  tools?: { vendor: string; vendor_client_id: string; vendor_client_name?: string | null }[];
+  tools?: { vendor: string; vendor_client_id: string; vendor_client_name?: string | null; product?: string | null }[];
 }
 
 interface Client {
@@ -63,7 +63,7 @@ export function LinkedTools({ tools }: { tools: NonNullable<Posture["tools"]> })
       <h3 className="mb-2 text-sm uppercase text-slate-500">Linked tools</h3>
       <ul className="flex flex-wrap gap-2">
         {tools.map((t) => {
-          const url = vendorClientUrl(t.vendor, t.vendor_client_id);
+          const url = vendorClientUrl(t.vendor, t.vendor_client_id, t.product);
           const label = vendorLabel(t.vendor);
           const detail = t.vendor_client_name && t.vendor_client_name !== label ? `${label}: ${t.vendor_client_name}` : label;
           const chip = (

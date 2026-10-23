@@ -124,4 +124,17 @@ describe('the tools a client is linked to', () => {
     await show(posture({ tools: [] }));
     expect(screen.queryByLabelText('Tools this client is linked to')).not.toBeInTheDocument();
   });
+
+  it('opens a Google Datto SaaS customer on the list and a Microsoft one on its own page', async () => {
+    await show(
+      posture({
+        tools: [
+          { vendor: 'datto-saas', vendor_client_id: '433930', vendor_client_name: 'G Co', product: 'google' },
+          { vendor: 'datto-saas', vendor_client_id: '494057', vendor_client_name: 'M Co', product: 'microsoft' },
+        ],
+      }),
+    );
+    const links = within(screen.getByLabelText('Tools this client is linked to')).getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['https://portal.dattobackup.com/status/saas/overview', 'https://app.backupify.com/office365/customers/494057']);
+  });
 });

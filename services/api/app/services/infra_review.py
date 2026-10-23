@@ -375,3 +375,11 @@ def saas_tools(checks: list[dict[str, Any]] | None) -> str | None:
         if any(isinstance(c, dict) and c.get("source") == src and c.get("key") in _SAAS_KEYS for c in checks or [])
     ]
     return " + ".join(names) or None
+
+
+def saas_products(checks: list[dict[str, Any]] | None) -> str | None:
+    """Which cloud the checks cover: "microsoft", "google" or "both". None when they say neither (nothing read yet, or an email-only tool)."""
+    keys = {c.get("key") for c in checks or [] if isinstance(c, dict)}
+    microsoft, google = "saas_backup_microsoft" in keys, "saas_backup_google" in keys
+    return "both" if microsoft and google else "microsoft" if microsoft else "google" if google else None
+

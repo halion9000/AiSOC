@@ -21,8 +21,9 @@ from app.api.v1.endpoints.identity import counts_for_mfa
 from app.db.rls_scope import acting_as_tenant
 from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
-from app.models.signin import IdentityMfaUser
+from app.models.signin import ClientM365Check, IdentityMfaUser
 from app.models.tenant import Tenant
+from app.services.infra_review import saas_products
 
 router = APIRouter(prefix="/client-posture", tags=["posture"])
 
@@ -59,6 +60,8 @@ class PostureTool(BaseModel):
     vendor: str
     vendor_client_id: str
     vendor_client_name: str | None = None
+    # What the tool protects for this client, when it says (Datto SaaS Protection: "microsoft", "google" or "both"), so a link can open the right page.
+    product: str | None = None
 
 
 class ClientPosture(BaseModel):
@@ -131,7 +134,25 @@ async def client_posture(
             .order_by(ClientAlias.vendor, ClientAlias.vendor_client_name)
         )
     ).all()
-    tools = [PostureTool(vendor=v, vendor_client_id=i, vendor_client_name=n or None) for v, i, n in aliases]
+    saas_checks: list[dict] = []
+    if any(v == "datto-saas" for v, _, _ in aliases):
+        async with contextlib.nullcontext() if client_id == owner else acting_as_tenant(db, client_id):
+            row = (
+                (
+                    await db.execute(
+                        select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source == "datto-saas")
+                    )
+                )
+                .scalars()
+                .first()
+            )
+        saas_checks = [c for c in (row.checks if row is not None else []) if isinstance(c, dict)]
+    tools = [
+        PostureTool(
+            vendor=v, vendor_client_id=i, vendor_client_name=n or None, product=saas_products(saas_checks) if v == "datto-saas" else None
+        )
+        for v, i, n in aliases
+    ]
     identity = PostureIdentity(refreshed_at=max(u.refreshed_at for u in users), **counts_for_mfa(list(users))) if users else None
     name = clients.get(client_id)
     return ClientPosture(

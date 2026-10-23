@@ -25,13 +25,16 @@ const TEMPLATES: Record<string, string> = {
   timus: 'https://partners.timusnetworks.com/customers?page=1&limit=50',
   // IT Glue: the organization's page in your own IT Glue.
   itglue: 'https://liveoak.itglue.com/{id}',
-  // Datto SaaS Protection (Backupify): the customer's page; the customer id is the one SaaS Protection lists for the domain.
+  // Datto SaaS Protection (Backupify): a Microsoft 365 customer has its own page, by the customer id SaaS Protection lists for the domain. A Google customer's page lives on a server-specific address, so Google (and
+  // a customer whose product is not known) opens the SaaS Protection list instead.
   'datto-saas': 'https://app.backupify.com/office365/customers/{id}',
   // Blumira: the account's dashboard.
   blumira: 'https://app.blumira.com/{id}/dashboard/summary',
   // Addigy: a client here is a policy; its page is the policy.
   addigy: 'https://app.addigy.com/policies/{id}',
 };
+
+const DATTO_SAAS_LIST = 'https://portal.dattobackup.com/status/saas/overview';
 
 function overrides(): Record<string, string> {
   const raw = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_VENDOR_LINKS : undefined;
@@ -46,7 +49,8 @@ function overrides(): Record<string, string> {
 }
 
 /** The address of the client's page in this tool, or null when none is known or the id is unusable. Only https addresses are ever made, and the id is always encoded. */
-export function vendorClientUrl(vendor: string, vendorClientId: string): string | null {
+export function vendorClientUrl(vendor: string, vendorClientId: string, product?: string | null): string | null {
+  if (vendor === 'datto-saas' && product !== 'microsoft') return DATTO_SAAS_LIST;
   const template = { ...TEMPLATES, ...overrides() }[vendor];
   const id = (vendorClientId ?? '').trim();
   // eslint-disable-next-line no-control-regex
