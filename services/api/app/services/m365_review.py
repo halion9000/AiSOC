@@ -10,6 +10,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.services.mfa_registration import has_second_factor, registration_known, required_of
+
 # (group, the template's question), in the template's order. Generated from the vCIO Toolbox review template's M365 sheet; the wording is the template's own.
 QUESTIONS: tuple[tuple[str, str], ...] = (
     ("M365 Admin Center", "Ensure that between two and four global admins are designated"),
@@ -215,10 +217,12 @@ def from_mfa(users: list[Any]) -> dict[str, tuple[str, str]]:
         return {}
     out: dict[str, tuple[str, str]] = {}
     people = len(users)
-    covered = sum(1 for u in users if u.registered and (u.ca_enforced or u.security_defaults or u.per_user in ("enabled", "enforced")))
-    out["everyone"] = (_band(100 * covered / people, 95, 80), f"{covered} of {people} people have Multi-Factor required and set up.")
+    known = registration_known(users)
+    covered = sum(1 for u in users if has_second_factor(u, known) and required_of(u))
+    note = "" if known else " (Microsoft doesn't report who has registered, so this is who is required to.)"
+    out["everyone"] = (_band(100 * covered / people, 95, 80), f"{covered} of {people} people have Multi-Factor required and set up.{note}")
     admins = [u for u in users if u.admin]
-    bare = [u for u in admins if not (u.registered and (u.ca_enforced or u.security_defaults or u.per_user in ("enabled", "enforced")))]
+    bare = [u for u in admins if not (has_second_factor(u, known) and required_of(u))]
     if admins:
         out["admins"] = (
             "met" if not bare else "not_met",

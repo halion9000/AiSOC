@@ -190,3 +190,16 @@ describe('search, administrators-only and sorting together', () => {
     expect(names()).toEqual(['Acme Law4', 'Acme Farm', 'Acme Dent']);
   });
 });
+
+describe('MfaStatus: registration not reported', () => {
+  it('marks a client whose second-factor registration Microsoft does not report, and only that client', async () => {
+    authFetch.mockResolvedValue(reply([client({ client_id: 'c1', client_name: 'Austin Park', people: 25, with_mfa: 25, without_mfa: 0, not_required: 0, admins_without_mfa: 0, registration_unknown: 1 }), client({ client_id: 'c2', client_name: 'Birch Law' })]));
+    render(<MfaStatus />);
+    await screen.findByText('Austin Park');
+    const marks = screen.getAllByTestId('registration-unknown');
+    expect(marks).toHaveLength(1);
+    expect(marks[0].closest('tr')).toHaveTextContent('Austin Park');
+    expect(marks[0].getAttribute('title')).toMatch(/Entra ID P1/);
+    expect(marks[0].closest('tr')).toHaveTextContent('100%');
+  });
+});

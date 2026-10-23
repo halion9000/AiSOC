@@ -82,7 +82,7 @@ def test_counts_separate_required_not_required_and_missing_and_ignore_accounts_t
         user(registered=False, enabled=False),
         user(registered=False, user_type="Guest"),
     ]
-    assert counts_for_mfa(users) == {"people": 6, "with_mfa": 3, "not_required": 1, "without_mfa": 2, "admins_without_mfa": 1}
+    assert counts_for_mfa(users) == {"people": 6, "with_mfa": 3, "not_required": 1, "without_mfa": 2, "admins_without_mfa": 1, "registration_unknown": 0}
 
 
 def test_a_per_user_setting_of_disabled_does_not_count_as_required():

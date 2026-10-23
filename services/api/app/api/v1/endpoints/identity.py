@@ -28,6 +28,7 @@ from app.db.rls_sessions import adopt_tenant
 from app.models.signin import DirectoryAuditEvent, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.directory_scoring import directory_features, sensitivity_of
+from app.services.mfa_registration import has_second_factor, registration_known, required_of
 from app.services.signin_scoring import HISTORY_DAYS, score_events
 
 LOG = logging.getLogger(__name__)
@@ -338,23 +339,24 @@ def _counted(users: list[Any]) -> list[Any]:
     return [u for u in users if u.enabled and u.licensed and (u.user_type or "Member").lower() == "member"]
 
 
-def _required(u: Any) -> bool:
-    """Something makes this person use their second factor: a conditional access policy, security defaults, or the per-user setting."""
-    return bool(u.ca_enforced or u.security_defaults or (u.per_user or "").lower() in ("enforced", "enabled"))
+_required = required_of
 
 
 def counts_for_mfa(users: list[Any]) -> dict[str, int]:
-    """The numbers shown for one client's people: those with a second factor that is required, those who registered one that nothing requires, and those with none."""
+    """The numbers shown for one client's people: those with a second factor that is required, those who registered one that nothing requires, and those with none.
+    ``registration_unknown`` is 1 when Microsoft reports no registrations at all for the client (it needs Entra ID P1): then a person counts as covered when something requires it of them."""
     counted = _counted(users)
-    with_mfa = [u for u in counted if u.registered and _required(u)]
-    not_required = [u for u in counted if u.registered and not _required(u)]
-    without = [u for u in counted if not u.registered]
+    known = registration_known(users)
+    with_mfa = [u for u in counted if has_second_factor(u, known) and _required(u)]
+    not_required = [u for u in counted if known and u.registered and not _required(u)]
+    without = [u for u in counted if not has_second_factor(u, known)]
     return {
         "people": len(counted),
         "with_mfa": len(with_mfa),
         "not_required": len(not_required),
         "without_mfa": len(without),
         "admins_without_mfa": len([u for u in without if u.admin]),
+        "registration_unknown": 0 if known else 1,
     }
 
 
@@ -367,6 +369,8 @@ class MfaClientSummary(BaseModel):
     not_required: int
     without_mfa: int
     admins_without_mfa: int
+    # 1 when Microsoft reports no registrations for this client (needs Entra ID P1): the counts then show who is required to use a second factor, not who signed up.
+    registration_unknown: int = 0
     refreshed_at: datetime | None = None
 
 
@@ -423,7 +427,8 @@ async def mfa_users(
             .scalars()
             .all()
         )
-    picked = [u for u in _counted(list(users)) if (not u.registered if which == "without" else (u.registered and not _required(u)))]
+    known = registration_known(list(users))
+    picked = [u for u in _counted(list(users)) if (not has_second_factor(u, known) if which == "without" else (known and u.registered and not _required(u)))]
     picked.sort(key=lambda u: (not u.admin, u.upn))
     return [
         MfaUserOut(upn=u.upn, display_name=u.display_name, admin=u.admin, registered=u.registered, required=_required(u), methods=u.methods)

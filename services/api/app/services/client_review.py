@@ -116,7 +116,14 @@ def readiness(facts: DeviceFacts, mfa: dict[str, int] | None, secure_percent: fl
         add("mfa_admins", "Is Multi-Factor required for administrators?", "unknown", "No multi-factor data for this client yet.")
     else:
         pct = _share(mfa["with_mfa"], mfa["people"])
-        add("mfa_everyone", "Is Multi-Factor required for everyone?", _banded(pct, 95, 80), f"{mfa['with_mfa']} of {mfa['people']} people ({pct:.0f}%) have a second factor that is required; {mfa['without_mfa']} have none.")
+        if mfa.get("registration_unknown"):
+            evidence = (
+                f"{mfa['with_mfa']} of {mfa['people']} people ({pct:.0f}%) are required to use a second factor (security defaults, conditional access or a per-user setting); {mfa['without_mfa']} are not. "
+                "Microsoft doesn't report who has registered one for this client (that needs Entra ID P1), so this shows what is required, not who has signed up."
+            )
+        else:
+            evidence = f"{mfa['with_mfa']} of {mfa['people']} people ({pct:.0f}%) have a second factor that is required; {mfa['without_mfa']} have none."
+        add("mfa_everyone", "Is Multi-Factor required for everyone?", _banded(pct, 95, 80), evidence)
         add(
             "mfa_admins",
             "Is Multi-Factor required for administrators?",

@@ -17,6 +17,8 @@ export interface MfaClient {
   not_required: number;
   without_mfa: number;
   admins_without_mfa: number;
+  /** 1 when Microsoft reports no registrations for this client (it needs Entra ID P1): the counts show who is required to use a second factor, not who signed up. */
+  registration_unknown?: number;
   refreshed_at: string | null;
 }
 
@@ -102,7 +104,19 @@ function ClientRow({ c, open, setOpen }: { c: MfaClient; open: Open; setOpen: (v
       <tr className="border-b border-slate-800" data-testid="client-row">
         <td className="py-2 text-slate-200">{c.client_name ?? "This organization"}</td>
         <td className="text-slate-400">{c.people}</td>
-        <td className="text-slate-300">{coveragePercent(c)}</td>
+        <td className="text-slate-300">
+          {coveragePercent(c)}
+          {c.registration_unknown ? (
+            <span
+              className="ml-1 cursor-help text-sky-300"
+              title="Microsoft doesn't report who has registered a second factor for this client (that needs Entra ID P1). This is the share of people a security-defaults, conditional access or per-user setting requires it of."
+              aria-label="Counted from what is required, because registration is not reported"
+              data-testid="registration-unknown"
+            >
+              ⓘ
+            </span>
+          ) : null}
+        </td>
         <td>
           {c.not_required > 0 ? (
             <button type="button" onClick={() => toggle("not_required")} className="text-amber-300 hover:underline">

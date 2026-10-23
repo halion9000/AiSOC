@@ -27950,6 +27950,10 @@ components:
         admins_without_mfa:
           type: integer
           title: Admins Without Mfa
+        registration_unknown:
+          type: integer
+          title: Registration Unknown
+          default: 0
         refreshed_at:
           anyOf:
           - type: string
