@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.services.device_merge import os_kind
-from app.services.infra_review import backup_readiness, network_online, saas_backup
+from app.services.infra_review import EDR_TOOLS, backup_readiness, edr_summary, network_online, saas_backup
 from app.services.sat_review import sat_training
 
 # Which machines each tool should be on. Phones and tablets are never counted against a tool that has no agent for them.
@@ -174,7 +174,21 @@ def readiness(
                 f"{c.have} of {c.of} {what} machines ({c.percent:.0f}%) report {tool_label(tool)}.",
             )
 
-    tool_item("edr", "Is endpoint detection and response on every computer?", "huntress", 95, 80, "Windows, Mac and Linux")
+    if devices is None:
+        tool_item("edr", "Is endpoint detection and response on every computer?", "huntress", 95, 80, "Windows, Mac and Linux")
+    else:
+        edr = edr_summary(devices, _ENDPOINT)
+        if edr.total == 0:
+            add("edr", "Is endpoint detection and response on every computer?", "unknown", "No Windows, Mac or Linux machines are listed for this client.")
+        elif edr.covered == 0 and all(cov[t].enrolled is False for t in EDR_TOOLS if t in cov):
+            add("edr", "Is endpoint detection and response on every computer?", "not_met", f"Not currently enrolled in Huntress or Field Effect: none of the {edr.total} Windows, Mac and Linux machines report an EDR.")
+        else:
+            add(
+                "edr",
+                "Is endpoint detection and response on every computer?",
+                _banded(edr.percent, 95, 80),
+                f"{edr.covered} of {edr.total} Windows, Mac and Linux machines ({edr.percent:.0f}%) report an EDR, Huntress or Field Effect ({edr.line()}).",
+            )
     tool_item("management", "Are computers managed and patched through a management tool?", "ninjaone", 95, 80, "Windows, Mac and Linux")
     tool_item("dns", "Is DNS or web filtering on every computer?", "dnsfilter", 90, 70, "Windows, Mac and Linux")
     tool_item("privilege", "Is administrator access controlled and approved (privilege elevation)?", "autoelevate", 90, 60, "Windows")

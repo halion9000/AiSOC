@@ -130,6 +130,57 @@ def virtualization_answer(devices: list[Any]) -> tuple[str, str | None, str]:
     return "unknown", None, "No machine reports running as a virtual machine; a physical host cannot be seen from here, so ask the client."
 
 
+# ---- endpoint detection and response (Huntress and Field Effect) ------------------------------------------------------------------------------------
+
+# Two tools act as the endpoint EDR: a machine is covered when either reports it.
+EDR_TOOLS = {"huntress": "Huntress", "fieldeffect": "Field Effect"}
+
+
+class EdrSummary:
+    def __init__(self, total: int) -> None:
+        self.total = total
+        self.covered = 0
+        self.by_tool: dict[str, int] = {}
+        self.both = 0
+
+    @property
+    def percent(self) -> float:
+        return 100 * self.covered / self.total if self.total else 0.0
+
+    def line(self) -> str:
+        parts = ", ".join(f"{EDR_TOOLS[t]} {n}" for t, n in self.by_tool.items())
+        both = f", {self.both} report both" if self.both else ""
+        return f"{parts}{both}" if parts else "none report an EDR"
+
+
+def edr_summary(devices: list[Any], kinds: set[str]) -> EdrSummary:
+    """How many of the client's machines of these operating systems are covered by an EDR: Huntress or Field Effect, counted once each."""
+    eligible = [d for d in devices if os_kind(getattr(d, "os", None)) in kinds]
+    out = EdrSummary(len(eligible))
+    for d in eligible:
+        have = {s.vendor for s in d.sources} & set(EDR_TOOLS)
+        for tool in have:
+            out.by_tool[tool] = out.by_tool.get(tool, 0) + 1
+        out.covered += 1 if have else 0
+        out.both += 1 if len(have) == len(EDR_TOOLS) else 0
+    out.by_tool = {t: out.by_tool[t] for t in EDR_TOOLS if t in out.by_tool}
+    return out
+
+
+def edr_answer(devices: list[Any], kind: str, what: str, enrolled: dict[str, bool | None] | None = None) -> tuple[str, str | None, str]:
+    """Suggested answer for "what endpoint security is in use": every EDR that covers machines of this kind, with its count."""
+    s = edr_summary(devices, {kind})
+    if s.covered > 0:
+        names = ", ".join(f"{EDR_TOOLS[t]} ({n})" if len(s.by_tool) > 1 else EDR_TOOLS[t] for t, n in sorted(s.by_tool.items(), key=lambda kv: -kv[1]))
+        return "seen", names, f"{s.covered} of {s.total} {what} report an EDR ({s.line()})."
+    if s.total == 0:
+        return "unknown", None, f"No {what} are listed for this client."
+    out = [EDR_TOOLS[t] for t in EDR_TOOLS if (enrolled or {}).get(t) is False]
+    if out:
+        return "not_seen", "None seen", f"The client is not enrolled in {' or '.join(out)}: none of its {s.total} {what} report an EDR."
+    return "not_seen", "None seen", f"None of the client's {s.total} {what} report Huntress or Field Effect."
+
+
 # ---- backups -------------------------------------------------------------------------------------------------------------------------------------------
 
 # The tools that back up machines: Datto BCDR and Slide both protect servers (and the computers a client chooses to add). Datto SaaS Protection backs up Microsoft 365 and Google Workspace instead and is

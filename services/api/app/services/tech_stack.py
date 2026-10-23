@@ -13,7 +13,16 @@ from pydantic import BaseModel
 
 from app.services.client_review import DeviceFacts, tool_label
 from app.services.device_merge import os_kind
-from app.services.infra_review import SAAS_NAME, backup_answer, network_answer, saas_backup, server_brand_answer, virtualization_answer
+from app.services.infra_review import (
+    EDR_TOOLS,
+    SAAS_NAME,
+    backup_answer,
+    edr_answer,
+    network_answer,
+    saas_backup,
+    server_brand_answer,
+    virtualization_answer,
+)
 from app.services.sat_review import TOOL_NAME as SAT_NAME
 from app.services.sat_review import sat_awareness, sat_phishing
 
@@ -101,7 +110,7 @@ def tech_stack(
     put("backup_isp", "unknown", None, _UNKNOWN)
     put("server_brand", *server_brand_answer(devices))
     put("virtualization", *virtualization_answer(devices))
-    by_tool("edr_pc", "huntress", "windows", "Windows computers")
+    put("edr_pc", *edr_answer(devices, "windows", "Windows computers", {t: cov[t].enrolled for t in EDR_TOOLS if t in cov}))
     put("encryption", "unknown", None, _UNKNOWN)
     for key in ("spam_filter", "anti_phishing", "password_manager", "external_email_banner"):
         put(key, "unknown", None, _UNKNOWN)
@@ -114,7 +123,7 @@ def tech_stack(
         put("phishing_sim", "not_seen", "None seen", f"{SAT_NAME}: {phishing[1]}")
     else:
         put("phishing_sim", "seen", SAT_NAME, f"{SAT_NAME}: {phishing[1]}")
-    by_tool("edr_mac", "huntress", "mac", "Macs")
+    put("edr_mac", *edr_answer(devices, "mac", "Macs", {t: cov[t].enrolled for t in EDR_TOOLS if t in cov}))
     awareness = sat_awareness(sat)
     if awareness is None:
         put("awareness", "unknown", None, _UNKNOWN)

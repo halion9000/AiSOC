@@ -72,12 +72,24 @@ describe('the not-in tiles for ScreenConnect and Field Effect', () => {
     await waitFor(() => expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ missing: 'screenconnect' })));
   });
 
-  it('are not shown while no device comes from those tools', async () => {
-    listMock.mockResolvedValue(list([device({ hostname: 'A-2' })], { summary: { total: 1, not_in_master: 0, not_in_screenconnect: 99, reporting_tools: ['ninjaone'] } }));
+  it('ScreenConnect is not shown while no device comes from it; the Field Effect EDR tile is, with a dash and the reason', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-2' })], { summary: { total: 1, not_in_master: 0, not_in_screenconnect: 99, not_in_fieldeffect: 99, reporting_tools: ['ninjaone'] } }));
     render(<DevicesView />);
     await screen.findByText('A-2');
     expect(screen.queryByTestId('devices-missing-screenconnect')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('devices-missing-fieldeffect')).not.toBeInTheDocument();
+    const tile = screen.getByTestId('devices-missing-fieldeffect');
+    expect(tile).toHaveTextContent('—');
+    expect(tile).not.toHaveTextContent('99');
+    expect(screen.getByText(/No Field Effect devices stored yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Not in Field Effect/).textContent).toContain('EDR');
+  });
+
+  it('both EDR tiles say EDR, so the two are easy to tell from the other tools', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-3' })], { summary: { total: 1, not_in_master: 0, not_in_huntress: 3, not_in_fieldeffect: 5, reporting_tools: ['ninjaone', 'fieldeffect'] } }));
+    render(<DevicesView />);
+    await screen.findByText('A-3');
+    expect(screen.getByText(/Not in Huntress/).textContent).toContain('EDR');
+    expect(screen.getByTestId('devices-missing-fieldeffect')).toHaveTextContent('5');
   });
 });
 

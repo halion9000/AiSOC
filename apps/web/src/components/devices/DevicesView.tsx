@@ -301,11 +301,13 @@ export default function DevicesView() {
           </div>
         </button>
         {(['addigy', 'threatmate', 'huntress', 'screenconnect', 'fieldeffect'] as const)
-          // ScreenConnect and Field Effect tiles only mean something once that tool feeds devices.
-          .filter((tool) => (tool !== 'screenconnect' && tool !== 'fieldeffect') || (data?.summary.reporting_tools ?? []).includes(tool))
+          // The ScreenConnect tile only means something once that tool feeds devices. Field Effect is one of the two EDRs, so its tile is always there.
+          .filter((tool) => tool !== 'screenconnect' || (data?.summary.reporting_tools ?? []).includes(tool))
           .map((tool) => {
           const count = data?.summary[({ addigy: 'not_in_addigy', threatmate: 'not_in_threatmate', huntress: 'not_in_huntress', screenconnect: 'not_in_screenconnect', fieldeffect: 'not_in_fieldeffect' } as const)[tool]];
           const on = missing === tool;
+          // Until Field Effect has devices stored, "not in Field Effect" would be every computer: show a dash and say why.
+          const waiting = tool === 'fieldeffect' && !!data && !(data.summary.reporting_tools ?? []).includes('fieldeffect');
           return (
             <button
               key={tool}
@@ -319,12 +321,14 @@ export default function DevicesView() {
             >
               <div className="text-xs text-gray-400">
                 Not in {vendorLabel(tool)}
+                {(tool === 'huntress' || tool === 'fieldeffect') && <span className="text-gray-500"> EDR</span>}
                 {tool === 'addigy' && <span className="text-gray-500"> (Macs)</span>}
                 {tool === 'screenconnect' && <span className="text-gray-500"> (not iOS/iPadOS/tvOS)</span>}
               </div>
               <div className="text-2xl font-semibold text-amber-300" data-testid={`devices-missing-${tool}`}>
-                {count ?? '—'}
+                {waiting ? '—' : (count ?? '—')}
               </div>
+              {waiting && <div className="text-[10px] text-gray-500">No Field Effect devices stored yet: map its clients first.</div>}
             </button>
           );
         })}

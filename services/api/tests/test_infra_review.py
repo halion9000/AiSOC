@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from app.services.client_review import device_facts, readiness
-from app.services.infra_review import backup_summary, hypervisor_of, network_online, network_role, saas_backup
+from app.services.infra_review import backup_summary, edr_summary, hypervisor_of, network_online, network_role, saas_backup
 from app.services.tech_stack import tech_stack
 from app.services.vcio_proposals import drafts_from_readiness
 
@@ -239,3 +239,55 @@ def test_the_checklist_shows_network_health_only_when_a_tool_reports_it():
     assert (item.status, "9 of 10" in item.evidence) == ("partly", True)
     allup = [dev([src("unifi", product_line="network", status="online")])]
     assert {i.key: i for i in readiness(facts, None, None, devices=allup).items}["network_online"].status == "met"
+
+
+# ---- EDR: Huntress and Field Effect --------------------------------------------------------------------------------------------------------------------
+
+
+def edr_devices():
+    return [
+        dev([src("huntress"), src("ninjaone")], os="Windows 11"),
+        dev([src("fieldeffect")], os="Windows 10"),
+        dev([src("huntress"), src("fieldeffect")], os="Windows Server 2022"),
+        dev([src("ninjaone")], os="Windows 11"),
+        dev([src("huntress")], os="macOS 14"),
+        dev([src("ninjaone")], os="macOS 13"),
+    ]
+
+
+def test_a_machine_is_covered_when_either_edr_reports_it_and_counted_once():
+    s = edr_summary(edr_devices(), {"windows", "mac", "linux"})
+    assert (s.total, s.covered, s.both) == (6, 4, 1)
+    assert s.by_tool == {"huntress": 3, "fieldeffect": 2}
+    assert "Huntress 3, Field Effect 2, 1 report both" == s.line()
+
+
+def test_the_checklist_counts_both_edrs_instead_of_huntress_alone():
+    facts = device_facts(edr_devices(), 0, 0)
+    item = {i.key: i for i in readiness(facts, None, None, devices=edr_devices()).items}["edr"]
+    assert item.status == "not_met"
+    assert "4 of 6" in item.evidence and "Field Effect" in item.evidence and "Huntress" in item.evidence
+    covered = [dev([src("fieldeffect")], os="Windows 11") for _ in range(10)]
+    ok = {i.key: i for i in readiness(device_facts(covered, 0, 0), None, None, devices=covered).items}["edr"]
+    assert ok.status == "met"
+
+
+def test_the_checklist_says_unknown_with_no_machines_and_not_met_when_neither_edr_is_enrolled():
+    none = {i.key: i for i in readiness(device_facts([], 0, 0), None, None, devices=[]).items}["edr"]
+    assert none.status == "unknown"
+    plain = [dev([src("ninjaone")], os="Windows 11")]
+    facts = device_facts(plain, 0, 0, mapped_tools={"huntress", "fieldeffect"})
+    gone = {i.key: i for i in readiness(facts, None, None, devices=plain).items}["edr"]
+    assert gone.status == "not_met"
+    assert "Huntress or Field Effect" in gone.evidence
+
+
+def test_the_endpoint_security_questions_name_both_edrs_for_pcs_and_macs():
+    a = answers(edr_devices())
+    assert a["edr_pc"].status == "seen"
+    assert a["edr_pc"].suggested in ("Huntress (2), Field Effect (2)", "Field Effect (2), Huntress (2)")
+    assert (a["edr_mac"].status, a["edr_mac"].suggested) == ("seen", "Huntress")
+    nothing = answers([dev([src("ninjaone")], os="Windows 11")])
+    assert (nothing["edr_pc"].status, nothing["edr_pc"].suggested) == ("not_seen", "None seen")
+    assert "Field Effect" in nothing["edr_pc"].evidence
+    assert answers([])["edr_pc"].status == "unknown"
