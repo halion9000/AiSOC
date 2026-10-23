@@ -575,7 +575,11 @@ export interface DeviceRow {
   hidden_since?: string | null;
   /** True when the device hid itself: every tool that gives a check-in time has gone 10 days without one. It returns when one checks in. */
   auto_hidden?: boolean;
+  /** What sort of device it is: a computer, a network device (switch, router, access point...), a camera, or other (a printer, a UPS...). */
+  kind?: DeviceKind;
 }
+
+export type DeviceKind = 'computer' | 'network' | 'camera' | 'other';
 
 export interface DeviceAlert {
   id: string;
@@ -588,7 +592,7 @@ export interface DeviceAlert {
 
 export interface DeviceList {
   master_vendor: string | null;
-  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; not_in_screenconnect?: number; not_in_fieldeffect?: number; reporting_tools?: string[]; needs_attention?: number; stale_agents?: number; offline?: number; with_alerts?: number; hidden?: number; long_offline?: number };
+  summary: { total: number; not_in_master: number; not_in_addigy?: number; not_in_threatmate?: number; not_in_huntress?: number; not_in_screenconnect?: number; not_in_fieldeffect?: number; reporting_tools?: string[]; needs_attention?: number; stale_agents?: number; offline?: number; with_alerts?: number; hidden?: number; long_offline?: number; kinds?: Partial<Record<DeviceKind, number>> };
   items: DeviceRow[];
   total: number;
   page: number;
@@ -617,6 +621,8 @@ export interface DeviceQuery {
   hidden?: boolean;
   /** Only devices running this kind of operating system. */
   os?: 'windows' | 'mac' | 'ios' | 'linux';
+  /** Only this kind of device: computers, network devices, cameras or other. */
+  kind?: DeviceKind;
 }
 
 export interface DuplicatePair {
@@ -682,6 +688,7 @@ export const devicesApi = {
     if (q.hasAlerts) p.set('has_alerts', 'true');
     if (q.hidden) p.set('hidden', 'true');
     if (q.os) p.set('os', q.os);
+    if (q.kind) p.set('kind', q.kind);
     const qs = p.toString();
     return request<DeviceList>(`/api/v1/devices${qs ? `?${qs}` : ''}`);
   },
@@ -707,6 +714,7 @@ export const devicesApi = {
     if (q.hasAlerts) p.set('has_alerts', 'true');
     if (q.hidden) p.set('hidden', 'true');
     if (q.os) p.set('os', q.os);
+    if (q.kind) p.set('kind', q.kind);
     return p.toString();
   },
   /** The devices matching the filters, as CSV text. */

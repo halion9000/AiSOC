@@ -9867,6 +9867,19 @@ paths:
           description: Only devices running this kind of operating system.
           title: Os
         description: Only devices running this kind of operating system.
+      - name: kind
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(computer|network|camera|other)$
+          - type: 'null'
+          description: 'Only this kind of device: computers, network devices, cameras
+            or other.'
+          title: Kind
+        description: 'Only this kind of device: computers, network devices, cameras
+          or other.'
       responses:
         '200':
           description: Successful Response
@@ -9976,6 +9989,15 @@ paths:
             pattern: ^(windows|mac|ios|linux)$
           - type: 'null'
           title: Os
+      - name: kind
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(computer|network|camera|other)$
+          - type: 'null'
+          title: Kind
       responses:
         '200':
           description: Successful Response
@@ -23825,6 +23847,11 @@ components:
           type: boolean
           title: Auto Hidden
           default: false
+        kind:
+          type: string
+          title: Kind
+          description: computer, network, camera or other (see ``device_kind``).
+          readOnly: true
       type: object
       required:
       - id
@@ -23832,6 +23859,7 @@ components:
       - hostname
       - last_seen
       - first_seen
+      - kind
       title: DeviceOut
     DeviceSettings:
       properties:
@@ -23933,6 +23961,11 @@ components:
           type: integer
           title: Long Offline
           default: 0
+        kinds:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Kinds
       type: object
       required:
       - total

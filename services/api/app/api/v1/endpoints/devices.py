@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from sqlalchemy import func, select
 
 from app.api.v1.deps import AuthUser, DBSession, require_permission
@@ -62,6 +62,54 @@ class DeviceAlertOut(BaseModel):
     created_at: datetime | None = None
 
 
+DEVICE_KINDS = ("computer", "network", "camera", "other")
+
+# What each tool says a device is. Auvik names a type for everything it finds; UniFi's product line says Protect for cameras; NinjaOne's node class starts NMS_ for network gear.
+_AUVIK_CAMERA = {"camera"}
+_AUVIK_NETWORK = {
+    "switch", "l3switch", "router", "accesspoint", "thinaccesspoint", "firewall", "utm", "securityappliance", "bridge", "controller", "hub", "modem",
+    "loadbalancer", "voipswitch", "stack", "chassis", "packetprocessor", "backhaul", "telecommunications",
+}
+_AUVIK_COMPUTER = {"workstation", "server", "hypervisor", "virtualmachine", "thinclient", "tablet", "handheld"}
+_NINJA_NETWORK = re.compile(r"^NMS_(SWITCH|ROUTER|FIREWALL|WIRELESS|ACCESS_POINT|LOAD_BALANCER|NETWORK)", re.IGNORECASE)
+_NINJA_CAMERA = re.compile(r"CAMERA", re.IGNORECASE)
+# Tools whose devices are computers (an agent runs on them), unless the tool itself says otherwise.
+_COMPUTER_TOOLS = {"ninjaone", "huntress", "addigy", "threatmate", "screenconnect", "fieldeffect", "dnsfilter", "autoelevate", "slide", "blumira", "cipp"}
+
+
+def device_kind(sources: list[Any]) -> str:
+    """What sort of device this is, from what the tools say: ``camera``, ``network`` (switches, routers, firewalls, access points...), ``computer`` (workstations, servers, laptops, phones and tablets), or ``other`` (printers, UPSes and the like, or nothing says). A camera or network signal from any tool wins; then a computer signal."""
+    camera = network = computer = False
+    for s in sources:
+        det = s.details or {}
+        vendor = s.vendor
+        if vendor == "auvik":
+            t = str(det.get("device_type") or "").strip().lower()
+            camera |= t in _AUVIK_CAMERA
+            network |= t in _AUVIK_NETWORK
+            computer |= t in _AUVIK_COMPUTER
+        elif vendor == "unifi":
+            if str(det.get("product_line") or "").strip().lower() == "protect" and det.get("is_console") is not True:
+                camera = True
+            else:
+                network = True
+        elif vendor == "ninjaone":
+            nc = str(det.get("node_class") or "")
+            if _NINJA_CAMERA.search(nc):
+                camera = True
+            elif _NINJA_NETWORK.match(nc):
+                network = True
+            elif nc.upper() not in ("NMS_PRINTER", "NMS_OTHER", "UNMANAGED_DEVICE"):
+                computer = True
+        elif vendor in _COMPUTER_TOOLS:
+            computer = True
+    if camera:
+        return "camera"
+    if network:
+        return "network"
+    return "computer" if computer else "other"
+
+
 class DeviceOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -90,6 +138,12 @@ class DeviceOut(BaseModel):
     # True when the device is hidden by itself: every tool that gives a check-in time has gone SOURCE_STALE_DAYS without one. It comes back when one of them checks in.
     auto_hidden: bool = False
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def kind(self) -> str:
+        """computer, network, camera or other (see ``device_kind``)."""
+        return device_kind(self.sources)
+
 
 class DeviceSummary(BaseModel):
     total: int
@@ -114,6 +168,8 @@ class DeviceSummary(BaseModel):
     hidden: int = 0
     # Devices offline for LONG_OFFLINE_DAYS or more: still in the list and in `offline`, but left out of the attention, stale, not-in-tool and open-alert numbers.
     long_offline: int = 0
+    # How many of the devices shown (not hidden) are of each kind: computer, network, camera, other.
+    kinds: dict[str, int] = Field(default_factory=dict)
 
 
 class DeviceListOut(BaseModel):
@@ -304,6 +360,9 @@ def is_missing_from(d: DeviceOut, tool: str) -> bool:
     ThreatMate covers every machine."""
     if any(s.vendor == tool for s in d.sources):
         return False
+    # An agent-based tool is not expected on a switch, access point or camera.
+    if d.kind in ("network", "camera"):
+        return False
     if tool != "addigy" and is_mobile(d):
         return False
     if tool == "addigy":
@@ -454,7 +513,8 @@ async def _load(db: Any, owner: uuid.UUID, tids: list[uuid.UUID], clients: dict[
                         DeviceSourceOut(vendor=s.vendor, name=s.name, last_seen=s.last_seen, details=s.details or {}, last_checkin=checkin_of(s), stale=source_stale(checkin_of(s)))
                         for s in srcs
                     ],
-                    in_master=master is None or any(s.vendor == master for s in srcs) or is_mobile(d),
+                    # Network devices and cameras are not machines the master tool is expected to manage, so they are never a coverage gap.
+                    in_master=master is None or any(s.vendor == master for s in srcs) or is_mobile(d) or device_kind(srcs) in ("network", "camera"),
                     last_online=(online := last_online_of(srcs)),
                     online=online_now_of(srcs),
                     offline_days=offline_days_of(online),
@@ -505,6 +565,7 @@ def filter_devices(
     stale: bool = False,
     hidden: bool = False,
     os: str | None = None,
+    kind: str | None = None,
 ) -> list[DeviceOut]:
     """The devices a page (or an export) asked for: every filter given must hold. ``search`` matches the name, serial number, client name or any IP address, ignoring case. Sorted by client, then name."""
     rows = [d for d in everything if (d.hidden_since is not None) == hidden]
@@ -525,6 +586,8 @@ def filter_devices(
         rows = [d for d in rows if any(s.vendor == vendor for s in d.sources)]
     if os:
         rows = [d for d in rows if os_family(d) == os]
+    if kind:
+        rows = [d for d in rows if d.kind == kind]
     if not_in_master:
         rows = [d for d in rows if not d.in_master]
     if missing:
@@ -597,6 +660,7 @@ async def list_devices(
     os: str | None = Query(
         default=None, pattern="^(windows|mac|ios|linux)$", description="Only devices running this kind of operating system."
     ),
+    kind: str | None = Query(default=None, pattern="^(computer|network|camera|other)$", description="Only this kind of device: computers, network devices, cameras or other."),
 ) -> DeviceListOut:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
@@ -619,6 +683,7 @@ async def list_devices(
         stale_agents=sum(1 for d in counted if stale_days_of(d) is not None),
         offline=sum(1 for d in everything if d.offline_days is not None),
         with_alerts=sum(1 for d in counted if d.open_alerts > 0),
+        kinds={k: sum(1 for d in everything if d.kind == k) for k in DEVICE_KINDS},
     )
 
     rows = filter_devices(
@@ -633,6 +698,7 @@ async def list_devices(
         stale=stale,
         hidden=hidden,
         os=os,
+        kind=kind,
     )
     total = len(rows)
     start = (page - 1) * page_size
@@ -681,6 +747,7 @@ async def export_devices(
     stale: bool = Query(default=False),
     hidden: bool = Query(default=False),
     os: str | None = Query(default=None, pattern="^(windows|mac|ios|linux)$"),
+    kind: str | None = Query(default=None, pattern="^(computer|network|camera|other)$"),
 ) -> Response:
     owner = current_user.tenant_id
     scope, clients = await _scope(db, owner, client_id)
@@ -698,6 +765,7 @@ async def export_devices(
         stale=stale,
         hidden=hidden,
         os=os,
+        kind=kind,
     )
     body = devices_csv(rows)
     return Response(

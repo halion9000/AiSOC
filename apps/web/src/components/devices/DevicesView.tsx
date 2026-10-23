@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceList, type DeviceQuery, type DeviceRow } from '@/lib/api';
+import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceKind, type DeviceList, type DeviceQuery, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import DuplicateDevices from './DuplicateDevices';
 import { ClientRollupTable } from './ClientRollupTable';
@@ -63,6 +63,8 @@ export function filtersFromParams(params: URLSearchParams | null): Partial<Saved
   if (tool) out.vendor = tool.slice(0, 40);
   const osName = params.get('os');
   if (osName) out.os = osName;
+  const kindName = params.get('kind');
+  if (kindName && KIND_VALUES.includes(kindName)) out.kind = kindName;
   const missing = params.get('missing');
   if (missing === 'addigy' || missing === 'threatmate' || missing === 'huntress' || missing === 'screenconnect' || missing === 'fieldeffect') out.missing = missing;
   if (params.get('attention') === '1') out.attentionOnly = true;
@@ -71,6 +73,16 @@ export function filtersFromParams(params: URLSearchParams | null): Partial<Saved
   if (params.get('alerts') === '1') out.alertsOnly = true;
   return Object.keys(out).length > 0 ? out : null;
 }
+
+/** The kinds of device the page can show, in tab order. Other (printers, UPSes...) only shows once there is one. */
+export const KIND_TABS: { value: DeviceKind | ''; label: string }[] = [
+  { value: '', label: 'All devices' },
+  { value: 'computer', label: 'Computers' },
+  { value: 'network', label: 'Network devices' },
+  { value: 'camera', label: 'Cameras' },
+  { value: 'other', label: 'Other' },
+];
+const KIND_VALUES = ['computer', 'network', 'camera', 'other'];
 
 const OS_CHOICES: { value: string; label: string }[] = [
   { value: 'windows', label: 'Windows' },
@@ -83,6 +95,7 @@ interface SavedDeviceFilters {
   clientId: string;
   vendor: string;
   os: string;
+  kind: string;
   missing: Missing | null;
   gapsOnly: boolean;
   attentionOnly: boolean;
@@ -111,6 +124,7 @@ export default function DevicesView() {
   const [clientId, setClientId] = useState('');
   const [vendor, setVendor] = useState('');
   const [os, setOs] = useState('');
+  const [kind, setKind] = useState('');
   const [gapsOnly, setGapsOnly] = useState(false);
   const [missing, setMissing] = useState<Missing | null>(null);
   const [attentionOnly, setAttentionOnly] = useState(false);
@@ -130,6 +144,7 @@ export default function DevicesView() {
       setClientId(pickString(saved.clientId));
       setVendor(pickString(saved.vendor));
       setOs(pickString(saved.os, OS_CHOICES.map((o) => o.value)));
+      setKind(pickString(saved.kind, KIND_VALUES));
       setMissing((pickString(saved.missing, ['addigy', 'threatmate', 'huntress', 'screenconnect', 'fieldeffect']) || null) as Missing | null);
       setGapsOnly(saved.gapsOnly === true);
       setAttentionOnly(saved.attentionOnly === true);
@@ -142,20 +157,20 @@ export default function DevicesView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (filtersRestored) saveFilters('devices', { clientId, vendor, os, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly } satisfies SavedDeviceFilters);
-  }, [filtersRestored, clientId, vendor, os, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly]);
+    if (filtersRestored) saveFilters('devices', { clientId, vendor, os, kind, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly } satisfies SavedDeviceFilters);
+  }, [filtersRestored, clientId, vendor, os, kind, missing, gapsOnly, attentionOnly, staleOnly, offlineOnly, alertsOnly]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, os: (os || undefined) as DeviceQuery['os'], notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined }));
+      setData(await devicesApi.list({ page, pageSize: 50, clientId: clientId || undefined, search, vendor: vendor || undefined, os: (os || undefined) as DeviceQuery['os'], kind: (kind || undefined) as DeviceQuery['kind'], notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined }));
     } catch (err) {
       setError(devicesLoadError(err));
     } finally {
       setLoading(false);
     }
-  }, [page, clientId, search, vendor, os, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly, staleOnly, hiddenOnly]);
+  }, [page, clientId, search, vendor, os, kind, gapsOnly, missing, offlineOnly, alertsOnly, attentionOnly, staleOnly, hiddenOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), search ? 250 : 0);
@@ -171,7 +186,7 @@ export default function DevicesView() {
 
   const exportCsv = async () => {
     try {
-      const text = await devicesApi.exportCsv({ clientId: clientId || undefined, search, vendor: vendor || undefined, os: (os || undefined) as DeviceQuery['os'], notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined });
+      const text = await devicesApi.exportCsv({ clientId: clientId || undefined, search, vendor: vendor || undefined, os: (os || undefined) as DeviceQuery['os'], kind: (kind || undefined) as DeviceQuery['kind'], notInMaster: gapsOnly, missing: missing ?? undefined, offline: offlineOnly || undefined, hasAlerts: alertsOnly || undefined, attention: attentionOnly || undefined, stale: staleOnly || undefined, hidden: hiddenOnly || undefined });
       const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
       link.href = url;
@@ -334,6 +349,29 @@ export default function DevicesView() {
             </div>
           </button>
         ))}
+      </div>
+
+      <div role="tablist" aria-label="Kind of device" className="flex flex-wrap gap-1 border-b border-gray-800">
+        {KIND_TABS.filter((t) => t.value !== 'other' || (data?.summary.kinds?.other ?? 0) > 0 || kind === 'other').map((t) => {
+          const count = t.value === '' ? data?.summary.total : data?.summary.kinds?.[t.value];
+          const selected = kind === t.value;
+          return (
+            <button
+              key={t.value || 'all'}
+              role="tab"
+              aria-selected={selected}
+              type="button"
+              onClick={() => {
+                setKind(t.value);
+                setPage(1);
+              }}
+              className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${selected ? 'border-blue-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
+            >
+              {t.label}
+              {count !== undefined && <span className="ml-1.5 text-xs text-gray-500">{count}</span>}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap gap-2">
