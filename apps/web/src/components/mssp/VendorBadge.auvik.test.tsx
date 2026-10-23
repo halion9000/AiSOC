@@ -8,9 +8,9 @@ describe('Auvik in the vendor badges', () => {
     expect(orderSources(['autoelevate', 'auvik', 'dnsfilter', 'halopsa'])).toEqual(['halopsa', 'dnsfilter', 'auvik', 'autoelevate']);
   });
 
-  it('has a badge of its own rather than the fallback', () => {
+  it('shows its logo rather than the fallback', () => {
     const { container } = render(<VendorBadge vendor="auvik" />);
-    expect(container.textContent).toContain('Av');
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('/vendors/auvik.png');
     expect(screen.queryByText('?')).toBeNull();
   });
 });
