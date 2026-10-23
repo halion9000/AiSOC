@@ -156,3 +156,22 @@ def test_tech_stack_without_mac_or_windows_machines_is_unknown_not_none_seen():
     a = _stack([_dev("Windows 11", "ninjaone")])
     assert a["edr_mac"].status == "unknown" and "No Macs" in a["edr_mac"].evidence
     assert a["email_service"].status == "unknown"
+
+
+def test_tech_stack_handles_machines_with_no_sources_unknown_systems_and_many_sources():
+    devs = [
+        _dev(None),
+        _dev("Plan 9"),
+        _dev("Windows 11", "ninjaone", "huntress", "dnsfilter", "autoelevate", "threatmate", "screenconnect"),
+    ]
+    devs[0].sources = []
+    a = _stack(devs)
+    assert a["edr_pc"].suggested == "Huntress" and "1 of 1 Windows" in a["edr_pc"].evidence
+    assert a["pam"].suggested == "AutoElevate"
+    assert a["dns_filter"].suggested == "DNSFilter" and "1 of 1 computers" in a["dns_filter"].evidence
+    assert a["edr_mac"].status == "unknown"
+
+
+def test_tech_stack_says_not_enrolled_when_the_tool_maps_other_clients_but_not_this_one():
+    a = _stack([_dev("Windows 11", "ninjaone")], mapped={"huntress", "ninjaone"}, enrolled={"ninjaone"})
+    assert a["edr_pc"].status == "not_seen" and "not enrolled in Huntress" in a["edr_pc"].evidence

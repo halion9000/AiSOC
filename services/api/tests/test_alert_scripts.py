@@ -324,3 +324,31 @@ def test_bulk_is_bounded_and_needs_alerts():
         sc.BulkRunRequest(script_id=7, alert_ids=[])
     with pytest.raises(ValidationError):
         sc.BulkRunRequest(script_id=7, alert_ids=[uuid.uuid4() for _ in range(sc.MAX_BULK + 1)])
+
+
+def test_published_scripts_ignores_junk_keeps_the_names_short_and_caps_the_list():
+    junk = [
+        None,
+        "x",
+        5,
+        {"id": "1", "name": "a"},
+        {"id": 1},
+        {"id": 2, "name": "   "},
+        {"id": 3, "name": "ok"},
+        {"id": True, "name": "bool-id is an int in python"},
+    ]
+    out = sc.published_scripts({"core_scripts": junk})
+    assert [s.name for s in out if s.id == 3] == ["ok"] and all(s.name.strip() for s in out)
+    assert all(isinstance(s.id, int) for s in out)
+    big = sc.published_scripts({"core_scripts": [{"id": 1, "name": "n" * 500}]})
+    assert len(big[0].name) == 200
+    many = sc.published_scripts({"core_scripts": [{"id": i, "name": f"s{i:04d}"} for i in range(1, 500)]})
+    assert len(many) == 200
+    assert sc.published_scripts(None) == [] and sc.published_scripts({"core_scripts": "nope"}) == []
+
+
+def test_device_of_takes_the_first_real_text_host_and_trims_it():
+    mk = lambda hosts: SimpleNamespace(affected_hosts=hosts)  # noqa: E731
+    assert sc.device_of(mk([None, 5, "  ", "  PC-01  ", "PC-02"])) == "PC-01"
+    assert sc.device_of(mk([])) is None and sc.device_of(mk(None)) is None and sc.device_of(SimpleNamespace()) is None
+    assert len(sc.device_of(mk(["x" * 400]))) == 255

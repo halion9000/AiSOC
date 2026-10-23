@@ -633,7 +633,10 @@ async def report_core_feed_secure_score(tenant_token: str, body: SecureScoreRepo
 def change_over(history: list[dict[str, Any]], days: int = 30) -> float | None:
     """How many points the score moved over the last ``days`` days: the newest point against the newest point at least that old (or the oldest there is, when the history is shorter).
     None with fewer than two points."""
-    points = sorted((p for p in history if isinstance(p, dict) and isinstance(p.get("d"), str) and isinstance(p.get("c"), (int, float))), key=lambda p: p["d"])
+    points = sorted(
+        (p for p in history if isinstance(p, dict) and isinstance(p.get("d"), str) and isinstance(p.get("c"), int | float)),
+        key=lambda p: p["d"],
+    )
     if len(points) < 2:
         return None
     newest = points[-1]
@@ -699,8 +702,12 @@ async def _score_rows(db: Any, owner: uuid.UUID, only: uuid.UUID | None = None) 
     return out
 
 
-@router.get("/secure-scores", response_model=list[SecureScoreSummary], summary="Per client: the Microsoft Secure Score, its 30-day change and trend")
-async def secure_score_summary(current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> list[SecureScoreSummary]:
+@router.get(
+    "/secure-scores", response_model=list[SecureScoreSummary], summary="Per client: the Microsoft Secure Score, its 30-day change and trend"
+)
+async def secure_score_summary(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
+) -> list[SecureScoreSummary]:
     rows = await _score_rows(db, current_user.tenant_id)
     out = [SecureScoreSummary(**_summary_of(row, name)) for row, name in rows]
     out.sort(key=lambda s: (s.percent, (s.client_name or "").lower()))
@@ -720,9 +727,13 @@ class SecureScoreBrief(BaseModel):
 
 
 @router.get(
-    "/secure-scores/brief", response_model=list[SecureScoreBrief], summary="Per client: the Microsoft Secure Score and its 30-day change, without the daily points (short, for assistants)"
+    "/secure-scores/brief",
+    response_model=list[SecureScoreBrief],
+    summary="Per client: the Microsoft Secure Score and its 30-day change, without the daily points (short, for assistants)",
 )
-async def secure_score_brief(current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> list[SecureScoreBrief]:
+async def secure_score_brief(
+    current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
+) -> list[SecureScoreBrief]:
     rows = await _score_rows(db, current_user.tenant_id)
     keep = SecureScoreBrief.model_fields.keys()
     out = [SecureScoreBrief(**{k: v for k, v in _summary_of(row, name).items() if k in keep}) for row, name in rows]
@@ -730,7 +741,11 @@ async def secure_score_brief(current_user: Annotated[AuthUser, Depends(require_p
     return out
 
 
-@router.get("/secure-scores/{client_id}", response_model=SecureScoreDetail, summary="One client's Secure Score with the controls still missing points")
+@router.get(
+    "/secure-scores/{client_id}",
+    response_model=SecureScoreDetail,
+    summary="One client's Secure Score with the controls still missing points",
+)
 async def secure_score_detail(
     client_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
 ) -> SecureScoreDetail:

@@ -124,3 +124,38 @@ def test_a_client_name_fits_when_it_is_close_not_only_when_it_is_exact():
     assert not m("sportsmans finest", "Austin Gamblers")
     assert not m("", "Anyone")
     assert not m("apple", "Austin FC")
+
+
+def test_parse_keeps_at_most_the_term_limit():
+    q = " ".join(f"w{i}" for i in range(hs.MAX_TERMS + 5))
+    assert len(hs.parse_query(q)) == hs.MAX_TERMS
+
+
+def test_a_close_client_name_finds_the_client_and_a_minus_client_leaves_it_out():
+    async def body(s):
+        parent = tenant("Parent")
+        s.add(parent)
+        await s.flush()
+        a, b = tenant("Sportsman's Finest", parent.id), tenant("Birch Law", parent.id)
+        s.add_all([a, b])
+        await s.flush()
+        s.add_all([alert(a, "Suspicious login", "high", at=NOW), alert(b, "Suspicious login", "high", at=NOW - timedelta(hours=1))])
+        await s.commit()
+        user = SimpleNamespace(tenant_id=parent.id)
+
+        async def search(q):
+            return await hs.hunt_search(hs.HuntQuery(query=q), user, s)
+
+        return {
+            "close": await search('suspicious client:"sportsmans finest"'),
+            "typo": await search("suspicious client:sportsman"),
+            "minus": await search("suspicious -client:sportsmans"),
+            "none": await search("suspicious client:nothing-like-it"),
+        }
+
+    r = run(body)
+    clients = lambda x: [h.fields["client"] for h in x.hits]  # noqa: E731
+    assert clients(r["close"]) == ["Sportsman's Finest"]
+    assert clients(r["typo"]) == ["Sportsman's Finest"]
+    assert clients(r["minus"]) == ["Birch Law"]
+    assert r["none"].total == 0
