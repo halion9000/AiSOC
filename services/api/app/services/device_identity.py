@@ -54,3 +54,17 @@ def hostname_key(raw: object) -> str:
     """A hostname reduced for comparison: lower-case, first label only (``PC-01.corp.local`` and ``pc-01`` are one name)."""
     text = str(raw or "").strip().lower()
     return text.split(".", 1)[0].strip()
+
+
+# Meraki and UniFi list physical network hardware, each unit once and with its own identity. So two records from one of them are two units however alike their names (a closet of access points
+# all called "U6-Pro"), a Meraki unit is never a UniFi unit, and neither is a computer that an agent runs on. A name match involving them is a coincidence, not a duplicate.
+HARDWARE_TOOLS = frozenset({"meraki", "unifi"})
+AGENT_TOOLS = frozenset({"ninjaone", "huntress", "addigy", "threatmate", "screenconnect", "fieldeffect", "dnsfilter", "autoelevate", "slide", "blumira", "cipp"})
+
+
+def could_be_same_machine(a: set[str], b: set[str]) -> bool:
+    """False when the tools behind two devices show they are different things: a hardware tool's unit alongside another hardware unit, or alongside a machine an agent runs on."""
+    hw_a, hw_b = a & HARDWARE_TOOLS, b & HARDWARE_TOOLS
+    if hw_a and hw_b:
+        return False
+    return not ((hw_a and b & AGENT_TOOLS) or (hw_b and a & AGENT_TOOLS))

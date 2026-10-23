@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 
 from app.models.device import Device, DeviceSource
-from app.services.device_identity import hostname_key, normalize_serial
+from app.services.device_identity import could_be_same_machine, hostname_key, normalize_serial
 
 
 @dataclass
@@ -133,6 +133,9 @@ async def possible_duplicates(db: Any, tenant_id: uuid.UUID) -> list[tuple[uuid.
             )
         ).all()
     }
+    tools: dict[uuid.UUID, set[str]] = {}
+    for device_id, vendor in (await db.execute(select(DeviceSource.device_id, DeviceSource.vendor).where(DeviceSource.tenant_id == tenant_id))).all():
+        tools.setdefault(device_id, set()).add(vendor)
     by_name: dict[str, list[Device]] = {}
     for d in rows:
         key = hostname_key(d.hostname)
@@ -143,6 +146,8 @@ async def possible_duplicates(db: Any, tenant_id: uuid.UUID) -> list[tuple[uuid.
         for i, a in enumerate(group):
             for b in group[i + 1 :]:
                 if a.serial_number and b.serial_number:  # two different serials: not the same machine
+                    continue
+                if not could_be_same_machine(tools.get(a.id, set()), tools.get(b.id, set())):
                     continue
                 lo, hi = sorted((a.id, b.id), key=str)
                 if (lo, hi) in dismissed:

@@ -243,3 +243,17 @@ async def test_a_persons_mac_name_merges_inside_a_client_but_a_bare_factory_name
     await report(tenant, "screenconnect", "s9", "MacBook-Pro", os="Mac OS X")
     assert await merge_pass(tenant) == 1
     assert await count(tenant) == 3
+
+
+async def test_unifi_and_meraki_units_with_one_name_are_never_merged_with_each_other_or_a_computer(tenant):
+    await report(tenant, "unifi", "u1", "LOBBY-AP")
+    await report(tenant, "meraki", "m1", "LOBBY-AP")
+    await report(tenant, "ninjaone", "n1", "LOBBY-AP")
+    assert await merge_pass(tenant) == 0
+    assert await count(tenant) == 3
+
+
+async def test_a_network_monitor_still_joins_a_unifi_unit_of_the_same_name(tenant):
+    await report(tenant, "unifi", "u1", "CORE-SWITCH-1")
+    await report(tenant, "auvik", "a1", "CORE-SWITCH-1")
+    assert await merge_pass(tenant) == 1

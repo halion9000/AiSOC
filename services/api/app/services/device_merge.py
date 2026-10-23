@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.device import Device, DeviceMergeDismissal, DeviceMergeLog, DeviceSource
-from app.services.device_identity import hostname_key
+from app.services.device_identity import could_be_same_machine, hostname_key
 
 
 class DeviceMergeError(ValueError):
@@ -304,6 +304,8 @@ async def auto_merge_same_name(db: Any, tenant_id: uuid.UUID, actor_id: uuid.UUI
             if not held or not vo or (held & vo) - DUPLICATING_TOOLS:
                 continue
             if serial and other.serial_number:
+                continue
+            if not could_be_same_machine(held, vo):
                 continue
             ko = os_kind(other.os)
             if kind and ko and kind != ko:
