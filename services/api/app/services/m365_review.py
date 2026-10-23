@@ -147,6 +147,11 @@ CHECK_QUESTIONS: dict[str, str] = {
     "owa_storage_providers": "Ensure additional storage providers are restricted in Outlook on the web",
     "external_sender_tag": "Ensure email from external senders is identified",
     "malware_admin_notify": "Ensure notifications for internal users sending malware is Enabled",
+    "user_risk_ca": "Enable Identity Protection user risk policies",
+    "signin_risk_ca": "Enable Identity Protection sign-in risk policies",
+    "managed_device_ca": "Ensure a managed device is required for authentication",
+    "admin_signin_frequency": "Ensure Sign-in frequency is enabled and browser sessions are not persistent for Administrative users",
+    "sharepoint_external_sharing": "Ensure external content sharing is restricted",
 }
 
 # Questions answered from the multi-factor list A.C.O.R.N already holds.
