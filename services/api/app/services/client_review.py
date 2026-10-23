@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.services.device_merge import os_kind
-from app.services.infra_review import backup_readiness, network_online
+from app.services.infra_review import backup_readiness, network_online, saas_backup
 from app.services.sat_review import sat_training
 
 # Which machines each tool should be on. Phones and tablets are never counted against a tool that has no agent for them.
@@ -124,7 +124,7 @@ def readiness(
     mfa: dict[str, int] | None,
     secure_percent: float | None,
     sat: list[dict[str, Any]] | None = None,
-    devices: list[Any] | None = None,
+    devices: list[Any] | None = None, saas: list[dict[str, Any]] | None = None,
 ) -> Readiness:
     """The checklist. ``mfa`` is ``counts_for_mfa``'s output (None when no multi-factor data has arrived); ``secure_percent`` is the Microsoft Secure Score as a percentage (None when not read)."""
     cov = {c.tool: c for c in facts.coverage}
@@ -232,6 +232,10 @@ def readiness(
         add("backups", "Are backups tested and kept offline?", "unknown", "AiSOC does not collect this yet; answer it from the client's own records.")
     else:
         add("backups", "Are backups tested and kept offline?", backups[0], backups[1])
+
+    cloud = saas_backup(saas)
+    if cloud is not None:
+        add("saas_backup", "Are Microsoft 365 and Google Workspace data backed up?", cloud[0], cloud[1])
 
     online = network_online(devices or [])
     if online is not None:

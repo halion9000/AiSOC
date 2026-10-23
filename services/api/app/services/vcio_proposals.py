@@ -43,6 +43,7 @@ TITLES = {
     "agents_reporting": "Repair the protection agents that have stopped checking in",
     "patching": "Fix the known-exploited vulnerabilities on the client's computers",
     "backups": "Put every server and computer on the backup service and confirm restores are tested",
+    "saas_backup": "Back up Microsoft 365 and Google Workspace data and fix the services that are not being backed up",
     "network_online": "Bring the offline network equipment back online",
     "secure_score": "Raise the Microsoft 365 Secure Score by applying Microsoft's recommendations",
 }

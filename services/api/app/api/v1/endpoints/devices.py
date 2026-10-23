@@ -76,7 +76,7 @@ _MERAKI_NETWORK = {"wireless", "switch", "appliance", "cellulargateway", "wirele
 _NINJA_NETWORK = re.compile(r"^NMS_(SWITCH|ROUTER|FIREWALL|WIRELESS|ACCESS_POINT|LOAD_BALANCER|NETWORK)", re.IGNORECASE)
 _NINJA_CAMERA = re.compile(r"CAMERA", re.IGNORECASE)
 # Tools whose devices are computers (an agent runs on them), unless the tool itself says otherwise.
-_COMPUTER_TOOLS = {"ninjaone", "huntress", "addigy", "threatmate", "screenconnect", "fieldeffect", "dnsfilter", "autoelevate", "slide", "blumira", "cipp"}
+_COMPUTER_TOOLS = {"ninjaone", "huntress", "addigy", "threatmate", "screenconnect", "fieldeffect", "dnsfilter", "autoelevate", "slide", "datto-bcdr", "blumira", "cipp"}
 
 
 def device_kind(sources: list[Any]) -> str:

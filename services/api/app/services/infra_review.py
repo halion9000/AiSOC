@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.services.device_merge import os_kind
@@ -131,46 +132,116 @@ def virtualization_answer(devices: list[Any]) -> tuple[str, str | None, str]:
 
 # ---- backups -------------------------------------------------------------------------------------------------------------------------------------------
 
-BACKUP_TOOL = "slide"
+# The tools that back up machines: Datto BCDR and Slide both protect servers (and the computers a client chooses to add). Datto SaaS Protection backs up Microsoft 365 and Google Workspace instead and is
+# read through its own checks (see ``saas_backup``).
+BACKUP_TOOLS = {"datto-bcdr": "Datto BCDR", "slide": "Slide"}
+SAAS_SOURCE = "datto-saas"
+SAAS_NAME = "Datto SaaS Protection"
 _BACKUP_OS = {"windows", "mac", "linux"}
+STALE_SNAPSHOT_DAYS = 3
 
 
-def backup_coverage(devices: list[Any]) -> tuple[int, int, int, int] | None:
-    """(servers protected, servers, computers protected, computers) by Slide, counting each machine once. None when no machine reports Slide, since another backup tool may be in use."""
-    eligible = [d for d in devices if os_kind(getattr(d, "os", None)) in _BACKUP_OS]
-    protected = {id(d) for d in eligible if any(s.vendor == BACKUP_TOOL for s in d.sources)}
-    if not protected:
+class ToolBackup:
+    """What one backup tool protects: servers and other machines, and (Datto) how many of them have gone quiet."""
+
+    def __init__(self) -> None:
+        self.servers = 0
+        self.computers = 0
+        self.quiet = 0
+
+
+class BackupSummary:
+    def __init__(self, servers: int, computers: int) -> None:
+        self.servers = servers
+        self.computers = computers
+        self.tools: dict[str, ToolBackup] = {}
+        self.protected = 0
+        # Machines with a backup that is current: Slide, or a Datto agent that snapshotted within the last few days.
+        self.fresh = 0
+
+
+def _snapshot_is_old(source: Any, now: datetime) -> bool:
+    raw = (getattr(source, "details", None) or {}).get("last_snapshot_at")
+    if not raw:
+        return True
+    try:
+        taken = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if taken.tzinfo is None:
+        taken = taken.replace(tzinfo=UTC)
+    return now - taken > timedelta(days=STALE_SNAPSHOT_DAYS)
+
+
+def backup_summary(devices: list[Any], now: datetime | None = None) -> BackupSummary | None:
+    """What each backup tool protects out of the client's servers and computers, counting each machine once per tool. None when no machine reports a backup tool, since another may be in use.
+    A machine only a backup tool lists (no operating system known) counts as a computer."""
+    now = now or datetime.now(UTC)
+    machines = [d for d in devices if os_kind(getattr(d, "os", None)) in _BACKUP_OS or any(s.vendor in BACKUP_TOOLS for s in d.sources)]
+    out = BackupSummary(sum(1 for d in machines if _is_server(d)), sum(1 for d in machines if not _is_server(d)))
+    for d in machines:
+        covered = fresh = False
+        for tool in BACKUP_TOOLS:
+            mine = [s for s in d.sources if s.vendor == tool]
+            if not mine:
+                continue
+            covered = True
+            t = out.tools.setdefault(tool, ToolBackup())
+            if _is_server(d):
+                t.servers += 1
+            else:
+                t.computers += 1
+            if tool == "datto-bcdr" and all(_snapshot_is_old(s, now) for s in mine):
+                t.quiet += 1
+            else:
+                fresh = True
+        out.protected += 1 if covered else 0
+        out.fresh += 1 if fresh else 0
+    return out if out.tools else None
+
+
+def _tool_line(tool: str, t: ToolBackup, s: BackupSummary) -> str:
+    quiet = f" ({t.quiet} with no snapshot in {STALE_SNAPSHOT_DAYS} days)" if t.quiet else ""
+    return f"{BACKUP_TOOLS[tool]} protects {t.servers} of {s.servers} servers and {t.computers} of {s.computers} computers{quiet}."
+
+
+def backup_answer(devices: list[Any], now: datetime | None = None) -> tuple[str, str | None, str]:
+    """Suggested answer for "what vendor is the client using for backup services (Datto is our standard)": every machine backup tool that protects some of the client's machines."""
+    s = backup_summary(devices, now)
+    if s is None:
+        return "unknown", None, "No machine reports Datto BCDR or Slide, the backup tools A.C.O.R.N reads for machines; another tool may be in use, so ask the client."
+    ranked = sorted(s.tools.items(), key=lambda kv: -(kv[1].servers + kv[1].computers))
+    names = ", ".join(f"{BACKUP_TOOLS[k]} ({t.servers + t.computers})" if len(s.tools) > 1 else BACKUP_TOOLS[k] for k, t in ranked)
+    return "seen", names, " ".join(_tool_line(k, t, s) for k, t in ranked)
+
+
+def backup_readiness(devices: list[Any], now: datetime | None = None) -> tuple[str, str] | None:
+    """(status, evidence) for the readiness item "are backups tested and kept offline". Coverage by any machine backup tool is all A.C.O.R.N can see: it cannot see a restore test or an offline copy, so this is
+    never ``met``. A Datto agent with no recent snapshot is not counted as protected. None when no machine reports a backup tool."""
+    s = backup_summary(devices, now)
+    if s is None:
         return None
-    servers = [d for d in eligible if _is_server(d)]
-    computers = [d for d in eligible if not _is_server(d)]
-    return (
-        sum(1 for d in servers if id(d) in protected),
-        len(servers),
-        sum(1 for d in computers if id(d) in protected),
-        len(computers),
-    )
-
-
-def backup_answer(devices: list[Any]) -> tuple[str, str | None, str]:
-    """Suggested answer for "what vendor is the client using for backup services"."""
-    cov = backup_coverage(devices)
-    if cov is None:
-        return "unknown", None, "No machine reports Slide, the only backup tool A.C.O.R.N reads for machines; another tool may be in use, so ask the client."
-    ps, s, pc, c = cov
-    return "seen", "Slide", f"Slide protects {ps} of {s} servers and {pc} of {c} computers."
-
-
-def backup_readiness(devices: list[Any]) -> tuple[str, str] | None:
-    """(status, evidence) for the readiness item "are backups tested and kept offline". Coverage is all A.C.O.R.N can see: it cannot see a restore test or an offline copy, so this is never ``met``. None when no machine reports Slide."""
-    cov = backup_coverage(devices)
-    if cov is None:
-        return None
-    ps, s, pc, c = cov
-    total, protected = s + c, ps + pc
-    share = 100 * protected / total if total else 0.0
+    total = s.servers + s.computers
+    share = 100 * s.fresh / total if total else 0.0
     status = "partly" if share >= 50 else "not_met"
-    gap = "" if protected == total else f" {total - protected} are not protected."
-    return status, f"Slide protects {ps} of {s} servers and {pc} of {c} computers.{gap} A.C.O.R.N cannot see whether restores are tested or copies kept offline; confirm that with the client."
+    lines = " ".join(_tool_line(k, t, s) for k, t in s.tools.items())
+    gap = "" if s.protected >= total else f" {total - s.protected} of {total} machines have no backup tool."
+    return status, f"{lines}{gap} A.C.O.R.N cannot see whether restores are tested or copies kept offline; confirm that with the client."
+
+
+# ---- cloud backups (Datto SaaS Protection) ---------------------------------------------------------------------------------------------------------------
+
+_RANK = {"met": 0, "partly": 1, "not_met": 2}
+_SAAS_KEYS = {"saas_backup_microsoft": "Microsoft 365", "saas_backup_google": "Google Workspace"}
+
+
+def saas_backup(checks: list[dict[str, Any]] | None) -> tuple[str, str] | None:
+    """(status, evidence) for "are Microsoft 365 and Google Workspace data backed up": the worst of the products Datto SaaS Protection reports. None when it reported nothing."""
+    found = [c for c in checks or [] if isinstance(c, dict) and c.get("key") in _SAAS_KEYS and c.get("status") in _RANK]
+    if not found:
+        return None
+    worst = max(found, key=lambda c: _RANK[c["status"]])
+    return worst["status"], " ".join(str(c.get("evidence", "")).strip().rstrip(".") + "." for c in found)[:400]
 
 
 # ---- network health ------------------------------------------------------------------------------------------------------------------------------------

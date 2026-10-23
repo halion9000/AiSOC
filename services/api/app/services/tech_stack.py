@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.services.client_review import DeviceFacts, tool_label
 from app.services.device_merge import os_kind
-from app.services.infra_review import backup_answer, network_answer, server_brand_answer, virtualization_answer
+from app.services.infra_review import SAAS_NAME, backup_answer, network_answer, saas_backup, server_brand_answer, virtualization_answer
 from app.services.sat_review import TOOL_NAME as SAT_NAME
 from app.services.sat_review import sat_awareness, sat_phishing
 
@@ -74,7 +74,7 @@ def _count(devices: list[Any], kind: str, tool: str) -> tuple[int, int]:
 
 
 def tech_stack(
-    devices: list[Any], facts: DeviceFacts, has_microsoft_365: bool, sat: list[dict[str, Any]] | None = None
+    devices: list[Any], facts: DeviceFacts, has_microsoft_365: bool, sat: list[dict[str, Any]] | None = None, saas: list[dict[str, Any]] | None = None
 ) -> list[TechAnswer]:
     """One entry per template question, in the template's order."""
     cov = {c.tool: c for c in facts.coverage}
@@ -138,5 +138,9 @@ def tech_stack(
     by_tool("apple_mdm", "addigy", "mac", "Macs")
     put("abm", "unknown", None, _UNKNOWN)
     put("backup_bcdr", *backup_answer(devices))
-    put("backup_saas", "unknown", None, "A.C.O.R.N does not read cloud-to-cloud backup tools (Datto SaaS Protection, Dropsuite); ask the client.")
+    cloud = saas_backup(saas)
+    if cloud is None:
+        put("backup_saas", "unknown", None, "No Datto SaaS Protection data has arrived for this client (A.C.O.R.N does not read Dropsuite); it may use another cloud backup, so ask the client.")
+    else:
+        put("backup_saas", "seen", SAAS_NAME, cloud[1])
     return out

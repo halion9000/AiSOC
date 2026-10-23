@@ -1,9 +1,10 @@
 """Network equipment, servers, virtualization and backups answer the client review's questions from what the connected tools list."""
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from app.services.client_review import device_facts, readiness
-from app.services.infra_review import backup_coverage, hypervisor_of, network_online, network_role
+from app.services.infra_review import backup_summary, hypervisor_of, network_online, network_role, saas_backup
 from app.services.tech_stack import tech_stack
 from app.services.vcio_proposals import drafts_from_readiness
 
@@ -95,39 +96,72 @@ def test_no_servers_or_no_virtual_machines_is_unknown_never_none():
 
 # ---- backups -------------------------------------------------------------------------------------------------------------------------------------------
 
+NOW = None
+RECENT = (datetime.now(UTC) - timedelta(hours=12)).isoformat()
+OLD = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+
+
+def datto(when=RECENT):
+    return src("datto-bcdr", last_snapshot_at=when)
+
 
 def machines():
     return [
-        dev([src("ninjaone"), src("slide")], os="Windows Server 2022"),
-        dev([src("ninjaone")], os="Windows Server 2019"),
+        dev([src("ninjaone"), datto()], os="Windows Server 2022"),
+        dev([src("ninjaone"), src("slide")], os="Windows Server 2019"),
+        dev([src("ninjaone")], os="Windows Server 2016"),
         dev([src("ninjaone"), src("slide")], os="Windows 11"),
         dev([src("ninjaone")], os="macOS 14"),
         dev([src("meraki", product_type="switch")]),
     ]
 
 
-def test_slide_coverage_counts_servers_and_computers_separately_and_ignores_network_gear():
-    assert backup_coverage(machines()) == (1, 2, 1, 2)
+def test_each_backup_tool_is_counted_over_the_servers_and_computers_it_protects():
+    s = backup_summary(machines())
+    assert (s.servers, s.computers) == (3, 2)
+    assert (s.tools["datto-bcdr"].servers, s.tools["datto-bcdr"].computers) == (1, 0)
+    assert (s.tools["slide"].servers, s.tools["slide"].computers) == (1, 1)
+    assert (s.protected, s.fresh) == (3, 3)
 
 
-def test_the_backup_question_names_slide_when_it_protects_machines_and_is_unknown_otherwise():
+def test_the_backup_question_names_every_tool_in_use_with_its_counts():
     a = answers(machines())
-    assert (a["backup_bcdr"].status, a["backup_bcdr"].suggested) == ("seen", "Slide")
-    assert "1 of 2 servers" in a["backup_bcdr"].evidence
+    assert (a["backup_bcdr"].status, a["backup_bcdr"].suggested) == ("seen", "Slide (2), Datto BCDR (1)")
+    assert "Datto BCDR protects 1 of 3 servers" in a["backup_bcdr"].evidence
+    assert "Slide protects 1 of 3 servers and 1 of 2 computers" in a["backup_bcdr"].evidence
+
+
+def test_one_tool_alone_is_named_plainly_and_none_is_unknown_not_none_seen():
+    a = answers([dev([datto()], os="Windows Server 2022")])
+    assert a["backup_bcdr"].suggested == "Datto BCDR"
     none = answers([dev([src("ninjaone")], os="Windows 11")])
     assert none["backup_bcdr"].status == "unknown"
     assert "ask the client" in none["backup_bcdr"].evidence
-    assert answers(machines())["backup_saas"].status == "unknown"
+
+
+def test_a_datto_agent_listed_without_an_operating_system_still_counts_as_a_protected_machine():
+    s = backup_summary([dev([datto()]), dev([], os="Windows 11")])
+    assert s.tools["datto-bcdr"].computers == 1
+    assert s.computers == 2
+
+
+def test_a_datto_agent_with_no_recent_snapshot_is_flagged_and_not_counted_as_current():
+    old = [dev([datto(OLD)], os="Windows Server 2022"), dev([datto(None)], os="Windows Server 2019"), dev([datto()], os="Windows Server 2016")]
+    s = backup_summary(old)
+    assert (s.tools["datto-bcdr"].quiet, s.protected, s.fresh) == (2, 3, 1)
+    assert "2 with no snapshot in 3 days" in answers(old)["backup_bcdr"].evidence
 
 
 def test_the_backups_checklist_item_is_never_met_because_restores_cannot_be_seen():
     facts = device_facts([], 0, 0)
-    full = [dev([src("slide")], os="Windows Server 2022"), dev([src("slide")], os="Windows 11")]
+    full = [dev([src("slide")], os="Windows Server 2022"), dev([datto()], os="Windows 11")]
     item = {i.key: i for i in readiness(facts, None, None, devices=full).items}["backups"]
     assert item.status == "partly"
     assert "cannot see whether restores are tested" in item.evidence
     thin = [dev([src("slide")], os="Windows 11")] + [dev([], os="Windows 11") for _ in range(4)]
     assert {i.key: i for i in readiness(facts, None, None, devices=thin).items}["backups"].status == "not_met"
+    quiet = [dev([datto(OLD)], os="Windows Server 2022"), dev([datto(OLD)], os="Windows Server 2019")]
+    assert {i.key: i for i in readiness(facts, None, None, devices=quiet).items}["backups"].status == "not_met"
     assert {i.key: i for i in readiness(facts, None, None, devices=[]).items}["backups"].status == "unknown"
 
 
@@ -136,6 +170,49 @@ def test_a_backup_gap_becomes_a_suggested_action():
     thin = [dev([src("slide")], os="Windows 11")] + [dev([], os="Windows 11") for _ in range(4)]
     keys = {d.key for d in drafts_from_readiness(readiness(facts, None, None, devices=thin))}
     assert "backups" in keys
+
+
+# ---- cloud backups (Datto SaaS Protection) ---------------------------------------------------------------------------------------------------------------
+
+
+def chk(key, status, evidence="e"):
+    return {"key": key, "status": status, "evidence": evidence}
+
+
+def test_saas_backup_is_the_worst_product_and_none_reported_is_unknown():
+    assert saas_backup(None) is None
+    assert saas_backup([chk("something_else", "met")]) is None
+    both = [chk("saas_backup_microsoft", "met", "Microsoft 365 ok"), chk("saas_backup_google", "not_met", "Google stale")]
+    status, evidence = saas_backup(both)
+    assert status == "not_met"
+    assert "Microsoft 365 ok" in evidence and "Google stale" in evidence
+    assert saas_backup([chk("saas_backup_microsoft", "partly")])[0] == "partly"
+
+
+def test_the_cloud_backup_question_names_datto_saas_when_it_reports_and_is_unknown_otherwise():
+    devices = []
+    a = {x.key: x for x in tech_stack(devices, device_facts(devices, 0, 0), False, saas=[chk("saas_backup_microsoft", "met", "Microsoft 365 backed up")])}
+    assert (a["backup_saas"].status, a["backup_saas"].suggested) == ("seen", "Datto SaaS Protection")
+    assert "Microsoft 365 backed up" in a["backup_saas"].evidence
+    none = {x.key: x for x in tech_stack(devices, device_facts(devices, 0, 0), False)}
+    assert none["backup_saas"].status == "unknown"
+
+
+def test_the_checklist_asks_whether_microsoft_and_google_are_backed_up_only_when_datto_saas_reports():
+    facts = device_facts([], 0, 0)
+    assert "saas_backup" not in {i.key for i in readiness(facts, None, None).items}
+    item = {i.key: i for i in readiness(facts, None, None, saas=[chk("saas_backup_microsoft", "partly", "80% backed up")]).items}["saas_backup"]
+    assert item.status == "partly"
+    keys = {d.key for d in drafts_from_readiness(readiness(facts, None, None, saas=[chk("saas_backup_google", "not_met", "none")]))}
+    assert "saas_backup" in keys
+
+
+def test_datto_agents_are_computers_and_have_a_label():
+    from app.api.v1.endpoints.devices import _COMPUTER_TOOLS
+    from app.services.case_devices import VENDOR_LABELS
+
+    assert "datto-bcdr" in _COMPUTER_TOOLS
+    assert VENDOR_LABELS["datto-bcdr"] == "Datto BCDR"
 
 
 # ---- network health ------------------------------------------------------------------------------------------------------------------------------------
