@@ -188,22 +188,20 @@ export function CommandPalette() {
       ],
     };
 
-    const recentGroup: PaletteGroup | null = recent.length
-      ? {
-          id: 'recent',
-          heading: 'Recent pages',
-          items: recent
-            .filter((href) => href !== pathname)
-            .map((href) => {
-              const match = NAV_ITEMS.find((item) => href.startsWith(item.href));
-              return {
-                id: `recent:${href}`,
-                label: match ? match.label : href,
-                hint: href,
-                perform: () => navigate(href),
-              };
-            }),
-        }
+    // Built first so a list holding only the page you are on shows no "Recent pages" heading over nothing.
+    const recentItems: PaletteAction[] = recent
+      .filter((href) => href !== pathname)
+      .map((href) => {
+        const match = NAV_ITEMS.find((item) => href.startsWith(item.href));
+        return {
+          id: `recent:${href}`,
+          label: match ? match.label : href,
+          hint: href,
+          perform: () => navigate(href),
+        };
+      });
+    const recentGroup: PaletteGroup | null = recentItems.length
+      ? { id: 'recent', heading: 'Recent pages', items: recentItems }
       : null;
 
     return recentGroup ? [navGroup, quickGroup, recentGroup] : [navGroup, quickGroup];

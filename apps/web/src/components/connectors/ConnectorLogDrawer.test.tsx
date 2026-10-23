@@ -21,7 +21,9 @@ function open(onClose = vi.fn()) {
   return onClose;
 }
 
-beforeEach(() => api.log.mockReset());
+beforeEach(() => {
+  api.log.mockReset();
+});
 
 describe('describeEntry', () => {
   it("uses the message CORE reported", () => {

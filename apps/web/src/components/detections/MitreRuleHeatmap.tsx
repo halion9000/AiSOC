@@ -110,7 +110,13 @@ export function MitreRuleHeatmap() {
     );
   }
 
-  const { summary, tactics } = data;
+  const { summary } = data;
+  // The columns are the tactics the API lists, plus any tactic a technique uses that the list left out, with the techniques that name no tactic last as "Unmapped". Without this a technique counted in the summary above could be missing from the grid.
+  const tactics = [...data.tactics];
+  for (const key of grouped?.keys() ?? []) {
+    if (key !== 'unmapped' && !tactics.includes(key)) tactics.push(key);
+  }
+  if (grouped?.has('unmapped')) tactics.push('unmapped');
 
   return (
     <div className="space-y-4">

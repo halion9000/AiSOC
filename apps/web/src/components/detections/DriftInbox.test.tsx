@@ -28,7 +28,9 @@ function renderInbox() {
   );
 }
 
-beforeEach(() => api.drift.mockReset());
+beforeEach(() => {
+  api.drift.mockReset();
+});
 
 describe('DriftInbox', () => {
   it('says nothing needs attention when there are no entries', async () => {

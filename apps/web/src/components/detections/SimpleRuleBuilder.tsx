@@ -38,18 +38,20 @@ export function buildSigma(opts: {
   const selectors = opts.conditions
     .filter((c) => c.field.trim() && c.value.trim())
     .map((c) => {
-      const key = c.operator === 'equals' ? c.field : `${c.field}|${c.operator}`;
-      return `    ${key}: ${yamlEscape(c.value)}`;
+      const field = c.field.trim();
+      const key = c.operator === 'equals' ? field : `${field}|${c.operator}`;
+      // A field name with a colon, hash or leading symbol would not be a valid YAML key as typed.
+      return `    ${/^[A-Za-z_][\w.|-]*$/.test(key) ? key : yamlEscape(key)}: ${yamlEscape(c.value)}`;
     });
   const logsource = [
     'logsource:',
-    opts.product ? `  product: ${opts.product}` : '',
-    opts.category ? `  category: ${opts.category}` : '',
+    opts.product ? `  product: ${yamlEscape(opts.product)}` : '',
+    opts.category ? `  category: ${yamlEscape(opts.category)}` : '',
   ]
     .filter(Boolean)
     .join('\n');
   return [
-    `title: ${opts.title || 'Untitled detection'}`,
+    `title: ${yamlEscape(opts.title || 'Untitled detection')}`,
     'status: experimental',
     logsource,
     'detection:',
