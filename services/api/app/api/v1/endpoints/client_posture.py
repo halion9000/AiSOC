@@ -21,8 +21,10 @@ from app.api.v1.endpoints.identity import counts_for_mfa
 from app.db.rls_scope import acting_as_tenant
 from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
+from app.models.identity_source import IdentitySource
 from app.models.signin import ClientM365Check, IdentityMfaUser
 from app.models.tenant import Tenant
+from app.services.domain_posture import DohResolver, DomainPosture, Resolver, candidate_domains, check_domains
 from app.services.infra_review import saas_products
 
 router = APIRouter(prefix="/client-posture", tags=["posture"])
@@ -165,3 +167,32 @@ async def client_posture(
         open_cases=cases,
         tools=tools,
     )
+
+
+def get_resolver() -> Resolver:
+    """The DNS resolver the domain checks use (replaced in tests)."""
+    return DohResolver()
+
+
+class ClientDomains(BaseModel):
+    client_id: uuid.UUID
+    # The domains looked at: those of the people held for the client, most used first.
+    domains: list[DomainPosture]
+    generated_at: datetime
+
+
+@router.get("/{client_id}/domains", response_model=ClientDomains, summary="SPF, DMARC, DKIM and MX of the domains a client's people use")
+async def client_domains(
+    client_id: uuid.UUID, current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession
+) -> ClientDomains:
+    """Looks the client's e-mail domains up in public DNS right now (nothing is stored). The domains are taken from the e-mail addresses of its people, so a client with none shows none."""
+    owner = current_user.tenant_id
+    if client_id != owner:
+        found = (await db.execute(select(Tenant.id).where(Tenant.id == client_id, Tenant.parent_tenant_id == owner))).scalar_one_or_none()
+        if found is None:
+            raise HTTPException(status_code=404, detail="Client not found")
+    async with contextlib.nullcontext() if client_id == owner else acting_as_tenant(db, client_id):
+        upns = (await db.execute(select(IdentityMfaUser.upn).where(IdentityMfaUser.tenant_id == client_id))).scalars().all()
+        mails = (await db.execute(select(IdentitySource.email).where(IdentitySource.tenant_id == client_id))).scalars().all()
+    domains = await check_domains(candidate_domains([*upns, *mails]), get_resolver())
+    return ClientDomains(client_id=client_id, domains=domains, generated_at=datetime.now(UTC))

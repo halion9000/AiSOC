@@ -11037,6 +11037,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/client-posture/{client_id}/domains:
+    get:
+      tags:
+      - posture
+      summary: SPF, DMARC, DKIM and MX of the domains a client's people use
+      description: Looks the client's e-mail domains up in public DNS right now (nothing
+        is stored). The domains are taken from the e-mail addresses of its people,
+        so a client with none shows none.
+      operationId: client_domains_api_v1_client_posture__client_id__domains_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Client Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientDomains'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/inbox/core-feed/{tenant_token}/vcio-reviews:
     post:
       tags:
@@ -21861,6 +21893,27 @@ components:
       - match_source
       - suggestions
       title: ClientAliasOut
+    ClientDomains:
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          title: Client Id
+        domains:
+          items:
+            $ref: '#/components/schemas/DomainPosture'
+          type: array
+          title: Domains
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+      type: object
+      required:
+      - client_id
+      - domains
+      - generated_at
+      title: ClientDomains
     ClientItem:
       properties:
         id:
@@ -24657,6 +24710,44 @@ components:
       type: object
       title: DismissTuningRequest
       description: Body for ``POST /detection/tuning/{rule_id}/dismiss``.
+    DomainPosture:
+      properties:
+        domain:
+          type: string
+          title: Domain
+        status:
+          type: string
+          enum:
+          - good
+          - needs_work
+          - missing
+          title: Status
+        mx:
+          items:
+            type: string
+          type: array
+          title: Mx
+        mail_provider:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mail Provider
+        spf:
+          $ref: '#/components/schemas/Finding'
+        dmarc:
+          $ref: '#/components/schemas/Finding'
+        dkim:
+          $ref: '#/components/schemas/Finding'
+      type: object
+      required:
+      - domain
+      - status
+      - mx
+      - mail_provider
+      - spf
+      - dmarc
+      - dkim
+      title: DomainPosture
     DriftEntry:
       properties:
         ruleId:
@@ -25773,6 +25864,34 @@ components:
       - active_nodes
       title: FimSummaryOut
       description: The console's FimSummary.
+    Finding:
+      properties:
+        status:
+          type: string
+          enum:
+          - good
+          - needs_work
+          - missing
+          title: Status
+        summary:
+          type: string
+          title: Summary
+        record:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Record
+        issues:
+          items:
+            type: string
+          type: array
+          title: Issues
+          default: []
+      type: object
+      required:
+      - status
+      - summary
+      title: Finding
     FindingCreate:
       properties:
         cloud_provider:

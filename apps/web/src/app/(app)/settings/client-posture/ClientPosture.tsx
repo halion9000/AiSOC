@@ -11,6 +11,7 @@ import { authFetch } from "@/lib/auth-session";
 import VendorBadge from "@/components/mssp/VendorBadge";
 import { vendorLabel } from "@/components/mssp/ClientMapping";
 import { vendorClientUrl } from "@/lib/vendor-links";
+import { DomainChecks } from "./DomainChecks";
 
 export interface Posture {
   client_id: string;
@@ -212,6 +213,7 @@ export function ClientPosture() {
               </p>
             )}
           </section>
+          <DomainChecks clientId={shown.client_id} />
           <section>
             <h3 className="mb-2 text-sm uppercase text-slate-500">Alerts and cases</h3>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
