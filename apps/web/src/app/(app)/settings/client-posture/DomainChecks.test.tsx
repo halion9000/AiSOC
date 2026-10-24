@@ -31,6 +31,23 @@ describe('DomainChecks', () => {
     expect(within(box).getByText('v=spf1 -all')).toBeInTheDocument();
   });
 
+  it('shows the website checks under a domain that has a website, and none for a mail-only domain', async () => {
+    const mail = { status: 'good', mx: [], mail_provider: null, spf: finding('good', 's'), dmarc: finding('good', 'd'), dkim: finding('good', 'k') };
+    authFetch.mockResolvedValue(
+      reply({
+        domains: [
+          { ...mail, domain: 'acme.com', web: { certificate: finding('needs_work', 'The certificate expires in 9 days: renew it.'), https_redirect: finding('good', 'Plain HTTP is sent to HTTPS.'), headers: finding('needs_work', 'Missing basic security headers') } },
+          { ...mail, domain: 'mailonly.net', web: null },
+        ],
+      }),
+    );
+    render(<DomainChecks clientId="c1" />);
+    const web = await screen.findByTestId('web-acme.com');
+    expect(within(web).getByText('The certificate expires in 9 days: renew it.')).toBeInTheDocument();
+    expect(within(web).getByText('Security headers')).toBeInTheDocument();
+    expect(screen.queryByTestId('web-mailonly.net')).not.toBeInTheDocument();
+  });
+
   it('says where the domains come from when there are none', async () => {
     authFetch.mockResolvedValue(reply({ domains: [] }));
     render(<DomainChecks clientId="c1" />);

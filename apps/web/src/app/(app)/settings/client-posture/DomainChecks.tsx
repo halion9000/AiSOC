@@ -22,6 +22,8 @@ export interface DomainPosture {
   spf: Finding;
   dmarc: Finding;
   dkim: Finding;
+  /** What the domain's website shows; absent when no website answered (normal for a mail-only domain) or from an older API. */
+  web?: { certificate: Finding; https_redirect: Finding; headers: Finding } | null;
 }
 
 const LABEL: Record<Status, { text: string; className: string }> = {
@@ -64,7 +66,7 @@ export function DomainChecks({ clientId }: { clientId: string }) {
   if (domains === null) return <p className="text-sm text-slate-500">Checking the client&apos;s domains…</p>;
   return (
     <section data-testid="domain-checks">
-      <h3 className="mb-2 text-sm uppercase text-slate-500">E-mail domains (SPF, DMARC, DKIM)</h3>
+      <h3 className="mb-2 text-sm uppercase text-slate-500">E-mail and website checks for the client&apos;s domains</h3>
       {domains.length === 0 ? (
         <p className="text-sm text-slate-400" data-testid="no-domains">
           No domains to check yet. They come from the e-mail addresses of this client&apos;s people (the Identities page), so they appear once those are loaded.
@@ -83,6 +85,13 @@ export function DomainChecks({ clientId }: { clientId: string }) {
                 <Check name="DMARC" f={d.dmarc} />
                 <Check name="DKIM" f={d.dkim} />
               </div>
+              {d.web && (
+                <div className="mt-2 grid gap-2 md:grid-cols-3" data-testid={`web-${d.domain}`}>
+                  <Check name="Certificate" f={d.web.certificate} />
+                  <Check name="HTTP to HTTPS" f={d.web.https_redirect} />
+                  <Check name="Security headers" f={d.web.headers} />
+                </div>
+              )}
             </div>
           ))}
         </div>

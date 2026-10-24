@@ -21901,7 +21901,7 @@ components:
           title: Client Id
         domains:
           items:
-            $ref: '#/components/schemas/DomainPosture'
+            $ref: '#/components/schemas/DomainWithWeb'
           type: array
           title: Domains
         generated_at:
@@ -24710,7 +24710,7 @@ components:
       type: object
       title: DismissTuningRequest
       description: Body for ``POST /detection/tuning/{rule_id}/dismiss``.
-    DomainPosture:
+    DomainWithWeb:
       properties:
         domain:
           type: string
@@ -24738,6 +24738,10 @@ components:
           $ref: '#/components/schemas/Finding'
         dkim:
           $ref: '#/components/schemas/Finding'
+        web:
+          anyOf:
+          - $ref: '#/components/schemas/WebPosture'
+          - type: 'null'
       type: object
       required:
       - domain
@@ -24747,7 +24751,7 @@ components:
       - spf
       - dmarc
       - dkim
-      title: DomainPosture
+      title: DomainWithWeb
     DriftEntry:
       properties:
         ruleId:
@@ -38125,6 +38129,20 @@ components:
       required:
       - is_watchlisted
       title: WatchlistUpdate
+    WebPosture:
+      properties:
+        certificate:
+          $ref: '#/components/schemas/Finding'
+        https_redirect:
+          $ref: '#/components/schemas/Finding'
+        headers:
+          $ref: '#/components/schemas/Finding'
+      type: object
+      required:
+      - certificate
+      - https_redirect
+      - headers
+      title: WebPosture
     WhitelistCreate:
       properties:
         action_type:

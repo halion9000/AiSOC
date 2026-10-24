@@ -106,6 +106,7 @@ def test_the_endpoint_looks_up_the_domains_of_the_clients_people(monkeypatch):
     owner = uuid.uuid4()
     monkeypatch.setattr(cp, "acting_as_tenant", lambda db, tid: contextlib.nullcontext())
     monkeypatch.setattr(cp, "get_resolver", lambda: FakeResolver(txt={"acme.com": ["v=spf1 -all"]}, mx={"acme.com": ["mx.acme.com"]}))
+    monkeypatch.setattr(cp, "get_probe", lambda: type("P", (), {"probe": staticmethod(lambda d: _no_site())})())
 
     class DB:
         async def execute(self, statement, params=None):
@@ -116,3 +117,9 @@ def test_the_endpoint_looks_up_the_domains_of_the_clients_people(monkeypatch):
     out = asyncio.run(cp.client_domains(owner, SimpleNamespace(tenant_id=owner, user_id=uuid.uuid4()), DB()))
     assert [d.domain for d in out.domains] == ["acme.com"], "the same domain from both lists is looked up once"
     assert out.domains[0].spf.status == "good"
+
+
+async def _no_site():
+    from app.services.web_posture import ProbeResult
+
+    return ProbeResult(answered=False)

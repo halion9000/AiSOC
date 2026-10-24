@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
 from datetime import UTC, datetime
@@ -25,6 +26,7 @@ from app.models.identity_source import IdentitySource
 from app.models.signin import ClientM365Check, IdentityMfaUser
 from app.models.tenant import Tenant
 from app.services.domain_posture import DohResolver, DomainPosture, Resolver, candidate_domains, check_domains
+from app.services.web_posture import LiveProbe, WebPosture, WebProbe, web_posture
 from app.services.infra_review import saas_products
 
 router = APIRouter(prefix="/client-posture", tags=["posture"])
@@ -174,10 +176,20 @@ def get_resolver() -> Resolver:
     return DohResolver()
 
 
+def get_probe() -> WebProbe:
+    """What looks at a domain's website (replaced in tests)."""
+    return LiveProbe()
+
+
+class DomainWithWeb(DomainPosture):
+    # What the domain's website shows; None when no website answered, which is normal for a mail-only domain.
+    web: WebPosture | None = None
+
+
 class ClientDomains(BaseModel):
     client_id: uuid.UUID
     # The domains looked at: those of the people held for the client, most used first.
-    domains: list[DomainPosture]
+    domains: list[DomainWithWeb]
     generated_at: datetime
 
 
@@ -194,5 +206,9 @@ async def client_domains(
     async with contextlib.nullcontext() if client_id == owner else acting_as_tenant(db, client_id):
         upns = (await db.execute(select(IdentityMfaUser.upn).where(IdentityMfaUser.tenant_id == client_id))).scalars().all()
         mails = (await db.execute(select(IdentitySource.email).where(IdentitySource.tenant_id == client_id))).scalars().all()
-    domains = await check_domains(candidate_domains([*upns, *mails]), get_resolver())
-    return ClientDomains(client_id=client_id, domains=domains, generated_at=datetime.now(UTC))
+    checked = await check_domains(candidate_domains([*upns, *mails]), get_resolver())
+    probe = get_probe()
+    now = datetime.now(UTC)
+    webs = await asyncio.gather(*(probe.probe(d.domain) for d in checked))
+    domains = [DomainWithWeb(**d.model_dump(), web=web_posture(w, now)) for d, w in zip(checked, webs, strict=True)]
+    return ClientDomains(client_id=client_id, domains=domains, generated_at=now)
