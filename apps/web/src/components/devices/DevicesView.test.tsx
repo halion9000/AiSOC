@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { SWRConfig } from 'swr';
 import type { DeviceList, DeviceRow } from '@/lib/api';
 
 const listMock = vi.fn();
@@ -8,8 +9,9 @@ const masterMock = vi.fn();
 const hideMock = vi.fn();
 const unhideMock = vi.fn();
 const childrenMock = vi.fn();
+const unmappedMock = vi.fn();
 vi.mock('@/lib/api', () => ({
-  devicesApi: { rollup: async () => [], merges: async () => [], list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), hide: (...a: unknown[]) => hideMock(...a), unhide: (...a: unknown[]) => unhideMock(...a), duplicates: async () => ({ items: [] }) },
+  devicesApi: { unmapped: () => unmappedMock(), rollup: async () => [], merges: async () => [], list: (...a: unknown[]) => listMock(...a), setMaster: (...a: unknown[]) => masterMock(...a), hide: (...a: unknown[]) => hideMock(...a), unhide: (...a: unknown[]) => unhideMock(...a), duplicates: async () => ({ items: [] }) },
   msspApi: { listChildren: () => childrenMock() },
   apiErrorDetail: () => null,
 }));
@@ -33,6 +35,7 @@ function list(items: DeviceRow[], over: Partial<DeviceList> = {}): DeviceList {
 beforeEach(() => {
   window.localStorage.clear();
   listMock.mockReset();
+  unmappedMock.mockReset().mockResolvedValue([]);
   masterMock.mockReset().mockResolvedValue({ master_vendor: 'ninjaone' });
   hideMock.mockReset().mockResolvedValue({ device_id: 'x', hidden_since: NOW });
   unhideMock.mockReset().mockResolvedValue({ device_id: 'x', hidden_since: null });
@@ -631,5 +634,60 @@ describe('the tool menu', () => {
     render(<DevicesView />);
     await screen.findByText('A-1');
     expect(within(screen.getByLabelText('Reported by')).getByRole('option', { name: 'Cisco Meraki' })).toBeInTheDocument();
+  });
+});
+
+
+describe('devices waiting for their client to be mapped', () => {
+  const groups = [
+    { vendor: 'fieldeffect', vendor_client_id: '09a1', name: 'Texas Cultural Trust', devices: 33, hostnames: ['pc-1', 'pc-2', 'pc-3', 'pc-4', 'pc-5', 'pc-6', 'pc-7'], last_seen: '2026-10-23T10:00:00Z' },
+    { vendor: 'unifi', vendor_client_id: 'P00190', name: null, devices: 2, hostnames: ['ap-1', 'ap-2'], last_seen: null },
+  ];
+
+  it('are listed by tool and client with the machine names and a link to map them', async () => {
+    unmappedMock.mockResolvedValue(groups);
+    listMock.mockResolvedValue(list([device({ hostname: 'A-1' })]));
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <DevicesView />
+      </SWRConfig>,
+    );
+    await screen.findByText('A-1');
+    const panel = await screen.findByTestId('unmapped-devices');
+    expect(panel).toHaveTextContent('Waiting for a client (35)');
+    await userEvent.click(within(panel).getByRole('button', { name: /Waiting for a client/ }));
+    const rows = within(panel).getAllByTestId('unmapped-group');
+    expect(rows[0]).toHaveTextContent('Field Effect');
+    expect(rows[0]).toHaveTextContent('Texas Cultural Trust');
+    expect(rows[0]).toHaveTextContent('33');
+    expect(rows[0]).toHaveTextContent('pc-1, pc-2, pc-3, pc-4, pc-5');
+    expect(rows[0]).not.toHaveTextContent('pc-6');
+    expect(within(rows[0]).getByRole('link', { name: 'Map clients' })).toHaveAttribute('href', '/mssp?vendor=fieldeffect');
+    expect(rows[1]).toHaveTextContent('P00190');
+    await userEvent.click(within(rows[0]).getByRole('button', { name: 'show all 7' }));
+    expect(rows[0]).toHaveTextContent('pc-7');
+  });
+
+  it('are not shown when nothing is waiting', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-1' })]));
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <DevicesView />
+      </SWRConfig>,
+    );
+    await screen.findByText('A-1');
+    expect(screen.queryByTestId('unmapped-devices')).not.toBeInTheDocument();
+  });
+
+  it('the tool menu offers Field Effect (and the other device tools) even before any of its devices is stored', async () => {
+    listMock.mockResolvedValue(list([device({ hostname: 'A-1' })], { summary: { total: 1, not_in_master: 0, reporting_tools: ['ninjaone'] } }));
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <DevicesView />
+      </SWRConfig>,
+    );
+    await screen.findByText('A-1');
+    const options = within(screen.getByLabelText('Reported by')).getAllByRole('option').map((o) => (o as HTMLOptionElement).value);
+    expect(options).toEqual(expect.arrayContaining(['fieldeffect', 'auvik', 'datto-bcdr', 'meraki', 'unifi', 'slide', 'autoelevate']));
   });
 });

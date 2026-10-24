@@ -10122,6 +10122,27 @@ paths:
                 title: Response Devices Rollup Api V1 Devices Rollup Get
       security:
       - HTTPBearer: []
+  /api/v1/devices/unmapped:
+    get:
+      tags:
+      - devices
+      summary: Devices waiting for their client to be mapped, by tool and client
+      description: The machines tools report for clients that are not mapped yet.
+        They are not stored (a device needs a client), so the Devices list cannot
+        show them; this can.
+      operationId: unmapped_devices_api_v1_devices_unmapped_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/UnmappedGroup'
+                type: array
+                title: Response Unmapped Devices Api V1 Devices Unmapped Get
+      security:
+      - HTTPBearer: []
   /api/v1/devices/duplicates:
     get:
       tags:
@@ -36599,6 +36620,43 @@ components:
       description: A tool's client that devices belong to but that is not mapped to
         a client here (``name`` is None when the tool's client list has not reached
         AiSOC yet).
+    UnmappedGroup:
+      properties:
+        vendor:
+          type: string
+          title: Vendor
+        vendor_client_id:
+          type: string
+          title: Vendor Client Id
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        devices:
+          type: integer
+          title: Devices
+        hostnames:
+          items:
+            type: string
+          type: array
+          title: Hostnames
+        last_seen:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Seen
+      type: object
+      required:
+      - vendor
+      - vendor_client_id
+      - devices
+      - hostnames
+      title: UnmappedGroup
+      description: Devices a tool reports for one of its clients that is not mapped
+        to a client here yet. They are not stored until it is, so this is where to
+        find them.
     UpdateApiKeyRequest:
       properties:
         name:

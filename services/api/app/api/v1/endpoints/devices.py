@@ -28,7 +28,7 @@ from app.api.v1.endpoints.inbox_core_feed import _verify_core_feed_token
 from app.db.rls_scope import acting_as_tenant, cross_tenant_reads
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
-from app.models.client_alias import ClientAlias
+from app.models.client_alias import ClientAlias, ClientDeviceHint
 from app.models.device import Device, DeviceMergeLog, DeviceSnooze, DeviceSource
 from app.models.tenant import Tenant
 from app.services.client_mapping import auto_link_by_devices, record_device_hints, tenant_hidden
@@ -797,6 +797,63 @@ async def devices_rollup(
     scope, clients = await _scope(db, owner, None)
     master = _master_of(await db.get(Tenant, owner))
     return rollup_of([d for d in await _load_cached(db, owner, scope, clients, master) if d.hidden_since is None])
+
+
+class UnmappedGroup(BaseModel):
+    """Devices a tool reports for one of its clients that is not mapped to a client here yet. They are not stored until it is, so this is where to find them."""
+
+    vendor: str
+    vendor_client_id: str
+    # The client's name in that tool (None until the tool's client list has arrived).
+    name: str | None = None
+    # How many machine names are remembered for it (at most HINTS_PER_CLIENT, so a bigger client reads as that many).
+    devices: int
+    hostnames: list[str]
+    last_seen: datetime | None = None
+
+
+UNMAPPED_NAMES_SHOWN = 100
+
+
+def group_unmapped(hints: list[Any], aliases: dict[tuple[str, str], Any], mapped_to_a_client: set[tuple[str, str]]) -> list[UnmappedGroup]:
+    """The remembered machine names grouped by tool client, leaving out clients that are mapped by now or that someone chose to ignore. Biggest first."""
+    by: dict[tuple[str, str], list[Any]] = {}
+    for h in hints:
+        key = (h.vendor, h.vendor_client_id)
+        alias = aliases.get(key)
+        if key in mapped_to_a_client or (alias is not None and alias.ignored):
+            continue
+        by.setdefault(key, []).append(h)
+    out = []
+    for (vendor, vid), rows in by.items():
+        alias = aliases.get((vendor, vid))
+        out.append(
+            UnmappedGroup(
+                vendor=vendor,
+                vendor_client_id=vid,
+                name=(alias.vendor_client_name or None) if alias is not None else None,
+                devices=len(rows),
+                hostnames=sorted({r.hostname_key for r in rows})[:UNMAPPED_NAMES_SHOWN],
+                last_seen=max((r.seen_at for r in rows), default=None),
+            )
+        )
+    return sorted(out, key=lambda g: (-g.devices, g.vendor, g.name or g.vendor_client_id))
+
+
+@router.get(
+    "/unmapped",
+    response_model=list[UnmappedGroup],
+    summary="Devices waiting for their client to be mapped, by tool and client",
+)
+async def unmapped_devices(current_user: Annotated[AuthUser, Depends(require_permission("alerts:read"))], db: DBSession) -> list[UnmappedGroup]:
+    """The machines tools report for clients that are not mapped yet. They are not stored (a device needs a client), so the Devices list cannot show them; this can."""
+    owner = current_user.tenant_id
+    hints = list((await db.execute(select(ClientDeviceHint).where(ClientDeviceHint.tenant_id == owner))).scalars().all())
+    rows = (await db.execute(select(ClientAlias).where(ClientAlias.tenant_id == owner))).scalars().all()
+    children = set((await db.execute(select(Tenant.id).where(Tenant.parent_tenant_id == owner))).scalars().all())
+    aliases = {(a.vendor, a.vendor_client_id): a for a in rows}
+    mapped = {k for k, a in aliases.items() if a.child_tenant_id is not None and a.child_tenant_id in children}
+    return group_unmapped(hints, aliases, mapped)
 
 
 @router.get("/duplicates", response_model=DuplicatesOut)

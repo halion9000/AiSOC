@@ -739,6 +739,10 @@ export const devicesApi = {
   async undoMerge(id: string): Promise<MergeEntry> {
     return request<MergeEntry>(`/api/v1/devices/duplicates/merges/${encodeURIComponent(id)}/undo`, { method: 'POST' });
   },
+  /** Devices tools report for clients not mapped yet, by tool and client (they are not stored until the client is mapped). */
+  async unmapped(): Promise<{ vendor: string; vendor_client_id: string; name: string | null; devices: number; hostnames: string[]; last_seen: string | null }[]> {
+    return request('/api/v1/devices/unmapped');
+  },
   /** Per client: devices, how many need attention, have a stale agent, are not in Huntress or are offline. Worst first. */
   async rollup(): Promise<ClientRollup[]> {
     return request<ClientRollup[]>('/api/v1/devices/rollup');

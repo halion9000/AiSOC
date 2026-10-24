@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { apiErrorDetail, devicesApi, msspApi, type ChildTenant, type DeviceKind, type DeviceList, type DeviceQuery, type DeviceRow } from '@/lib/api';
 import VendorBadge from '@/components/mssp/VendorBadge';
 import DuplicateDevices from './DuplicateDevices';
+import UnmappedDevices from './UnmappedDevices';
 import { ClientRollupTable } from './ClientRollupTable';
 import { vendorLabel } from '@/components/mssp/ClientMapping';
 import { loadFilters, pickString, saveFilters } from '@/lib/remembered-filters';
@@ -17,6 +18,9 @@ import { loadFilters, pickString, saveFilters } from '@/lib/remembered-filters';
  */
 
 const MASTER_CHOICES = ['ninjaone', 'addigy', 'threatmate'];
+
+/** Every tool that can report devices, so the filter offers it before any of its devices is stored (a tool whose clients are not mapped yet has none to show). */
+export const KNOWN_DEVICE_TOOLS = ['addigy', 'autoelevate', 'auvik', 'blumira', 'datto-bcdr', 'dnsfilter', 'fieldeffect', 'huntress', 'meraki', 'ninjaone', 'screenconnect', 'slide', 'threatmate', 'unifi'];
 
 type Missing = 'addigy' | 'threatmate' | 'huntress' | 'screenconnect' | 'fieldeffect';
 
@@ -226,6 +230,8 @@ export default function DevicesView() {
   // filter left it with no rows: the menu then SHOWED "Any tool" while that tool was still the filter, and nothing came back until it was cleared.
   const toolChoices = [...new Set([...MASTER_CHOICES, ...(data?.summary.reporting_tools ?? []), ...(data?.items.flatMap(toolsOf) ?? []), ...(master ? [master] : []), ...(vendor ? [vendor] : [])])].sort();
 
+  const filterChoices = [...new Set([...toolChoices, ...KNOWN_DEVICE_TOOLS])].sort();
+
   return (
     <div className="space-y-5 p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -420,7 +426,7 @@ export default function DevicesView() {
           className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-white"
         >
           <option value="">Any tool</option>
-          {toolChoices.map((v) => (
+          {filterChoices.map((v) => (
             <option key={v} value={v}>
               {vendorLabel(v)}
             </option>
@@ -458,6 +464,8 @@ export default function DevicesView() {
           setPage(1);
         }}
       />
+
+      <UnmappedDevices />
 
       <DuplicateDevices clientId={clientId || undefined} onChanged={() => void load()} />
 
