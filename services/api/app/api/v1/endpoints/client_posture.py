@@ -137,7 +137,7 @@ async def client_posture(
     saas_checks: list[dict] = []
     if any(v == "datto-saas" for v, _, _ in aliases):
         async with contextlib.nullcontext() if client_id == owner else acting_as_tenant(db, client_id):
-            row = (
+            saas_row = (
                 (
                     await db.execute(
                         select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source == "datto-saas")
@@ -146,7 +146,7 @@ async def client_posture(
                 .scalars()
                 .first()
             )
-        saas_checks = [c for c in (row.checks if row is not None else []) if isinstance(c, dict)]
+        saas_checks = [c for c in (saas_row.checks if saas_row is not None else []) if isinstance(c, dict)]
     tools = [
         PostureTool(
             vendor=v, vendor_client_id=i, vendor_client_name=n or None, product=saas_products(saas_checks) if v == "datto-saas" else None
