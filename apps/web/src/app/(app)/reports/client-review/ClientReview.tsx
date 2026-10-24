@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 
 import { authFetch } from "@/lib/auth-session";
 import { VcioSuggestions } from "./VcioSuggestions";
+import { AnswerEditor, AnswerMarks } from "./AnswerEditor";
 
 export interface Coverage {
   tool: string;
@@ -24,6 +25,10 @@ export interface ReadinessItem {
   question: string;
   status: "met" | "partly" | "not_met" | "unknown";
   evidence: string;
+  /** A typed status or answer replaces the worked-out one (manual); what A.C.O.R.N had worked out is kept in auto_*. A note changes no answer. */
+  manual?: boolean;
+  note?: string | null;
+  auto_status?: string | null;
 }
 
 export interface VcioRecommendation {
@@ -52,6 +57,11 @@ export interface TechAnswer {
   status: 'seen' | 'not_seen' | 'unknown';
   suggested: string | null;
   evidence: string;
+  /** A typed status or answer replaces the worked-out one (manual); what A.C.O.R.N had worked out is kept in auto_*. A note changes no answer. */
+  manual?: boolean;
+  note?: string | null;
+  auto_status?: string | null;
+  auto_suggested?: string | null;
 }
 
 export interface M365Answer {
@@ -60,6 +70,10 @@ export interface M365Answer {
   /** From a check CORE read through CIPP (or the multi-factor list); needs_person when A.C.O.R.N has nothing that answers it. */
   status: 'met' | 'partly' | 'not_met' | 'needs_person';
   evidence: string;
+  /** A typed status or answer replaces the worked-out one (manual); what A.C.O.R.N had worked out is kept in auto_*. A note changes no answer. */
+  manual?: boolean;
+  note?: string | null;
+  auto_status?: string | null;
 }
 
 /** "20 of 99 answered: 11 met, 1 partly, 8 not met. 79 need a person." */
@@ -154,6 +168,9 @@ export function ClientReview() {
   const [clientId, setClientId] = useState(params?.get("client") ?? "");
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped after an answer is typed, so the review is read again with it.
+  const [version, setVersion] = useState(0);
+  const reload = () => setVersion((v) => v + 1);
 
   useEffect(() => {
     let live = true;
@@ -169,13 +186,17 @@ export function ClientReview() {
     };
   }, []);
 
+  // Another client starts from a blank page; reading the same client again (after an answer is typed) keeps what is shown until the new copy arrives.
+  useEffect(() => {
+    setReview(null);
+  }, [clientId]);
+
   useEffect(() => {
     if (!clientId) {
       setReview(null);
       return;
     }
     let live = true;
-    setReview(null);
     setError(null);
     getJson<Review>(`/api/v1/client-review/${encodeURIComponent(clientId)}`)
       .then((r) => {
@@ -187,7 +208,7 @@ export function ClientReview() {
     return () => {
       live = false;
     };
-  }, [clientId]);
+  }, [clientId, version]);
 
   const coverage = useMemo(() => (review ? visibleCoverage(review.devices.coverage) : []), [review]);
 
@@ -245,9 +266,11 @@ export function ClientReview() {
               {review.readiness.items.map((i) => (
                 <li key={i.key} className="flex items-start gap-3 text-sm">
                   <span className={`mt-0.5 w-20 shrink-0 rounded px-2 py-0.5 text-center text-[11px] font-medium ${STATUS[i.status].className}`}>{STATUS[i.status].label}</span>
-                  <span>
+                  <span className="flex-1">
                     <span className="text-slate-200">{i.question}</span>
                     <span className="block text-xs text-slate-500">{i.evidence}</span>
+                    <AnswerMarks manual={i.manual} note={i.note} suggested={i.auto_status ? STATUS[i.auto_status as ReadinessItem["status"]]?.label : null} />
+                    <AnswerEditor clientId={review.client_id} section="readiness" questionKey={i.key} status={i.status} note={i.note} manual={i.manual} onSaved={reload} />
                   </span>
                 </li>
               ))}
@@ -275,7 +298,11 @@ export function ClientReview() {
                         <td className={`w-32 pr-3 ${a.status === 'seen' ? 'text-emerald-300' : a.status === 'not_seen' ? 'text-amber-300' : 'text-slate-500'}`}>
                           {a.status === 'unknown' ? 'Ask the client' : a.suggested}
                         </td>
-                        <td className="text-xs text-slate-500">{a.evidence}</td>
+                        <td className="text-xs text-slate-500">
+                          {a.evidence}
+                          <AnswerMarks manual={a.manual} note={a.note} suggested={a.manual ? (a.auto_status === 'unknown' ? 'Ask the client' : a.auto_suggested) : null} />
+                          <AnswerEditor clientId={review.client_id} section="tech" questionKey={a.key} status={a.status} answer={a.suggested} note={a.note} manual={a.manual} onSaved={reload} />
+                        </td>
                       </tr>
                     </Fragment>
                   ))}
@@ -313,7 +340,11 @@ export function ClientReview() {
                             <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${STATUS[a.status].className}`}>{STATUS[a.status].label}</span>
                           )}
                         </td>
-                        <td className="text-xs text-slate-500">{a.evidence}</td>
+                        <td className="text-xs text-slate-500">
+                          {a.evidence}
+                          <AnswerMarks manual={a.manual} note={a.note} suggested={a.auto_status ? (a.auto_status === 'needs_person' ? 'Needs a person' : STATUS[a.auto_status as ReadinessItem['status']]?.label) : null} />
+                          <AnswerEditor clientId={review.client_id} section="m365" questionKey={a.question} status={a.status} note={a.note} manual={a.manual} onSaved={reload} />
+                        </td>
                       </tr>
                     </Fragment>
                   ))}

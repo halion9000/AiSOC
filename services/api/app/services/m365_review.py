@@ -6,6 +6,7 @@ list A.C.O.R.N already holds. A question neither can answer is ``needs_person``:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -201,6 +202,11 @@ class M365Answer(BaseModel):
     # met / partly / not_met from a check; needs_person when A.C.O.R.N has nothing that answers it.
     status: str
     evidence: str = ""
+    # A person's typed answer or note (see review_overrides). ``manual``: the status or answer was typed, replacing what A.C.O.R.N worked out, which is kept in ``auto_*``.
+    manual: bool = False
+    note: str | None = None
+    auto_status: str | None = None
+    updated_at: datetime | None = None
 
 
 def question_for(prefix: str) -> str:

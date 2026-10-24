@@ -28,11 +28,13 @@ from app.db.rls_scope import acting_as_tenant
 from app.db.rls_sessions import adopt_tenant
 from app.models.alert import Alert
 from app.models.client_alias import ClientAlias
+from app.models.client_review_answer import ClientReviewAnswer
 from app.models.signin import ClientM365Check, ClientVcioReview, IdentityMfaUser, IdentitySecureScore
 from app.models.tenant import Tenant
 from app.services.client_review import DeviceFacts, Readiness, device_facts, readiness
 from app.services.infra_review import SAAS_SOURCES
 from app.services.m365_review import M365Answer, m365_answers
+from app.services.review_overrides import MAX_PER_CLIENT, clean_answer, merge_m365, merge_readiness, merge_tech, readiness_counts
 from app.services.sat_review import SAT_SOURCE
 from app.services.tech_stack import TechAnswer, tech_stack
 
@@ -179,6 +181,63 @@ async def apply_m365_checks(db: Any, owner: uuid.UUID, report: M365ChecksReport,
     return VcioReviewResponse(accepted=accepted, unmapped=unmapped, ignored=ignored, unmapped_clients=waiting)
 
 
+class AnswerIn(BaseModel):
+    section: str
+    key: str = Field(max_length=400)
+    # A typed status (replaces the one A.C.O.R.N worked out), and for the technology questions a typed answer; either, both or neither. A note changes no answer.
+    status: str | None = None
+    answer: str | None = Field(default=None, max_length=300)
+    note: str | None = Field(default=None, max_length=4000)
+
+
+class AnswerOut(BaseModel):
+    section: str
+    key: str
+    status: str | None = None
+    answer: str | None = None
+    note: str | None = None
+    updated_at: datetime | None = None
+    # True when the row was removed because nothing was left in it (every field empty).
+    cleared: bool = False
+
+
+async def _own_or_client(db: Any, owner: uuid.UUID, client_id: uuid.UUID) -> None:
+    if client_id != owner:
+        found = (await db.execute(select(Tenant.id).where(Tenant.id == client_id, Tenant.parent_tenant_id == owner))).scalar_one_or_none()
+        if found is None:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+
+@router.put("/{client_id}/answers", response_model=AnswerOut, summary="Type an answer or a note into one question of a client's review")
+async def save_review_answer(
+    client_id: uuid.UUID, body: AnswerIn, current_user: Annotated[AuthUser, Depends(require_permission("mssp:manage"))], db: DBSession
+) -> AnswerOut:
+    """Set a question's status or answer (replacing the one A.C.O.R.N worked out) and/or add a note. Sending nothing in all three fields clears the question back to the automatic answer."""
+    owner = current_user.tenant_id
+    await _own_or_client(db, owner, client_id)
+    st, ans, note = clean_answer(body.section, body.key, body.status, body.answer, body.note)
+    async with contextlib.nullcontext() if client_id == owner else acting_as_tenant(db, client_id):
+        existing = (
+            await db.execute(select(ClientReviewAnswer).where(ClientReviewAnswer.tenant_id == client_id, ClientReviewAnswer.section == body.section, ClientReviewAnswer.key == body.key))
+        ).scalar_one_or_none()
+        if st is None and ans is None and note is None:
+            if existing is not None:
+                await db.delete(existing)
+                await db.commit()
+            return AnswerOut(section=body.section, key=body.key, cleared=True)
+        if existing is None:
+            count = (await db.execute(select(func.count()).select_from(ClientReviewAnswer).where(ClientReviewAnswer.tenant_id == client_id))).scalar_one()
+            if count >= MAX_PER_CLIENT:
+                raise HTTPException(status_code=422, detail=f"A client can have at most {MAX_PER_CLIENT} typed answers")
+        now = datetime.now(UTC)
+        values = {"tenant_id": client_id, "section": body.section, "key": body.key, "status": st, "answer": ans, "note": note, "updated_by": current_user.user_id, "updated_at": now}
+        stmt = pg_insert(ClientReviewAnswer).values(values)
+        update = {c: stmt.excluded[c] for c in values if c not in ("tenant_id", "section", "key")}
+        await db.execute(stmt.on_conflict_do_update(index_elements=["tenant_id", "section", "key"], set_=update))
+        await db.commit()
+    return AnswerOut(section=body.section, key=body.key, status=st, answer=ans, note=note, updated_at=now)
+
+
 @ingest_router.post("/core-feed/{tenant_token}/m365-checks", response_model=VcioReviewResponse)
 async def report_core_feed_m365_checks(tenant_token: str, body: M365ChecksReport, db: DBSession) -> VcioReviewResponse:
     """Record one client's Microsoft 365 baseline checks (replacing the last report)."""
@@ -265,6 +324,7 @@ async def client_review(
             .scalars()
             .first()
         )
+        typed = list((await db.execute(select(ClientReviewAnswer).where(ClientReviewAnswer.tenant_id == client_id))).scalars().all())
         saas_rows = (await db.execute(select(ClientM365Check).where(ClientM365Check.tenant_id == client_id, ClientM365Check.source.in_(SAAS_SOURCES)))).scalars().all()
         a = (
             await db.execute(
@@ -302,6 +362,10 @@ async def client_review(
     sat_checks = [c for c in (sat_row.checks if sat_row is not None else []) if isinstance(c, dict)]
     # Each cloud backup tool's checks, tagged with the tool that sent them so the answer can name it.
     saas_checks = [{**c, "source": row.source} for row in saas_rows for c in (row.checks or []) if isinstance(c, dict)]
+    ready = readiness(facts, mfa, score.percent if score else None, sat=sat_checks, devices=shown, saas=saas_checks, enrolled_in={v for v, tid in aliases if tid == client_id})
+    merge_readiness(ready.items, typed)
+    counts = readiness_counts(ready.items)
+    ready.met, ready.partly, ready.not_met, ready.unknown = counts["met"], counts["partly"], counts["not_met"], counts["unknown"]
     return ClientReview(
         client_id=client_id,
         client_name=clients.get(client_id),
@@ -312,9 +376,12 @@ async def client_review(
         secure_score=score,
         alerts=ReviewAlerts(open=a[0], critical_open=a[1], high_open=a[2], opened_30d=a[3], closed_30d=a[4]),
         cases=ReviewCases(open=c[0], opened_30d=c[1], resolved_30d=c[2]),
-        readiness=readiness(facts, mfa, score.percent if score else None, sat=sat_checks, devices=shown, saas=saas_checks, enrolled_in={v for v, tid in aliases if tid == client_id}),
-        tech_stack=tech_stack(shown, facts, has_microsoft_365=bool(users), sat=sat_checks, saas=saas_checks, enrolled_in={v for v, tid in aliases if tid == client_id}, mapped_tools={v for v, _ in aliases}),
-        m365=m365_answers([c for c in (m365_row.checks if m365_row is not None else []) if isinstance(c, dict)], list(users)),
+        readiness=ready,
+        tech_stack=merge_tech(
+            tech_stack(shown, facts, has_microsoft_365=bool(users), sat=sat_checks, saas=saas_checks, enrolled_in={v for v, tid in aliases if tid == client_id}, mapped_tools={v for v, _ in aliases}),
+            typed,
+        ),
+        m365=merge_m365(m365_answers([c for c in (m365_row.checks if m365_row is not None else []) if isinstance(c, dict)], list(users)), typed),
         m365_refreshed_at=m365_row.refreshed_at if m365_row is not None else None,
         vcio=(
             ReviewVcio(

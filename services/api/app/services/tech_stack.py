@@ -7,6 +7,7 @@ Pure functions over simple values, so every rule is testable without a database.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -72,6 +73,12 @@ class TechAnswer(BaseModel):
     status: str
     suggested: str | None = None
     evidence: str
+    # A person's typed answer or note (see review_overrides). ``manual``: the status or answer was typed, replacing what A.C.O.R.N worked out, which is kept in ``auto_*``.
+    manual: bool = False
+    note: str | None = None
+    auto_status: str | None = None
+    updated_at: datetime | None = None
+    auto_suggested: str | None = None
 
 
 _UNKNOWN = "A.C.O.R.N does not collect this; ask the client."

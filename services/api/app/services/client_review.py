@@ -6,6 +6,7 @@ Nothing here is a certification: it reports what the connected tools show, and s
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -101,6 +102,11 @@ class ReadinessItem(BaseModel):
     # met, partly, not_met, or unknown (AiSOC has no data to say either way).
     status: str
     evidence: str
+    # A person's typed answer or note (see review_overrides). ``manual``: the status or answer was typed, replacing what A.C.O.R.N worked out, which is kept in ``auto_*``.
+    manual: bool = False
+    note: str | None = None
+    auto_status: str | None = None
+    updated_at: datetime | None = None
 
 
 class Readiness(BaseModel):

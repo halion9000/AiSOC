@@ -11084,6 +11084,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/client-review/{client_id}/answers:
+    put:
+      tags:
+      - posture
+      summary: Type an answer or a note into one question of a client's review
+      description: Set a question's status or answer (replacing the one A.C.O.R.N
+        worked out) and/or add a note. Sending nothing in all three fields clears
+        the question back to the automatic answer.
+      operationId: save_review_answer_api_v1_client_review__client_id__answers_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: client_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Client Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnswerOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/client-review/{client_id}:
     get:
       tags:
@@ -19766,6 +19804,75 @@ components:
       required:
       - access
       title: AllAccessRequest
+    AnswerIn:
+      properties:
+        section:
+          type: string
+          title: Section
+        key:
+          type: string
+          maxLength: 400
+          title: Key
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        answer:
+          anyOf:
+          - type: string
+            maxLength: 300
+          - type: 'null'
+          title: Answer
+        note:
+          anyOf:
+          - type: string
+            maxLength: 4000
+          - type: 'null'
+          title: Note
+      type: object
+      required:
+      - section
+      - key
+      title: AnswerIn
+    AnswerOut:
+      properties:
+        section:
+          type: string
+          title: Section
+        key:
+          type: string
+          title: Key
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        answer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Answer
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        cleared:
+          type: boolean
+          title: Cleared
+          default: false
+      type: object
+      required:
+      - section
+      - key
+      title: AnswerOut
     ApiKeyOut:
       properties:
         id:
@@ -27902,6 +28009,26 @@ components:
           type: string
           title: Evidence
           default: ''
+        manual:
+          type: boolean
+          title: Manual
+          default: false
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+        auto_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Auto Status
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
       type: object
       required:
       - group
@@ -31257,6 +31384,26 @@ components:
         evidence:
           type: string
           title: Evidence
+        manual:
+          type: boolean
+          title: Manual
+          default: false
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+        auto_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Auto Status
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
       type: object
       required:
       - key
@@ -35060,6 +35207,31 @@ components:
         evidence:
           type: string
           title: Evidence
+        manual:
+          type: boolean
+          title: Manual
+          default: false
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+        auto_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Auto Status
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Updated At
+        auto_suggested:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Auto Suggested
       type: object
       required:
       - key
