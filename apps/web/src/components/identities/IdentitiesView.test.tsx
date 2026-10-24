@@ -258,4 +258,36 @@ describe('backups on a person', () => {
     expect(section).toHaveTextContent('Last Dropsuite backup 9 days ago');
     expect(section).toHaveTextContent('Protected by Datto SaaS Protection (active seat)');
   });
+
+  const exposure = { count: 3, latest: '2025-02-10', password: true, stealer_log: false, malware: false, breaches: [{ name: 'Acme Forum', date: '2023-05-01', data: ['Email addresses', 'Passwords'] }] };
+
+  it('marks a person found in breaches, in red when a password or stealer log was involved, and a dash for everyone else', async () => {
+    api.list.mockResolvedValue(list([person({ exposure }), person({ key: 'c1:bo@acme.com', email: 'bo@acme.com', exposure: { ...exposure, count: 1, password: false } }), person({ key: 'c1:cy@acme.com', email: 'cy@acme.com' })]));
+    show();
+    const cells = (await screen.findAllByTestId('exposure')).map((c) => c.textContent);
+    expect(cells).toEqual(['3 · password', '1', '—']);
+    expect(within(screen.getAllByTestId('exposure')[0]).getByTitle('In 3 breaches, newest 2025-02-10')).toBeInTheDocument();
+  });
+
+  it('filters by breach exposure from the two tiles', async () => {
+    api.list.mockResolvedValue(list([person()], { summary: { total: 1, with_alerts: 0, without_mfa: 0, admins: 0, disabled: 0, in_one_tool: 0, tools: {}, exposed: 9, exposed_serious: 4 } }));
+    show();
+    await screen.findAllByTestId('identity-row');
+    expect(screen.getByRole('button', { name: /Exposed in a breach/ })).toHaveTextContent('9');
+    expect(screen.getByRole('button', { name: /Password or stealer log/ })).toHaveTextContent('4');
+    await userEvent.click(screen.getByRole('button', { name: /Exposed in a breach/ }));
+    await waitFor(() => expect(lastQuery().exposed).toBe('any'));
+    await userEvent.click(screen.getByRole('button', { name: /Password or stealer log/ }));
+    await waitFor(() => expect(lastQuery().exposed).toBe('serious'));
+  });
+
+  it('opens to a list of the breaches and what kinds of data leaked', async () => {
+    api.detail.mockResolvedValue({ person: person({ exposure, sources: [] }), alerts: [], signins: { last_30_days: 0, failed: 0, unusual: 0, countries: [], last_at: null } });
+    show();
+    await userEvent.click((await screen.findAllByTestId('identity-row'))[0]);
+    const section = await screen.findByTestId('exposure-detail');
+    expect(section).toHaveTextContent('Found in breaches (3)');
+    expect(section).toHaveTextContent('Acme Forum');
+    expect(section).toHaveTextContent('Leaked: Email addresses, Passwords');
+  });
 });

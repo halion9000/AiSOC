@@ -60,6 +60,16 @@ class BackupOut(BaseModel):
     detail: str
 
 
+class ExposureOut(BaseModel):
+    count: int
+    latest: str | None = None
+    password: bool = False
+    stealer_log: bool = False
+    malware: bool = False
+    # The most recent breaches: {name, date, data}, where data is the kinds of data that leaked (labels, never values).
+    breaches: list[dict] = Field(default_factory=list)
+
+
 class PersonOut(BaseModel):
     key: str
     client_id: uuid.UUID
@@ -78,6 +88,7 @@ class PersonOut(BaseModel):
     top_severity: str | None = None
     alerts_by_source: dict[str, int] = Field(default_factory=dict)
     backups: list[BackupOut] = Field(default_factory=list)
+    exposure: ExposureOut | None = None
 
 
 class IdentitySummary(BaseModel):
@@ -93,6 +104,9 @@ class IdentitySummary(BaseModel):
     alert_sources: dict[str, int] = Field(default_factory=dict)
     # People a backup tool reports a problem for (no recent backup, an error, paused or unprotected).
     backup_problems: int = 0
+    # People whose address turned up in a breach, and those where it was serious (a password, a stealer log or malware).
+    exposed: int = 0
+    exposed_serious: int = 0
 
 
 class IdentityList(BaseModel):
@@ -123,6 +137,9 @@ def _out(p: Person, with_sources: bool = False) -> PersonOut:
         top_severity=p.top_severity,
         alerts_by_source=p.alerts_by_source,
         backups=[BackupOut(vendor=b.vendor, status=b.status, detail=b.detail) for b in p.backups],
+        exposure=ExposureOut(count=p.exposure.count, latest=p.exposure.latest, password=p.exposure.password, stealer_log=p.exposure.stealer_log, malware=p.exposure.malware, breaches=p.exposure.breaches)
+        if p.exposure is not None
+        else None,
     )
 
 
@@ -171,6 +188,8 @@ def summarize(people: list[Person]) -> IdentitySummary:
         tools=dict(sorted(tools.items())),
         alert_sources=dict(sorted(alert_sources.items())),
         backup_problems=sum(1 for p in people if any(b.status != "ok" for b in p.backups)),
+        exposed=sum(1 for p in people if p.exposure is not None),
+        exposed_serious=sum(1 for p in people if p.exposure is not None and (p.exposure.password or p.exposure.stealer_log or p.exposure.malware)),
     )
 
 
@@ -187,6 +206,7 @@ async def list_identities(
     has_alerts: bool = Query(default=False),
     backup: str | None = Query(default=None, pattern="^(ok|problem|none)$", description="ok: every backup tool is fine; problem: some backup tool reports one; none: no backup tool knows the person."),
     alert_source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="Only people with an open alert from this tool."),
+    exposed: str | None = Query(default=None, pattern="^(any|serious)$", description="any: the address was found in a breach; serious: with a password, a stealer log or malware."),
     mfa: str | None = Query(default=None, pattern="^(covered|registered_not_required|none|unknown)$"),
     admin: bool = Query(default=False),
     disabled: bool = Query(default=False),
@@ -198,7 +218,7 @@ async def list_identities(
         raise HTTPException(status_code=422, detail=f"sort must be one of: {', '.join(SORTS)}")
     people, _ = await _people(db, user.tenant_id, client_id)
     rows = sort_people(
-        filter_people(people, search=search, source=source, only_in=only_in, has_alerts=has_alerts, alert_source=alert_source, backup=backup, mfa=mfa, admin=admin, disabled=disabled, kind=kind),
+        filter_people(people, search=search, source=source, only_in=only_in, has_alerts=has_alerts, alert_source=alert_source, backup=backup, exposed=exposed, mfa=mfa, admin=admin, disabled=disabled, kind=kind),
         sort,
     )
     total = len(rows)

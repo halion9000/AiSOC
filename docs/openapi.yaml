@@ -10696,6 +10696,19 @@ paths:
           description: Only people with an open alert from this tool.
           title: Alert Source
         description: Only people with an open alert from this tool.
+      - name: exposed
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(any|serious)$
+          - type: 'null'
+          description: 'any: the address was found in a breach; serious: with a password,
+            a stealer log or malware.'
+          title: Exposed
+        description: 'any: the address was found in a breach; serious: with a password,
+          a stealer log or malware.'
       - name: mfa
         in: query
         required: false
@@ -25544,6 +25557,38 @@ components:
         (the decision the agent made afterwards). Artifacts attached to the
 
         focal event are inlined so the auditor sees the literal LLM transcript.'
+    ExposureOut:
+      properties:
+        count:
+          type: integer
+          title: Count
+        latest:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Latest
+        password:
+          type: boolean
+          title: Password
+          default: false
+        stealer_log:
+          type: boolean
+          title: Stealer Log
+          default: false
+        malware:
+          type: boolean
+          title: Malware
+          default: false
+        breaches:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Breaches
+      type: object
+      required:
+      - count
+      title: ExposureOut
     ExternalAssetType:
       type: string
       enum:
@@ -30441,6 +30486,10 @@ components:
             $ref: '#/components/schemas/BackupOut'
           type: array
           title: Backups
+        exposure:
+          anyOf:
+          - $ref: '#/components/schemas/ExposureOut'
+          - type: 'null'
       type: object
       required:
       - key
@@ -38713,6 +38762,14 @@ components:
         backup_problems:
           type: integer
           title: Backup Problems
+          default: 0
+        exposed:
+          type: integer
+          title: Exposed
+          default: 0
+        exposed_serious:
+          type: integer
+          title: Exposed Serious
           default: 0
       type: object
       required:

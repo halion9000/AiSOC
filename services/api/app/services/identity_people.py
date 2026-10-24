@@ -24,6 +24,8 @@ _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 
 # The tools that back up people's mailboxes: what each says about a person is shown on their row.
 BACKUP_TOOLS = ("dropsuite", "datto-saas")
+# Tools that say where a person's address turned up in a breach. They describe people other tools know; an exposed address no directory knows is not made into a person.
+EXPOSURE_TOOLS = ("threatmate",)
 # A Dropsuite mailbox with no backup in this long is stale.
 FRESH_HOURS = 48
 
@@ -92,6 +94,39 @@ class BackupInfo:
 
 
 @dataclass
+class Exposure:
+    """Where a person's address was found in dark-web breaches: how many, the newest, and the kinds of data that leaked (never the data itself)."""
+
+    count: int
+    latest: str | None = None
+    password: bool = False
+    stealer_log: bool = False
+    malware: bool = False
+    breaches: list[dict[str, Any]] = field(default_factory=list)
+
+
+def exposure_of(sources: list[Any]) -> Exposure | None:
+    """The exposure the exposure tools report for one person (the worst reading wins when more than one tool reports), or None."""
+    best: Exposure | None = None
+    for s in sources:
+        d = s.details or {}
+        n = d.get("exposed_in")
+        if not isinstance(n, int) or n <= 0:
+            continue
+        got = Exposure(
+            count=n,
+            latest=d.get("latest_breach") if isinstance(d.get("latest_breach"), str) else None,
+            password=bool(d.get("password_exposed")),
+            stealer_log=bool(d.get("stealer_log")),
+            malware=bool(d.get("malware")),
+            breaches=[b for b in (d.get("breaches") or []) if isinstance(b, dict)][:5],
+        )
+        if best is None or (got.stealer_log, got.password, got.count) > (best.stealer_log, best.password, best.count):
+            best = got
+    return best
+
+
+@dataclass
 class Person:
     tenant_id: uuid.UUID
     email: str
@@ -109,6 +144,7 @@ class Person:
     # Open alerts by the tool that raised them ("huntress": 2, "petra": 1); "other" when an alert names no tool.
     alerts_by_source: dict[str, int] = field(default_factory=dict)
     backups: list[BackupInfo] = field(default_factory=list)
+    exposure: Exposure | None = None
 
     @property
     def key(self) -> str:
@@ -163,10 +199,14 @@ def build_people(
         p.sources.append(SourceRef(vendor=MICROSOFT, external_id=str(u.user_id), enabled=bool(u.enabled), details={"licensed": bool(u.licensed), "admin": bool(u.admin)}))
 
     cutoff = now - timedelta(days=stale_days)
+    exposure_rows: dict[str, list[Any]] = {}
     for s in sources:
         email = normalize_email(s.email)
         refreshed = s.refreshed_at if s.refreshed_at.tzinfo else s.refreshed_at.replace(tzinfo=now.tzinfo)
         if email is None or refreshed < cutoff:
+            continue
+        if s.vendor in EXPOSURE_TOOLS:
+            exposure_rows.setdefault(f"{s.tenant_id}:{email}", []).append(s)
             continue
         p = person(s.tenant_id, email)
         p.display_name = p.display_name or (s.display_name or None)
@@ -179,6 +219,7 @@ def build_people(
     for p in out:
         p.sources.sort(key=lambda r: (r.vendor != MICROSOFT, r.vendor, r.external_id))
         p.backups = backup_infos(p.sources, now)
+        p.exposure = exposure_of(exposure_rows.get(p.key, []))
     return out
 
 
@@ -249,6 +290,7 @@ def filter_people(
     only_in: str | None = None,
     alert_source: str | None = None,
     backup: str | None = None,
+    exposed: str | None = None,
 ) -> list[Person]:
     """The people a page asked for: every filter given must hold. ``only_in`` keeps people known to just that one tool."""
     rows = people
@@ -267,6 +309,10 @@ def filter_people(
         rows = [p for p in rows if any(b.status != "ok" for b in p.backups)]
     elif backup == "none":
         rows = [p for p in rows if not p.backups]
+    if exposed == "any":
+        rows = [p for p in rows if p.exposure is not None]
+    elif exposed == "serious":
+        rows = [p for p in rows if p.exposure is not None and (p.exposure.password or p.exposure.stealer_log or p.exposure.malware)]
     if alert_source:
         rows = [p for p in rows if p.alerts_by_source.get(alert_source, 0) > 0]
     if mfa:
@@ -280,7 +326,7 @@ def filter_people(
     return rows
 
 
-SORTS = ("alerts", "email", "name", "client", "tools")
+SORTS = ("alerts", "email", "name", "client", "tools", "exposure")
 
 
 def sort_people(people: list[Person], by: str = "alerts") -> list[Person]:
@@ -293,4 +339,6 @@ def sort_people(people: list[Person], by: str = "alerts") -> list[Person]:
         return sorted(people, key=lambda p: ((p.client_name or "").lower(), p.email))
     if by == "tools":
         return sorted(people, key=lambda p: (-len(p.vendors), p.email))
+    if by == "exposure":
+        return sorted(people, key=lambda p: (-(p.exposure.count if p.exposure else 0), p.email))
     return sorted(people, key=lambda p: (-p.open_alerts, -_SEVERITY_RANK.get(p.top_severity or "", -1), p.email))

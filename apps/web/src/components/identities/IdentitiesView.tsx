@@ -43,7 +43,7 @@ export const BACKUP_STYLE: Record<string, { label: string; className: string }> 
   unprotected: { label: 'Not protected', className: 'border-red-500/40 text-red-300' },
 };
 
-const SORT_FOR_COLUMN: Record<string, IdentitySort> = { person: 'email', client: 'client', tools: 'tools', alerts: 'alerts' };
+const SORT_FOR_COLUMN: Record<string, IdentitySort> = { person: 'email', client: 'client', tools: 'tools', alerts: 'alerts', exposure: 'exposure' };
 
 function SortHeader({ col, label, sort, onSort }: { col: keyof typeof SORT_FOR_COLUMN; label: string; sort: IdentitySort; onSort: (s: IdentitySort) => void }) {
   const mine = SORT_FOR_COLUMN[col];
@@ -79,6 +79,19 @@ function Detail({ person }: { person: IdentityPerson }) {
           ))}
         </ul>
         {data.person.mfa_methods && <p className="mt-2 text-xs text-gray-400">Second factor methods: {data.person.mfa_methods}</p>}
+        {data.person.exposure && (
+          <div className="mt-3" data-testid="exposure-detail">
+            <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">Found in breaches ({data.person.exposure.count})</h4>
+            <ul className="space-y-1">
+              {data.person.exposure.breaches.map((b, i) => (
+                <li key={`${b.name}:${i}`} className="text-sm text-gray-200">
+                  {b.name ?? 'A breach'} {b.date ? <span className="text-xs text-gray-500">({b.date})</span> : null}
+                  {b.data.length > 0 && <span className="block text-xs text-gray-400">Leaked: {b.data.join(', ')}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {(data.person.backups ?? []).length > 0 && (
           <div className="mt-3" data-testid="backup-detail">
             <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">Backups</h4>
@@ -147,6 +160,7 @@ export function IdentitiesView() {
   const [alertTool, setAlertTool] = useState('');
   const [mfa, setMfa] = useState('');
   const [backup, setBackup] = useState('');
+  const [exposed, setExposed] = useState('');
   const [kind, setKind] = useState('');
   const [hasAlerts, setHasAlerts] = useState(false);
   const [adminOnly, setAdminOnly] = useState(false);
@@ -161,8 +175,8 @@ export function IdentitiesView() {
   }, [search]);
 
   const query: IdentityQuery = useMemo(
-    () => ({ page, pageSize: 50, clientId: clientId || undefined, search: debounced || undefined, source: tool || undefined, mfa: mfa || undefined, kind: kind || undefined, hasAlerts, alertSource: alertTool || undefined, backup: backup || undefined, admin: adminOnly, disabled: disabledOnly, onlyIn: oneTool && tool ? tool : undefined, sort }),
-    [page, clientId, debounced, tool, alertTool, mfa, backup, kind, hasAlerts, adminOnly, disabledOnly, oneTool, sort],
+    () => ({ page, pageSize: 50, clientId: clientId || undefined, search: debounced || undefined, source: tool || undefined, mfa: mfa || undefined, kind: kind || undefined, hasAlerts, alertSource: alertTool || undefined, backup: backup || undefined, exposed: exposed || undefined, admin: adminOnly, disabled: disabledOnly, onlyIn: oneTool && tool ? tool : undefined, sort }),
+    [page, clientId, debounced, tool, alertTool, mfa, backup, exposed, kind, hasAlerts, adminOnly, disabledOnly, oneTool, sort],
   );
   const { data, error, isLoading, mutate } = useSWR(['identities', query], () => identitiesApi.list(query), { revalidateOnFocus: false, keepPreviousData: true });
   const { data: clients } = useSWR('mssp-children', () => msspApi.listChildren().catch(() => []), { revalidateOnFocus: false });
@@ -203,6 +217,8 @@ export function IdentitiesView() {
         {tile('With open alerts', summary?.with_alerts, hasAlerts, () => setHasAlerts((v) => !v), true)}
         {tile('No Multi-Factor', summary?.without_mfa, mfa === 'none', () => setMfa(mfa === 'none' ? '' : 'none'), true)}
         {tile('Backup problems', summary?.backup_problems, backup === 'problem', () => setBackup(backup === 'problem' ? '' : 'problem'), true)}
+        {tile('Exposed in a breach', summary?.exposed, exposed === 'any', () => setExposed(exposed === 'any' ? '' : 'any'), true)}
+        {tile('Password or stealer log', summary?.exposed_serious, exposed === 'serious', () => setExposed(exposed === 'serious' ? '' : 'serious'), true)}
         {tile('Administrators', summary?.admins, adminOnly, () => setAdminOnly((v) => !v))}
         {tile('Disabled accounts', summary?.disabled, disabledOnly, () => setDisabledOnly((v) => !v))}
         {tile('In only one tool', summary?.in_one_tool, oneTool, () => setOneTool((v) => !v))}
@@ -281,20 +297,21 @@ export function IdentitiesView() {
                 <SortHeader col="tools" label="Known to" sort={sort} onSort={(s) => reset(() => setSort(s))} />
                 <th scope="col" className="px-3 py-2">Multi-Factor</th>
                 <th scope="col" className="px-3 py-2">Backup</th>
+                <SortHeader col="exposure" label="Breaches" sort={sort} onSort={(s) => reset(() => setSort(s))} />
                 <SortHeader col="alerts" label="Alerts" sort={sort} onSort={(s) => reset(() => setSort(s))} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {isLoading && !data && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
+                  <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
                     Loading people…
                   </td>
                 </tr>
               )}
               {data && data.items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
+                  <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
                     No people match.
                   </td>
                 </tr>
@@ -340,6 +357,19 @@ export function IdentitiesView() {
                           )}
                         </span>
                       </td>
+                      <td className="px-3 py-2" data-testid="exposure">
+                        {p.exposure ? (
+                          <span
+                            className={`inline-flex items-center gap-1 rounded border px-1 py-0.5 text-[11px] ${p.exposure.password || p.exposure.stealer_log || p.exposure.malware ? 'border-red-500/40 text-red-300' : 'border-amber-500/40 text-amber-300'}`}
+                            title={`In ${p.exposure.count} breach${p.exposure.count === 1 ? '' : 'es'}${p.exposure.latest ? `, newest ${p.exposure.latest}` : ''}`}
+                          >
+                            {p.exposure.count}
+                            {p.exposure.stealer_log ? ' · stealer log' : p.exposure.password ? ' · password' : ''}
+                          </span>
+                        ) : (
+                          <span className="text-gray-600">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         {p.open_alerts > 0 ? (
                           <span className="flex items-center gap-2">
@@ -362,7 +392,7 @@ export function IdentitiesView() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-gray-900/30">
-                        <td colSpan={6} className="px-4 py-3">
+                        <td colSpan={7} className="px-4 py-3">
                           <Detail person={p} />
                         </td>
                       </tr>

@@ -398,3 +398,57 @@ def test_people_can_be_filtered_by_how_their_backups_are():
     assert emails(ip.filter_people(people, backup="problem")) == ["bad@a.com", "mixed@a.com"]
     assert emails(ip.filter_people(people, backup="none")) == ["none@a.com"]
     assert ep.summarize(people).backup_problems == 2
+
+
+# ---- breach exposure (ThreatMate) --------------------------------------------------------------------------------------------------------------------------
+
+
+def tm(email, **details):
+    return src(A, "threatmate", email, details=details)
+
+
+def test_exposure_is_attached_to_a_known_person_and_is_not_a_tool_that_knows_them():
+    people = ip.build_people(
+        NAMES,
+        [ms(A, "amy@a.com"), ms(A, "bo@a.com")],
+        [tm("amy@a.com", exposed_in=2, latest_breach="2025-02-10", password_exposed=True, stealer_log=False, malware=False, breaches=[{"name": "Forum", "date": "2023-05-01", "data": ["Passwords"]}]), tm("bo@a.com", exposed_in=1)],
+        NOW,
+    )
+    amy = next(p for p in people if p.email == "amy@a.com")
+    assert (amy.exposure.count, amy.exposure.latest, amy.exposure.password) == (2, "2025-02-10", True)
+    assert amy.exposure.breaches[0]["name"] == "Forum"
+    assert amy.vendors == ["cipp"], "the exposure tool is not listed as a tool that knows the person"
+    assert next(p for p in people if p.email == "bo@a.com").exposure.count == 1
+
+
+def test_an_exposed_address_no_other_tool_knows_is_not_made_into_a_person():
+    people = ip.build_people(NAMES, [ms(A, "amy@a.com")], [tm("gone@a.com", exposed_in=5)], NOW)
+    assert [p.email for p in people] == ["amy@a.com"]
+
+
+def test_a_person_with_no_exposure_report_has_none_and_a_zero_count_is_none():
+    people = ip.build_people(NAMES, [ms(A, "amy@a.com"), ms(A, "bo@a.com")], [tm("bo@a.com", exposed_in=0)], NOW)
+    assert [p.exposure for p in people] == [None, None]
+
+
+def test_exposed_people_can_be_filtered_sorted_and_counted():
+    people = ip.build_people(
+        NAMES,
+        [ms(A, "mild@a.com"), ms(A, "bad@a.com"), ms(A, "clean@a.com"), ms(A, "many@a.com")],
+        [tm("mild@a.com", exposed_in=1), tm("bad@a.com", exposed_in=2, stealer_log=True), tm("many@a.com", exposed_in=9)],
+        NOW,
+    )
+    emails = lambda rows: sorted(p.email for p in rows)  # noqa: E731
+    assert emails(ip.filter_people(people, exposed="any")) == ["bad@a.com", "many@a.com", "mild@a.com"]
+    assert emails(ip.filter_people(people, exposed="serious")) == ["bad@a.com"]
+    assert [p.email for p in ip.sort_people(people, "exposure")][:3] == ["many@a.com", "bad@a.com", "mild@a.com"]
+    s = ep.summarize(people)
+    assert (s.exposed, s.exposed_serious) == (3, 1)
+    assert ep._out(next(p for p in people if p.email == "bad@a.com")).exposure.stealer_log is True
+    assert ep._out(next(p for p in people if p.email == "clean@a.com")).exposure is None
+
+
+def test_a_stale_exposure_row_is_not_shown():
+    old = src(A, "threatmate", "amy@a.com", details={"exposed_in": 3}, refreshed_at=NOW - timedelta(days=10))
+    people = ip.build_people(NAMES, [ms(A, "amy@a.com")], [old], NOW)
+    assert people[0].exposure is None

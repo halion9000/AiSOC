@@ -648,7 +648,7 @@ export interface ClientRollup {
   offline: number;
 }
 
-export type IdentitySort = 'alerts' | 'email' | 'name' | 'client' | 'tools';
+export type IdentitySort = 'alerts' | 'email' | 'name' | 'client' | 'tools' | 'exposure';
 
 /** One person (e-mail identity) across the connected tools (GET /api/v1/identities). */
 export interface IdentityPerson {
@@ -671,10 +671,12 @@ export interface IdentityPerson {
   alerts_by_source?: Record<string, number>;
   /** What each backup tool says about this person's data. Absent from an older API. */
   backups?: { vendor: string; status: 'ok' | 'stale' | 'issue' | 'paused' | 'unprotected' | string; detail: string }[];
+  /** Where this person's address turned up in dark-web breaches (ThreatMate). Absent when it did not, or from an older API. */
+  exposure?: { count: number; latest: string | null; password: boolean; stealer_log: boolean; malware: boolean; breaches: { name: string | null; date: string | null; data: string[] }[] } | null;
 }
 
 export interface IdentityList {
-  summary: { total: number; with_alerts: number; without_mfa: number; admins: number; disabled: number; in_one_tool: number; tools: Record<string, number>; alert_sources?: Record<string, number>; backup_problems?: number };
+  summary: { total: number; with_alerts: number; without_mfa: number; admins: number; disabled: number; in_one_tool: number; tools: Record<string, number>; alert_sources?: Record<string, number>; backup_problems?: number; exposed?: number; exposed_serious?: number };
   items: IdentityPerson[];
   total: number;
   page: number;
@@ -700,6 +702,7 @@ export interface IdentityQuery {
   hasAlerts?: boolean;
   alertSource?: string;
   backup?: string;
+  exposed?: string;
   admin?: boolean;
   disabled?: boolean;
   sort?: IdentitySort;
@@ -721,6 +724,7 @@ export const identitiesApi = {
         has_alerts: q.hasAlerts ? 'true' : undefined,
         alert_source: q.alertSource,
         backup: q.backup,
+        exposed: q.exposed,
         admin: q.admin ? 'true' : undefined,
         disabled: q.disabled ? 'true' : undefined,
         sort: q.sort,
