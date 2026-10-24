@@ -278,3 +278,52 @@ def test_a_person_the_tool_lists_itself_is_not_given_a_second_row_for_the_same_t
     out = ip.add_alert_sources(people, [tool_alert(A, ["amy@acme.com"], "huntress")], NAMES, src_of)
     assert len(out) == 1 and [s.vendor for s in out[0].sources] == ["huntress"]
     assert out[0].sources[0].external_id != "alert"
+
+
+# ---- alerts broken up by the tool that raised them ----------------------------------------------------------------------------------------------------
+
+
+def test_each_persons_open_alerts_are_counted_by_the_tool_that_raised_them_most_first():
+    people = ip.build_people(NAMES, [ms(A, "amy@acme.com"), ms(A, "bob@acme.com")], [], NOW)
+    attach = ip.attach_alerts(
+        people,
+        [
+            tool_alert(A, ["amy@acme.com"], "petra"),
+            tool_alert(A, ["amy@acme.com"], "huntress"),
+            tool_alert(A, ["amy@acme.com"], "huntress"),
+            alert(A, ["amy@acme.com"]),
+            tool_alert(A, ["bob@acme.com"], "blumira"),
+        ],
+        src_of,
+    )
+    amy = next(p for p in people if p.email == "amy@acme.com")
+    bob = next(p for p in people if p.email == "bob@acme.com")
+    assert list(amy.alerts_by_source.items()) == [("huntress", 2), ("other", 1), ("petra", 1)], "an alert naming no tool is 'other'; ties go by name"
+    assert sum(amy.alerts_by_source.values()) == amy.open_alerts == 4
+    assert bob.alerts_by_source == {"blumira": 1}
+    assert len(attach) == 2
+
+
+def test_an_alert_that_names_no_tool_counts_as_other_and_no_source_function_puts_everything_in_other():
+    people = ip.build_people(NAMES, [ms(A, "amy@acme.com")], [], NOW)
+    a = alert(A, ["amy@acme.com"])
+    a.raw_event = {}
+    ip.attach_alerts(people, [a], src_of)
+    assert people[0].alerts_by_source == {"other": 1}
+    again = ip.build_people(NAMES, [ms(A, "amy@acme.com")], [], NOW)
+    ip.attach_alerts(again, [tool_alert(A, ["amy@acme.com"], "petra")])
+    assert again[0].alerts_by_source == {"other": 1}
+
+
+def test_people_can_be_filtered_to_those_with_an_open_alert_from_one_tool():
+    people = ip.build_people(NAMES, [ms(A, "amy@acme.com"), ms(A, "bob@acme.com"), ms(A, "cy@acme.com")], [], NOW)
+    ip.attach_alerts(people, [tool_alert(A, ["amy@acme.com"], "petra"), tool_alert(A, ["bob@acme.com"], "huntress")], src_of)
+    assert [p.email for p in ip.filter_people(people, alert_source="petra")] == ["amy@acme.com"]
+    assert [p.email for p in ip.filter_people(people, alert_source="blumira")] == []
+    assert len(ip.filter_people(people)) == 3
+
+
+def test_the_summary_says_how_many_people_have_an_alert_from_each_tool():
+    people = ip.build_people(NAMES, [ms(A, "amy@acme.com"), ms(A, "bob@acme.com")], [], NOW)
+    ip.attach_alerts(people, [tool_alert(A, ["amy@acme.com"], "petra"), tool_alert(A, ["amy@acme.com"], "petra"), tool_alert(A, ["bob@acme.com"], "petra"), tool_alert(A, ["bob@acme.com"], "huntress")], src_of)
+    assert ep.summarize(people).alert_sources == {"huntress": 1, "petra": 2}

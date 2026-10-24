@@ -70,6 +70,7 @@ class PersonOut(BaseModel):
     sources: list[SourceOut] = Field(default_factory=list)
     open_alerts: int = 0
     top_severity: str | None = None
+    alerts_by_source: dict[str, int] = Field(default_factory=dict)
 
 
 class IdentitySummary(BaseModel):
@@ -81,6 +82,8 @@ class IdentitySummary(BaseModel):
     # People known to only one tool (so no other tool has them): the ones to look at when a tool is missing someone.
     in_one_tool: int
     tools: dict[str, int] = Field(default_factory=dict)
+    # How many people have an open alert from each tool, so the page can offer them as a filter.
+    alert_sources: dict[str, int] = Field(default_factory=dict)
 
 
 class IdentityList(BaseModel):
@@ -109,6 +112,7 @@ def _out(p: Person, with_sources: bool = False) -> PersonOut:
         sources=[SourceOut(vendor=s.vendor, external_id=s.external_id, enabled=s.enabled, details=s.details) for s in p.sources] if with_sources else [],
         open_alerts=p.open_alerts,
         top_severity=p.top_severity,
+        alerts_by_source=p.alerts_by_source,
     )
 
 
@@ -136,14 +140,17 @@ async def _people(db: Any, owner: uuid.UUID, client_id: uuid.UUID | None) -> tup
         )
     named = [a for a in alerts if a.affected_users]
     people = add_alert_sources(build_people(names, list(users), list(sources), now), named, names, source_of)
-    return people, attach_alerts(people, [a for a in named if a.status not in FINISHED_STATUSES])
+    return people, attach_alerts(people, [a for a in named if a.status not in FINISHED_STATUSES], source_of)
 
 
 def summarize(people: list[Person]) -> IdentitySummary:
     tools: dict[str, int] = {}
+    alert_sources: dict[str, int] = {}
     for p in people:
         for v in p.vendors:
             tools[v] = tools.get(v, 0) + 1
+        for v in p.alerts_by_source:
+            alert_sources[v] = alert_sources.get(v, 0) + 1
     return IdentitySummary(
         total=len(people),
         with_alerts=sum(1 for p in people if p.open_alerts > 0),
@@ -152,6 +159,7 @@ def summarize(people: list[Person]) -> IdentitySummary:
         disabled=sum(1 for p in people if p.enabled is False),
         in_one_tool=sum(1 for p in people if len(p.vendors) == 1),
         tools=dict(sorted(tools.items())),
+        alert_sources=dict(sorted(alert_sources.items())),
     )
 
 
@@ -166,6 +174,7 @@ async def list_identities(
     source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="Only people this tool knows."),
     only_in: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="Only people known to this one tool and no other."),
     has_alerts: bool = Query(default=False),
+    alert_source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="Only people with an open alert from this tool."),
     mfa: str | None = Query(default=None, pattern="^(covered|registered_not_required|none|unknown)$"),
     admin: bool = Query(default=False),
     disabled: bool = Query(default=False),
@@ -177,7 +186,7 @@ async def list_identities(
         raise HTTPException(status_code=422, detail=f"sort must be one of: {', '.join(SORTS)}")
     people, _ = await _people(db, user.tenant_id, client_id)
     rows = sort_people(
-        filter_people(people, search=search, source=source, only_in=only_in, has_alerts=has_alerts, mfa=mfa, admin=admin, disabled=disabled, kind=kind),
+        filter_people(people, search=search, source=source, only_in=only_in, has_alerts=has_alerts, alert_source=alert_source, mfa=mfa, admin=admin, disabled=disabled, kind=kind),
         sort,
     )
     total = len(rows)

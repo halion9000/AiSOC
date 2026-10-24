@@ -51,6 +51,8 @@ class Person:
     sources: list[SourceRef] = field(default_factory=list)
     open_alerts: int = 0
     top_severity: str | None = None
+    # Open alerts by the tool that raised them ("huntress": 2, "petra": 1); "other" when an alert names no tool.
+    alerts_by_source: dict[str, int] = field(default_factory=dict)
 
     @property
     def key(self) -> str:
@@ -152,7 +154,7 @@ def add_alert_sources(people: list[Person], alerts: list[Any], names: dict[uuid.
     return out
 
 
-def attach_alerts(people: list[Person], alerts: list[Any]) -> dict[str, list[Any]]:
+def attach_alerts(people: list[Person], alerts: list[Any], source_of: Any = None) -> dict[str, list[Any]]:
     """Tie open alerts to the people they name (by e-mail address, same client). Sets each person's count and highest severity; returns the alerts by person key, newest first."""
     index = {p.key: p for p in people}
     by_key: dict[str, list[Any]] = {}
@@ -168,6 +170,11 @@ def attach_alerts(people: list[Person], alerts: list[Any]) -> dict[str, list[Any
         rows.sort(key=lambda a: a.created_at, reverse=True)
         p = index[key]
         p.open_alerts = len(rows)
+        counts: dict[str, int] = {}
+        for a in rows:
+            tool = (source_of(a.raw_event, getattr(a, "connector_type", None)) if source_of else None) or "other"
+            counts[tool] = counts.get(tool, 0) + 1
+        p.alerts_by_source = dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
         p.top_severity = max((str(a.severity).lower() for a in rows), key=lambda s: _SEVERITY_RANK.get(s, -1))
     return by_key
 
@@ -183,6 +190,7 @@ def filter_people(
     disabled: bool = False,
     kind: str | None = None,
     only_in: str | None = None,
+    alert_source: str | None = None,
 ) -> list[Person]:
     """The people a page asked for: every filter given must hold. ``only_in`` keeps people known to just that one tool."""
     rows = people
@@ -195,6 +203,8 @@ def filter_people(
         rows = [p for p in rows if p.vendors == [only_in]]
     if has_alerts:
         rows = [p for p in rows if p.open_alerts > 0]
+    if alert_source:
+        rows = [p for p in rows if p.alerts_by_source.get(alert_source, 0) > 0]
     if mfa:
         rows = [p for p in rows if p.mfa == mfa]
     if admin:

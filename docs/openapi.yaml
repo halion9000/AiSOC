@@ -10651,6 +10651,17 @@ paths:
           type: boolean
           default: false
           title: Has Alerts
+      - name: alert_source
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[a-z0-9][a-z0-9_-]{0,39}$
+          - type: 'null'
+          description: Only people with an open alert from this tool.
+          title: Alert Source
+        description: Only people with an open alert from this tool.
       - name: mfa
         in: query
         required: false
@@ -30119,6 +30130,11 @@ components:
           - type: string
           - type: 'null'
           title: Top Severity
+        alerts_by_source:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Alerts By Source
       type: object
       required:
       - key
@@ -38287,6 +38303,11 @@ components:
             type: integer
           type: object
           title: Tools
+        alert_sources:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Alert Sources
       type: object
       required:
       - total

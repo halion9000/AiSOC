@@ -28,6 +28,13 @@ export const MFA_LABEL: Record<string, { text: string; className: string }> = {
   unknown: { text: 'Not known', className: 'text-gray-500' },
 };
 
+/** The alerts grouped by the tool that raised them, the tool with the most first ("other" when an alert names none). */
+export function groupBySource<T extends { source: string | null }>(alerts: T[]): Record<string, T[]> {
+  const groups: Record<string, T[]> = {};
+  for (const a of alerts) (groups[a.source || 'other'] ??= []).push(a);
+  return Object.fromEntries(Object.entries(groups).sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0])));
+}
+
 const SORT_FOR_COLUMN: Record<string, IdentitySort> = { person: 'email', client: 'client', tools: 'tools', alerts: 'alerts' };
 
 function SortHeader({ col, label, sort, onSort }: { col: keyof typeof SORT_FOR_COLUMN; label: string; sort: IdentitySort; onSort: (s: IdentitySort) => void }) {
@@ -70,16 +77,27 @@ function Detail({ person }: { person: IdentityPerson }) {
         {data.alerts.length === 0 ? (
           <p className="text-sm text-gray-500">None name this person.</p>
         ) : (
-          <ul className="space-y-1">
-            {data.alerts.slice(0, 8).map((a) => (
-              <li key={a.id} className="text-sm">
-                <span className={`mr-2 rounded-full border px-1.5 py-0.5 text-[11px] ${SEVERITY_STYLE[a.severity] ?? SEVERITY_STYLE.info}`}>{a.severity}</span>
-                <Link href={`/alerts/${a.id}`} className="text-blue-300 hover:underline">
-                  {a.title}
-                </Link>
-              </li>
+          <div className="space-y-2">
+            {Object.entries(groupBySource(data.alerts)).map(([tool, rows]) => (
+              <div key={tool} data-testid="alert-group">
+                <div className="mb-1 flex items-center gap-1.5 text-xs text-gray-400">
+                  {tool !== 'other' && <VendorBadge vendor={tool} />}
+                  <span>{tool === 'other' ? 'Other' : vendorLabel(tool)}</span>
+                  <span className="tabular-nums">({rows.length})</span>
+                </div>
+                <ul className="space-y-1">
+                  {rows.slice(0, 6).map((a) => (
+                    <li key={a.id} className="text-sm">
+                      <span className={`mr-2 rounded-full border px-1.5 py-0.5 text-[11px] ${SEVERITY_STYLE[a.severity] ?? SEVERITY_STYLE.info}`}>{a.severity}</span>
+                      <Link href={`/alerts/${a.id}`} className="text-blue-300 hover:underline">
+                        {a.title}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </section>
       <section>
@@ -105,6 +123,7 @@ export function IdentitiesView() {
   const [debounced, setDebounced] = useState('');
   const [clientId, setClientId] = useState('');
   const [tool, setTool] = useState('');
+  const [alertTool, setAlertTool] = useState('');
   const [mfa, setMfa] = useState('');
   const [kind, setKind] = useState('');
   const [hasAlerts, setHasAlerts] = useState(false);
@@ -120,8 +139,8 @@ export function IdentitiesView() {
   }, [search]);
 
   const query: IdentityQuery = useMemo(
-    () => ({ page, pageSize: 50, clientId: clientId || undefined, search: debounced || undefined, source: tool || undefined, mfa: mfa || undefined, kind: kind || undefined, hasAlerts, admin: adminOnly, disabled: disabledOnly, onlyIn: oneTool && tool ? tool : undefined, sort }),
-    [page, clientId, debounced, tool, mfa, kind, hasAlerts, adminOnly, disabledOnly, oneTool, sort],
+    () => ({ page, pageSize: 50, clientId: clientId || undefined, search: debounced || undefined, source: tool || undefined, mfa: mfa || undefined, kind: kind || undefined, hasAlerts, alertSource: alertTool || undefined, admin: adminOnly, disabled: disabledOnly, onlyIn: oneTool && tool ? tool : undefined, sort }),
+    [page, clientId, debounced, tool, alertTool, mfa, kind, hasAlerts, adminOnly, disabledOnly, oneTool, sort],
   );
   const { data, error, isLoading, mutate } = useSWR(['identities', query], () => identitiesApi.list(query), { revalidateOnFocus: false, keepPreviousData: true });
   const { data: clients } = useSWR('mssp-children', () => msspApi.listChildren().catch(() => []), { revalidateOnFocus: false });
@@ -189,6 +208,14 @@ export function IdentitiesView() {
           {tools.map((t) => (
             <option key={t} value={t}>
               {vendorLabel(t)} ({summary?.tools[t]})
+            </option>
+          ))}
+        </select>
+        <select aria-label="Alerts from" value={alertTool} onChange={(e) => reset(() => setAlertTool(e.target.value))} className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-white">
+          <option value="">Alerts from any tool</option>
+          {Object.entries(summary?.alert_sources ?? {}).map(([t, n]) => (
+            <option key={t} value={t}>
+              {vendorLabel(t)} ({n})
             </option>
           ))}
         </select>
@@ -271,6 +298,15 @@ export function IdentitiesView() {
                           <span className="flex items-center gap-2">
                             <span className="tabular-nums text-gray-100">{p.open_alerts}</span>
                             {p.top_severity && <span className={`rounded-full border px-1.5 py-0.5 text-[11px] ${SEVERITY_STYLE[p.top_severity] ?? SEVERITY_STYLE.info}`}>{p.top_severity}</span>}
+                            <span className="flex flex-wrap gap-1" data-testid="alerts-by-source">
+                              {Object.entries(p.alerts_by_source ?? {}).map(([t, n]) => (
+                                <span key={t} className="inline-flex items-center gap-1 rounded border border-gray-700 px-1 py-0.5 text-[11px] text-gray-300" title={`${n} open alert${n === 1 ? '' : 's'} from ${t === 'other' ? 'an unnamed tool' : vendorLabel(t)}`}>
+                                  {t !== 'other' && <VendorBadge vendor={t} />}
+                                  {t === 'other' && <span>other</span>}
+                                  <span className="tabular-nums">{n}</span>
+                                </span>
+                              ))}
+                            </span>
                           </span>
                         ) : (
                           <span className="text-gray-600">0</span>

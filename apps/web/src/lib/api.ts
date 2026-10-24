@@ -667,10 +667,12 @@ export interface IdentityPerson {
   sources: { vendor: string; external_id: string; enabled: boolean | null; details: Record<string, unknown> }[];
   open_alerts: number;
   top_severity: string | null;
+  /** Open alerts by the tool that raised them. Absent from an older API. */
+  alerts_by_source?: Record<string, number>;
 }
 
 export interface IdentityList {
-  summary: { total: number; with_alerts: number; without_mfa: number; admins: number; disabled: number; in_one_tool: number; tools: Record<string, number> };
+  summary: { total: number; with_alerts: number; without_mfa: number; admins: number; disabled: number; in_one_tool: number; tools: Record<string, number>; alert_sources?: Record<string, number> };
   items: IdentityPerson[];
   total: number;
   page: number;
@@ -694,6 +696,7 @@ export interface IdentityQuery {
   mfa?: string;
   kind?: string;
   hasAlerts?: boolean;
+  alertSource?: string;
   admin?: boolean;
   disabled?: boolean;
   sort?: IdentitySort;
@@ -713,6 +716,7 @@ export const identitiesApi = {
         mfa: q.mfa,
         kind: q.kind,
         has_alerts: q.hasAlerts ? 'true' : undefined,
+        alert_source: q.alertSource,
         admin: q.admin ? 'true' : undefined,
         disabled: q.disabled ? 'true' : undefined,
         sort: q.sort,

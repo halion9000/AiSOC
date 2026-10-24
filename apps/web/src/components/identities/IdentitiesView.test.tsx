@@ -158,3 +158,60 @@ describe('the Identities page', () => {
     await waitFor(() => expect(lastQuery().page).toBe(2));
   });
 });
+
+describe('alerts broken up by the tool that raised them', () => {
+  it('shows each person\'s open alerts as one chip per tool, with the count', async () => {
+    api.list.mockResolvedValue(list([person({ open_alerts: 5, top_severity: 'high', alerts_by_source: { huntress: 3, petra: 2 } })]));
+    show();
+    const row = await screen.findByTestId('identity-row');
+    const chips = within(within(row).getByTestId('alerts-by-source')).getAllByTitle(/open alert/);
+    expect(chips.map((c) => c.getAttribute('title'))).toEqual(['3 open alerts from Huntress', '2 open alerts from Petra']);
+    expect(chips[0]).toHaveTextContent('3');
+    expect(row).toHaveTextContent('5');
+  });
+
+  it('an alert naming no tool shows as other', async () => {
+    api.list.mockResolvedValue(list([person({ open_alerts: 1, alerts_by_source: { other: 1 } })]));
+    show();
+    expect(await screen.findByTitle('1 open alert from an unnamed tool')).toBeInTheDocument();
+  });
+
+  it('can be filtered to people with an alert from one tool, offering the tools that have alerts', async () => {
+    api.list.mockResolvedValue(list([person()], { summary: { total: 1, with_alerts: 1, without_mfa: 0, admins: 0, disabled: 0, in_one_tool: 0, tools: { cipp: 1 }, alert_sources: { huntress: 2, petra: 1 } } }));
+    show();
+    await screen.findAllByTestId('identity-row');
+    const menu = screen.getByLabelText('Alerts from');
+    expect(within(menu).getAllByRole('option').map((o) => o.textContent)).toEqual(['Alerts from any tool', 'Huntress (2)', 'Petra (1)']);
+    await userEvent.selectOptions(menu, 'petra');
+    await waitFor(() => expect(lastQuery().alertSource).toBe('petra'));
+    expect(lastQuery().page).toBe(1);
+  });
+
+  it('opens to the person\'s alerts grouped by tool, the tool with the most first', async () => {
+    api.detail.mockResolvedValue({
+      person: person({ sources: [] }),
+      alerts: [
+        { id: 'a1', title: 'Impossible travel', severity: 'high', status: 'new', source: 'petra', created_at: null },
+        { id: 'a2', title: 'Risky sign-in', severity: 'medium', status: 'new', source: 'huntress', created_at: null },
+        { id: 'a3', title: 'Another risky sign-in', severity: 'low', status: 'new', source: 'huntress', created_at: null },
+        { id: 'a4', title: 'No tool', severity: 'info', status: 'new', source: null, created_at: null },
+      ],
+      signins: { last_30_days: 0, failed: 0, unusual: 0, countries: [], last_at: null },
+    });
+    show();
+    await userEvent.click((await screen.findAllByTestId('identity-row'))[0]);
+    const groups = await screen.findAllByTestId('alert-group');
+    expect(groups.map((g) => g.textContent?.match(/Huntress|Petra|Other/)?.[0])).toEqual(['Huntress', 'Other', 'Petra']);
+    expect(groups[0]).toHaveTextContent('(2)');
+    expect(within(groups[0]).getAllByRole('link')).toHaveLength(2);
+  });
+});
+
+describe('groupBySource', () => {
+  it('groups, puts the biggest group first and files an alert with no tool under other', async () => {
+    const { groupBySource } = await import('./IdentitiesView');
+    const out = groupBySource([{ source: 'b' }, { source: 'a' }, { source: 'a' }, { source: null }]);
+    expect(Object.keys(out)).toEqual(['a', 'b', 'other']);
+    expect(out.a).toHaveLength(2);
+  });
+});
