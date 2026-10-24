@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.services.mfa_registration import has_second_factor, registration_known, required_of
@@ -20,6 +20,52 @@ MICROSOFT = "cipp"
 STALE_DAYS = 3
 _EMAIL = re.compile(r"^[^@\s]{1,128}@[^@\s]{1,190}\.[^@\s]{2,63}$")
 _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+
+
+# The tools that back up people's mailboxes: what each says about a person is shown on their row.
+BACKUP_TOOLS = ("dropsuite", "datto-saas")
+# A Dropsuite mailbox with no backup in this long is stale.
+FRESH_HOURS = 48
+
+
+def _when(value: Any) -> datetime | None:
+    try:
+        t = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+
+def backup_infos(sources: list[SourceRef], now: datetime) -> list[BackupInfo]:
+    """The backup state each backup tool reports for a person. Datto SaaS Protection says whether the seat is protected, not when it last ran; Dropsuite says when the mailbox last backed up and any error."""
+    out: list[BackupInfo] = []
+    for s in sources:
+        d = s.details or {}
+        if s.vendor == "dropsuite":
+            err = d.get("errors")
+            last = _when(d.get("last_backup"))
+            if s.enabled is False:
+                out.append(BackupInfo("dropsuite", "paused", "Mailbox deactivated in Dropsuite"))
+            elif isinstance(err, int) and err > 0:
+                out.append(BackupInfo("dropsuite", "issue", f"Dropsuite reports {err} error{'s' if err != 1 else ''} on this mailbox"))
+            elif last is None:
+                out.append(BackupInfo("dropsuite", "stale", "Dropsuite has not backed this mailbox up yet"))
+            elif now - last > timedelta(hours=FRESH_HOURS):
+                days = max(1, (now - last).days)
+                out.append(BackupInfo("dropsuite", "stale", f"Last Dropsuite backup {days} day{'s' if days != 1 else ''} ago"))
+            else:
+                out.append(BackupInfo("dropsuite", "ok", "Backed up by Dropsuite in the last 48 hours"))
+        elif s.vendor == "datto-saas":
+            state = str(d.get("seat_state") or "").lower()
+            if state == "active":
+                out.append(BackupInfo("datto-saas", "ok", "Protected by Datto SaaS Protection (active seat)"))
+            elif state == "paused":
+                out.append(BackupInfo("datto-saas", "paused", "Datto SaaS Protection seat is paused"))
+            elif state in ("unprotected", "archived"):
+                out.append(BackupInfo("datto-saas", "unprotected", f"Datto SaaS Protection seat is {state}"))
+            else:
+                out.append(BackupInfo("datto-saas", "unprotected", "No active Datto SaaS Protection seat"))
+    return out
 
 
 def normalize_email(raw: Any) -> str | None:
@@ -34,6 +80,15 @@ class SourceRef:
     external_id: str
     enabled: bool | None = None
     details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class BackupInfo:
+    """What one backup tool says about one person's data: ``ok``, ``stale`` (no recent backup), ``issue`` (the tool reports an error), ``paused`` or ``unprotected``."""
+
+    vendor: str
+    status: str
+    detail: str
 
 
 @dataclass
@@ -53,6 +108,7 @@ class Person:
     top_severity: str | None = None
     # Open alerts by the tool that raised them ("huntress": 2, "petra": 1); "other" when an alert names no tool.
     alerts_by_source: dict[str, int] = field(default_factory=dict)
+    backups: list[BackupInfo] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -122,6 +178,7 @@ def build_people(
     out = list(people.values())
     for p in out:
         p.sources.sort(key=lambda r: (r.vendor != MICROSOFT, r.vendor, r.external_id))
+        p.backups = backup_infos(p.sources, now)
     return out
 
 
@@ -191,6 +248,7 @@ def filter_people(
     kind: str | None = None,
     only_in: str | None = None,
     alert_source: str | None = None,
+    backup: str | None = None,
 ) -> list[Person]:
     """The people a page asked for: every filter given must hold. ``only_in`` keeps people known to just that one tool."""
     rows = people
@@ -203,6 +261,12 @@ def filter_people(
         rows = [p for p in rows if p.vendors == [only_in]]
     if has_alerts:
         rows = [p for p in rows if p.open_alerts > 0]
+    if backup == "ok":
+        rows = [p for p in rows if p.backups and all(b.status == "ok" for b in p.backups)]
+    elif backup == "problem":
+        rows = [p for p in rows if any(b.status != "ok" for b in p.backups)]
+    elif backup == "none":
+        rows = [p for p in rows if not p.backups]
     if alert_source:
         rows = [p for p in rows if p.alerts_by_source.get(alert_source, 0) > 0]
     if mfa:

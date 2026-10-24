@@ -35,6 +35,14 @@ export function groupBySource<T extends { source: string | null }>(alerts: T[]):
   return Object.fromEntries(Object.entries(groups).sort((x, y) => y[1].length - x[1].length || x[0].localeCompare(y[0])));
 }
 
+export const BACKUP_STYLE: Record<string, { label: string; className: string }> = {
+  ok: { label: 'Backed up', className: 'border-emerald-500/40 text-emerald-300' },
+  stale: { label: 'No recent backup', className: 'border-amber-500/40 text-amber-300' },
+  issue: { label: 'Backup error', className: 'border-red-500/40 text-red-300' },
+  paused: { label: 'Paused', className: 'border-amber-500/40 text-amber-300' },
+  unprotected: { label: 'Not protected', className: 'border-red-500/40 text-red-300' },
+};
+
 const SORT_FOR_COLUMN: Record<string, IdentitySort> = { person: 'email', client: 'client', tools: 'tools', alerts: 'alerts' };
 
 function SortHeader({ col, label, sort, onSort }: { col: keyof typeof SORT_FOR_COLUMN; label: string; sort: IdentitySort; onSort: (s: IdentitySort) => void }) {
@@ -71,6 +79,19 @@ function Detail({ person }: { person: IdentityPerson }) {
           ))}
         </ul>
         {data.person.mfa_methods && <p className="mt-2 text-xs text-gray-400">Second factor methods: {data.person.mfa_methods}</p>}
+        {(data.person.backups ?? []).length > 0 && (
+          <div className="mt-3" data-testid="backup-detail">
+            <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">Backups</h4>
+            <ul className="space-y-1">
+              {(data.person.backups ?? []).map((b) => (
+                <li key={b.vendor} className="text-sm text-gray-200">
+                  <span className={`mr-2 rounded border px-1 py-0.5 text-[11px] ${(BACKUP_STYLE[b.status] ?? BACKUP_STYLE.stale).className}`}>{(BACKUP_STYLE[b.status] ?? BACKUP_STYLE.stale).label}</span>
+                  {b.detail}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
       <section>
         <h4 className="mb-1 text-xs font-semibold uppercase text-gray-500">Open alerts ({data.alerts.length})</h4>
@@ -125,6 +146,7 @@ export function IdentitiesView() {
   const [tool, setTool] = useState('');
   const [alertTool, setAlertTool] = useState('');
   const [mfa, setMfa] = useState('');
+  const [backup, setBackup] = useState('');
   const [kind, setKind] = useState('');
   const [hasAlerts, setHasAlerts] = useState(false);
   const [adminOnly, setAdminOnly] = useState(false);
@@ -139,8 +161,8 @@ export function IdentitiesView() {
   }, [search]);
 
   const query: IdentityQuery = useMemo(
-    () => ({ page, pageSize: 50, clientId: clientId || undefined, search: debounced || undefined, source: tool || undefined, mfa: mfa || undefined, kind: kind || undefined, hasAlerts, alertSource: alertTool || undefined, admin: adminOnly, disabled: disabledOnly, onlyIn: oneTool && tool ? tool : undefined, sort }),
-    [page, clientId, debounced, tool, alertTool, mfa, kind, hasAlerts, adminOnly, disabledOnly, oneTool, sort],
+    () => ({ page, pageSize: 50, clientId: clientId || undefined, search: debounced || undefined, source: tool || undefined, mfa: mfa || undefined, kind: kind || undefined, hasAlerts, alertSource: alertTool || undefined, backup: backup || undefined, admin: adminOnly, disabled: disabledOnly, onlyIn: oneTool && tool ? tool : undefined, sort }),
+    [page, clientId, debounced, tool, alertTool, mfa, backup, kind, hasAlerts, adminOnly, disabledOnly, oneTool, sort],
   );
   const { data, error, isLoading, mutate } = useSWR(['identities', query], () => identitiesApi.list(query), { revalidateOnFocus: false, keepPreviousData: true });
   const { data: clients } = useSWR('mssp-children', () => msspApi.listChildren().catch(() => []), { revalidateOnFocus: false });
@@ -180,6 +202,7 @@ export function IdentitiesView() {
         </div>
         {tile('With open alerts', summary?.with_alerts, hasAlerts, () => setHasAlerts((v) => !v), true)}
         {tile('No Multi-Factor', summary?.without_mfa, mfa === 'none', () => setMfa(mfa === 'none' ? '' : 'none'), true)}
+        {tile('Backup problems', summary?.backup_problems, backup === 'problem', () => setBackup(backup === 'problem' ? '' : 'problem'), true)}
         {tile('Administrators', summary?.admins, adminOnly, () => setAdminOnly((v) => !v))}
         {tile('Disabled accounts', summary?.disabled, disabledOnly, () => setDisabledOnly((v) => !v))}
         {tile('In only one tool', summary?.in_one_tool, oneTool, () => setOneTool((v) => !v))}
@@ -219,6 +242,12 @@ export function IdentitiesView() {
             </option>
           ))}
         </select>
+        <select aria-label="Backup" value={backup} onChange={(e) => reset(() => setBackup(e.target.value))} className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-white">
+          <option value="">Any backup state</option>
+          <option value="ok">Backed up</option>
+          <option value="problem">Backup problem</option>
+          <option value="none">No backup tool knows them</option>
+        </select>
         <select aria-label="Multi-Factor" value={mfa} onChange={(e) => reset(() => setMfa(e.target.value))} className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1.5 text-sm text-white">
           <option value="">Any Multi-Factor</option>
           {Object.entries(MFA_LABEL).map(([k, v]) => (
@@ -251,20 +280,21 @@ export function IdentitiesView() {
                 <SortHeader col="client" label="Client" sort={sort} onSort={(s) => reset(() => setSort(s))} />
                 <SortHeader col="tools" label="Known to" sort={sort} onSort={(s) => reset(() => setSort(s))} />
                 <th scope="col" className="px-3 py-2">Multi-Factor</th>
+                <th scope="col" className="px-3 py-2">Backup</th>
                 <SortHeader col="alerts" label="Alerts" sort={sort} onSort={(s) => reset(() => setSort(s))} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {isLoading && !data && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-gray-400">
+                  <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
                     Loading people…
                   </td>
                 </tr>
               )}
               {data && data.items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-gray-400">
+                  <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
                     No people match.
                   </td>
                 </tr>
@@ -294,6 +324,23 @@ export function IdentitiesView() {
                       </td>
                       <td className={`px-3 py-2 ${mfaInfo.className}`}>{mfaInfo.text}</td>
                       <td className="px-3 py-2">
+                        <span className="flex flex-wrap gap-1" data-testid="backups">
+                          {(p.backups ?? []).length === 0 ? (
+                            <span className="text-gray-600">—</span>
+                          ) : (
+                            (p.backups ?? []).map((b) => {
+                              const st = BACKUP_STYLE[b.status] ?? BACKUP_STYLE.stale;
+                              return (
+                                <span key={b.vendor} title={b.detail} className={`inline-flex items-center gap-1 rounded border px-1 py-0.5 text-[11px] ${st.className}`}>
+                                  <VendorBadge vendor={b.vendor} />
+                                  {st.label}
+                                </span>
+                              );
+                            })
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
                         {p.open_alerts > 0 ? (
                           <span className="flex items-center gap-2">
                             <span className="tabular-nums text-gray-100">{p.open_alerts}</span>
@@ -315,7 +362,7 @@ export function IdentitiesView() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-gray-900/30">
-                        <td colSpan={5} className="px-4 py-3">
+                        <td colSpan={6} className="px-4 py-3">
                           <Detail person={p} />
                         </td>
                       </tr>

@@ -215,3 +215,47 @@ describe('groupBySource', () => {
     expect(out.a).toHaveLength(2);
   });
 });
+
+describe('backups on a person', () => {
+  const backups = [
+    { vendor: 'dropsuite', status: 'stale', detail: 'Last Dropsuite backup 9 days ago' },
+    { vendor: 'datto-saas', status: 'ok', detail: 'Protected by Datto SaaS Protection (active seat)' },
+  ];
+
+  it('shows each backup tool\'s state on the row, with the reason on hover', async () => {
+    api.list.mockResolvedValue(list([person({ backups })], { summary: { total: 1, with_alerts: 0, without_mfa: 0, admins: 0, disabled: 0, in_one_tool: 0, tools: {}, backup_problems: 1 } }));
+    show();
+    const row = await screen.findByTestId('identity-row');
+    const cell = within(row).getByTestId('backups');
+    expect(cell).toHaveTextContent('No recent backup');
+    expect(cell).toHaveTextContent('Backed up');
+    expect(within(cell).getByTitle('Last Dropsuite backup 9 days ago')).toBeInTheDocument();
+  });
+
+  it('shows a dash for a person no backup tool knows', async () => {
+    api.list.mockResolvedValue(list([person({ backups: [] })]));
+    show();
+    expect(within(await screen.findByTestId('backups')).getByText('—')).toBeInTheDocument();
+  });
+
+  it('filters by backup state from the menu and the problems tile', async () => {
+    api.list.mockResolvedValue(list([person()], { summary: { total: 1, with_alerts: 0, without_mfa: 0, admins: 0, disabled: 0, in_one_tool: 0, tools: {}, backup_problems: 4 } }));
+    show();
+    await screen.findAllByTestId('identity-row');
+    expect(screen.getByRole('button', { name: /Backup problems/ })).toHaveTextContent('4');
+    await userEvent.click(screen.getByRole('button', { name: /Backup problems/ }));
+    await waitFor(() => expect(lastQuery().backup).toBe('problem'));
+    await userEvent.selectOptions(screen.getByLabelText('Backup'), 'none');
+    await waitFor(() => expect(lastQuery().backup).toBe('none'));
+    expect(lastQuery().page).toBe(1);
+  });
+
+  it('opens to a Backups section that says what each tool reports', async () => {
+    api.detail.mockResolvedValue({ person: person({ backups, sources: [] }), alerts: [], signins: { last_30_days: 0, failed: 0, unusual: 0, countries: [], last_at: null } });
+    show();
+    await userEvent.click((await screen.findAllByTestId('identity-row'))[0]);
+    const section = await screen.findByTestId('backup-detail');
+    expect(section).toHaveTextContent('Last Dropsuite backup 9 days ago');
+    expect(section).toHaveTextContent('Protected by Datto SaaS Protection (active seat)');
+  });
+});

@@ -10651,6 +10651,19 @@ paths:
           type: boolean
           default: false
           title: Has Alerts
+      - name: backup
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(ok|problem|none)$
+          - type: 'null'
+          description: 'ok: every backup tool is fine; problem: some backup tool reports
+            one; none: no backup tool knows the person.'
+          title: Backup
+        description: 'ok: every backup tool is fine; problem: some backup tool reports
+          one; none: no backup tool knows the person.'
       - name: alert_source
         in: query
         required: false
@@ -20877,6 +20890,23 @@ components:
       - hit_rate
       - sample_matches
       title: BacktestResponse
+    BackupOut:
+      properties:
+        vendor:
+          type: string
+          title: Vendor
+        status:
+          type: string
+          title: Status
+        detail:
+          type: string
+          title: Detail
+      type: object
+      required:
+      - vendor
+      - status
+      - detail
+      title: BackupOut
     BaselineResponse:
       properties:
         id:
@@ -30135,6 +30165,11 @@ components:
             type: integer
           type: object
           title: Alerts By Source
+        backups:
+          items:
+            $ref: '#/components/schemas/BackupOut'
+          type: array
+          title: Backups
       type: object
       required:
       - key
@@ -38308,6 +38343,10 @@ components:
             type: integer
           type: object
           title: Alert Sources
+        backup_problems:
+          type: integer
+          title: Backup Problems
+          default: 0
       type: object
       required:
       - total

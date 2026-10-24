@@ -669,10 +669,12 @@ export interface IdentityPerson {
   top_severity: string | null;
   /** Open alerts by the tool that raised them. Absent from an older API. */
   alerts_by_source?: Record<string, number>;
+  /** What each backup tool says about this person's data. Absent from an older API. */
+  backups?: { vendor: string; status: 'ok' | 'stale' | 'issue' | 'paused' | 'unprotected' | string; detail: string }[];
 }
 
 export interface IdentityList {
-  summary: { total: number; with_alerts: number; without_mfa: number; admins: number; disabled: number; in_one_tool: number; tools: Record<string, number>; alert_sources?: Record<string, number> };
+  summary: { total: number; with_alerts: number; without_mfa: number; admins: number; disabled: number; in_one_tool: number; tools: Record<string, number>; alert_sources?: Record<string, number>; backup_problems?: number };
   items: IdentityPerson[];
   total: number;
   page: number;
@@ -697,6 +699,7 @@ export interface IdentityQuery {
   kind?: string;
   hasAlerts?: boolean;
   alertSource?: string;
+  backup?: string;
   admin?: boolean;
   disabled?: boolean;
   sort?: IdentitySort;
@@ -717,6 +720,7 @@ export const identitiesApi = {
         kind: q.kind,
         has_alerts: q.hasAlerts ? 'true' : undefined,
         alert_source: q.alertSource,
+        backup: q.backup,
         admin: q.admin ? 'true' : undefined,
         disabled: q.disabled ? 'true' : undefined,
         sort: q.sort,

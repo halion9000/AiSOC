@@ -327,3 +327,74 @@ def test_the_summary_says_how_many_people_have_an_alert_from_each_tool():
     people = ip.build_people(NAMES, [ms(A, "amy@acme.com"), ms(A, "bob@acme.com")], [], NOW)
     ip.attach_alerts(people, [tool_alert(A, ["amy@acme.com"], "petra"), tool_alert(A, ["amy@acme.com"], "petra"), tool_alert(A, ["bob@acme.com"], "petra"), tool_alert(A, ["bob@acme.com"], "huntress")], src_of)
     assert ep.summarize(people).alert_sources == {"huntress": 1, "petra": 2}
+
+
+# ---- backup state from Dropsuite and Datto SaaS Protection -----------------------------------------------------------------------------------------
+
+
+def backups_of(*sources):
+    return ip.build_people(NAMES, [], list(sources), NOW)[0].backups
+
+
+def drop(email, **details):
+    return src(A, "dropsuite", email, enabled=details.pop("enabled", True), details=details)
+
+
+def datto(email, state):
+    return src(A, "datto-saas", email, details={"seat_state": state})
+
+
+def test_dropsuite_says_ok_when_the_mailbox_backed_up_in_the_last_two_days():
+    b = backups_of(drop("a@a.com", last_backup=(NOW - timedelta(hours=5)).isoformat(), errors=0))[0]
+    assert (b.vendor, b.status) == ("dropsuite", "ok")
+
+
+def test_dropsuite_says_stale_for_an_old_or_missing_backup_and_how_long_ago():
+    old = backups_of(drop("a@a.com", last_backup=(NOW - timedelta(days=9)).isoformat(), errors=0))[0]
+    assert old.status == "stale" and "9 days ago" in old.detail
+    assert backups_of(drop("a@a.com", last_backup=None))[0].status == "stale"
+    assert backups_of(drop("a@a.com", last_backup="not a date"))[0].status == "stale"
+    just_over = backups_of(drop("a@a.com", last_backup=(NOW - timedelta(hours=49)).isoformat()))[0]
+    assert just_over.status == "stale"
+
+
+def test_dropsuite_errors_and_deactivation_beat_a_recent_backup():
+    recent = (NOW - timedelta(hours=1)).isoformat()
+    err = backups_of(drop("a@a.com", last_backup=recent, errors=2))[0]
+    assert err.status == "issue" and "2 errors" in err.detail
+    assert backups_of(drop("a@a.com", last_backup=recent, errors=1))[0].detail.endswith("1 error on this mailbox")
+    assert backups_of(drop("a@a.com", last_backup=recent, enabled=False))[0].status == "paused"
+
+
+def test_datto_saas_says_whether_the_seat_is_protected_not_when_it_ran():
+    assert backups_of(datto("a@a.com", "Active"))[0].status == "ok"
+    assert backups_of(datto("a@a.com", "Paused"))[0].status == "paused"
+    assert backups_of(datto("a@a.com", "Archived"))[0].status == "unprotected"
+    assert backups_of(datto("a@a.com", "Unprotected"))[0].status == "unprotected"
+    assert backups_of(datto("a@a.com", ""))[0].status == "unprotected"
+
+
+def test_a_person_in_both_backup_tools_shows_both_and_other_tools_add_nothing():
+    people = ip.build_people(NAMES, [ms(A, "amy@acme.com")], [drop("amy@acme.com", last_backup=NOW.isoformat(), errors=0), datto("amy@acme.com", "Active"), src(A, "huntress-sat", "amy@acme.com")], NOW)
+    assert [b.vendor for b in people[0].backups] == ["datto-saas", "dropsuite"]
+    assert ip.build_people(NAMES, [ms(A, "x@a.com")], [], NOW)[0].backups == []
+
+
+def test_people_can_be_filtered_by_how_their_backups_are():
+    fresh = NOW.isoformat()
+    people = ip.build_people(
+        NAMES,
+        [ms(A, "good@a.com"), ms(A, "bad@a.com"), ms(A, "mixed@a.com"), ms(A, "none@a.com")],
+        [
+            drop("good@a.com", last_backup=fresh, errors=0),
+            drop("bad@a.com", last_backup=(NOW - timedelta(days=30)).isoformat()),
+            drop("mixed@a.com", last_backup=fresh, errors=0),
+            datto("mixed@a.com", "Paused"),
+        ],
+        NOW,
+    )
+    emails = lambda rows: sorted(p.email for p in rows)  # noqa: E731
+    assert emails(ip.filter_people(people, backup="ok")) == ["good@a.com"]
+    assert emails(ip.filter_people(people, backup="problem")) == ["bad@a.com", "mixed@a.com"]
+    assert emails(ip.filter_people(people, backup="none")) == ["none@a.com"]
+    assert ep.summarize(people).backup_problems == 2

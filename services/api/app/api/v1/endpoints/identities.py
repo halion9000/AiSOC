@@ -54,6 +54,12 @@ class SourceOut(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class BackupOut(BaseModel):
+    vendor: str
+    status: str
+    detail: str
+
+
 class PersonOut(BaseModel):
     key: str
     client_id: uuid.UUID
@@ -71,6 +77,7 @@ class PersonOut(BaseModel):
     open_alerts: int = 0
     top_severity: str | None = None
     alerts_by_source: dict[str, int] = Field(default_factory=dict)
+    backups: list[BackupOut] = Field(default_factory=list)
 
 
 class IdentitySummary(BaseModel):
@@ -84,6 +91,8 @@ class IdentitySummary(BaseModel):
     tools: dict[str, int] = Field(default_factory=dict)
     # How many people have an open alert from each tool, so the page can offer them as a filter.
     alert_sources: dict[str, int] = Field(default_factory=dict)
+    # People a backup tool reports a problem for (no recent backup, an error, paused or unprotected).
+    backup_problems: int = 0
 
 
 class IdentityList(BaseModel):
@@ -113,6 +122,7 @@ def _out(p: Person, with_sources: bool = False) -> PersonOut:
         open_alerts=p.open_alerts,
         top_severity=p.top_severity,
         alerts_by_source=p.alerts_by_source,
+        backups=[BackupOut(vendor=b.vendor, status=b.status, detail=b.detail) for b in p.backups],
     )
 
 
@@ -160,6 +170,7 @@ def summarize(people: list[Person]) -> IdentitySummary:
         in_one_tool=sum(1 for p in people if len(p.vendors) == 1),
         tools=dict(sorted(tools.items())),
         alert_sources=dict(sorted(alert_sources.items())),
+        backup_problems=sum(1 for p in people if any(b.status != "ok" for b in p.backups)),
     )
 
 
@@ -174,6 +185,7 @@ async def list_identities(
     source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="Only people this tool knows."),
     only_in: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="Only people known to this one tool and no other."),
     has_alerts: bool = Query(default=False),
+    backup: str | None = Query(default=None, pattern="^(ok|problem|none)$", description="ok: every backup tool is fine; problem: some backup tool reports one; none: no backup tool knows the person."),
     alert_source: str | None = Query(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$", description="Only people with an open alert from this tool."),
     mfa: str | None = Query(default=None, pattern="^(covered|registered_not_required|none|unknown)$"),
     admin: bool = Query(default=False),
@@ -186,7 +198,7 @@ async def list_identities(
         raise HTTPException(status_code=422, detail=f"sort must be one of: {', '.join(SORTS)}")
     people, _ = await _people(db, user.tenant_id, client_id)
     rows = sort_people(
-        filter_people(people, search=search, source=source, only_in=only_in, has_alerts=has_alerts, alert_source=alert_source, mfa=mfa, admin=admin, disabled=disabled, kind=kind),
+        filter_people(people, search=search, source=source, only_in=only_in, has_alerts=has_alerts, alert_source=alert_source, backup=backup, mfa=mfa, admin=admin, disabled=disabled, kind=kind),
         sort,
     )
     total = len(rows)
